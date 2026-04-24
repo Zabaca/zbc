@@ -1,0 +1,12 @@
+# SOPS + age recipients for secrets encryption.
+#
+# Add each developer's and CI's age public key below. Anyone listed can decrypt
+# secrets.yaml files; private keys never leave the machine. After editing this
+# list, re-encrypt with:
+#
+#   sops updatekeys packages/infra/environments/<env>/secrets.yaml
+#
+# creation_rules:
+#   - age: >-
+#       age1...developer-public-key,
+#       age1...ci-public-key

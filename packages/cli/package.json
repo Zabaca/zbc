@@ -1,0 +1,19 @@
+{
+  "name": "@zbc/cli",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "zbc": "./src/index.ts"
+  },
+  "dependencies": {
+    "@zbc/infra": "workspace:*",
+    "citty": "^0.1.6",
+    "sops-age": "^4.0.2",
+    "yaml": "^2.8.3"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.3.12",
+    "vercel": "^50.44.0"
+  }
+}
