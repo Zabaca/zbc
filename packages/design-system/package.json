@@ -3,21 +3,21 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "bun --bun next dev viewer --turbopack",
-    "build": "bun --bun next build viewer",
-    "start": "bun --bun next start viewer"
+    "dev": "cd viewer && bun --bun astro dev --port 3000",
+    "build": "cd viewer && bun --bun astro build",
+    "preview": "cd viewer && bun --bun astro preview --port 3000"
   },
   "dependencies": {
-    "next": "^15.1.0",
+    "astro": "^6.1.9",
+    "@astrojs/react": "^5.0.4",
+    "@tailwindcss/vite": "^4.2.4",
+    "tailwindcss": "^4.2.4",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
   },
   "devDependencies": {
-    "@tailwindcss/postcss": "^4.1.0",
-    "@types/node": "^22.10.0",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
-    "tailwindcss": "^4.1.0",
     "typescript": "^5.7.0"
   }
 }

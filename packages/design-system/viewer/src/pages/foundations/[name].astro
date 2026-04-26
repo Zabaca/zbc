@@ -1,0 +1,44 @@
+---
+import Chrome from '../../layouts/Chrome.astro'
+import { FOUNDATION_REGISTRY } from '../../showcases/foundations'
+import { Section, Container, Stack, Measure } from '@ds/index'
+
+export function getStaticPaths() {
+  return Object.keys(FOUNDATION_REGISTRY).map(name => ({ params: { name } }))
+}
+
+const { name } = Astro.params
+const entry = FOUNDATION_REGISTRY[name as string]
+if (!entry) return Astro.redirect('/404')
+const Showcase = entry.Showcase
+---
+
+<Chrome title={`${entry.label} — Prose DS`}>
+  {/* ---- Foundation header ---- */}
+  <Section style={{ paddingBottom: 'var(--sp-9)' }}>
+    <Container>
+      <Stack gap="md">
+        <Measure
+          size="display"
+          as="h1"
+          style={{
+            fontSize: 'clamp(2rem, 5vw, var(--fs-3xl))',
+            lineHeight: 'var(--lh-tight)',
+            letterSpacing: 'var(--tr-tighter)',
+            fontWeight: 400,
+          }}
+        >
+          {entry.label}
+        </Measure>
+        <Measure as="p" style={{ margin: 0 }}>
+          {entry.description}
+        </Measure>
+      </Stack>
+    </Container>
+  </Section>
+
+  {/* ---- Showcase ---- */}
+  <div style="border-top: 1px solid var(--paper-3);">
+    <Showcase />
+  </div>
+</Chrome>

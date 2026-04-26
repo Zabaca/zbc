@@ -1,15 +1,14 @@
 /**
- * /components/[name] — component showcase page.
- * Header block: component label + description.
- * Below the hairline: the showcase (full-bleed).
- *
- * Hero shows all 3 variants stacked with mono variant labels.
- * All other components render with their default props.
+ * Component showcase registry — used by /components/[name].
+ * Each entry's Showcase is a React component rendered into the Astro page.
+ * `interactive: true` is the signal to wrap with `client:load` on the Astro side.
  */
 
-import { notFound } from 'next/navigation'
-import { Section, Container, Stack, Measure } from '@ds/index'
+import type { ReactNode } from 'react'
 import {
+  Section,
+  Container,
+  Stack,
   Header,
   Hero,
   Manifesto,
@@ -22,15 +21,32 @@ import {
   PrimaryButton,
 } from '@ds/index'
 
-// ---- Showcase registry -------------------------------------------------------
-
-interface Entry {
+export interface ComponentEntry {
   label: string
   description: string
-  Showcase: () => React.ReactNode
+  interactive?: boolean
+  Showcase: () => ReactNode
 }
 
-const REGISTRY: Record<string, Entry> = {
+function VariantLabel({ label }: { label: string }) {
+  return (
+    <div
+      style={{
+        borderTop: '1px solid var(--paper-3)',
+        borderBottom: '1px solid var(--paper-3)',
+        padding: 'var(--sp-3) var(--page-gutter)',
+        fontFamily: 'var(--font-mono)',
+        fontSize: 'var(--fs-xs)',
+        letterSpacing: 'var(--tr-wide)',
+        color: 'var(--ink-3)',
+      }}
+    >
+      {label}
+    </div>
+  )
+}
+
+export const COMPONENT_REGISTRY: Record<string, ComponentEntry> = {
   header: {
     label: 'Header',
     description:
@@ -86,6 +102,7 @@ const REGISTRY: Record<string, Entry> = {
     label: 'Newsletter',
     description:
       'Email capture with inline success state. No external dependencies — controlled with local React state.',
+    interactive: true,
     Showcase: () => <Newsletter />,
   },
   footer: {
@@ -109,80 +126,4 @@ const REGISTRY: Record<string, Entry> = {
       </Section>
     ),
   },
-}
-
-// ---- Helper ------------------------------------------------------------------
-
-function VariantLabel({ label }: { label: string }) {
-  return (
-    <div
-      style={{
-        borderTop: '1px solid var(--paper-3)',
-        borderBottom: '1px solid var(--paper-3)',
-        padding: 'var(--sp-3) var(--page-gutter)',
-        fontFamily: 'var(--font-mono)',
-        fontSize: 'var(--fs-xs)',
-        letterSpacing: 'var(--tr-wide)',
-        color: 'var(--ink-3)',
-      }}
-    >
-      {label}
-    </div>
-  )
-}
-
-// ---- Route -------------------------------------------------------------------
-
-interface Props {
-  params: Promise<{ name: string }>
-}
-
-export function generateStaticParams() {
-  return Object.keys(REGISTRY).map((name) => ({ name }))
-}
-
-export async function generateMetadata({ params }: Props) {
-  const { name } = await params
-  const entry = REGISTRY[name]
-  return {
-    title: entry ? `${entry.label} — Prose DS` : 'Not found — Prose DS',
-  }
-}
-
-export default async function ComponentPage({ params }: Props) {
-  const { name } = await params
-  const entry = REGISTRY[name]
-  if (!entry) notFound()
-
-  return (
-    <>
-      {/* ---- Component header ---- */}
-      <Section style={{ paddingBottom: 'var(--sp-9)' }}>
-        <Container>
-          <Stack gap="md">
-            <Measure
-              size="display"
-              as="h1"
-              style={{
-                fontSize: 'clamp(2rem, 5vw, var(--fs-3xl))',
-                lineHeight: 'var(--lh-tight)',
-                letterSpacing: 'var(--tr-tighter)',
-                fontWeight: 400,
-              }}
-            >
-              {entry.label}
-            </Measure>
-            <Measure as="p" style={{ margin: 0 }}>
-              {entry.description}
-            </Measure>
-          </Stack>
-        </Container>
-      </Section>
-
-      {/* ---- Showcase (full-bleed) ---- */}
-      <div style={{ borderTop: '1px solid var(--paper-3)' }}>
-        <entry.Showcase />
-      </div>
-    </>
-  )
 }

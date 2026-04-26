@@ -11,8 +11,7 @@
  */
 
 import { Fragment } from 'react'
-import { notFound } from 'next/navigation'
-import { Section, Container, Stack, Measure } from '@ds/index'
+import { Section, Container, Stack } from '@ds/index'
 
 // ---- Shared sub-components --------------------------------------------------
 
@@ -128,13 +127,13 @@ function DarkPanel({ children }: { children: React.ReactNode }) {
 
 // ---- Foundation registry ---------------------------------------------------
 
-interface Entry {
+export interface FoundationEntry {
   label: string
   description: string
   Showcase: () => React.ReactNode
 }
 
-const REGISTRY: Record<string, Entry> = {
+export const FOUNDATION_REGISTRY: Record<string, FoundationEntry> = {
   // --------------------------------------------------------------------------
   // Colors
   // --------------------------------------------------------------------------
@@ -1617,60 +1616,4 @@ const REGISTRY: Record<string, Entry> = {
       </>
     ),
   },
-}
-
-// ---- Static params + metadata + page ----------------------------------------
-
-interface Props {
-  params: Promise<{ name: string }>
-}
-
-export function generateStaticParams() {
-  return Object.keys(REGISTRY).map((name) => ({ name }))
-}
-
-export async function generateMetadata({ params }: Props) {
-  const { name } = await params
-  const entry = REGISTRY[name]
-  return {
-    title: entry ? `${entry.label} — Prose DS` : 'Not found — Prose DS',
-  }
-}
-
-export default async function FoundationPage({ params }: Props) {
-  const { name } = await params
-  const entry = REGISTRY[name]
-  if (!entry) notFound()
-
-  return (
-    <>
-      {/* ---- Foundation header ---- */}
-      <Section style={{ paddingBottom: 'var(--sp-9)' }}>
-        <Container>
-          <Stack gap="md">
-            <Measure
-              size="display"
-              as="h1"
-              style={{
-                fontSize: 'clamp(2rem, 5vw, var(--fs-3xl))',
-                lineHeight: 'var(--lh-tight)',
-                letterSpacing: 'var(--tr-tighter)',
-                fontWeight: 400,
-              }}
-            >
-              {entry.label}
-            </Measure>
-            <Measure as="p" style={{ margin: 0 }}>
-              {entry.description}
-            </Measure>
-          </Stack>
-        </Container>
-      </Section>
-
-      {/* ---- Showcase ---- */}
-      <div style={{ borderTop: '1px solid var(--paper-3)' }}>
-        <entry.Showcase />
-      </div>
-    </>
-  )
 }

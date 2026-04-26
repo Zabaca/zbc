@@ -1,0 +1,187 @@
+---
+/**
+ * DS viewer chrome — left sidebar.
+ * Nav: Foundations, Components, Pages.
+ * Footer: Hide nav (←) + Dark/Light, side-by-side.
+ *
+ * When sidebar is hidden, a separate "Show nav" reveal button (→) appears
+ * fixed top-left. They're different controls, so no toggle teleports.
+ *
+ * Theme   persisted in localStorage under 'prose-ds-theme'.
+ * Sidebar persisted under 'prose-ds-sidebar'.
+ *
+ * No React, no hydration. Toggles are vanilla JS.
+ */
+
+import '../styles/globals.css'
+
+export interface Props {
+  title?: string
+}
+
+const { title = 'Prose — A text-only design system' } = Astro.props
+const pathname = Astro.url.pathname
+
+const FOUNDATIONS = [
+  { slug: 'colors',     label: 'Colors'     },
+  { slug: 'typography', label: 'Typography' },
+  { slug: 'spacing',    label: 'Spacing'    },
+  { slug: 'brand',      label: 'Brand'      },
+  { slug: 'motion',     label: 'Motion'     },
+]
+
+const COMPONENTS = [
+  { slug: 'header',         label: 'Header'        },
+  { slug: 'hero',           label: 'Hero'          },
+  { slug: 'manifesto',      label: 'Manifesto'     },
+  { slug: 'editorial',      label: 'Editorial'     },
+  { slug: 'features',       label: 'Features'      },
+  { slug: 'pricing',        label: 'Pricing'       },
+  { slug: 'faq',            label: 'FAQ'           },
+  { slug: 'newsletter',     label: 'Newsletter'    },
+  { slug: 'footer',         label: 'Footer'        },
+  { slug: 'primary-button', label: 'PrimaryButton' },
+]
+
+const PAGES = [{ slug: 'prose', label: 'Prose landing' }]
+
+const sections = [
+  { label: 'Foundations', items: FOUNDATIONS, basePath: '/foundations' },
+  { label: 'Components',  items: COMPONENTS,  basePath: '/components'  },
+  { label: 'Pages',       items: PAGES,       basePath: '/pages'       },
+]
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{title}</title>
+
+    <!-- Inline init: read theme from localStorage before paint to avoid FOUC. -->
+    <script is:inline>
+      try {
+        const t = localStorage.getItem('prose-ds-theme')
+        if (t === 'dark') document.documentElement.classList.add('dark')
+      } catch {}
+    </script>
+
+    <!-- Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Newsreader:ital,wght@0,300..700;1,300..700&family=Inter+Tight:wght@400..700&family=JetBrains+Mono:wght@400..600&display=swap"
+    />
+
+    <!-- Bind Google Font family names to the CSS variables tokens.css expects.
+         (next/font/google was injecting these; we provide them here instead.) -->
+    <style is:global>
+      :root {
+        --font-newsreader:     'Newsreader';
+        --font-inter-tight:    'Inter Tight';
+        --font-jetbrains-mono: 'JetBrains Mono';
+      }
+    </style>
+  </head>
+
+  <body>
+    <div class="ds-layout" id="ds-layout">
+      <!-- Sidebar -->
+      <aside class="ds-sidebar" aria-label="Design system navigation">
+        <div class="ds-sidebar__inner">
+          <a href="/" class="ds-sidebar__logo">
+            <span style="display:block;font-family:var(--font-display);font-size:var(--fs-xl);font-weight:500;line-height:1;letter-spacing:var(--tr-tighter);color:var(--ink-0);">
+              Prose<span style="color:var(--accent);">.</span>
+            </span>
+            <span style="display:block;font-family:var(--font-mono);font-size:var(--fs-3xs);letter-spacing:var(--tr-widest);text-transform:uppercase;color:var(--ink-3);margin-top:var(--sp-1);">
+              viewer
+            </span>
+          </a>
+
+          <nav>
+            {sections.map(section => (
+              <div class="ds-sidebar__section">
+                <span class="ds-sidebar__section-label">{section.label}</span>
+                <ul class="ds-sidebar__links">
+                  {section.items.map(item => {
+                    const href = `${section.basePath}/${item.slug}`
+                    const isActive = pathname === href
+                    return (
+                      <li>
+                        <a
+                          href={href}
+                          class={`ds-sidebar__link${isActive ? ' ds-sidebar__link--active' : ''}`}
+                        >
+                          {item.label}
+                        </a>
+                      </li>
+                    )
+                  })}
+                </ul>
+              </div>
+            ))}
+          </nav>
+        </div>
+
+        <!-- Footer: Hide nav + Dark/Light, side-by-side -->
+        <div class="ds-sidebar__footer">
+          <button id="ds-hide" class="ds-sidebar__btn" aria-label="Hide navigation">
+            &larr;
+          </button>
+          <button id="ds-theme" class="ds-sidebar__btn" aria-label="Toggle colour scheme">
+            <!-- Initial label gets corrected by inline script after paint -->
+            Dark
+          </button>
+        </div>
+      </aside>
+
+      <!-- Main content -->
+      <div class="ds-main">
+        <slot />
+      </div>
+    </div>
+
+    <!-- Reveal button: only visible when sidebar is hidden (CSS rule). -->
+    <button id="ds-reveal" class="ds-reveal" aria-label="Show navigation">&rarr;</button>
+
+    <script is:inline>
+      // Sidebar visibility — read after first paint to avoid hydration class.
+      // (No SSR/CSR mismatch concern because there's no React tree at all.)
+      const layout = document.getElementById('ds-layout')
+      const hideBtn = document.getElementById('ds-hide')
+      const revealBtn = document.getElementById('ds-reveal')
+      const themeBtn = document.getElementById('ds-theme')
+
+      try {
+        if (localStorage.getItem('prose-ds-sidebar') === 'hidden') {
+          layout.classList.add('ds-layout--sidebar-hidden')
+        }
+      } catch {}
+
+      // Theme button label reflects current state
+      function syncThemeLabel() {
+        themeBtn.textContent = document.documentElement.classList.contains('dark') ? 'Light' : 'Dark'
+      }
+      syncThemeLabel()
+
+      hideBtn?.addEventListener('click', () => {
+        layout.classList.add('ds-layout--sidebar-hidden')
+        try { localStorage.setItem('prose-ds-sidebar', 'hidden') } catch {}
+      })
+
+      revealBtn?.addEventListener('click', () => {
+        layout.classList.remove('ds-layout--sidebar-hidden')
+        try { localStorage.setItem('prose-ds-sidebar', 'visible') } catch {}
+      })
+
+      themeBtn?.addEventListener('click', () => {
+        const next = !document.documentElement.classList.contains('dark')
+        document.documentElement.classList.toggle('dark', next)
+        try { localStorage.setItem('prose-ds-theme', next ? 'dark' : 'light') } catch {}
+        syncThemeLabel()
+      })
+    </script>
+  </body>
+</html>
