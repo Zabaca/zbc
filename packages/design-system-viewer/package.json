@@ -1,0 +1,25 @@
+{
+  "name": "@zbc/design-system-viewer",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "bun --bun astro dev --port 3000",
+    "build": "bun --bun astro build",
+    "preview": "bun --bun astro preview --port 3000"
+  },
+  "dependencies": {
+    "@zbc/design-system": "workspace:*",
+    "@astrojs/react": "^5.0.4",
+    "@tailwindcss/vite": "^4.2.4",
+    "astro": "^6.1.9",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "tailwindcss": "^4.2.4"
+  },
+  "devDependencies": {
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "typescript": "^5.7.0"
+  }
+}

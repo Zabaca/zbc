@@ -1,0 +1,138 @@
+/**
+ * Viewer-only stylesheet.
+ *
+ * Pulls in Tailwind (for utilities the viewer might use) and the design
+ * system (which now owns its own tokens, semantic layer, utilities, and
+ * component styles). Anything past these imports must be VIEWER-SPECIFIC
+ * — primarily the .ds-* chrome around the page.
+ *
+ * If you find yourself adding a .prose-* or .editorial rule here, it
+ * belongs in @zbc/design-system's src/index.css instead.
+ */
+
+@import 'tailwindcss';
+@import '@zbc/design-system/index.css';
+
+/* Tailwind v4 needs to scan the design-system source for utility usage,
+   since the components live in a sibling workspace package. */
+@source '../../../design-system/src/**/*.{tsx,ts}';
+
+/* Tailwind v4 dark variant — enables `dark:` utilities to target descendants
+   of `.dark`. Lives here because it's coupled to Tailwind, not the design system. */
+@custom-variant dark (&:where(.dark, .dark *));
+
+
+/* =========================================================================
+   DS Viewer chrome — left sidebar + content area.
+   No fixed top-left toggle. Hide button lives in the footer next to dark/light.
+   A small reveal button only renders when sidebar is hidden (vanilla JS toggles it).
+   ========================================================================= */
+
+.ds-layout { display: flex; min-height: 100vh; }
+
+.ds-sidebar {
+  position: sticky; top: 0; height: 100vh; width: 200px;
+  flex-shrink: 0; background: var(--color-paper-1);
+  border-right: 1px solid var(--color-paper-3);
+  display: flex; flex-direction: column;
+  overflow: hidden;
+  z-index: 40;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.ds-sidebar::-webkit-scrollbar { display: none; }
+
+.ds-sidebar__inner {
+  flex: 1;
+  padding: var(--spacing-5) var(--spacing-4);
+  display: flex; flex-direction: column; gap: var(--spacing-6);
+  overflow-y: auto;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.ds-sidebar__inner::-webkit-scrollbar { display: none; }
+
+.ds-sidebar__logo {
+  text-decoration: none; display: block;
+  padding-bottom: var(--spacing-4);
+  border-bottom: 1px solid var(--color-paper-3);
+  transition: opacity var(--dur-fast) var(--ease);
+}
+.ds-sidebar__logo:hover { opacity: 0.75; }
+
+.ds-sidebar__section { display: flex; flex-direction: column; gap: var(--spacing-2); }
+.ds-sidebar__section-label {
+  font-family: var(--font-mono); font-size: var(--text-2xs);
+  font-weight: 600; letter-spacing: var(--tracking-widest);
+  text-transform: uppercase; color: var(--color-ink-3); padding: 0 var(--spacing-2);
+}
+
+.ds-sidebar__links { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 1px; }
+.ds-sidebar__link {
+  display: block; font-family: var(--font-mono); font-size: var(--text-xs);
+  color: var(--color-ink-2); text-decoration: none;
+  padding: var(--spacing-2) var(--spacing-2);
+  border-radius: var(--radius-1);
+  transition: color var(--dur-fast) var(--ease), background var(--dur-fast) var(--ease);
+}
+.ds-sidebar__link:hover, .ds-sidebar__link--active { color: var(--color-ink-0); background: var(--color-paper-2); }
+
+/* Footer holds Hide + Dark/Light side-by-side */
+.ds-sidebar__footer {
+  padding: var(--spacing-4);
+  border-top: 1px solid var(--color-paper-3);
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-3);
+}
+.ds-sidebar__btn {
+  background: transparent; border: 0;
+  font-family: var(--font-mono); font-size: var(--text-xs);
+  letter-spacing: var(--tracking-wide);
+  color: var(--color-ink-2); cursor: pointer; padding: 0;
+  transition: color var(--dur-fast) var(--ease);
+}
+.ds-sidebar__btn:hover { color: var(--color-accent); }
+.ds-sidebar__btn:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
+
+/* Sidebar hidden state */
+.ds-layout--sidebar-hidden .ds-sidebar { display: none; }
+
+/* Reveal button — only visible when sidebar is hidden.
+   Anchored bottom-left so it sits where the hide button was — no vertical jump. */
+.ds-reveal {
+  display: none;
+  position: fixed; bottom: 16px; left: 16px;
+  z-index: 60;
+  width: 32px; height: 32px;
+  background: var(--color-paper-1);
+  border: 0;
+  border-radius: var(--radius-1);
+  font-family: var(--font-mono); font-size: var(--text-sm);
+  color: var(--color-ink-2);
+  cursor: pointer;
+  align-items: center; justify-content: center;
+  padding: 0;
+  transition: color var(--dur-fast) var(--ease), background var(--dur-fast) var(--ease);
+}
+.ds-reveal:hover { color: var(--color-ink-0); background: var(--color-paper-2); }
+.ds-reveal:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
+.ds-layout--sidebar-hidden ~ .ds-reveal,
+.ds-layout--sidebar-hidden .ds-reveal { display: flex; }
+
+.ds-main { flex: 1; min-width: 0; }
+
+@media (max-width: 720px) {
+  .ds-layout { flex-direction: column; }
+  .ds-sidebar {
+    position: static; width: 100%; height: auto;
+    flex-direction: row; align-items: center; justify-content: space-between;
+    overflow: visible;
+    border-right: 0; border-bottom: 1px solid var(--color-paper-3);
+    padding: 0 var(--page-gutter);
+  }
+  .ds-sidebar__inner { display: none; }
+  .ds-sidebar__footer { border-top: 0; padding: var(--spacing-3) 0; }
+}

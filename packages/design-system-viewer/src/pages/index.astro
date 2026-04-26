@@ -1,0 +1,52 @@
+---
+import Chrome from '../layouts/Chrome.astro'
+import { Section, Container, Stack } from '@zbc/design-system'
+---
+
+<Chrome title="Prose design system viewer">
+  <Section style={{ paddingBottom: 'var(--spacing-9)' }}>
+    <Container>
+      <Stack gap="lg">
+        <h1 style={{
+          fontFamily:    'var(--font-display)',
+          fontSize:      'clamp(2rem, 5vw, var(--text-3xl))',
+          lineHeight:    'var(--leading-tight)',
+          letterSpacing: 'var(--tracking-tighter)',
+          color:         'var(--color-ink-0)',
+          fontWeight:    400,
+          margin:        0,
+          maxWidth:      'var(--container-display)',
+        }}>
+          Prose design system viewer
+        </h1>
+
+        <p style={{
+          fontFamily: 'var(--font-text)',
+          fontSize:   'var(--text-md)',
+          lineHeight: 'var(--leading-prose)',
+          color:      'var(--color-ink-1)',
+          maxWidth:   'var(--container-prose)',
+          margin:     0,
+        }}>
+          A text-only design system. Browse the foundations to see tokens,
+          components for primitives, and pages for full reference compositions.
+        </p>
+
+        <a
+          href="/foundations/colors"
+          style={{
+            fontFamily:              'var(--font-ui)',
+            fontSize:                'var(--text-sm)',
+            color:                   'var(--color-ink-1)',
+            textDecoration:          'underline',
+            textDecorationColor:     'var(--color-accent)',
+            textUnderlineOffset:     '0.18em',
+            textDecorationThickness: '1px',
+          }}
+        >
+          Start with Colors →
+        </a>
+      </Stack>
+    </Container>
+  </Section>
+</Chrome>

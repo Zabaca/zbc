@@ -156,3 +156,27 @@ CI has its own age keypair. The private key is stored as a single GitHub Actions
 2. For each environment it needs, add module instances in `packages/infra/environments/<env>/` — typically a Turso database and a Vercel deploy, wired via imports.
 3. Put any required secrets (API tokens, provider credentials) into `packages/infra/environments/<env>/secrets.yaml`, encrypted via SOPS.
 4. Run `zbc apply <env>` locally to validate. CI will take over on push to main and on PRs.
+
+## Design system
+
+The Prose design system is split across two packages:
+
+- `packages/design-system/` — pure component library. No build, no app. Exports React components + CSS tokens.
+- `packages/design-system-viewer/` — Astro showcase app that consumes the library via `@zbc/design-system`. The first proving ground for the consumer pattern.
+
+**Run the viewer locally:**
+
+```bash
+bun run dev   # turbo dispatches to @zbc/design-system-viewer
+```
+
+Opens at [http://localhost:3000](http://localhost:3000). The viewer shows all components and pages in isolation, with dark/light toggle.
+
+## Working with this repo
+
+- **Runtime:** [Bun](https://bun.sh) — use `bun` everywhere (`bun install`, `bun run`, `bunx`). Do not use npm or yarn.
+- **Styling:** Tailwind CSS v4 — uses the new `@import "tailwindcss"` syntax and CSS-first config. No `tailwind.config.js`.
+- **No shadcn/ui** — this is a deliberate choice. Components are hand-authored to match the Prose design system exactly.
+- **Single-tenant design system** — `packages/design-system/` is purpose-built for Zabaca. Do not treat it as a generic component library.
+- **`.claude/` directory** — mostly gitignored. The exception is `.claude/skills/`, which is committed and contains AI slash command definitions.
+- **Mode A vs Mode B** — design system authoring (Mode A) happens in [claude.ai/design](https://claude.ai/design); implementation (Mode B) happens here, governed by `/mode-b` and `/visual-review`.

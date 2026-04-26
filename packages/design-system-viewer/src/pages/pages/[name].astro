@@ -1,0 +1,18 @@
+---
+import Chrome from '../../layouts/Chrome.astro'
+import { PAGE_REGISTRY } from '../../showcases/pages'
+
+export function getStaticPaths() {
+  return Object.keys(PAGE_REGISTRY).map(name => ({ params: { name } }))
+}
+
+const { name } = Astro.params
+const entry = PAGE_REGISTRY[name as string]
+if (!entry) return Astro.redirect('/404')
+const Page = entry.Page
+---
+
+<Chrome title={`${entry.label} — Prose DS`}>
+  <Page />
+  {/* Static render — same constraint as components/[name].astro. */}
+</Chrome>

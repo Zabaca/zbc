@@ -1,0 +1,19 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "plugins": ["typescript", "react", "unicorn", "oxc"],
+  "categories": {
+    "correctness": "error",
+    "suspicious": "warn"
+  },
+  "rules": {
+    "react/react-in-jsx-scope": "off",
+    "typescript/triple-slash-reference": "off",
+    "unicorn/no-empty-file": "off"
+  },
+  "env": {
+    "builtin": true,
+    "browser": true,
+    "es2021": true
+  },
+  "ignorePatterns": ["**/dist/**", "**/node_modules/**", "**/.next/**", "**/next-env.d.ts"]
+}
