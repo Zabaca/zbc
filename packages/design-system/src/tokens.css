@@ -1,13 +1,25 @@
 /* Prose — Design System tokens (Tailwind v4 CSS-first)
  *
- * @theme block: emits CSS custom properties AND generates Tailwind utilities.
- *   --color-*  → bg-*, text-*, border-* utilities
- *   --font-*   → font-* utilities (font-family)
+ * Single @theme block. Every token sits in a Tailwind v4 namespace so
+ * it auto-generates utilities. There is no parallel :root alias layer.
  *
- * :root block: Prose-native aliases used in component inline styles.
- *   References @theme vars so dark-mode overrides cascade correctly.
+ *   --color-*         → bg-*, text-*, border-*, etc.
+ *   --font-*          → font-* (family)
+ *   --text-*          → text-* (size)
+ *   --leading-*       → leading-*
+ *   --tracking-*      → tracking-*
+ *   --font-weight-*   → font-light, font-normal, font-medium, etc.
+ *   --spacing-*       → p-*, m-*, gap-*, w-*, etc. (8px base, indices 0..12)
+ *   --radius-*        → rounded-*
+ *   --container-*     → max-w-* (and named container queries)
+ *   --breakpoint-*    → narrow:, mid:, wide: variants
  *
- * .dark block: overrides for dark mode (.dark on <html>).
+ * Dark mode: .dark on <html> overrides --color-* only. All other tokens
+ * are theme-invariant. Aliases below the @theme block (--page-gutter,
+ * --section-gap) live in :root because they're not Tailwind namespaces.
+ *
+ * Motion duration/easing tokens live in @utility directives in index.css
+ * (Tailwind has no first-class duration/easing namespace yet).
  */
 
 @theme {
@@ -34,124 +46,121 @@
   --color-critical:  #A8321A;
 
   /* ---- Font families ----
-     Next.js injects --font-newsreader, --font-inter-tight, --font-jetbrains-mono
-     via the variable classes applied to <html> in layout.tsx. */
-  --font-display: var(--font-newsreader), 'Iowan Old Style', 'Source Serif Pro', Georgia, 'Times New Roman', serif;
-  --font-text:    var(--font-newsreader), 'Iowan Old Style', Georgia, serif;
-  --font-ui:      var(--font-inter-tight), -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+     Loaded via Google Fonts <link> in viewer/Chrome.astro.
+     The variable shim binds family names to these vars. */
+  --font-display: var(--font-newsreader),     'Iowan Old Style', 'Source Serif Pro', Georgia, 'Times New Roman', serif;
+  --font-text:    var(--font-newsreader),     'Iowan Old Style', Georgia, serif;
+  --font-ui:      var(--font-inter-tight),    -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
   --font-mono:    var(--font-jetbrains-mono), 'SF Mono', Menlo, Consolas, monospace;
-}
 
-/* ---- Prose-native aliases ------------------------------------------------
-   Components use var(--paper-0), var(--ink-0) etc. in inline styles and CSS.
-   These chain to the @theme vars so dark-mode overrides cascade correctly.
-   ----------------------------------------------------------------------- */
-:root {
-  /* Paper */
-  --paper-0:    var(--color-paper-0);
-  --paper-1:    var(--color-paper-1);
-  --paper-2:    var(--color-paper-2);
-  --paper-3:    var(--color-paper-3);
-
-  /* Ink */
-  --ink-0:      var(--color-ink-0);
-  --ink-1:      var(--color-ink-1);
-  --ink-2:      var(--color-ink-2);
-  --ink-3:      var(--color-ink-3);
-  --ink-4:      var(--color-ink-4);
-
-  /* Accent */
-  --accent:      var(--color-accent);
-  --accent-soft: var(--color-accent-soft);
-  --accent-ink:  var(--color-accent-ink);
-
-  /* Semantic */
-  --positive:    var(--color-positive);
-  --critical:    var(--color-critical);
-
-  /* ---- Type scale — modular ratio 1.333, base 18px ---- */
-  --fs-3xs:  0.6875rem;   /* 11px — micro labels          */
-  --fs-2xs:  0.75rem;     /* 12px — eyebrow               */
-  --fs-xs:   0.8125rem;   /* 13px — caption               */
-  --fs-sm:   0.9375rem;   /* 15px — small body, UI        */
-  --fs-md:   1.125rem;    /* 18px — body                  */
-  --fs-lg:   1.375rem;    /* 22px — lede, large body      */
-  --fs-xl:   1.75rem;     /* 28px — h4, pull quote sm     */
-  --fs-2xl:  2.25rem;     /* 36px — h3                    */
-  --fs-3xl:  3rem;        /* 48px — h2                    */
-  --fs-4xl:  4.25rem;     /* 68px — h1                    */
-  --fs-5xl:  6rem;        /* 96px — display               */
-  --fs-6xl:  8.5rem;      /* 136px — hero display         */
+  /* ---- Type scale — modular ratio 1.333, 18px base ---- */
+  --text-3xs:  0.6875rem;   /* 11px — micro labels          */
+  --text-2xs:  0.75rem;     /* 12px — eyebrow               */
+  --text-xs:   0.8125rem;   /* 13px — caption               */
+  --text-sm:   0.9375rem;   /* 15px — small body, UI        */
+  --text-md:   1.125rem;    /* 18px — body                  */
+  --text-lg:   1.375rem;    /* 22px — lede, large body      */
+  --text-xl:   1.75rem;     /* 28px — h4, pull quote sm     */
+  --text-2xl:  2.25rem;     /* 36px — h3                    */
+  --text-3xl:  3rem;        /* 48px — h2                    */
+  --text-4xl:  4.25rem;     /* 68px — h1                    */
+  --text-5xl:  6rem;        /* 96px — display               */
+  --text-6xl:  8.5rem;      /* 136px — hero display         */
 
   /* ---- Line heights ---- */
-  --lh-display: 0.95;
-  --lh-tight:   1.1;
-  --lh-snug:    1.25;
-  --lh-normal:  1.5;
-  --lh-prose:   1.65;   /* body copy, long-form */
-  --lh-loose:   1.85;
+  --leading-display: 0.95;
+  --leading-tight:   1.1;
+  --leading-snug:    1.25;
+  --leading-normal:  1.5;
+  --leading-prose:   1.65;   /* body copy, long-form */
+  --leading-loose:   1.85;
 
   /* ---- Letter spacing ---- */
-  --tr-tightest: -0.04em;
-  --tr-tighter:  -0.025em;
-  --tr-tight:    -0.015em;
-  --tr-normal:   0;
-  --tr-wide:     0.04em;
-  --tr-wider:    0.08em;
-  --tr-widest:   0.16em;
+  --tracking-tightest: -0.04em;
+  --tracking-tighter:  -0.025em;
+  --tracking-tight:    -0.015em;
+  --tracking-normal:   0;
+  --tracking-wide:     0.04em;
+  --tracking-wider:    0.08em;
+  --tracking-widest:   0.16em;
 
-  /* ---- Weights ---- */
-  --fw-light:    300;
-  --fw-regular:  400;
-  --fw-medium:   500;
-  --fw-semibold: 600;
-  --fw-bold:     700;
+  /* ---- Font weights — only Prose's 5 survive; nuke Tailwind defaults ---- */
+  --font-weight-light:     300;
+  --font-weight-normal:    400;
+  --font-weight-medium:    500;
+  --font-weight-semibold:  600;
+  --font-weight-bold:      700;
+  --font-weight-thin:      initial;
+  --font-weight-extralight:initial;
+  --font-weight-extrabold: initial;
+  --font-weight-black:     initial;
 
-  /* ---- Spacing — 8px base ---- */
-  --sp-0:   0;
-  --sp-1:   0.25rem;   /*   4px */
-  --sp-2:   0.5rem;    /*   8px */
-  --sp-3:   0.75rem;   /*  12px */
-  --sp-4:   1rem;      /*  16px */
-  --sp-5:   1.5rem;    /*  24px */
-  --sp-6:   2rem;      /*  32px */
-  --sp-7:   3rem;      /*  48px */
-  --sp-8:   4rem;      /*  64px */
-  --sp-9:   6rem;      /*  96px */
-  --sp-10:  8rem;      /* 128px */
-  --sp-11:  12rem;     /* 192px */
-  --sp-12:  16rem;     /* 256px */
+  /* ---- Spacing — 8px base, indices 0..12 ---- */
+  --spacing-0:   0;
+  --spacing-1:   0.25rem;   /*   4px */
+  --spacing-2:   0.5rem;    /*   8px */
+  --spacing-3:   0.75rem;   /*  12px */
+  --spacing-4:   1rem;      /*  16px */
+  --spacing-5:   1.5rem;    /*  24px */
+  --spacing-6:   2rem;      /*  32px */
+  --spacing-7:   3rem;      /*  48px */
+  --spacing-8:   4rem;      /*  64px */
+  --spacing-9:   6rem;      /*  96px */
+  --spacing-10:  8rem;      /* 128px */
+  --spacing-11:  12rem;     /* 192px */
+  --spacing-12:  16rem;     /* 256px */
 
-  /* ---- Measure (line length) — the most important variable ---- */
-  --measure-narrow:  42ch;   /* pull quotes, poetry   */
-  --measure-prose:   62ch;   /* long-form reading     */
-  --measure-wide:    78ch;   /* lede / standfirst     */
-  --measure-display: 22ch;   /* big headlines wrap    */
-
-  /* ---- Page rhythm ---- */
-  --page-gutter:  max(1.5rem, 4vw);
-  --page-max:     72rem;            /* 1152px outer limit  */
-  --section-gap:  var(--sp-11);     /* 192px between sections */
-
-  /* ---- Borders & rules — hairlines only ---- */
-  --rule-hair:   1px solid var(--ink-4);
-  --rule-soft:   1px solid var(--paper-3);
-  --rule-bold:   2px solid var(--ink-0);
-  --rule-accent: 2px solid var(--accent);
-
+  /* ---- Border radius ---- */
   --radius-0: 0;
   --radius-1: 2px;   /* only for tags + inputs */
 
-  /* ---- Motion ---- */
-  --ease:      cubic-bezier(0.2, 0.6, 0.2, 1);
-  --ease-out:  cubic-bezier(0.16, 1, 0.3, 1);
+  /* ---- Container max-widths (was --measure-*; also used for @container queries) ---- */
+  --container-narrow:  42ch;   /* pull quotes, poetry   */
+  --container-prose:   62ch;   /* long-form reading     */
+  --container-wide:    78ch;   /* lede / standfirst     */
+  --container-display: 22ch;   /* big headlines wrap    */
+  --container-page:    72rem;  /* 1152px page outer limit */
+
+  /* ---- Breakpoints — Prose vocabulary; nuke Tailwind defaults ---- */
+  --breakpoint-narrow: 30rem;   /* 480px — phone-large    */
+  --breakpoint-mid:    45rem;   /* 720px — tablet         */
+  --breakpoint-wide:   60rem;   /* 960px — small desktop  */
+  --breakpoint-sm:     initial;
+  --breakpoint-md:     initial;
+  --breakpoint-lg:     initial;
+  --breakpoint-xl:     initial;
+  --breakpoint-2xl:    initial;
+}
+
+/* Non-namespaced tokens — stay in :root. Consumed via arbitrary-value
+   utilities (px-[var(--page-gutter)]) or referenced from @utility blocks
+   in index.css (duration-fast, ease-prose, etc.). */
+:root {
+  /* Page rhythm */
+  --page-gutter:  max(1.5rem, 4vw);
+  --section-gap:  var(--spacing-11);     /* 192px between sections */
+
+  /* Motion — referenced by @utility duration-* and ease-* in index.css */
   --dur-fast:  140ms;
   --dur-base:  240ms;
   --dur-slow:  420ms;
+  --ease:      cubic-bezier(0.2, 0.6, 0.2, 1);
+  --ease-out:  cubic-bezier(0.16, 1, 0.3, 1);
+
+  /* Border shorthands — convenience for hairline rules; equivalent to
+     `border-t border-ink-4` etc. but useful in raw CSS contexts. */
+  --rule-hair:   1px solid var(--color-ink-4);
+  --rule-soft:   1px solid var(--color-paper-3);
+  --rule-bold:   2px solid var(--color-ink-0);
+  --rule-accent: 2px solid var(--color-accent);
 }
 
+@media (max-width: 45rem)  { :root { --section-gap: var(--spacing-9); } }   /* mid */
+@media (max-width: 26.25rem) { :root { --page-gutter: 1.25rem; } }            /* 420px */
+
+
 /* ---- Dark mode overrides — .dark on <html> --------------------------------
-   Overrides the @theme CSS vars directly; Prose aliases chain through.
+   Only --color-* changes. Every other token is theme-invariant.
    Paper inverts to deep ink-black; ink inverts to warm off-white;
    accent shifts warmer + brighter so it still reads as a signal.
    ----------------------------------------------------------------------- */

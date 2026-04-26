@@ -21,23 +21,23 @@ export function Footer() {
           <span
             style={{
               fontFamily: 'var(--font-display)',
-              fontSize: 'var(--fs-2xl)',
-              letterSpacing: 'var(--tr-tighter)',
+              fontSize: 'var(--text-2xl)',
+              letterSpacing: 'var(--tracking-tighter)',
               fontWeight: 500,
-              color: 'var(--ink-0)',
+              color: 'var(--color-ink-0)',
               display: 'block',
-              marginBottom: 'var(--sp-3)',
+              marginBottom: 'var(--spacing-3)',
             }}
           >
-            Prose<span style={{ color: 'var(--accent)' }}>.</span>
+            Prose<span style={{ color: 'var(--color-accent)' }}>.</span>
           </span>
           <p
             className="prose-footer__tagline"
             style={{
               fontFamily: 'var(--font-text)',
-              fontSize: 'var(--fs-sm)',
+              fontSize: 'var(--text-sm)',
               fontStyle: 'italic',
-              color: 'var(--ink-2)',
+              color: 'var(--color-ink-2)',
               maxWidth: '30ch',
               margin: 0,
             }}

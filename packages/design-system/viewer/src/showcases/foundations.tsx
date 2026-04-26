@@ -20,13 +20,13 @@ function VariantLabel({ label }: { label: string }) {
   return (
     <div
       style={{
-        borderTop: '1px solid var(--paper-3)',
-        borderBottom: '1px solid var(--paper-3)',
-        padding: 'var(--sp-3) var(--page-gutter)',
+        borderTop: '1px solid var(--color-paper-3)',
+        borderBottom: '1px solid var(--color-paper-3)',
+        padding: 'var(--spacing-3) var(--page-gutter)',
         fontFamily: 'var(--font-mono)',
-        fontSize: 'var(--fs-xs)',
-        letterSpacing: 'var(--tr-wide)',
-        color: 'var(--ink-3)',
+        fontSize: 'var(--text-xs)',
+        letterSpacing: 'var(--tracking-wide)',
+        color: 'var(--color-ink-3)',
       }}
     >
       {label}
@@ -44,12 +44,14 @@ interface SwatchProps {
   onDark?: boolean
 }
 function Swatch({ color, name, hex, role, onDark = false }: SwatchProps) {
-  const txt0 = onDark ? '#DDD8C9' : 'var(--ink-1)'
-  const txt1 = onDark ? '#A8A290' : 'var(--ink-2)'
-  const txt2 = onDark ? '#75705F' : 'var(--ink-3)'
-  const bdr = onDark ? 'rgba(255,255,255,0.1)' : 'var(--paper-3)'
+  const txt0 = onDark ? '#DDD8C9' : 'var(--color-ink-1)'
+  const txt1 = onDark ? '#A8A290' : 'var(--color-ink-2)'
+  const txt2 = onDark ? '#75705F' : 'var(--color-ink-3)'
+  const bdr = onDark ? 'rgba(255,255,255,0.1)' : 'var(--color-paper-3)'
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-3)', flexShrink: 0 }}>
+    <div
+      style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-3)', flexShrink: 0 }}
+    >
       <div
         style={{
           width: 80,
@@ -63,7 +65,7 @@ function Swatch({ color, name, hex, role, onDark = false }: SwatchProps) {
         <span
           style={{
             fontFamily: 'var(--font-mono)',
-            fontSize: 'var(--fs-3xs)',
+            fontSize: 'var(--text-3xs)',
             fontWeight: 500,
             color: txt0,
           }}
@@ -73,8 +75,8 @@ function Swatch({ color, name, hex, role, onDark = false }: SwatchProps) {
         <span
           style={{
             fontFamily: 'var(--font-mono)',
-            fontSize: 'var(--fs-3xs)',
-            letterSpacing: 'var(--tr-wide)',
+            fontSize: 'var(--text-3xs)',
+            letterSpacing: 'var(--tracking-wide)',
             color: txt1,
           }}
         >
@@ -83,7 +85,7 @@ function Swatch({ color, name, hex, role, onDark = false }: SwatchProps) {
         <span
           style={{
             fontFamily: 'var(--font-text)',
-            fontSize: 'var(--fs-xs)',
+            fontSize: 'var(--text-xs)',
             color: txt2,
             fontStyle: 'italic',
           }}
@@ -97,7 +99,9 @@ function Swatch({ color, name, hex, role, onDark = false }: SwatchProps) {
 
 /** Horizontal row of swatches. */
 function SwatchRow({ children }: { children: React.ReactNode }) {
-  return <div style={{ display: 'flex', gap: 'var(--sp-6)', flexWrap: 'wrap' }}>{children}</div>
+  return (
+    <div style={{ display: 'flex', gap: 'var(--spacing-6)', flexWrap: 'wrap' }}>{children}</div>
+  )
 }
 
 /** Dark-background panel for the dark-mode swatch section. */
@@ -111,12 +115,12 @@ function DarkPanel({ children }: { children: React.ReactNode }) {
     >
       <div
         style={{
-          maxWidth: 'var(--page-max)',
+          maxWidth: 'var(--container-page)',
           margin: '0 auto',
           padding: '0 var(--page-gutter)',
           display: 'flex',
           flexDirection: 'column',
-          gap: 'var(--sp-6)',
+          gap: 'var(--spacing-6)',
         }}
       >
         {children}
@@ -200,10 +204,10 @@ export const FOUNDATION_REGISTRY: Record<string, FoundationEntry> = {
                 style={{
                   margin: 0,
                   fontFamily: 'var(--font-text)',
-                  fontSize: 'var(--fs-sm)',
+                  fontSize: 'var(--text-sm)',
                   fontStyle: 'italic',
-                  color: 'var(--ink-2)',
-                  maxWidth: 'var(--measure-prose)',
+                  color: 'var(--color-ink-2)',
+                  maxWidth: 'var(--container-prose)',
                 }}
               >
                 Used sparingly: link underlines, the one rule on a blockquote, the period at the end
@@ -239,7 +243,7 @@ export const FOUNDATION_REGISTRY: Record<string, FoundationEntry> = {
             style={{
               margin: 0,
               fontFamily: 'var(--font-text)',
-              fontSize: 'var(--fs-sm)',
+              fontSize: 'var(--text-sm)',
               fontStyle: 'italic',
               color: '#75705F',
             }}
@@ -262,10 +266,10 @@ export const FOUNDATION_REGISTRY: Record<string, FoundationEntry> = {
                 style={{
                   margin: 0,
                   fontFamily: 'var(--font-text)',
-                  fontSize: 'var(--fs-sm)',
+                  fontSize: 'var(--text-sm)',
                   fontStyle: 'italic',
-                  color: 'var(--ink-2)',
-                  maxWidth: 'var(--measure-prose)',
+                  color: 'var(--color-ink-2)',
+                  maxWidth: 'var(--container-prose)',
                 }}
               >
                 Functional UI only. Never appears in editorial copy — a green sentence reads as a
@@ -294,13 +298,13 @@ export const FOUNDATION_REGISTRY: Record<string, FoundationEntry> = {
           <Container>
             <Stack gap="lg">
               {/* Newsreader */}
-              <div style={{ display: 'flex', gap: 'var(--sp-7)', alignItems: 'baseline' }}>
+              <div style={{ display: 'flex', gap: 'var(--spacing-7)', alignItems: 'baseline' }}>
                 <span
                   style={{
                     fontFamily: 'var(--font-display)',
                     fontSize: 'clamp(1.75rem, 4vw, 2.125rem)',
                     lineHeight: 1,
-                    color: 'var(--ink-0)',
+                    color: 'var(--color-ink-0)',
                   }}
                 >
                   Aa Bb Cc
@@ -309,11 +313,11 @@ export const FOUNDATION_REGISTRY: Record<string, FoundationEntry> = {
                   <span
                     style={{
                       fontFamily: 'var(--font-ui)',
-                      fontSize: 'var(--fs-2xs)',
+                      fontSize: 'var(--text-2xs)',
                       fontWeight: 600,
-                      letterSpacing: 'var(--tr-wide)',
+                      letterSpacing: 'var(--tracking-wide)',
                       textTransform: 'uppercase',
-                      color: 'var(--ink-0)',
+                      color: 'var(--color-ink-0)',
                     }}
                   >
                     Newsreader
@@ -321,8 +325,8 @@ export const FOUNDATION_REGISTRY: Record<string, FoundationEntry> = {
                   <span
                     style={{
                       fontFamily: 'var(--font-mono)',
-                      fontSize: 'var(--fs-3xs)',
-                      color: 'var(--ink-2)',
+                      fontSize: 'var(--text-3xs)',
+                      color: 'var(--color-ink-2)',
                     }}
                   >
                     display + reading · 300 / 400 / 500 / 600 / 700 + italic · opsz
@@ -330,14 +334,14 @@ export const FOUNDATION_REGISTRY: Record<string, FoundationEntry> = {
                 </div>
               </div>
               {/* Inter Tight */}
-              <div style={{ display: 'flex', gap: 'var(--sp-7)', alignItems: 'baseline' }}>
+              <div style={{ display: 'flex', gap: 'var(--spacing-7)', alignItems: 'baseline' }}>
                 <span
                   style={{
                     fontFamily: 'var(--font-ui)',
                     fontSize: 'clamp(1.5rem, 3vw, 1.875rem)',
                     lineHeight: 1,
                     fontWeight: 500,
-                    color: 'var(--ink-0)',
+                    color: 'var(--color-ink-0)',
                   }}
                 >
                   Aa Bb Cc
@@ -346,11 +350,11 @@ export const FOUNDATION_REGISTRY: Record<string, FoundationEntry> = {
                   <span
                     style={{
                       fontFamily: 'var(--font-ui)',
-                      fontSize: 'var(--fs-2xs)',
+                      fontSize: 'var(--text-2xs)',
                       fontWeight: 600,
-                      letterSpacing: 'var(--tr-wide)',
+                      letterSpacing: 'var(--tracking-wide)',
                       textTransform: 'uppercase',
-                      color: 'var(--ink-0)',
+                      color: 'var(--color-ink-0)',
                     }}
                   >
                     Inter Tight
@@ -358,8 +362,8 @@ export const FOUNDATION_REGISTRY: Record<string, FoundationEntry> = {
                   <span
                     style={{
                       fontFamily: 'var(--font-mono)',
-                      fontSize: 'var(--fs-3xs)',
-                      color: 'var(--ink-2)',
+                      fontSize: 'var(--text-3xs)',
+                      color: 'var(--color-ink-2)',
                     }}
                   >
                     UI · 400 / 500 / 600 / 700
@@ -367,13 +371,13 @@ export const FOUNDATION_REGISTRY: Record<string, FoundationEntry> = {
                 </div>
               </div>
               {/* JetBrains Mono */}
-              <div style={{ display: 'flex', gap: 'var(--sp-7)', alignItems: 'baseline' }}>
+              <div style={{ display: 'flex', gap: 'var(--spacing-7)', alignItems: 'baseline' }}>
                 <span
                   style={{
                     fontFamily: 'var(--font-mono)',
                     fontSize: 'clamp(1.25rem, 2.5vw, 1.625rem)',
                     lineHeight: 1,
-                    color: 'var(--ink-0)',
+                    color: 'var(--color-ink-0)',
                   }}
                 >
                   Aa Bb Cc
@@ -382,11 +386,11 @@ export const FOUNDATION_REGISTRY: Record<string, FoundationEntry> = {
                   <span
                     style={{
                       fontFamily: 'var(--font-ui)',
-                      fontSize: 'var(--fs-2xs)',
+                      fontSize: 'var(--text-2xs)',
                       fontWeight: 600,
-                      letterSpacing: 'var(--tr-wide)',
+                      letterSpacing: 'var(--tracking-wide)',
                       textTransform: 'uppercase',
-                      color: 'var(--ink-0)',
+                      color: 'var(--color-ink-0)',
                     }}
                   >
                     JetBrains Mono
@@ -394,8 +398,8 @@ export const FOUNDATION_REGISTRY: Record<string, FoundationEntry> = {
                   <span
                     style={{
                       fontFamily: 'var(--font-mono)',
-                      fontSize: 'var(--fs-3xs)',
-                      color: 'var(--ink-2)',
+                      fontSize: 'var(--text-3xs)',
+                      color: 'var(--color-ink-2)',
                     }}
                   >
                     code · micro-labels · 400 / 500 / 600
@@ -414,7 +418,7 @@ export const FOUNDATION_REGISTRY: Record<string, FoundationEntry> = {
               style={{
                 display: 'grid',
                 gridTemplateColumns: '9rem 4rem 1fr',
-                rowGap: 'var(--sp-4)',
+                rowGap: 'var(--spacing-4)',
                 alignItems: 'baseline',
               }}
             >
@@ -422,94 +426,94 @@ export const FOUNDATION_REGISTRY: Record<string, FoundationEntry> = {
                 {
                   token: '--fs-6xl',
                   px: '136',
-                  size: 'clamp(4rem, 12vw, var(--fs-6xl))',
+                  size: 'clamp(4rem, 12vw, var(--text-6xl))',
                   family: 'var(--font-display)',
-                  tracking: 'var(--tr-tightest)',
+                  tracking: 'var(--tracking-tightest)',
                 },
                 {
                   token: '--fs-5xl',
                   px: '96',
-                  size: 'clamp(3rem, 8vw,  var(--fs-5xl))',
+                  size: 'clamp(3rem, 8vw,  var(--text-5xl))',
                   family: 'var(--font-display)',
-                  tracking: 'var(--tr-tightest)',
+                  tracking: 'var(--tracking-tightest)',
                 },
                 {
                   token: '--fs-4xl',
                   px: '68',
-                  size: 'clamp(2.5rem, 6vw, var(--fs-4xl))',
+                  size: 'clamp(2.5rem, 6vw, var(--text-4xl))',
                   family: 'var(--font-display)',
-                  tracking: 'var(--tr-tighter)',
+                  tracking: 'var(--tracking-tighter)',
                 },
                 {
                   token: '--fs-3xl',
                   px: '48',
-                  size: 'var(--fs-3xl)',
+                  size: 'var(--text-3xl)',
                   family: 'var(--font-display)',
-                  tracking: 'var(--tr-tighter)',
+                  tracking: 'var(--tracking-tighter)',
                 },
                 {
                   token: '--fs-2xl',
                   px: '36',
-                  size: 'var(--fs-2xl)',
+                  size: 'var(--text-2xl)',
                   family: 'var(--font-display)',
-                  tracking: 'var(--tr-tight)',
+                  tracking: 'var(--tracking-tight)',
                 },
                 {
                   token: '--fs-xl',
                   px: '28',
-                  size: 'var(--fs-xl)',
+                  size: 'var(--text-xl)',
                   family: 'var(--font-display)',
-                  tracking: 'var(--tr-tight)',
+                  tracking: 'var(--tracking-tight)',
                 },
                 {
                   token: '--fs-lg',
                   px: '22',
-                  size: 'var(--fs-lg)',
+                  size: 'var(--text-lg)',
                   family: 'var(--font-text)',
-                  tracking: 'var(--tr-normal)',
+                  tracking: 'var(--tracking-normal)',
                 },
                 {
                   token: '--fs-md',
                   px: '18',
-                  size: 'var(--fs-md)',
+                  size: 'var(--text-md)',
                   family: 'var(--font-text)',
-                  tracking: 'var(--tr-normal)',
+                  tracking: 'var(--tracking-normal)',
                 },
                 {
                   token: '--fs-sm',
                   px: '15',
-                  size: 'var(--fs-sm)',
+                  size: 'var(--text-sm)',
                   family: 'var(--font-ui)',
-                  tracking: 'var(--tr-normal)',
+                  tracking: 'var(--tracking-normal)',
                 },
                 {
                   token: '--fs-xs',
                   px: '13',
-                  size: 'var(--fs-xs)',
+                  size: 'var(--text-xs)',
                   family: 'var(--font-mono)',
-                  tracking: 'var(--tr-normal)',
+                  tracking: 'var(--tracking-normal)',
                 },
                 {
                   token: '--fs-2xs',
                   px: '12',
-                  size: 'var(--fs-2xs)',
+                  size: 'var(--text-2xs)',
                   family: 'var(--font-ui)',
-                  tracking: 'var(--tr-normal)',
+                  tracking: 'var(--tracking-normal)',
                 },
                 {
                   token: '--fs-3xs',
                   px: '11',
-                  size: 'var(--fs-3xs)',
+                  size: 'var(--text-3xs)',
                   family: 'var(--font-mono)',
-                  tracking: 'var(--tr-normal)',
+                  tracking: 'var(--tracking-normal)',
                 },
               ].map(({ token, px, size, family, tracking }) => (
                 <Fragment key={token}>
                   <span
                     style={{
                       fontFamily: 'var(--font-mono)',
-                      fontSize: 'var(--fs-3xs)',
-                      color: 'var(--ink-2)',
+                      fontSize: 'var(--text-3xs)',
+                      color: 'var(--color-ink-2)',
                     }}
                   >
                     {token}
@@ -517,8 +521,8 @@ export const FOUNDATION_REGISTRY: Record<string, FoundationEntry> = {
                   <span
                     style={{
                       fontFamily: 'var(--font-mono)',
-                      fontSize: 'var(--fs-3xs)',
-                      color: 'var(--ink-3)',
+                      fontSize: 'var(--text-3xs)',
+                      color: 'var(--color-ink-3)',
                     }}
                   >
                     {px}
@@ -528,7 +532,7 @@ export const FOUNDATION_REGISTRY: Record<string, FoundationEntry> = {
                       fontFamily: family,
                       fontSize: size,
                       lineHeight: 1,
-                      color: 'var(--ink-0)',
+                      color: 'var(--color-ink-0)',
                       letterSpacing: tracking,
                     }}
                   >
@@ -539,11 +543,11 @@ export const FOUNDATION_REGISTRY: Record<string, FoundationEntry> = {
             </div>
             <p
               style={{
-                margin: 'var(--sp-6) 0 0',
+                margin: 'var(--spacing-6) 0 0',
                 fontFamily: 'var(--font-text)',
-                fontSize: 'var(--fs-xs)',
+                fontSize: 'var(--text-xs)',
                 fontStyle: 'italic',
-                color: 'var(--ink-2)',
+                color: 'var(--color-ink-2)',
               }}
             >
               Modular, ratio 1.333 · base 18 px · display steps break the ratio for editorial drama.
@@ -560,10 +564,10 @@ export const FOUNDATION_REGISTRY: Record<string, FoundationEntry> = {
                 <div
                   style={{
                     fontFamily: 'var(--font-display)',
-                    fontSize: 'clamp(2.5rem, 6vw, var(--fs-4xl))',
-                    lineHeight: 'var(--lh-display)',
-                    letterSpacing: 'var(--tr-tightest)',
-                    color: 'var(--ink-0)',
+                    fontSize: 'clamp(2.5rem, 6vw, var(--text-4xl))',
+                    lineHeight: 'var(--leading-display)',
+                    letterSpacing: 'var(--tracking-tightest)',
+                    color: 'var(--color-ink-0)',
                     fontWeight: 400,
                   }}
                 >
@@ -572,10 +576,10 @@ export const FOUNDATION_REGISTRY: Record<string, FoundationEntry> = {
                 <div
                   style={{
                     fontFamily: 'var(--font-display)',
-                    fontSize: 'clamp(2.5rem, 6vw, var(--fs-4xl))',
-                    lineHeight: 'var(--lh-display)',
-                    letterSpacing: 'var(--tr-tightest)',
-                    color: 'var(--ink-0)',
+                    fontSize: 'clamp(2.5rem, 6vw, var(--text-4xl))',
+                    lineHeight: 'var(--leading-display)',
+                    letterSpacing: 'var(--tracking-tightest)',
+                    color: 'var(--color-ink-0)',
                     fontStyle: 'italic',
                     fontWeight: 400,
                   }}
@@ -583,12 +587,12 @@ export const FOUNDATION_REGISTRY: Record<string, FoundationEntry> = {
                   is a piece of writing.
                 </div>
               </div>
-              <div style={{ display: 'flex', gap: 'var(--sp-6)' }}>
+              <div style={{ display: 'flex', gap: 'var(--spacing-6)' }}>
                 <span
                   style={{
                     fontFamily: 'var(--font-mono)',
-                    fontSize: 'var(--fs-3xs)',
-                    color: 'var(--ink-3)',
+                    fontSize: 'var(--text-3xs)',
+                    color: 'var(--color-ink-3)',
                   }}
                 >
                   Newsreader · display size
@@ -596,8 +600,8 @@ export const FOUNDATION_REGISTRY: Record<string, FoundationEntry> = {
                 <span
                   style={{
                     fontFamily: 'var(--font-mono)',
-                    fontSize: 'var(--fs-3xs)',
-                    color: 'var(--ink-3)',
+                    fontSize: 'var(--text-3xs)',
+                    color: 'var(--color-ink-3)',
                   }}
                 >
                   tracking −0.04em
@@ -605,8 +609,8 @@ export const FOUNDATION_REGISTRY: Record<string, FoundationEntry> = {
                 <span
                   style={{
                     fontFamily: 'var(--font-mono)',
-                    fontSize: 'var(--fs-3xs)',
-                    color: 'var(--ink-3)',
+                    fontSize: 'var(--text-3xs)',
+                    color: 'var(--color-ink-3)',
                   }}
                 >
                   opsz auto
@@ -624,10 +628,10 @@ export const FOUNDATION_REGISTRY: Record<string, FoundationEntry> = {
               <div
                 style={{
                   fontFamily: 'var(--font-display)',
-                  fontSize: 'var(--fs-3xl)',
-                  lineHeight: 'var(--lh-tight)',
-                  letterSpacing: 'var(--tr-tighter)',
-                  color: 'var(--ink-0)',
+                  fontSize: 'var(--text-3xl)',
+                  lineHeight: 'var(--leading-tight)',
+                  letterSpacing: 'var(--tracking-tighter)',
+                  color: 'var(--color-ink-0)',
                 }}
               >
                 Heading two
@@ -635,10 +639,10 @@ export const FOUNDATION_REGISTRY: Record<string, FoundationEntry> = {
               <div
                 style={{
                   fontFamily: 'var(--font-display)',
-                  fontSize: 'var(--fs-2xl)',
-                  lineHeight: 'var(--lh-tight)',
-                  letterSpacing: 'var(--tr-tight)',
-                  color: 'var(--ink-0)',
+                  fontSize: 'var(--text-2xl)',
+                  lineHeight: 'var(--leading-tight)',
+                  letterSpacing: 'var(--tracking-tight)',
+                  color: 'var(--color-ink-0)',
                 }}
               >
                 Heading three
@@ -646,10 +650,10 @@ export const FOUNDATION_REGISTRY: Record<string, FoundationEntry> = {
               <div
                 style={{
                   fontFamily: 'var(--font-display)',
-                  fontSize: 'var(--fs-xl)',
-                  lineHeight: 'var(--lh-snug)',
-                  letterSpacing: 'var(--tr-tight)',
-                  color: 'var(--ink-0)',
+                  fontSize: 'var(--text-xl)',
+                  lineHeight: 'var(--leading-snug)',
+                  letterSpacing: 'var(--tracking-tight)',
+                  color: 'var(--color-ink-0)',
                 }}
               >
                 Heading four
@@ -657,9 +661,9 @@ export const FOUNDATION_REGISTRY: Record<string, FoundationEntry> = {
               <div
                 style={{
                   fontFamily: 'var(--font-display)',
-                  fontSize: 'var(--fs-lg)',
-                  lineHeight: 'var(--lh-snug)',
-                  color: 'var(--ink-0)',
+                  fontSize: 'var(--text-lg)',
+                  lineHeight: 'var(--leading-snug)',
+                  color: 'var(--color-ink-0)',
                   fontWeight: 500,
                 }}
               >
@@ -668,11 +672,11 @@ export const FOUNDATION_REGISTRY: Record<string, FoundationEntry> = {
               <div
                 style={{
                   fontFamily: 'var(--font-ui)',
-                  fontSize: 'var(--fs-2xs)',
-                  lineHeight: 'var(--lh-normal)',
-                  letterSpacing: 'var(--tr-widest)',
+                  fontSize: 'var(--text-2xs)',
+                  lineHeight: 'var(--leading-normal)',
+                  letterSpacing: 'var(--tracking-widest)',
                   textTransform: 'uppercase',
-                  color: 'var(--ink-2)',
+                  color: 'var(--color-ink-2)',
                   fontWeight: 600,
                 }}
               >
@@ -690,10 +694,10 @@ export const FOUNDATION_REGISTRY: Record<string, FoundationEntry> = {
               <div
                 style={{
                   fontFamily: 'var(--font-text)',
-                  fontSize: 'var(--fs-lg)',
-                  lineHeight: 'var(--lh-normal)',
-                  color: 'var(--ink-1)',
-                  maxWidth: 'var(--measure-prose)',
+                  fontSize: 'var(--text-lg)',
+                  lineHeight: 'var(--leading-normal)',
+                  color: 'var(--color-ink-1)',
+                  maxWidth: 'var(--container-prose)',
                 }}
               >
                 Lede paragraph. Slightly larger than body, sits one notch warmer in tone, runs a bit
@@ -702,22 +706,22 @@ export const FOUNDATION_REGISTRY: Record<string, FoundationEntry> = {
               <div
                 style={{
                   fontFamily: 'var(--font-text)',
-                  fontSize: 'var(--fs-md)',
-                  lineHeight: 'var(--lh-prose)',
-                  color: 'var(--ink-1)',
-                  maxWidth: 'var(--measure-prose)',
+                  fontSize: 'var(--text-md)',
+                  lineHeight: 'var(--leading-prose)',
+                  color: 'var(--color-ink-1)',
+                  maxWidth: 'var(--container-prose)',
                 }}
               >
                 Body paragraph. Set in Newsreader at 18 over 30, optical-sized for reading, with a
                 measure of 62 ch — the comfortable line length for long-form prose. Tracking sits at
                 zero; the typeface does the work.
               </div>
-              <div style={{ display: 'flex', gap: 'var(--sp-6)' }}>
+              <div style={{ display: 'flex', gap: 'var(--spacing-6)' }}>
                 <span
                   style={{
                     fontFamily: 'var(--font-mono)',
-                    fontSize: 'var(--fs-3xs)',
-                    color: 'var(--ink-3)',
+                    fontSize: 'var(--text-3xs)',
+                    color: 'var(--color-ink-3)',
                   }}
                 >
                   Lede 22 / 33
@@ -725,8 +729,8 @@ export const FOUNDATION_REGISTRY: Record<string, FoundationEntry> = {
                 <span
                   style={{
                     fontFamily: 'var(--font-mono)',
-                    fontSize: 'var(--fs-3xs)',
-                    color: 'var(--ink-3)',
+                    fontSize: 'var(--text-3xs)',
+                    color: 'var(--color-ink-3)',
                   }}
                 >
                   Body 18 / 30
@@ -734,8 +738,8 @@ export const FOUNDATION_REGISTRY: Record<string, FoundationEntry> = {
                 <span
                   style={{
                     fontFamily: 'var(--font-mono)',
-                    fontSize: 'var(--fs-3xs)',
-                    color: 'var(--ink-3)',
+                    fontSize: 'var(--text-3xs)',
+                    color: 'var(--color-ink-3)',
                   }}
                 >
                   measure 62 ch
@@ -750,15 +754,15 @@ export const FOUNDATION_REGISTRY: Record<string, FoundationEntry> = {
         <Section tone="quiet" gap="sm">
           <Container>
             <Stack gap="md">
-              <div style={{ display: 'flex', alignItems: 'baseline', gap: 'var(--sp-5)' }}>
+              <div style={{ display: 'flex', alignItems: 'baseline', gap: 'var(--spacing-5)' }}>
                 <span
                   style={{
                     fontFamily: 'var(--font-ui)',
-                    fontSize: 'var(--fs-2xs)',
+                    fontSize: 'var(--text-2xs)',
                     fontWeight: 600,
-                    letterSpacing: 'var(--tr-widest)',
+                    letterSpacing: 'var(--tracking-widest)',
                     textTransform: 'uppercase',
-                    color: 'var(--ink-2)',
+                    color: 'var(--color-ink-2)',
                   }}
                 >
                   Eyebrow label
@@ -766,20 +770,20 @@ export const FOUNDATION_REGISTRY: Record<string, FoundationEntry> = {
                 <span
                   style={{
                     fontFamily: 'var(--font-mono)',
-                    fontSize: 'var(--fs-3xs)',
-                    color: 'var(--ink-3)',
+                    fontSize: 'var(--text-3xs)',
+                    color: 'var(--color-ink-3)',
                   }}
                 >
                   Inter Tight 12 · +0.16em · upper
                 </span>
               </div>
-              <div style={{ display: 'flex', alignItems: 'baseline', gap: 'var(--sp-5)' }}>
+              <div style={{ display: 'flex', alignItems: 'baseline', gap: 'var(--spacing-5)' }}>
                 <span
                   style={{
                     fontFamily: 'var(--font-mono)',
-                    fontSize: 'var(--fs-xs)',
-                    color: 'var(--ink-2)',
-                    letterSpacing: 'var(--tr-wide)',
+                    fontSize: 'var(--text-xs)',
+                    color: 'var(--color-ink-2)',
+                    letterSpacing: 'var(--tracking-wide)',
                   }}
                 >
                   label / mono — 04 of 12
@@ -787,19 +791,19 @@ export const FOUNDATION_REGISTRY: Record<string, FoundationEntry> = {
                 <span
                   style={{
                     fontFamily: 'var(--font-mono)',
-                    fontSize: 'var(--fs-3xs)',
-                    color: 'var(--ink-3)',
+                    fontSize: 'var(--text-3xs)',
+                    color: 'var(--color-ink-3)',
                   }}
                 >
                   JetBrains Mono 13
                 </span>
               </div>
-              <div style={{ display: 'flex', alignItems: 'baseline', gap: 'var(--sp-5)' }}>
+              <div style={{ display: 'flex', alignItems: 'baseline', gap: 'var(--spacing-5)' }}>
                 <span
                   style={{
                     fontFamily: 'var(--font-ui)',
-                    fontSize: 'var(--fs-sm)',
-                    color: 'var(--ink-1)',
+                    fontSize: 'var(--text-sm)',
+                    color: 'var(--color-ink-1)',
                   }}
                 >
                   Small UI / button text
@@ -807,19 +811,19 @@ export const FOUNDATION_REGISTRY: Record<string, FoundationEntry> = {
                 <span
                   style={{
                     fontFamily: 'var(--font-mono)',
-                    fontSize: 'var(--fs-3xs)',
-                    color: 'var(--ink-3)',
+                    fontSize: 'var(--text-3xs)',
+                    color: 'var(--color-ink-3)',
                   }}
                 >
                   Inter Tight 15
                 </span>
               </div>
-              <div style={{ display: 'flex', alignItems: 'baseline', gap: 'var(--sp-5)' }}>
+              <div style={{ display: 'flex', alignItems: 'baseline', gap: 'var(--spacing-5)' }}>
                 <span
                   style={{
                     fontFamily: 'var(--font-text)',
-                    fontSize: 'var(--fs-xs)',
-                    color: 'var(--ink-2)',
+                    fontSize: 'var(--text-xs)',
+                    color: 'var(--color-ink-2)',
                   }}
                 >
                   Caption · small. Used under figures and below dense lists.
@@ -827,8 +831,8 @@ export const FOUNDATION_REGISTRY: Record<string, FoundationEntry> = {
                 <span
                   style={{
                     fontFamily: 'var(--font-mono)',
-                    fontSize: 'var(--fs-3xs)',
-                    color: 'var(--ink-3)',
+                    fontSize: 'var(--text-3xs)',
+                    color: 'var(--color-ink-3)',
                     whiteSpace: 'nowrap',
                   }}
                 >
@@ -856,7 +860,7 @@ export const FOUNDATION_REGISTRY: Record<string, FoundationEntry> = {
         <VariantLabel label="scale" />
         <Section gap="sm">
           <Container>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-3)' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-3)' }}>
               {[
                 { token: '--sp-1', px: '4' },
                 { token: '--sp-2', px: '8' },
@@ -872,13 +876,13 @@ export const FOUNDATION_REGISTRY: Record<string, FoundationEntry> = {
               ].map(({ token, px }) => (
                 <div
                   key={token}
-                  style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-4)' }}
+                  style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-4)' }}
                 >
                   <span
                     style={{
                       fontFamily: 'var(--font-mono)',
-                      fontSize: 'var(--fs-3xs)',
-                      color: 'var(--ink-2)',
+                      fontSize: 'var(--text-3xs)',
+                      color: 'var(--color-ink-2)',
                       width: '5rem',
                       flexShrink: 0,
                     }}
@@ -888,8 +892,8 @@ export const FOUNDATION_REGISTRY: Record<string, FoundationEntry> = {
                   <span
                     style={{
                       fontFamily: 'var(--font-mono)',
-                      fontSize: 'var(--fs-3xs)',
-                      color: 'var(--ink-3)',
+                      fontSize: 'var(--text-3xs)',
+                      color: 'var(--color-ink-3)',
                       width: '2.5rem',
                       flexShrink: 0,
                     }}
@@ -900,7 +904,7 @@ export const FOUNDATION_REGISTRY: Record<string, FoundationEntry> = {
                     style={{
                       height: 10,
                       width: `${px}px`,
-                      background: 'var(--ink-0)',
+                      background: 'var(--color-ink-0)',
                       flexShrink: 0,
                     }}
                   />
@@ -909,11 +913,11 @@ export const FOUNDATION_REGISTRY: Record<string, FoundationEntry> = {
             </div>
             <p
               style={{
-                margin: 'var(--sp-6) 0 0',
+                margin: 'var(--spacing-6) 0 0',
                 fontFamily: 'var(--font-text)',
-                fontSize: 'var(--fs-xs)',
+                fontSize: 'var(--text-xs)',
                 fontStyle: 'italic',
-                color: 'var(--ink-2)',
+                color: 'var(--color-ink-2)',
               }}
             >
               8 px base · sp-11 (192) is the default section gap.
@@ -929,7 +933,7 @@ export const FOUNDATION_REGISTRY: Record<string, FoundationEntry> = {
               style={{
                 display: 'flex',
                 flexDirection: 'column',
-                gap: 'var(--sp-6)',
+                gap: 'var(--spacing-6)',
                 overflow: 'hidden',
               }}
             >
@@ -964,15 +968,15 @@ export const FOUNDATION_REGISTRY: Record<string, FoundationEntry> = {
                     style={{
                       display: 'flex',
                       alignItems: 'baseline',
-                      gap: 'var(--sp-3)',
-                      marginBottom: 'var(--sp-2)',
+                      gap: 'var(--spacing-3)',
+                      marginBottom: 'var(--spacing-2)',
                     }}
                   >
                     <span
                       style={{
                         fontFamily: 'var(--font-mono)',
-                        fontSize: 'var(--fs-3xs)',
-                        color: 'var(--ink-2)',
+                        fontSize: 'var(--text-3xs)',
+                        color: 'var(--color-ink-2)',
                       }}
                     >
                       {token}
@@ -980,8 +984,8 @@ export const FOUNDATION_REGISTRY: Record<string, FoundationEntry> = {
                     <span
                       style={{
                         fontFamily: 'var(--font-mono)',
-                        fontSize: 'var(--fs-3xs)',
-                        color: 'var(--ink-3)',
+                        fontSize: 'var(--text-3xs)',
+                        color: 'var(--color-ink-3)',
                       }}
                     >
                       {ch} · {role}
@@ -992,7 +996,7 @@ export const FOUNDATION_REGISTRY: Record<string, FoundationEntry> = {
                       height: 6,
                       width: ch,
                       maxWidth: '100%',
-                      background: accent ? 'var(--accent)' : 'var(--ink-0)',
+                      background: accent ? 'var(--color-accent)' : 'var(--color-ink-0)',
                     }}
                   />
                 </div>
@@ -1000,11 +1004,11 @@ export const FOUNDATION_REGISTRY: Record<string, FoundationEntry> = {
             </div>
             <p
               style={{
-                margin: 'var(--sp-6) 0 0',
+                margin: 'var(--spacing-6) 0 0',
                 fontFamily: 'var(--font-text)',
-                fontSize: 'var(--fs-xs)',
+                fontSize: 'var(--text-xs)',
                 fontStyle: 'italic',
-                color: 'var(--ink-2)',
+                color: 'var(--color-ink-2)',
               }}
             >
               The single most important variable in this system.
@@ -1022,25 +1026,28 @@ export const FOUNDATION_REGISTRY: Record<string, FoundationEntry> = {
                 <div
                   style={{
                     fontFamily: 'var(--font-ui)',
-                    fontSize: 'var(--fs-2xs)',
+                    fontSize: 'var(--text-2xs)',
                     fontWeight: 600,
-                    letterSpacing: 'var(--tr-widest)',
+                    letterSpacing: 'var(--tracking-widest)',
                     textTransform: 'uppercase',
-                    color: 'var(--ink-2)',
-                    marginBottom: 'var(--sp-3)',
+                    color: 'var(--color-ink-2)',
+                    marginBottom: 'var(--spacing-3)',
                   }}
                 >
                   Hairline · 1 px
                 </div>
                 <div
-                  style={{ borderTop: '1px solid var(--ink-4)', maxWidth: 'var(--measure-prose)' }}
+                  style={{
+                    borderTop: '1px solid var(--color-ink-4)',
+                    maxWidth: 'var(--container-prose)',
+                  }}
                 />
                 <div
                   style={{
                     fontFamily: 'var(--font-mono)',
-                    fontSize: 'var(--fs-3xs)',
-                    color: 'var(--ink-3)',
-                    marginTop: 'var(--sp-2)',
+                    fontSize: 'var(--text-3xs)',
+                    color: 'var(--color-ink-3)',
+                    marginTop: 'var(--spacing-2)',
                   }}
                 >
                   --rule-hair · keylines, &lt;hr&gt;
@@ -1051,28 +1058,28 @@ export const FOUNDATION_REGISTRY: Record<string, FoundationEntry> = {
                 <div
                   style={{
                     fontFamily: 'var(--font-ui)',
-                    fontSize: 'var(--fs-2xs)',
+                    fontSize: 'var(--text-2xs)',
                     fontWeight: 600,
-                    letterSpacing: 'var(--tr-widest)',
+                    letterSpacing: 'var(--tracking-widest)',
                     textTransform: 'uppercase',
-                    color: 'var(--ink-2)',
-                    marginBottom: 'var(--sp-3)',
+                    color: 'var(--color-ink-2)',
+                    marginBottom: 'var(--spacing-3)',
                   }}
                 >
                   Soft · 1 px paper
                 </div>
                 <div
                   style={{
-                    borderTop: '1px solid var(--paper-3)',
-                    maxWidth: 'var(--measure-prose)',
+                    borderTop: '1px solid var(--color-paper-3)',
+                    maxWidth: 'var(--container-prose)',
                   }}
                 />
                 <div
                   style={{
                     fontFamily: 'var(--font-mono)',
-                    fontSize: 'var(--fs-3xs)',
-                    color: 'var(--ink-3)',
-                    marginTop: 'var(--sp-2)',
+                    fontSize: 'var(--text-3xs)',
+                    color: 'var(--color-ink-3)',
+                    marginTop: 'var(--spacing-2)',
                   }}
                 >
                   --rule-soft · subtle dividers
@@ -1083,25 +1090,28 @@ export const FOUNDATION_REGISTRY: Record<string, FoundationEntry> = {
                 <div
                   style={{
                     fontFamily: 'var(--font-ui)',
-                    fontSize: 'var(--fs-2xs)',
+                    fontSize: 'var(--text-2xs)',
                     fontWeight: 600,
-                    letterSpacing: 'var(--tr-widest)',
+                    letterSpacing: 'var(--tracking-widest)',
                     textTransform: 'uppercase',
-                    color: 'var(--ink-2)',
-                    marginBottom: 'var(--sp-3)',
+                    color: 'var(--color-ink-2)',
+                    marginBottom: 'var(--spacing-3)',
                   }}
                 >
                   Accent · 2 px
                 </div>
                 <div
-                  style={{ borderTop: '2px solid var(--accent)', maxWidth: 'var(--measure-prose)' }}
+                  style={{
+                    borderTop: '2px solid var(--color-accent)',
+                    maxWidth: 'var(--container-prose)',
+                  }}
                 />
                 <div
                   style={{
                     fontFamily: 'var(--font-mono)',
-                    fontSize: 'var(--fs-3xs)',
-                    color: 'var(--ink-3)',
-                    marginTop: 'var(--sp-2)',
+                    fontSize: 'var(--text-3xs)',
+                    color: 'var(--color-ink-3)',
+                    marginTop: 'var(--spacing-2)',
                   }}
                 >
                   --rule-accent · blockquote left edge — used once per page
@@ -1110,11 +1120,11 @@ export const FOUNDATION_REGISTRY: Record<string, FoundationEntry> = {
             </Stack>
             <p
               style={{
-                margin: 'var(--sp-7) 0 0',
+                margin: 'var(--spacing-7) 0 0',
                 fontFamily: 'var(--font-text)',
-                fontSize: 'var(--fs-xs)',
+                fontSize: 'var(--text-xs)',
                 fontStyle: 'italic',
-                color: 'var(--ink-2)',
+                color: 'var(--color-ink-2)',
               }}
             >
               No shadows, no elevation, no glow. Hierarchy is type and space.
@@ -1130,10 +1140,10 @@ export const FOUNDATION_REGISTRY: Record<string, FoundationEntry> = {
               style={{
                 display: 'grid',
                 gridTemplateColumns: '7rem 1fr',
-                rowGap: 'var(--sp-5)',
-                columnGap: 'var(--sp-6)',
+                rowGap: 'var(--spacing-5)',
+                columnGap: 'var(--spacing-6)',
                 alignItems: 'baseline',
-                maxWidth: 'var(--measure-wide)',
+                maxWidth: 'var(--container-wide)',
               }}
             >
               {[
@@ -1163,8 +1173,8 @@ export const FOUNDATION_REGISTRY: Record<string, FoundationEntry> = {
                   <code
                     style={{
                       fontFamily: 'var(--font-mono)',
-                      fontSize: 'var(--fs-xs)',
-                      color: 'var(--accent)',
+                      fontSize: 'var(--text-xs)',
+                      color: 'var(--color-accent)',
                       background: 'transparent',
                       padding: 0,
                     }}
@@ -1174,8 +1184,8 @@ export const FOUNDATION_REGISTRY: Record<string, FoundationEntry> = {
                   <span
                     style={{
                       fontFamily: 'var(--font-text)',
-                      fontSize: 'var(--fs-sm)',
-                      color: 'var(--ink-1)',
+                      fontSize: 'var(--text-sm)',
+                      color: 'var(--color-ink-1)',
                     }}
                   >
                     {desc}
@@ -1186,8 +1196,8 @@ export const FOUNDATION_REGISTRY: Record<string, FoundationEntry> = {
                         <code
                           style={{
                             fontFamily: 'var(--font-mono)',
-                            fontSize: 'var(--fs-3xs)',
-                            color: 'var(--ink-3)',
+                            fontSize: 'var(--text-3xs)',
+                            color: 'var(--color-ink-3)',
                             background: 'transparent',
                             padding: 0,
                           }}
@@ -1202,11 +1212,11 @@ export const FOUNDATION_REGISTRY: Record<string, FoundationEntry> = {
             </div>
             <p
               style={{
-                margin: 'var(--sp-6) 0 0',
+                margin: 'var(--spacing-6) 0 0',
                 fontFamily: 'var(--font-text)',
-                fontSize: 'var(--fs-xs)',
+                fontSize: 'var(--text-xs)',
                 fontStyle: 'italic',
-                color: 'var(--ink-2)',
+                color: 'var(--color-ink-2)',
               }}
             >
               Five primitives. The layout rules from the README, encoded as components.
@@ -1238,43 +1248,43 @@ export const FOUNDATION_REGISTRY: Record<string, FoundationEntry> = {
                   fontFamily: 'var(--font-display)',
                   fontSize: 'clamp(2.5rem, 6vw, 4rem)',
                   lineHeight: 1,
-                  letterSpacing: 'var(--tr-tightest)',
-                  color: 'var(--ink-0)',
+                  letterSpacing: 'var(--tracking-tightest)',
+                  color: 'var(--color-ink-0)',
                   fontWeight: 500,
                 }}
               >
-                Prose<span style={{ color: 'var(--accent)' }}>.</span>
+                Prose<span style={{ color: 'var(--color-accent)' }}>.</span>
               </div>
               {/* 30 px and 18 px side by side */}
-              <div style={{ display: 'flex', gap: 'var(--sp-7)', alignItems: 'baseline' }}>
+              <div style={{ display: 'flex', gap: 'var(--spacing-7)', alignItems: 'baseline' }}>
                 <span
                   style={{
                     fontFamily: 'var(--font-display)',
-                    fontSize: 'var(--fs-2xl)',
-                    letterSpacing: 'var(--tr-tighter)',
-                    color: 'var(--ink-0)',
+                    fontSize: 'var(--text-2xl)',
+                    letterSpacing: 'var(--tracking-tighter)',
+                    color: 'var(--color-ink-0)',
                     fontWeight: 500,
                   }}
                 >
-                  Prose<span style={{ color: 'var(--accent)' }}>.</span>
+                  Prose<span style={{ color: 'var(--color-accent)' }}>.</span>
                 </span>
                 <span
                   style={{
                     fontFamily: 'var(--font-display)',
-                    fontSize: 'var(--fs-md)',
-                    letterSpacing: 'var(--tr-tight)',
-                    color: 'var(--ink-0)',
+                    fontSize: 'var(--text-md)',
+                    letterSpacing: 'var(--tracking-tight)',
+                    color: 'var(--color-ink-0)',
                     fontWeight: 500,
                   }}
                 >
-                  Prose<span style={{ color: 'var(--accent)' }}>.</span>
+                  Prose<span style={{ color: 'var(--color-accent)' }}>.</span>
                 </span>
                 <span
                   style={{
                     fontFamily: 'var(--font-mono)',
-                    fontSize: 'var(--fs-3xs)',
-                    color: 'var(--ink-3)',
-                    letterSpacing: 'var(--tr-wide)',
+                    fontSize: 'var(--text-3xs)',
+                    color: 'var(--color-ink-3)',
+                    letterSpacing: 'var(--tracking-wide)',
                   }}
                 >
                   — wordmark · serif + accent period
@@ -1292,11 +1302,11 @@ export const FOUNDATION_REGISTRY: Record<string, FoundationEntry> = {
               <span
                 style={{
                   fontFamily: 'var(--font-ui)',
-                  fontSize: 'var(--fs-2xs)',
+                  fontSize: 'var(--text-2xs)',
                   fontWeight: 600,
-                  letterSpacing: 'var(--tr-widest)',
+                  letterSpacing: 'var(--tracking-widest)',
                   textTransform: 'uppercase',
-                  color: 'var(--ink-2)',
+                  color: 'var(--color-ink-2)',
                 }}
               >
                 No. 04 · A landing page in 80 words
@@ -1304,12 +1314,12 @@ export const FOUNDATION_REGISTRY: Record<string, FoundationEntry> = {
               <h1
                 style={{
                   fontFamily: 'var(--font-display)',
-                  fontSize: 'clamp(2rem, 5vw, var(--fs-4xl))',
-                  lineHeight: 'var(--lh-display)',
-                  letterSpacing: 'var(--tr-tightest)',
-                  color: 'var(--ink-0)',
+                  fontSize: 'clamp(2rem, 5vw, var(--text-4xl))',
+                  lineHeight: 'var(--leading-display)',
+                  letterSpacing: 'var(--tracking-tightest)',
+                  color: 'var(--color-ink-0)',
                   fontWeight: 400,
-                  maxWidth: 'var(--measure-display)',
+                  maxWidth: 'var(--container-display)',
                   margin: 0,
                 }}
               >
@@ -1318,9 +1328,9 @@ export const FOUNDATION_REGISTRY: Record<string, FoundationEntry> = {
               <p
                 style={{
                   fontFamily: 'var(--font-text)',
-                  fontSize: 'var(--fs-md)',
-                  lineHeight: 'var(--lh-normal)',
-                  color: 'var(--ink-1)',
+                  fontSize: 'var(--text-md)',
+                  lineHeight: 'var(--leading-normal)',
+                  color: 'var(--color-ink-1)',
                   maxWidth: '52ch',
                   margin: 0,
                 }}
@@ -1329,9 +1339,9 @@ export const FOUNDATION_REGISTRY: Record<string, FoundationEntry> = {
                 <a
                   href="#"
                   style={{
-                    color: 'var(--ink-0)',
+                    color: 'var(--color-ink-0)',
                     textDecoration: 'underline',
-                    textDecorationColor: 'var(--accent)',
+                    textDecorationColor: 'var(--color-accent)',
                     textUnderlineOffset: '0.18em',
                     textDecorationThickness: '1px',
                   }}
@@ -1375,13 +1385,13 @@ export const FOUNDATION_REGISTRY: Record<string, FoundationEntry> = {
               ].map(({ token, ms, label }) => (
                 <div
                   key={token}
-                  style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-5)' }}
+                  style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-5)' }}
                 >
                   <span
                     style={{
                       fontFamily: 'var(--font-mono)',
-                      fontSize: 'var(--fs-3xs)',
-                      color: 'var(--ink-2)',
+                      fontSize: 'var(--text-3xs)',
+                      color: 'var(--color-ink-2)',
                       width: '6rem',
                       flexShrink: 0,
                     }}
@@ -1391,8 +1401,8 @@ export const FOUNDATION_REGISTRY: Record<string, FoundationEntry> = {
                   <span
                     style={{
                       fontFamily: 'var(--font-mono)',
-                      fontSize: 'var(--fs-3xs)',
-                      color: 'var(--ink-3)',
+                      fontSize: 'var(--text-3xs)',
+                      color: 'var(--color-ink-3)',
                       width: '3rem',
                       flexShrink: 0,
                     }}
@@ -1415,7 +1425,7 @@ export const FOUNDATION_REGISTRY: Record<string, FoundationEntry> = {
                         width: 16,
                         height: 16,
                         borderRadius: 99,
-                        background: 'var(--ink-0)',
+                        background: 'var(--color-ink-0)',
                         position: 'absolute',
                         animation: `ds-motion-slide ${ms} cubic-bezier(0.2, 0.6, 0.2, 1) alternate infinite both`,
                       }}
@@ -1424,8 +1434,8 @@ export const FOUNDATION_REGISTRY: Record<string, FoundationEntry> = {
                   <span
                     style={{
                       fontFamily: 'var(--font-text)',
-                      fontSize: 'var(--fs-xs)',
-                      color: 'var(--ink-3)',
+                      fontSize: 'var(--text-xs)',
+                      color: 'var(--color-ink-3)',
                       fontStyle: 'italic',
                     }}
                   >
@@ -1456,13 +1466,13 @@ export const FOUNDATION_REGISTRY: Record<string, FoundationEntry> = {
               ].map(({ token, curve, label }) => (
                 <div
                   key={token}
-                  style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-5)' }}
+                  style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-5)' }}
                 >
                   <span
                     style={{
                       fontFamily: 'var(--font-mono)',
-                      fontSize: 'var(--fs-3xs)',
-                      color: 'var(--ink-2)',
+                      fontSize: 'var(--text-3xs)',
+                      color: 'var(--color-ink-2)',
                       width: '6rem',
                       flexShrink: 0,
                     }}
@@ -1485,7 +1495,7 @@ export const FOUNDATION_REGISTRY: Record<string, FoundationEntry> = {
                         width: 16,
                         height: 16,
                         borderRadius: 99,
-                        background: 'var(--ink-0)',
+                        background: 'var(--color-ink-0)',
                         position: 'absolute',
                         animation: `ds-motion-slide 600ms ${curve} alternate infinite both`,
                       }}
@@ -1494,8 +1504,8 @@ export const FOUNDATION_REGISTRY: Record<string, FoundationEntry> = {
                   <span
                     style={{
                       fontFamily: 'var(--font-text)',
-                      fontSize: 'var(--fs-xs)',
-                      color: 'var(--ink-3)',
+                      fontSize: 'var(--text-xs)',
+                      color: 'var(--color-ink-3)',
                       fontStyle: 'italic',
                     }}
                   >
@@ -1515,19 +1525,19 @@ export const FOUNDATION_REGISTRY: Record<string, FoundationEntry> = {
               style={{
                 display: 'grid',
                 gridTemplateColumns: '7rem 8rem 1fr',
-                rowGap: 'var(--sp-4)',
-                columnGap: 'var(--sp-5)',
+                rowGap: 'var(--spacing-4)',
+                columnGap: 'var(--spacing-5)',
                 alignItems: 'baseline',
-                maxWidth: 'var(--measure-wide)',
+                maxWidth: 'var(--container-wide)',
               }}
             >
               <span
                 style={{
                   fontFamily: 'var(--font-mono)',
-                  fontSize: 'var(--fs-3xs)',
-                  color: 'var(--ink-3)',
+                  fontSize: 'var(--text-3xs)',
+                  color: 'var(--color-ink-3)',
                   fontWeight: 600,
-                  letterSpacing: 'var(--tr-wide)',
+                  letterSpacing: 'var(--tracking-wide)',
                   textTransform: 'uppercase',
                 }}
               >
@@ -1536,10 +1546,10 @@ export const FOUNDATION_REGISTRY: Record<string, FoundationEntry> = {
               <span
                 style={{
                   fontFamily: 'var(--font-mono)',
-                  fontSize: 'var(--fs-3xs)',
-                  color: 'var(--ink-3)',
+                  fontSize: 'var(--text-3xs)',
+                  color: 'var(--color-ink-3)',
                   fontWeight: 600,
-                  letterSpacing: 'var(--tr-wide)',
+                  letterSpacing: 'var(--tracking-wide)',
                   textTransform: 'uppercase',
                 }}
               >
@@ -1548,10 +1558,10 @@ export const FOUNDATION_REGISTRY: Record<string, FoundationEntry> = {
               <span
                 style={{
                   fontFamily: 'var(--font-mono)',
-                  fontSize: 'var(--fs-3xs)',
-                  color: 'var(--ink-3)',
+                  fontSize: 'var(--text-3xs)',
+                  color: 'var(--color-ink-3)',
                   fontWeight: 600,
-                  letterSpacing: 'var(--tr-wide)',
+                  letterSpacing: 'var(--tracking-wide)',
                   textTransform: 'uppercase',
                 }}
               >
@@ -1581,8 +1591,8 @@ export const FOUNDATION_REGISTRY: Record<string, FoundationEntry> = {
                   <code
                     style={{
                       fontFamily: 'var(--font-mono)',
-                      fontSize: 'var(--fs-xs)',
-                      color: 'var(--accent)',
+                      fontSize: 'var(--text-xs)',
+                      color: 'var(--color-accent)',
                       background: 'transparent',
                       padding: 0,
                     }}
@@ -1592,8 +1602,8 @@ export const FOUNDATION_REGISTRY: Record<string, FoundationEntry> = {
                   <span
                     style={{
                       fontFamily: 'var(--font-mono)',
-                      fontSize: 'var(--fs-3xs)',
-                      color: 'var(--ink-2)',
+                      fontSize: 'var(--text-3xs)',
+                      color: 'var(--color-ink-2)',
                     }}
                   >
                     {value}
@@ -1601,8 +1611,8 @@ export const FOUNDATION_REGISTRY: Record<string, FoundationEntry> = {
                   <span
                     style={{
                       fontFamily: 'var(--font-text)',
-                      fontSize: 'var(--fs-sm)',
-                      color: 'var(--ink-2)',
+                      fontSize: 'var(--text-sm)',
+                      color: 'var(--color-ink-2)',
                       fontStyle: 'italic',
                     }}
                   >

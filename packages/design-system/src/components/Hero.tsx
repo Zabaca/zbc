@@ -30,14 +30,14 @@ export function Hero({ variant = 'display' }: HeroProps) {
               as="h1"
               style={{
                 fontSize: 'clamp(3rem, 9vw, 8.5rem)',
-                lineHeight: 'var(--lh-display)',
-                letterSpacing: 'var(--tr-tightest)',
+                lineHeight: 'var(--leading-display)',
+                letterSpacing: 'var(--tracking-tightest)',
                 fontWeight: 400,
               }}
             >
               A landing page is a piece of{' '}
               <em>
-                writing<span style={{ color: 'var(--accent)', fontStyle: 'normal' }}>.</span>
+                writing<span style={{ color: 'var(--color-accent)', fontStyle: 'normal' }}>.</span>
               </em>
             </Measure>
             <Measure size="wide" as="p" className="lede">
@@ -48,7 +48,7 @@ export function Hero({ variant = 'display' }: HeroProps) {
             <div
               style={{
                 display: 'flex',
-                gap: 'var(--sp-5)',
+                gap: 'var(--spacing-5)',
                 alignItems: 'center',
                 flexWrap: 'wrap',
               }}
@@ -58,9 +58,9 @@ export function Hero({ variant = 'display' }: HeroProps) {
                 href="#examples"
                 style={{
                   fontFamily: 'var(--font-ui)',
-                  fontSize: 'var(--fs-sm)',
+                  fontSize: 'var(--text-sm)',
                   fontWeight: 500,
-                  color: 'var(--ink-0)',
+                  color: 'var(--color-ink-0)',
                 }}
               >
                 See examples →
@@ -82,8 +82,8 @@ export function Hero({ variant = 'display' }: HeroProps) {
               as="h1"
               style={{
                 fontSize: 'clamp(2.5rem, 7vw, 5rem)',
-                lineHeight: 'var(--lh-display)',
-                letterSpacing: 'var(--tr-tightest)',
+                lineHeight: 'var(--leading-display)',
+                letterSpacing: 'var(--tracking-tightest)',
                 margin: 0,
                 fontWeight: 400,
               }}
@@ -93,9 +93,9 @@ export function Hero({ variant = 'display' }: HeroProps) {
             <p
               style={{
                 fontFamily: 'var(--font-text)',
-                fontSize: 'var(--fs-md)',
-                lineHeight: 'var(--lh-prose)',
-                color: 'var(--ink-1)',
+                fontSize: 'var(--text-md)',
+                lineHeight: 'var(--leading-prose)',
+                color: 'var(--color-ink-1)',
                 margin: 0,
               }}
             >
@@ -118,9 +118,9 @@ export function Hero({ variant = 'display' }: HeroProps) {
             size="display"
             as="h1"
             style={{
-              fontSize: 'var(--fs-3xl)',
-              lineHeight: 'var(--lh-tight)',
-              letterSpacing: 'var(--tr-tighter)',
+              fontSize: 'var(--text-3xl)',
+              lineHeight: 'var(--leading-tight)',
+              letterSpacing: 'var(--tracking-tighter)',
               fontWeight: 400,
             }}
           >
@@ -130,9 +130,9 @@ export function Hero({ variant = 'display' }: HeroProps) {
             as="p"
             style={{
               fontFamily: 'var(--font-text)',
-              fontSize: 'var(--fs-lg)',
-              lineHeight: 'var(--lh-normal)',
-              color: 'var(--ink-1)',
+              fontSize: 'var(--text-lg)',
+              lineHeight: 'var(--leading-normal)',
+              color: 'var(--color-ink-1)',
             }}
           >
             We made the simplest tool we could and stopped there.
@@ -141,7 +141,7 @@ export function Hero({ variant = 'display' }: HeroProps) {
             href="#"
             style={{
               fontFamily: 'var(--font-ui)',
-              fontSize: 'var(--fs-sm)',
+              fontSize: 'var(--text-sm)',
               fontWeight: 500,
             }}
           >

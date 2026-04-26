@@ -55,7 +55,7 @@ export function Section<E extends ElementType = 'section'>({
   return (
     <Tag
       style={{
-        background: tone === 'quiet' ? 'var(--paper-1)' : 'var(--paper-0)',
+        background: tone === 'quiet' ? 'var(--color-paper-1)' : 'var(--color-paper-0)',
         padding: padding[gap],
         ...style,
       }}
@@ -79,7 +79,7 @@ export function Container<E extends ElementType = 'div'>({
   return (
     <Tag
       style={{
-        maxWidth: 'var(--page-max)',
+        maxWidth: 'var(--container-page)',
         margin: '0 auto',
         padding: '0 var(--page-gutter)',
         ...style,
@@ -105,13 +105,13 @@ export interface StackProps {
 }
 
 const stackGapMap: Record<StackGap, string> = {
-  xs: 'var(--sp-2)' /*  8 */,
-  sm: 'var(--sp-3)' /* 12 */,
-  md: 'var(--sp-5)' /* 24 — default */,
-  lg: 'var(--sp-6)' /* 32 */,
-  xl: 'var(--sp-7)' /* 48 */,
-  '2xl': 'var(--sp-8)' /* 64 */,
-  '3xl': 'var(--sp-9)' /* 96 */,
+  xs: 'var(--spacing-2)' /*  8 */,
+  sm: 'var(--spacing-3)' /* 12 */,
+  md: 'var(--spacing-5)' /* 24 — default */,
+  lg: 'var(--spacing-6)' /* 32 */,
+  xl: 'var(--spacing-7)' /* 48 */,
+  '2xl': 'var(--spacing-8)' /* 64 */,
+  '3xl': 'var(--spacing-9)' /* 96 */,
 }
 
 export function Stack<E extends ElementType = 'div'>({
@@ -154,10 +154,10 @@ export interface MeasureProps {
 }
 
 const measureMap: Record<MeasureSize, string> = {
-  narrow: 'var(--measure-narrow)',
-  prose: 'var(--measure-prose)',
-  wide: 'var(--measure-wide)',
-  display: 'var(--measure-display)',
+  narrow: 'var(--container-narrow)',
+  prose: 'var(--container-prose)',
+  wide: 'var(--container-wide)',
+  display: 'var(--container-display)',
 }
 
 export function Measure<E extends ElementType = 'div'>({

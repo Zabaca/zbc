@@ -15,16 +15,16 @@ const Showcase = entry.Showcase
 
 <Chrome title={`${entry.label} — Prose DS`}>
   {/* ---- Foundation header ---- */}
-  <Section style={{ paddingBottom: 'var(--sp-9)' }}>
+  <Section style={{ paddingBottom: 'var(--spacing-9)' }}>
     <Container>
       <Stack gap="md">
         <Measure
           size="display"
           as="h1"
           style={{
-            fontSize: 'clamp(2rem, 5vw, var(--fs-3xl))',
-            lineHeight: 'var(--lh-tight)',
-            letterSpacing: 'var(--tr-tighter)',
+            fontSize: 'clamp(2rem, 5vw, var(--text-3xl))',
+            lineHeight: 'var(--leading-tight)',
+            letterSpacing: 'var(--tracking-tighter)',
             fontWeight: 400,
           }}
         >
@@ -38,7 +38,7 @@ const Showcase = entry.Showcase
   </Section>
 
   {/* ---- Showcase ---- */}
-  <div style="border-top: 1px solid var(--paper-3);">
+  <div style="border-top: 1px solid var(--color-paper-3);">
     <Showcase />
   </div>
 </Chrome>

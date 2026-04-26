@@ -41,23 +41,23 @@ export function Features() {
                 key={item.eyebrow}
                 gap="sm"
                 style={{
-                  borderTop: '1px solid var(--ink-4)',
-                  paddingTop: 'var(--sp-5)',
+                  borderTop: '1px solid var(--color-ink-4)',
+                  paddingTop: 'var(--spacing-5)',
                 }}
               >
                 <span className="eyebrow">{item.eyebrow}</span>
                 <h3
                   style={{
-                    fontSize: 'var(--fs-xl)',
-                    lineHeight: 'var(--lh-tight)',
-                    letterSpacing: 'var(--tr-tight)',
+                    fontSize: 'var(--text-xl)',
+                    lineHeight: 'var(--leading-tight)',
+                    letterSpacing: 'var(--tracking-tight)',
                   }}
                 >
                   {item.title}
                 </h3>
                 <p
                   style={{
-                    fontSize: 'var(--fs-sm)',
+                    fontSize: 'var(--text-sm)',
                     lineHeight: 1.55,
                     margin: 0,
                     maxWidth: '32ch',

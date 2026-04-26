@@ -27,16 +27,20 @@ export function Pricing() {
             {/* Free tier */}
             <Stack
               gap="md"
-              style={{ borderTop: '1px solid var(--ink-4)', paddingTop: 'var(--sp-5)' }}
+              style={{ borderTop: '1px solid var(--color-ink-4)', paddingTop: 'var(--spacing-5)' }}
             >
-              <h3 style={{ fontSize: 'var(--fs-xl)' }}>Free, forever.</h3>
+              <h3 style={{ fontSize: 'var(--text-xl)' }}>Free, forever.</h3>
               <Measure as="p">
                 The stylesheet, the components, the manual. All of it. For personal projects, side
                 projects, and anything you'd rather not pay for.
               </Measure>
               <a
                 href="#start"
-                style={{ fontFamily: 'var(--font-ui)', fontSize: 'var(--fs-sm)', fontWeight: 500 }}
+                style={{
+                  fontFamily: 'var(--font-ui)',
+                  fontSize: 'var(--text-sm)',
+                  fontWeight: 500,
+                }}
               >
                 Download the kit →
               </a>
@@ -45,14 +49,14 @@ export function Pricing() {
             {/* Studio tier — accent top-border */}
             <Stack
               gap="md"
-              style={{ borderTop: '2px solid var(--accent)', paddingTop: 'var(--sp-5)' }}
+              style={{ borderTop: '2px solid var(--color-accent)', paddingTop: 'var(--spacing-5)' }}
             >
-              <h3 style={{ fontSize: 'var(--fs-xl)' }}>
+              <h3 style={{ fontSize: 'var(--text-xl)' }}>
                 <span
                   style={{
                     fontFamily: 'var(--font-mono)',
                     fontSize: '0.7em',
-                    color: 'var(--accent)',
+                    color: 'var(--color-accent)',
                     marginRight: '0.5em',
                   }}
                 >

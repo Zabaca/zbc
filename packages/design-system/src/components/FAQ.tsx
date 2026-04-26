@@ -50,37 +50,37 @@ export function FAQ() {
               <details
                 key={i}
                 style={{
-                  borderTop: '1px solid var(--ink-4)',
-                  padding: 'var(--sp-5) 0',
+                  borderTop: '1px solid var(--color-ink-4)',
+                  padding: 'var(--spacing-5) 0',
                 }}
               >
                 <summary
                   style={{
                     cursor: 'pointer',
                     fontFamily: 'var(--font-display)',
-                    fontSize: 'var(--fs-xl)',
-                    lineHeight: 'var(--lh-snug)',
-                    letterSpacing: 'var(--tr-tight)',
-                    color: 'var(--ink-0)',
+                    fontSize: 'var(--text-xl)',
+                    lineHeight: 'var(--leading-snug)',
+                    letterSpacing: 'var(--tracking-tight)',
+                    color: 'var(--color-ink-0)',
                     listStyle: 'none',
                     display: 'flex',
                     justifyContent: 'space-between',
-                    gap: 'var(--sp-4)',
+                    gap: 'var(--spacing-4)',
                   }}
                 >
                   <span>{item.q}</span>
                   <span
                     style={{
                       fontFamily: 'var(--font-mono)',
-                      fontSize: 'var(--fs-sm)',
-                      color: 'var(--accent)',
+                      fontSize: 'var(--text-sm)',
+                      color: 'var(--color-accent)',
                       flexShrink: 0,
                     }}
                   >
                     +
                   </span>
                 </summary>
-                <Measure as="p" style={{ marginTop: 'var(--sp-4)' }}>
+                <Measure as="p" style={{ marginTop: 'var(--spacing-4)' }}>
                   {item.a}
                 </Measure>
               </details>

@@ -54,8 +54,8 @@ export function Manifesto() {
               <li
                 key={tenet.n}
                 style={{
-                  borderTop: '1px solid var(--ink-4)',
-                  paddingTop: 'var(--sp-5)',
+                  borderTop: '1px solid var(--color-ink-4)',
+                  paddingTop: 'var(--spacing-5)',
                 }}
               >
                 <Columns count={2} ratio="1:2" gap="lg" align="baseline">
@@ -64,9 +64,9 @@ export function Manifesto() {
                       fontFamily: 'var(--font-display)',
                       fontSize: 'clamp(2.5rem, 5vw, 4rem)',
                       lineHeight: 1,
-                      color: i === 0 ? 'var(--accent)' : 'var(--ink-3)',
+                      color: i === 0 ? 'var(--color-accent)' : 'var(--color-ink-3)',
                       fontWeight: 300,
-                      letterSpacing: 'var(--tr-tightest)',
+                      letterSpacing: 'var(--tracking-tightest)',
                     }}
                   >
                     {tenet.n}
@@ -74,9 +74,9 @@ export function Manifesto() {
                   <Stack gap="sm">
                     <h3
                       style={{
-                        fontSize: 'var(--fs-2xl)',
-                        lineHeight: 'var(--lh-tight)',
-                        letterSpacing: 'var(--tr-tight)',
+                        fontSize: 'var(--text-2xl)',
+                        lineHeight: 'var(--leading-tight)',
+                        letterSpacing: 'var(--tracking-tight)',
                         maxWidth: '26ch',
                       }}
                     >

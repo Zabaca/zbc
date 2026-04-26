@@ -20,7 +20,7 @@ export function Editorial() {
           </aside>
 
           <Stack gap="md">
-            <Measure size="display" as="h2" style={{ marginBottom: 'var(--sp-3)' }}>
+            <Measure size="display" as="h2" style={{ marginBottom: 'var(--spacing-3)' }}>
               Why most landing pages read like the back of a vitamin bottle.
             </Measure>
 

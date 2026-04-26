@@ -20,8 +20,8 @@ export function Newsletter() {
       id="start"
       gap="lg"
       style={{
-        borderTop: '1px solid var(--paper-3)',
-        borderBottom: '1px solid var(--paper-3)',
+        borderTop: '1px solid var(--color-paper-3)',
+        borderBottom: '1px solid var(--color-paper-3)',
       }}
     >
       <Container>
@@ -38,9 +38,9 @@ export function Newsletter() {
             {done ? (
               <p
                 style={{
-                  color: 'var(--positive)',
+                  color: 'var(--color-positive)',
                   fontFamily: 'var(--font-ui)',
-                  fontSize: 'var(--fs-sm)',
+                  fontSize: 'var(--text-sm)',
                   margin: 0,
                 }}
               >
@@ -54,7 +54,7 @@ export function Newsletter() {
                 }}
                 style={{
                   display: 'flex',
-                  gap: 'var(--sp-3)',
+                  gap: 'var(--spacing-3)',
                   flexWrap: 'wrap',
                   alignItems: 'stretch',
                 }}
@@ -67,12 +67,12 @@ export function Newsletter() {
                   placeholder="you@studio.com"
                   style={{
                     fontFamily: 'var(--font-text)',
-                    fontSize: 'var(--fs-md)',
+                    fontSize: 'var(--text-md)',
                     padding: '0.7em 0.9em',
-                    border: '1px solid var(--ink-4)',
+                    border: '1px solid var(--color-ink-4)',
                     borderRadius: 'var(--radius-1)',
-                    background: 'var(--paper-0)',
-                    color: 'var(--ink-0)',
+                    background: 'var(--color-paper-0)',
+                    color: 'var(--color-ink-0)',
                     minWidth: '260px',
                     flex: '1 1 260px',
                     outline: 'none',
@@ -82,11 +82,11 @@ export function Newsletter() {
                   type="submit"
                   style={{
                     fontFamily: 'var(--font-ui)',
-                    fontSize: 'var(--fs-sm)',
+                    fontSize: 'var(--text-sm)',
                     fontWeight: 500,
                     padding: '0.7em 1.6em',
-                    background: 'var(--ink-0)',
-                    color: 'var(--paper-0)',
+                    background: 'var(--color-ink-0)',
+                    color: 'var(--color-paper-0)',
                     border: 0,
                     borderRadius: 'var(--radius-1)',
                     cursor: 'pointer',

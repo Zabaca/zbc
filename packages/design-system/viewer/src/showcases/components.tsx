@@ -32,13 +32,13 @@ function VariantLabel({ label }: { label: string }) {
   return (
     <div
       style={{
-        borderTop: '1px solid var(--paper-3)',
-        borderBottom: '1px solid var(--paper-3)',
-        padding: 'var(--sp-3) var(--page-gutter)',
+        borderTop: '1px solid var(--color-paper-3)',
+        borderBottom: '1px solid var(--color-paper-3)',
+        padding: 'var(--spacing-3) var(--page-gutter)',
         fontFamily: 'var(--font-mono)',
-        fontSize: 'var(--fs-xs)',
-        letterSpacing: 'var(--tr-wide)',
-        color: 'var(--ink-3)',
+        fontSize: 'var(--text-xs)',
+        letterSpacing: 'var(--tracking-wide)',
+        color: 'var(--color-ink-3)',
       }}
     >
       {label}
