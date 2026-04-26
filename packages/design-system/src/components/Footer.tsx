@@ -32,6 +32,7 @@ export function Footer() {
             Prose<span style={{ color: 'var(--accent)' }}>.</span>
           </span>
           <p
+            className="prose-footer__tagline"
             style={{
               fontFamily: 'var(--font-text)',
               fontSize: 'var(--fs-sm)',
