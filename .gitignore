@@ -12,6 +12,8 @@ node_modules/
 **/.astro/
 dist/
 **/dist/
+.turbo/
+**/.turbo/
 
 # Per project principle: .claude is gitignored by default.
 # Add explicit exceptions for things we want checked in (e.g. skills).
