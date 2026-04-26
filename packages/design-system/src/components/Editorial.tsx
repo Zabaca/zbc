@@ -1,6 +1,8 @@
 /**
  * Editorial.tsx — long-form prose section with pull quote.
  * Two columns: aside (eyebrow + meta) left; article content right.
+ * Below the wide breakpoint the meta column collapses to a horizontal
+ * eyebrow + detail strip separated by a middot.
  */
 
 import { Section } from './Layout'
@@ -13,14 +15,22 @@ export function Editorial() {
   return (
     <Section id="journal">
       <Container>
-        <Columns count={2} ratio="1:2" gap="xl" collapseAt="wide" className="editorial">
-          <aside className="editorial__meta">
-            <span className="eyebrow editorial__eyebrow">From the Journal</span>
-            <span className="editorial__detail">No. 04 · Reading time 4 min</span>
+        <Columns count={2} ratio="1:2" gap="xl" collapseAt="wide">
+          <aside className="flex flex-wrap items-baseline gap-3 wide:block">
+            <span className="eyebrow wide:mb-3 wide:block">From the Journal</span>
+            <span
+              className={
+                'font-mono text-xs text-ink-2 tracking-wide ' +
+                "before:content-['·'] before:mr-3 before:text-ink-3 " +
+                'wide:before:content-none'
+              }
+            >
+              No. 04 · Reading time 4 min
+            </span>
           </aside>
 
           <Stack gap="md">
-            <Measure size="display" as="h2" style={{ marginBottom: 'var(--spacing-3)' }}>
+            <Measure size="display" as="h2" className="mb-3">
               Why most landing pages read like the back of a vitamin bottle.
             </Measure>
 
