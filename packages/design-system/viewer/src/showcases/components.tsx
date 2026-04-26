@@ -113,8 +113,7 @@ export const COMPONENT_REGISTRY: Record<string, ComponentEntry> = {
   },
   'primary-button': {
     label: 'PrimaryButton',
-    description:
-      'The one button style in Prose. Dark ink background, lightens to pure black on hover. Uses the prose-primary-button CSS class.',
+    description: 'The one button style in Prose. Ink-0 background, warms to the accent on hover.',
     Showcase: () => (
       <Section>
         <Container>
