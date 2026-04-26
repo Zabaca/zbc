@@ -35,7 +35,6 @@
   --color-ink-2:     #5A584C;   /* secondary, captions     */
   --color-ink-3:     #8A8676;   /* tertiary, placeholders  */
   --color-ink-4:     #B8B3A1;   /* faint rules, disabled   */
-  --color-ink-extreme: #000000; /* one step past ink-0; hover deepening */
 
   /* ---- Color: accent — burnt sienna, 3× max per page ---- */
   --color-accent:      #B8410E;
@@ -178,7 +177,6 @@
   --color-ink-2:     #A8A290;
   --color-ink-3:     #75705F;
   --color-ink-4:     #4A463C;
-  --color-ink-extreme: #FFFFFF;
 
   /* Accent — warmer + brighter on dark grounds */
   --color-accent:      #E26B3A;
