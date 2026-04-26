@@ -25,43 +25,21 @@ export function Pricing() {
 
           <Columns count={2} gap="xl">
             {/* Free tier */}
-            <Stack
-              gap="md"
-              style={{ borderTop: '1px solid var(--color-ink-4)', paddingTop: 'var(--spacing-5)' }}
-            >
-              <h3 style={{ fontSize: 'var(--text-xl)' }}>Free, forever.</h3>
+            <Stack gap="md" className="border-t border-ink-4 pt-5">
+              <h3 className="text-xl">Free, forever.</h3>
               <Measure as="p">
                 The stylesheet, the components, the manual. All of it. For personal projects, side
                 projects, and anything you'd rather not pay for.
               </Measure>
-              <a
-                href="#start"
-                style={{
-                  fontFamily: 'var(--font-ui)',
-                  fontSize: 'var(--text-sm)',
-                  fontWeight: 500,
-                }}
-              >
+              <a href="#start" className="font-ui text-sm font-medium">
                 Download the kit →
               </a>
             </Stack>
 
             {/* Studio tier — accent top-border */}
-            <Stack
-              gap="md"
-              style={{ borderTop: '2px solid var(--color-accent)', paddingTop: 'var(--spacing-5)' }}
-            >
-              <h3 style={{ fontSize: 'var(--text-xl)' }}>
-                <span
-                  style={{
-                    fontFamily: 'var(--font-mono)',
-                    fontSize: '0.7em',
-                    color: 'var(--color-accent)',
-                    marginRight: '0.5em',
-                  }}
-                >
-                  $8/mo
-                </span>
+            <Stack gap="md" className="border-t-2 border-accent pt-5">
+              <h3 className="text-xl">
+                <span className="font-mono text-[0.7em] text-accent mr-[0.5em]">$8/mo</span>
                 Studio.
               </h3>
               <Measure as="p">
