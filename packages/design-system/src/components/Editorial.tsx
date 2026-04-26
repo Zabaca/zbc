@@ -13,21 +13,10 @@ export function Editorial() {
   return (
     <Section id="journal">
       <Container>
-        <Columns count={2} ratio="1:2" gap="xl">
-          <aside>
-            <span className="eyebrow" style={{ display: 'block', marginBottom: 'var(--sp-3)' }}>
-              From the Journal
-            </span>
-            <span
-              style={{
-                fontFamily: 'var(--font-mono)',
-                fontSize: 'var(--fs-xs)',
-                color: 'var(--ink-2)',
-                letterSpacing: 'var(--tr-wide)',
-              }}
-            >
-              No. 04 · Reading time 4 min
-            </span>
+        <Columns count={2} ratio="1:2" gap="xl" className="editorial">
+          <aside className="editorial__meta">
+            <span className="eyebrow editorial__eyebrow">From the Journal</span>
+            <span className="editorial__detail">No. 04 · Reading time 4 min</span>
           </aside>
 
           <Stack gap="md">

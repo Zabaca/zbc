@@ -227,6 +227,45 @@ details[open] summary > span:last-child { transform: rotate(45deg); display: inl
 
 
 /* =========================================================================
+   Editorial — meta column collapses to a horizontal eyebrow at ≤960px.
+   Real magazines reflow byline placement, they don't just narrow the column.
+   ========================================================================= */
+
+.editorial__meta {
+  display: block;
+}
+.editorial__eyebrow {
+  display: block;
+  margin-bottom: var(--sp-3);
+}
+.editorial__detail {
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  color: var(--ink-2);
+  letter-spacing: var(--tr-wide);
+}
+
+@media (max-width: 960px) {
+  /* Force single column at this breakpoint, ahead of Columns' 720px default */
+  .editorial.prose-columns { grid-template-columns: minmax(0, 1fr); gap: var(--sp-6); }
+
+  /* Meta becomes a single horizontal strip above the headline */
+  .editorial__meta {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: var(--sp-3);
+  }
+  .editorial__eyebrow { margin-bottom: 0; }
+  .editorial__detail::before {
+    content: '·';
+    margin-right: var(--sp-3);
+    color: var(--ink-3);
+  }
+}
+
+
+/* =========================================================================
    Header (Prose component)
    ========================================================================= */
 
