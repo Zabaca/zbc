@@ -200,22 +200,6 @@
    utility classes. Until then, keep them as-is so the viewer renders.
    ========================================================================= */
 
-/* ---- PrimaryButton ---- */
-.prose-primary-button {
-  font-family: var(--font-ui);
-  font-size: var(--text-sm);
-  font-weight: 500;
-  padding: 0.85em 1.5em;
-  background: var(--color-ink-0);
-  color: var(--color-paper-0);
-  border: 0;
-  border-radius: var(--radius-1);
-  cursor: pointer;
-  transition: background var(--dur-fast) var(--ease);
-  align-self: flex-start;
-}
-.prose-primary-button:hover { background: #000; }
-
 /* ---- Editorial — meta column reflows to horizontal eyebrow at ≤960px ---- */
 .editorial__meta {
   display: block;
