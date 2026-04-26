@@ -49,40 +49,22 @@ export function Manifesto() {
               The discipline of leaving things out.
             </Measure>
           </Stack>
-          <Stack gap="xl" as="ol" style={{ listStyle: 'none', padding: 0, margin: 0 }}>
+          <Stack gap="xl" as="ol" className="list-none p-0 m-0">
             {TENETS.map((tenet, i) => (
-              <li
-                key={tenet.n}
-                style={{
-                  borderTop: '1px solid var(--color-ink-4)',
-                  paddingTop: 'var(--spacing-5)',
-                }}
-              >
+              <li key={tenet.n} className="border-t border-ink-4 pt-5">
                 <Columns count={2} ratio="1:2" gap="lg" align="baseline">
                   <span
-                    style={{
-                      fontFamily: 'var(--font-display)',
-                      fontSize: 'clamp(2.5rem, 5vw, 4rem)',
-                      lineHeight: 1,
-                      color: i === 0 ? 'var(--color-accent)' : 'var(--color-ink-3)',
-                      fontWeight: 300,
-                      letterSpacing: 'var(--tracking-tightest)',
-                    }}
+                    className={
+                      'font-display font-light leading-none tracking-tightest ' +
+                      (i === 0 ? 'text-accent' : 'text-ink-3')
+                    }
+                    style={{ fontSize: 'clamp(2.5rem, 5vw, 4rem)' }}
                   >
                     {tenet.n}
                   </span>
                   <Stack gap="sm">
-                    <h3
-                      style={{
-                        fontSize: 'var(--text-2xl)',
-                        lineHeight: 'var(--leading-tight)',
-                        letterSpacing: 'var(--tracking-tight)',
-                        maxWidth: '26ch',
-                      }}
-                    >
-                      {tenet.t}
-                    </h3>
-                    <Measure as="p" style={{ margin: 0 }}>
+                    <h3 className="max-w-[26ch]">{tenet.t}</h3>
+                    <Measure as="p" className="m-0">
                       {tenet.b}
                     </Measure>
                   </Stack>
