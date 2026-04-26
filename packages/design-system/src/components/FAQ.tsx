@@ -47,40 +47,18 @@ export function FAQ() {
 
           <Measure size="wide">
             {ITEMS.map((item, i) => (
-              <details
-                key={i}
-                style={{
-                  borderTop: '1px solid var(--color-ink-4)',
-                  padding: 'var(--spacing-5) 0',
-                }}
-              >
+              <details key={i} className="border-t border-ink-4 py-5">
                 <summary
-                  style={{
-                    cursor: 'pointer',
-                    fontFamily: 'var(--font-display)',
-                    fontSize: 'var(--text-xl)',
-                    lineHeight: 'var(--leading-snug)',
-                    letterSpacing: 'var(--tracking-tight)',
-                    color: 'var(--color-ink-0)',
-                    listStyle: 'none',
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    gap: 'var(--spacing-4)',
-                  }}
+                  className={
+                    'cursor-pointer list-none ' +
+                    'font-display text-xl leading-snug tracking-tight text-ink-0 ' +
+                    'flex justify-between gap-4'
+                  }
                 >
                   <span>{item.q}</span>
-                  <span
-                    style={{
-                      fontFamily: 'var(--font-mono)',
-                      fontSize: 'var(--text-sm)',
-                      color: 'var(--color-accent)',
-                      flexShrink: 0,
-                    }}
-                  >
-                    +
-                  </span>
+                  <span className="font-mono text-sm text-accent shrink-0">+</span>
                 </summary>
-                <Measure as="p" style={{ marginTop: 'var(--spacing-4)' }}>
+                <Measure as="p" className="mt-4">
                   {item.a}
                 </Measure>
               </details>
