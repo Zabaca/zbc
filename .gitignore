@@ -8,3 +8,8 @@ node_modules/
 .vercel/
 .next/
 **/.next/
+
+# Per project principle: .claude is gitignored by default.
+# Add explicit exceptions for things we want checked in (e.g. skills).
+.claude/*
+!.claude/skills/

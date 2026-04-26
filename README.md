@@ -156,3 +156,38 @@ CI has its own age keypair. The private key is stored as a single GitHub Actions
 2. For each environment it needs, add module instances in `packages/infra/environments/<env>/` — typically a Turso database and a Vercel deploy, wired via imports.
 3. Put any required secrets (API tokens, provider credentials) into `packages/infra/environments/<env>/secrets.yaml`, encrypted via SOPS.
 4. Run `zbc apply <env>` locally to validate. CI will take over on push to main and on PRs.
+
+## Design system
+
+The Prose design system lives at `packages/design-system/`. It is a single-tenant component library built for Zabaca projects — not a generic public component library.
+
+**Run the viewer locally:**
+
+```bash
+cd packages/design-system && bun run dev
+```
+
+Opens at [http://localhost:3000](http://localhost:3000). The viewer shows all components and pages in isolation, with dark/light toggle.
+
+## Slash commands
+
+AI slash commands for working inside this repo. Invoke them in Claude Code with `/command-name`.
+
+| Command | Description |
+|---|---|
+| `/mode-b` | Enters implementation mode — scoped, focused, one component at a time. Read `.claude/skills/mode-b` for full protocol. |
+| `/visual-review` | Runs a visual review pass against the design reference, flags divergences, and proposes fixes. Read `.claude/skills/visual-review` for full protocol. |
+| `/design-import <path-to-handoff-zip>` | *(Planned — not yet built)* Ingests a Claude Design handoff bundle into `packages/design-system/` — tokens.css, components, docs, and optional initial page composition. One-shot: after import the code is the source of truth. |
+
+**Mode A (design system authoring)** is delegated to [claude.ai/design](https://claude.ai/design). Author your design system there and export the handoff bundle; use `/design-import` to bring it into the repo.
+
+Skills live in `.claude/skills/` and are loaded automatically by Claude Code.
+
+## Working with this repo
+
+- **Runtime:** [Bun](https://bun.sh) — use `bun` everywhere (`bun install`, `bun run`, `bunx`). Do not use npm or yarn.
+- **Styling:** Tailwind CSS v4 — uses the new `@import "tailwindcss"` syntax and CSS-first config. No `tailwind.config.js`.
+- **No shadcn/ui** — this is a deliberate choice. Components are hand-authored to match the Prose design system exactly.
+- **Single-tenant design system** — `packages/design-system/` is purpose-built for Zabaca. Do not treat it as a generic component library.
+- **`.claude/` directory** — mostly gitignored. The exception is `.claude/skills/`, which is committed and contains AI slash command definitions.
+- **Mode A vs Mode B** — design system authoring (Mode A) happens in [claude.ai/design](https://claude.ai/design); implementation (Mode B) happens here, governed by `/mode-b` and `/visual-review`.

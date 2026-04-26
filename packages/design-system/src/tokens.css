@@ -1,0 +1,180 @@
+/* Prose — Design System tokens (Tailwind v4 CSS-first)
+ *
+ * @theme block: emits CSS custom properties AND generates Tailwind utilities.
+ *   --color-*  → bg-*, text-*, border-* utilities
+ *   --font-*   → font-* utilities (font-family)
+ *
+ * :root block: Prose-native aliases used in component inline styles.
+ *   References @theme vars so dark-mode overrides cascade correctly.
+ *
+ * .dark block: overrides for dark mode (.dark on <html>).
+ */
+
+@theme {
+  /* ---- Color: paper (backgrounds) — warm off-white, never pure #fff ---- */
+  --color-paper-0:   #FBFAF7;   /* page                    */
+  --color-paper-1:   #F4F2EC;   /* card / quiet section    */
+  --color-paper-2:   #EAE6DC;   /* hover, divider fill     */
+  --color-paper-3:   #DCD6C7;   /* keyline on light bg     */
+
+  /* ---- Color: ink (foregrounds) — deep blue-black, never pure #000 ---- */
+  --color-ink-0:     #14140F;   /* primary text, headlines */
+  --color-ink-1:     #2D2C25;   /* body text               */
+  --color-ink-2:     #5A584C;   /* secondary, captions     */
+  --color-ink-3:     #8A8676;   /* tertiary, placeholders  */
+  --color-ink-4:     #B8B3A1;   /* faint rules, disabled   */
+
+  /* ---- Color: accent — burnt sienna, 3× max per page ---- */
+  --color-accent:      #B8410E;
+  --color-accent-soft: #E8D5C4;
+  --color-accent-ink:  #6B2308;
+
+  /* ---- Color: semantic (functional UI only) ---- */
+  --color-positive:  #2F6B3C;
+  --color-critical:  #A8321A;
+
+  /* ---- Font families ----
+     Next.js injects --font-newsreader, --font-inter-tight, --font-jetbrains-mono
+     via the variable classes applied to <html> in layout.tsx. */
+  --font-display: var(--font-newsreader), 'Iowan Old Style', 'Source Serif Pro', Georgia, 'Times New Roman', serif;
+  --font-text:    var(--font-newsreader), 'Iowan Old Style', Georgia, serif;
+  --font-ui:      var(--font-inter-tight), -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+  --font-mono:    var(--font-jetbrains-mono), 'SF Mono', Menlo, Consolas, monospace;
+}
+
+/* ---- Prose-native aliases ------------------------------------------------
+   Components use var(--paper-0), var(--ink-0) etc. in inline styles and CSS.
+   These chain to the @theme vars so dark-mode overrides cascade correctly.
+   ----------------------------------------------------------------------- */
+:root {
+  /* Paper */
+  --paper-0:    var(--color-paper-0);
+  --paper-1:    var(--color-paper-1);
+  --paper-2:    var(--color-paper-2);
+  --paper-3:    var(--color-paper-3);
+
+  /* Ink */
+  --ink-0:      var(--color-ink-0);
+  --ink-1:      var(--color-ink-1);
+  --ink-2:      var(--color-ink-2);
+  --ink-3:      var(--color-ink-3);
+  --ink-4:      var(--color-ink-4);
+
+  /* Accent */
+  --accent:      var(--color-accent);
+  --accent-soft: var(--color-accent-soft);
+  --accent-ink:  var(--color-accent-ink);
+
+  /* Semantic */
+  --positive:    var(--color-positive);
+  --critical:    var(--color-critical);
+
+  /* ---- Type scale — modular ratio 1.333, base 18px ---- */
+  --fs-3xs:  0.6875rem;   /* 11px — micro labels          */
+  --fs-2xs:  0.75rem;     /* 12px — eyebrow               */
+  --fs-xs:   0.8125rem;   /* 13px — caption               */
+  --fs-sm:   0.9375rem;   /* 15px — small body, UI        */
+  --fs-md:   1.125rem;    /* 18px — body                  */
+  --fs-lg:   1.375rem;    /* 22px — lede, large body      */
+  --fs-xl:   1.75rem;     /* 28px — h4, pull quote sm     */
+  --fs-2xl:  2.25rem;     /* 36px — h3                    */
+  --fs-3xl:  3rem;        /* 48px — h2                    */
+  --fs-4xl:  4.25rem;     /* 68px — h1                    */
+  --fs-5xl:  6rem;        /* 96px — display               */
+  --fs-6xl:  8.5rem;      /* 136px — hero display         */
+
+  /* ---- Line heights ---- */
+  --lh-display: 0.95;
+  --lh-tight:   1.1;
+  --lh-snug:    1.25;
+  --lh-normal:  1.5;
+  --lh-prose:   1.65;   /* body copy, long-form */
+  --lh-loose:   1.85;
+
+  /* ---- Letter spacing ---- */
+  --tr-tightest: -0.04em;
+  --tr-tighter:  -0.025em;
+  --tr-tight:    -0.015em;
+  --tr-normal:   0;
+  --tr-wide:     0.04em;
+  --tr-wider:    0.08em;
+  --tr-widest:   0.16em;
+
+  /* ---- Weights ---- */
+  --fw-light:    300;
+  --fw-regular:  400;
+  --fw-medium:   500;
+  --fw-semibold: 600;
+  --fw-bold:     700;
+
+  /* ---- Spacing — 8px base ---- */
+  --sp-0:   0;
+  --sp-1:   0.25rem;   /*   4px */
+  --sp-2:   0.5rem;    /*   8px */
+  --sp-3:   0.75rem;   /*  12px */
+  --sp-4:   1rem;      /*  16px */
+  --sp-5:   1.5rem;    /*  24px */
+  --sp-6:   2rem;      /*  32px */
+  --sp-7:   3rem;      /*  48px */
+  --sp-8:   4rem;      /*  64px */
+  --sp-9:   6rem;      /*  96px */
+  --sp-10:  8rem;      /* 128px */
+  --sp-11:  12rem;     /* 192px */
+  --sp-12:  16rem;     /* 256px */
+
+  /* ---- Measure (line length) — the most important variable ---- */
+  --measure-narrow:  42ch;   /* pull quotes, poetry   */
+  --measure-prose:   62ch;   /* long-form reading     */
+  --measure-wide:    78ch;   /* lede / standfirst     */
+  --measure-display: 22ch;   /* big headlines wrap    */
+
+  /* ---- Page rhythm ---- */
+  --page-gutter:  max(1.5rem, 4vw);
+  --page-max:     72rem;            /* 1152px outer limit  */
+  --section-gap:  var(--sp-11);     /* 192px between sections */
+
+  /* ---- Borders & rules — hairlines only ---- */
+  --rule-hair:   1px solid var(--ink-4);
+  --rule-soft:   1px solid var(--paper-3);
+  --rule-bold:   2px solid var(--ink-0);
+  --rule-accent: 2px solid var(--accent);
+
+  --radius-0: 0;
+  --radius-1: 2px;   /* only for tags + inputs */
+
+  /* ---- Motion ---- */
+  --ease:      cubic-bezier(0.2, 0.6, 0.2, 1);
+  --ease-out:  cubic-bezier(0.16, 1, 0.3, 1);
+  --dur-fast:  140ms;
+  --dur-base:  240ms;
+  --dur-slow:  420ms;
+}
+
+/* ---- Dark mode overrides — .dark on <html> --------------------------------
+   Overrides the @theme CSS vars directly; Prose aliases chain through.
+   Paper inverts to deep ink-black; ink inverts to warm off-white;
+   accent shifts warmer + brighter so it still reads as a signal.
+   ----------------------------------------------------------------------- */
+.dark {
+  /* Paper */
+  --color-paper-0:   #14130E;
+  --color-paper-1:   #1C1B16;
+  --color-paper-2:   #25241D;
+  --color-paper-3:   #34322A;
+
+  /* Ink */
+  --color-ink-0:     #F2EFE6;
+  --color-ink-1:     #DDD8C9;
+  --color-ink-2:     #A8A290;
+  --color-ink-3:     #75705F;
+  --color-ink-4:     #4A463C;
+
+  /* Accent — warmer + brighter on dark grounds */
+  --color-accent:      #E26B3A;
+  --color-accent-soft: #3A2418;
+  --color-accent-ink:  #F0A57E;
+
+  /* Semantic */
+  --color-positive:  #6FAE7C;
+  --color-critical:  #E2674F;
+}
