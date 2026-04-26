@@ -28,16 +28,12 @@ export function Hero({ variant = 'display' }: HeroProps) {
             <Measure
               size="display"
               as="h1"
-              style={{
-                fontSize: 'clamp(3rem, 9vw, 8.5rem)',
-                lineHeight: 'var(--leading-display)',
-                letterSpacing: 'var(--tracking-tightest)',
-                fontWeight: 400,
-              }}
+              className="leading-display tracking-tightest font-normal"
+              style={{ fontSize: 'clamp(3rem, 9vw, 8.5rem)' }}
             >
               A landing page is a piece of{' '}
               <em>
-                writing<span style={{ color: 'var(--color-accent)', fontStyle: 'normal' }}>.</span>
+                writing<span className="text-accent not-italic">.</span>
               </em>
             </Measure>
             <Measure size="wide" as="p" className="lede">
@@ -45,24 +41,9 @@ export function Hero({ variant = 'display' }: HeroProps) {
               screenshots. No icons. No illustrations. Just words, set well, with enough room around
               them to breathe.
             </Measure>
-            <div
-              style={{
-                display: 'flex',
-                gap: 'var(--spacing-5)',
-                alignItems: 'center',
-                flexWrap: 'wrap',
-              }}
-            >
+            <div className="flex flex-wrap gap-5 items-center">
               <PrimaryButton>Read the manual</PrimaryButton>
-              <a
-                href="#examples"
-                style={{
-                  fontFamily: 'var(--font-ui)',
-                  fontSize: 'var(--text-sm)',
-                  fontWeight: 500,
-                  color: 'var(--color-ink-0)',
-                }}
-              >
+              <a href="#examples" className="font-ui text-sm font-medium text-ink-0">
                 See examples →
               </a>
             </div>
@@ -80,25 +61,12 @@ export function Hero({ variant = 'display' }: HeroProps) {
             <Measure
               size="display"
               as="h1"
-              style={{
-                fontSize: 'clamp(2.5rem, 7vw, 5rem)',
-                lineHeight: 'var(--leading-display)',
-                letterSpacing: 'var(--tracking-tightest)',
-                margin: 0,
-                fontWeight: 400,
-              }}
+              className="leading-display tracking-tightest font-normal m-0"
+              style={{ fontSize: 'clamp(2.5rem, 7vw, 5rem)' }}
             >
               The page does the <em>reading</em> for you.
             </Measure>
-            <p
-              style={{
-                fontFamily: 'var(--font-text)',
-                fontSize: 'var(--text-md)',
-                lineHeight: 'var(--leading-prose)',
-                color: 'var(--color-ink-1)',
-                margin: 0,
-              }}
-            >
+            <p className="font-text text-md leading-prose text-ink-1 m-0">
               A reader scans for shape before they read for sense. We arranged the shapes so the
               sense lands first.
             </p>
@@ -113,38 +81,18 @@ export function Hero({ variant = 'display' }: HeroProps) {
     <Section>
       <Container>
         <Stack gap="md">
-          <span className="eyebrow eyebrow--accent">Now in beta</span>
+          <span className="eyebrow eyebrow-accent">Now in beta</span>
           <Measure
             size="display"
             as="h1"
-            style={{
-              fontSize: 'var(--text-3xl)',
-              lineHeight: 'var(--leading-tight)',
-              letterSpacing: 'var(--tracking-tighter)',
-              fontWeight: 400,
-            }}
+            className="text-3xl leading-tight tracking-tighter font-normal"
           >
             Send an invoice. Get paid.
           </Measure>
-          <Measure
-            as="p"
-            style={{
-              fontFamily: 'var(--font-text)',
-              fontSize: 'var(--text-lg)',
-              lineHeight: 'var(--leading-normal)',
-              color: 'var(--color-ink-1)',
-            }}
-          >
+          <Measure as="p" className="font-text text-lg leading-normal text-ink-1">
             We made the simplest tool we could and stopped there.
           </Measure>
-          <a
-            href="#"
-            style={{
-              fontFamily: 'var(--font-ui)',
-              fontSize: 'var(--text-sm)',
-              fontWeight: 500,
-            }}
-          >
+          <a href="#" className="font-ui text-sm font-medium">
             Read the rest →
           </a>
         </Stack>
