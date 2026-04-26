@@ -13,6 +13,10 @@
 @import 'tailwindcss';
 @import '@ds/index.css';
 
+/* Tailwind v4 needs to scan the design-system source for utility usage,
+   since it lives in a sibling workspace package, not under viewer/src. */
+@source '../../../src/**/*.{tsx,ts}';
+
 /* Tailwind v4 dark variant — enables `dark:` utilities to target descendants
    of `.dark`. Lives here because it's coupled to Tailwind, not the design system. */
 @custom-variant dark (&:where(.dark, .dark *));

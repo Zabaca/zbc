@@ -13,7 +13,7 @@ export function Editorial() {
   return (
     <Section id="journal">
       <Container>
-        <Columns count={2} ratio="1:2" gap="xl" className="editorial">
+        <Columns count={2} ratio="1:2" gap="xl" collapseAt="wide" className="editorial">
           <aside className="editorial__meta">
             <span className="eyebrow editorial__eyebrow">From the Journal</span>
             <span className="editorial__detail">No. 04 · Reading time 4 min</span>

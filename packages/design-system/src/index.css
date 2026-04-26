@@ -200,33 +200,6 @@
    utility classes. Until then, keep them as-is so the viewer renders.
    ========================================================================= */
 
-/* ---- <Columns> primitive ---- */
-.prose-columns { display: grid; align-items: start; }
-.prose-columns--gap-sm  { gap: var(--spacing-5); }
-.prose-columns--gap-md  { gap: var(--spacing-6); }
-.prose-columns--gap-lg  { gap: var(--spacing-7); }
-.prose-columns--gap-xl  { gap: var(--spacing-8); }
-.prose-columns--gap-2xl { gap: var(--spacing-9); }
-
-.prose-columns--2   { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-.prose-columns--3   { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-.prose-columns--1-2 { grid-template-columns: minmax(0, 1fr) minmax(0, 2fr); }
-.prose-columns--2-1 { grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); }
-
-@media (max-width: 60rem) {
-  .prose-columns--3:not(.prose-columns--no-collapse) {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    row-gap: var(--spacing-8);
-  }
-}
-@media (max-width: 45rem) {
-  .prose-columns:not(.prose-columns--no-collapse) { grid-template-columns: minmax(0, 1fr); }
-  .prose-columns--gap-sm:not(.prose-columns--no-collapse) { gap: var(--spacing-4); }
-  .prose-columns--gap-md:not(.prose-columns--no-collapse) { gap: var(--spacing-5); }
-  .prose-columns--gap-lg:not(.prose-columns--no-collapse) { gap: var(--spacing-6); }
-  .prose-columns--gap-xl:not(.prose-columns--no-collapse) { gap: var(--spacing-7); }
-}
-
 /* ---- PrimaryButton ---- */
 .prose-primary-button {
   font-family: var(--font-ui);
@@ -259,7 +232,6 @@
 }
 
 @media (max-width: 60rem) {
-  .editorial.prose-columns { grid-template-columns: minmax(0, 1fr); gap: var(--spacing-6); }
   .editorial__meta {
     display: flex;
     flex-wrap: wrap;
