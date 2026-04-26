@@ -13,9 +13,10 @@ export function PrimaryButton({ children, className = '', ...rest }: PrimaryButt
     <button
       className={
         'font-ui text-sm font-medium px-[1.5em] py-[0.85em] ' +
-        'bg-accent text-paper-0 border-0 rounded-1 ' +
+        'bg-ink-0 dark:bg-accent text-paper-0 border-0 rounded-1 ' +
         'self-start cursor-pointer ' +
-        'transition-colors duration-fast ease-prose hover:bg-ink-0 ' +
+        'transition-colors duration-fast ease-prose ' +
+        'hover:bg-accent dark:hover:bg-ink-0 ' +
         className
       }
       {...rest}
