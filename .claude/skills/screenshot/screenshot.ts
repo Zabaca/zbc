@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 /* Screenshot a URL via headless Chromium. Used by the visual-review skill.
- * Usage: bun scripts/screenshot.ts <url> <out-path> [width] [height] */
+ * Usage: bun .claude/skills/screenshot/screenshot.ts <url> <out-path> [width] [height] */
 
 import { chromium } from 'playwright'
 import { mkdirSync } from 'node:fs'

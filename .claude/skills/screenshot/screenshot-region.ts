@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 /* Screenshot a specific region of a URL via headless Chromium.
- * Usage: bun scripts/screenshot-region.ts <url> <out> <x> <y> <w> <h> [viewportW] [viewportH] */
+ * Usage: bun .claude/skills/screenshot/screenshot-region.ts <url> <out> <x> <y> <w> <h> [viewportW] [viewportH] */
 
 import { chromium } from 'playwright'
 import { mkdirSync } from 'node:fs'

@@ -35,11 +35,11 @@ pkill -f "astro|vite"; sleep 1
 cd packages/design-system && bun run dev &
 sleep 3
 
-bun scripts/screenshot.ts http://localhost:3000/<route> .claude/screenshots/<name>-1280-light.png 1280 900
-bun scripts/screenshot.ts http://localhost:3000/<route> .claude/screenshots/<name>-1280-dark.png 1280 900
+bun .claude/skills/screenshot/screenshot.ts http://localhost:3000/<route> .claude/screenshots/<name>-1280-light.png 1280 900
+bun .claude/skills/screenshot/screenshot.ts http://localhost:3000/<route> .claude/screenshots/<name>-1280-dark.png 1280 900
 # (toggle theme via the sidebar between captures, or add a wrapper that sets .dark on <html>)
-bun scripts/screenshot.ts http://localhost:3000/<route> .claude/screenshots/<name>-900-light.png 900 1200
-bun scripts/screenshot.ts http://localhost:3000/<route> .claude/screenshots/<name>-500-light.png 500 1400
+bun .claude/skills/screenshot/screenshot.ts http://localhost:3000/<route> .claude/screenshots/<name>-900-light.png 900 1200
+bun .claude/skills/screenshot/screenshot.ts http://localhost:3000/<route> .claude/screenshots/<name>-500-light.png 500 1400
 ```
 
 See `.claude/skills/screenshot/SKILL.md` for script details and gotchas.

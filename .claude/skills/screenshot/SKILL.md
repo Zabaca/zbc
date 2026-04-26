@@ -4,11 +4,11 @@ description: Capture screenshots of routes in the design-system viewer (or any l
 user-invocable: true
 ---
 
-Two scripts live at the repo root:
+Two scripts live next to this SKILL.md:
 
 ```
-bun scripts/screenshot.ts <url> <out> [width=1280] [height=900]
-bun scripts/screenshot-region.ts <url> <out> <x> <y> <w> <h> [vpW] [vpH]
+bun .claude/skills/screenshot/screenshot.ts <url> <out> [width=1280] [height=900]
+bun .claude/skills/screenshot/screenshot-region.ts <url> <out> <x> <y> <w> <h> [vpW] [vpH]
 ```
 
 Both run from the repo root, use Playwright + Chromium (already installed), wait for `networkidle`, and render at deviceScaleFactor 2.
@@ -17,13 +17,13 @@ Both run from the repo root, use Playwright + Chromium (already installed), wait
 
 - **Full-page** — first look at any new route, layout-level review, dark-mode comparison.
   ```
-  bun scripts/screenshot.ts http://localhost:3000/ .claude/screenshots/index-light.png
-  bun scripts/screenshot.ts http://localhost:3000/pages/prose .claude/screenshots/prose-page.png 1280 900
+  bun .claude/skills/screenshot/screenshot.ts http://localhost:3000/ .claude/screenshots/index-light.png
+  bun .claude/skills/screenshot/screenshot.ts http://localhost:3000/pages/prose .claude/screenshots/prose-page.png 1280 900
   ```
 
 - **Region** — typography detail, hero crop, repeated comparison of the same area across iterations. Use when you need pixels you can actually read, not a thumbnail.
   ```
-  bun scripts/screenshot-region.ts http://localhost:3000/ .claude/screenshots/hero-crop.png 0 0 1280 900
+  bun .claude/skills/screenshot/screenshot-region.ts http://localhost:3000/ .claude/screenshots/hero-crop.png 0 0 1280 900
   ```
 
 ## Output convention
