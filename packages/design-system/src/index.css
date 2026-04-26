@@ -7,11 +7,11 @@
  *      properties without Tailwind utilities (text-wrap, hanging-punctuation).
  *   2. @utility directives — custom utilities outside Tailwind's namespaces
  *      (eyebrow, label-mono, display, tabular, motion, etc.).
- *   3. Component classes (.prose-*, .editorial__*) — TEMPORARY. These are
- *      kept while components are migrated one-by-one in subsequent commits.
- *      Each component's rules are deleted in the same commit that converts
- *      its TSX to utility classes. Final state: this section is empty.
- *   4. Reduced motion (global side-effect, not a utility).
+ *   3. Reduced motion (global side-effect, not a utility).
+ *
+ * All component styling lives in JSX as utility class strings. There are
+ * no .prose-* or .editorial__* component classes — composition happens at
+ * the React boundary, not in CSS.
  *
  * Consumers (viewer or any host app) should:
  *     @import 'tailwindcss';
@@ -195,13 +195,7 @@
 
 
 /* =========================================================================
-   3. Component classes — TEMPORARY.
-   Each block is deleted in the commit that migrates its component to
-   utility classes. Until then, keep them as-is so the viewer renders.
-   ========================================================================= */
-
-/* =========================================================================
-   4. Reduced motion
+   3. Reduced motion
    ========================================================================= */
 
 @media (prefers-reduced-motion: reduce) {
