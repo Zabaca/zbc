@@ -32,7 +32,7 @@ If the change is layout/responsive: all four. If it's color/typography only: 128
 ```bash
 # Restart dev to flush stale state, then capture.
 pkill -f "astro|vite"; sleep 1
-cd packages/design-system && bun run dev &
+bun run dev &   # turbo → @zbc/design-system-viewer
 sleep 3
 
 bun .claude/skills/screenshot/screenshot.ts http://localhost:3000/<route> .claude/screenshots/<name>-1280-light.png 1280 900

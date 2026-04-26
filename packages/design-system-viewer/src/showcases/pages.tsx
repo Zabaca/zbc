@@ -15,7 +15,7 @@ import {
   FAQ,
   Newsletter,
   Footer,
-} from '@ds/index'
+} from '@zbc/design-system'
 
 export interface PageEntry {
   label: string

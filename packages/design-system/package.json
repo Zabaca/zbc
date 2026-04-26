@@ -1,17 +1,14 @@
 {
   "name": "@zbc/design-system",
+  "version": "0.0.1",
   "private": true,
   "type": "module",
-  "scripts": {
-    "dev": "cd viewer && bun --bun astro dev --port 3000",
-    "build": "cd viewer && bun --bun astro build",
-    "preview": "cd viewer && bun --bun astro preview --port 3000"
+  "exports": {
+    ".": "./src/index.ts",
+    "./index.css": "./src/index.css",
+    "./tokens.css": "./src/tokens.css"
   },
-  "dependencies": {
-    "astro": "^6.1.9",
-    "@astrojs/react": "^5.0.4",
-    "@tailwindcss/vite": "^4.2.4",
-    "tailwindcss": "^4.2.4",
+  "peerDependencies": {
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
   },

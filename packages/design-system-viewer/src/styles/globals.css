@@ -7,15 +7,15 @@
  * — primarily the .ds-* chrome around the page.
  *
  * If you find yourself adding a .prose-* or .editorial rule here, it
- * belongs in @ds/index.css instead.
+ * belongs in @zbc/design-system's src/index.css instead.
  */
 
 @import 'tailwindcss';
-@import '@ds/index.css';
+@import '@zbc/design-system/index.css';
 
 /* Tailwind v4 needs to scan the design-system source for utility usage,
-   since it lives in a sibling workspace package, not under viewer/src. */
-@source '../../../src/**/*.{tsx,ts}';
+   since the components live in a sibling workspace package. */
+@source '../../../design-system/src/**/*.{tsx,ts}';
 
 /* Tailwind v4 dark variant — enables `dark:` utilities to target descendants
    of `.dark`. Lives here because it's coupled to Tailwind, not the design system. */

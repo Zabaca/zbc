@@ -1,20 +1,20 @@
 ---
 import Chrome from '../../layouts/Chrome.astro'
-import { FOUNDATION_REGISTRY } from '../../showcases/foundations'
-import { Section, Container, Stack, Measure } from '@ds/index'
+import { COMPONENT_REGISTRY } from '../../showcases/components'
+import { Section, Container, Stack, Measure } from '@zbc/design-system'
 
 export function getStaticPaths() {
-  return Object.keys(FOUNDATION_REGISTRY).map(name => ({ params: { name } }))
+  return Object.keys(COMPONENT_REGISTRY).map(name => ({ params: { name } }))
 }
 
 const { name } = Astro.params
-const entry = FOUNDATION_REGISTRY[name as string]
+const entry = COMPONENT_REGISTRY[name as string]
 if (!entry) return Astro.redirect('/404')
 const Showcase = entry.Showcase
 ---
 
 <Chrome title={`${entry.label} — Prose DS`}>
-  {/* ---- Foundation header ---- */}
+  {/* ---- Component header ---- */}
   <Section style={{ paddingBottom: 'var(--spacing-9)' }}>
     <Container>
       <Stack gap="md">
@@ -37,8 +37,10 @@ const Showcase = entry.Showcase
     </Container>
   </Section>
 
-  {/* ---- Showcase ---- */}
+  {/* ---- Showcase (full-bleed) ---- */}
   <div style="border-top: 1px solid var(--color-paper-3);">
     <Showcase />
+    {/* Static render — Astro can't apply client:load to a runtime variable.
+        Newsletter form renders but won't react to submit; fine for visual review. */}
   </div>
 </Chrome>

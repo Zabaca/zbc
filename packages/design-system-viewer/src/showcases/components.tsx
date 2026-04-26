@@ -19,7 +19,7 @@ import {
   Newsletter,
   Footer,
   PrimaryButton,
-} from '@ds/index'
+} from '@zbc/design-system'
 
 export interface ComponentEntry {
   label: string

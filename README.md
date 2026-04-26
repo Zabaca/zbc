@@ -159,12 +159,15 @@ CI has its own age keypair. The private key is stored as a single GitHub Actions
 
 ## Design system
 
-The Prose design system lives at `packages/design-system/`. It is a single-tenant component library built for Zabaca projects — not a generic public component library.
+The Prose design system is split across two packages:
+
+- `packages/design-system/` — pure component library. No build, no app. Exports React components + CSS tokens.
+- `packages/design-system-viewer/` — Astro showcase app that consumes the library via `@zbc/design-system`. The first proving ground for the consumer pattern.
 
 **Run the viewer locally:**
 
 ```bash
-cd packages/design-system && bun run dev
+bun run dev   # turbo dispatches to @zbc/design-system-viewer
 ```
 
 Opens at [http://localhost:3000](http://localhost:3000). The viewer shows all components and pages in isolation, with dark/light toggle.

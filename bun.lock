@@ -31,9 +31,24 @@
     },
     "packages/design-system": {
       "name": "@zbc/design-system",
+      "version": "0.0.1",
+      "devDependencies": {
+        "@types/react": "^19.0.0",
+        "@types/react-dom": "^19.0.0",
+        "typescript": "^5.7.0",
+      },
+      "peerDependencies": {
+        "react": "^19.0.0",
+        "react-dom": "^19.0.0",
+      },
+    },
+    "packages/design-system-viewer": {
+      "name": "@zbc/design-system-viewer",
+      "version": "0.0.1",
       "dependencies": {
         "@astrojs/react": "^5.0.4",
         "@tailwindcss/vite": "^4.2.4",
+        "@zbc/design-system": "workspace:*",
         "astro": "^6.1.9",
         "react": "^19.0.0",
         "react-dom": "^19.0.0",
@@ -645,6 +660,8 @@
     "@zbc/cli": ["@zbc/cli@workspace:packages/cli"],
 
     "@zbc/design-system": ["@zbc/design-system@workspace:packages/design-system"],
+
+    "@zbc/design-system-viewer": ["@zbc/design-system-viewer@workspace:packages/design-system-viewer"],
 
     "@zbc/infra": ["@zbc/infra@workspace:packages/infra"],
 

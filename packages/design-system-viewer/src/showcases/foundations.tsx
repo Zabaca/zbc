@@ -11,7 +11,7 @@
  */
 
 import { Fragment } from 'react'
-import { Section, Container, Stack } from '@ds/index'
+import { Section, Container, Stack } from '@zbc/design-system'
 
 // ---- Shared sub-components --------------------------------------------------
 
