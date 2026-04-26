@@ -10,6 +10,8 @@ concurrency:
 
 env:
   PR_NUMBER: ${{ github.event.pull_request.number }}
+  TURBO_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+  TURBO_TEAM: uptownhrs-projects
 
 jobs:
   deploy:
