@@ -1,0 +1,19 @@
+node_modules
+.git
+.github
+.claude
+.turbo
+**/.turbo
+**/.next
+**/.astro
+**/dist
+**/node_modules
+*.log
+.DS_Store
+.env*
+.idea
+.sops.yaml
+
+# We do NOT ignore packages/infra or packages/cli — they're part of the workspace
+# graph and need to be present so `bun install` resolves dependencies correctly.
+# (Even though they're not what gets deployed; Vercel builds the rootDirectory.)

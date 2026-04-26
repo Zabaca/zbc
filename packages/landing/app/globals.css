@@ -1,0 +1,8 @@
+@import 'tailwindcss';
+@import '@zbc/design-system/index.css';
+
+/* Tailwind v4 needs to scan the design-system source for utilities. */
+@source '../../design-system/src/**/*.{tsx,ts}';
+
+/* Tailwind v4 dark variant — descendants of .dark get the dark utilities. */
+@custom-variant dark (&:where(.dark, .dark *));

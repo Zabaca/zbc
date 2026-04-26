@@ -9,7 +9,7 @@ const VERCEL_API = 'https://api.vercel.com'
 interface VercelProject {
   id: string
   name: string
-  framework?: string
+  framework?: string | null
   accountId: string
 }
 
@@ -20,12 +20,14 @@ interface VercelEnvVar {
   target: string[]
 }
 
-async function vercelFetch(
-  path: string,
-  token: string,
-  options?: RequestInit,
-) {
-  const res = await fetch(`${VERCEL_API}${path}`, {
+function withTeam(p: string, teamId?: string) {
+  if (!teamId) return p
+  const sep = p.includes('?') ? '&' : '?'
+  return `${p}${sep}teamId=${teamId}`
+}
+
+async function vercelFetch(p: string, token: string, teamId?: string, options?: RequestInit) {
+  const res = await fetch(`${VERCEL_API}${withTeam(p, teamId)}`, {
     ...options,
     headers: {
       Authorization: `Bearer ${token}`,
@@ -36,7 +38,7 @@ async function vercelFetch(
 
   if (!res.ok) {
     const body = await res.text()
-    throw new Error(`Vercel API ${path} failed (${res.status}): ${body}`)
+    throw new Error(`Vercel API ${p} failed (${res.status}): ${body}`)
   }
 
   if (res.status === 204) return null
@@ -46,53 +48,63 @@ async function vercelFetch(
 async function findProject(
   token: string,
   projectName: string,
+  teamId?: string,
 ): Promise<VercelProject | null> {
   try {
-    return await vercelFetch(`/v9/projects/${projectName}`, token)
+    return await vercelFetch(`/v9/projects/${projectName}`, token, teamId)
   } catch {
     return null
   }
 }
 
+interface CreateProjectInput {
+  framework?: string | null
+  rootDirectory?: string
+  installCommand?: string
+  buildCommand?: string
+  outputDirectory?: string
+}
+
 async function createProject(
   token: string,
   projectName: string,
-  framework: string,
+  teamId: string | undefined,
+  input: CreateProjectInput,
 ): Promise<VercelProject> {
-  return vercelFetch('/v10/projects', token, {
+  const body: Record<string, unknown> = { name: projectName }
+  if (input.framework !== undefined) body.framework = input.framework
+  if (input.rootDirectory !== undefined) body.rootDirectory = input.rootDirectory
+  if (input.installCommand !== undefined) body.installCommand = input.installCommand
+  if (input.buildCommand !== undefined) body.buildCommand = input.buildCommand
+  if (input.outputDirectory !== undefined) body.outputDirectory = input.outputDirectory
+
+  return vercelFetch('/v10/projects', token, teamId, {
     method: 'POST',
-    body: JSON.stringify({
-      name: projectName,
-      framework,
-    }),
+    body: JSON.stringify(body),
   })
 }
 
 async function syncEnvVars(
   token: string,
   projectId: string,
+  teamId: string | undefined,
   desired: Record<string, string>,
   target: string[],
 ) {
-  // Get existing env vars
-  const data = (await vercelFetch(
-    `/v9/projects/${projectId}/env`,
-    token,
-  )) as { envs: VercelEnvVar[] }
+  const data = (await vercelFetch(`/v9/projects/${projectId}/env`, token, teamId)) as {
+    envs: VercelEnvVar[]
+  }
   const existing = data.envs ?? []
 
   for (const [key, value] of Object.entries(desired)) {
     const found = existing.find((e) => e.key === key)
-
     if (found) {
-      // Update existing
-      await vercelFetch(`/v9/projects/${projectId}/env/${found.id}`, token, {
+      await vercelFetch(`/v9/projects/${projectId}/env/${found.id}`, token, teamId, {
         method: 'PATCH',
         body: JSON.stringify({ value, target }),
       })
     } else {
-      // Create new
-      await vercelFetch(`/v9/projects/${projectId}/env`, token, {
+      await vercelFetch(`/v9/projects/${projectId}/env`, token, teamId, {
         method: 'POST',
         body: JSON.stringify({ key, value, target, type: 'encrypted' }),
       })
@@ -103,15 +115,16 @@ async function syncEnvVars(
 async function syncDomain(
   token: string,
   projectId: string,
+  teamId: string | undefined,
   domain: string,
 ) {
   try {
-    await vercelFetch(`/v10/projects/${projectId}/domains`, token, {
+    await vercelFetch(`/v10/projects/${projectId}/domains`, token, teamId, {
       method: 'POST',
       body: JSON.stringify({ name: domain }),
     })
   } catch {
-    // Domain may already be configured — that's fine
+    // Domain may already be configured — fine.
   }
 }
 
@@ -120,45 +133,33 @@ function findVercelBin(projectRoot: string): string {
     path.join(projectRoot, 'packages/cli/node_modules/.bin/vercel'),
     path.join(projectRoot, 'node_modules/.bin/vercel'),
   ]
-  for (const candidate of candidates) {
-    if (fs.existsSync(candidate)) return candidate
+  for (const c of candidates) {
+    if (fs.existsSync(c)) return c
   }
   throw new Error('vercel CLI not found. Install it: bun add -d vercel in packages/cli')
 }
 
 function deployToVercel(
   token: string,
-  sourceDir: string,
+  uploadDir: string,
+  teamId: string | undefined,
   production: boolean,
   projectRoot: string,
 ) {
   const vercelBin = findVercelBin(projectRoot)
-  const args = [
-    vercelBin,
-    'deploy',
-    sourceDir,
-    '--token', token,
-    '--yes',
-  ]
+  const args = [vercelBin, 'deploy', uploadDir, '--token', token, '--yes']
+  if (teamId) args.push('--scope', teamId)
+  if (production) args.push('--prod')
 
-  if (production) {
-    args.push('--prod')
-  }
-
-  console.log(`  Deploying ${path.basename(sourceDir)}${production ? ' (production)' : ''}...`)
+  console.log(
+    `  Deploying ${path.relative(projectRoot, uploadDir) || '.'}${production ? ' (production)' : ''}...`,
+  )
 
   try {
-    const output = execSync(args.join(' '), {
-      stdio: ['ignore', 'pipe', 'pipe'],
-    })
-
+    const output = execSync(args.join(' '), { stdio: ['ignore', 'pipe', 'pipe'] })
     const raw = output.toString().trim()
-    let deployUrl = ''
-
-    // Extract the deployment URL from the output
-    // The vercel CLI may output JSON (with { url: ... }) or plain text
     const urlMatch = raw.match(/https:\/\/[^\s"',}]+/)
-    deployUrl = urlMatch?.[0] ?? ''
+    const deployUrl = urlMatch?.[0] ?? ''
     console.log(`  Deployed: ${deployUrl}`)
     return deployUrl
   } catch (err: unknown) {
@@ -167,15 +168,36 @@ function deployToVercel(
   }
 }
 
+const buildModeSchema = z.object({
+  command: z.string(),
+  cwd: z.string().optional(),
+  outputDir: z.string(),
+})
+
 export const vercelModule = defineModule({
   name: 'vercel',
-  configSchema: z.object({
-    projectName: z.string(),
-    domain: z.string().optional(),
-    framework: z.string().default('nextjs'),
-    sourceDir: z.string().default('packages/web'),
-    production: z.boolean().default(true),
-  }),
+  configSchema: z
+    .object({
+      projectName: z.string(),
+      teamId: z.string().optional(),
+      domain: z.string().optional(),
+      framework: z.string().nullable().optional(),
+
+      // Mode A — module builds locally, uploads outputDir as static.
+      build: buildModeSchema.optional(),
+
+      // Mode B — Vercel builds from the uploaded sourceDir.
+      sourceDir: z.string().optional(),
+      rootDirectory: z.string().optional(),
+      installCommand: z.string().optional(),
+      buildCommand: z.string().optional(),
+      outputDirectory: z.string().optional(),
+
+      production: z.boolean().default(true),
+    })
+    .refine((c) => Boolean(c.build) !== Boolean(c.sourceDir), {
+      message: 'Provide exactly one of `build` (static prebuilt) or `sourceDir` (Vercel builds).',
+    }),
   outputs: z.object({
     projectUrl: z.string(),
     projectId: z.string(),
@@ -185,67 +207,76 @@ export const vercelModule = defineModule({
     const vercelToken = ctx.secrets['VERCEL_TOKEN']
     if (!vercelToken) throw new Error('Missing secret: VERCEL_TOKEN')
 
-    // Get or create project
-    let project = await findProject(vercelToken, config.projectName)
+    const isStatic = Boolean(config.build)
 
+    let project = await findProject(vercelToken, config.projectName, config.teamId)
     if (project) {
       console.log(`  Project "${config.projectName}" already exists`)
     } else {
-      project = await createProject(
-        vercelToken,
-        config.projectName,
-        config.framework,
-      )
+      const createInput: CreateProjectInput = isStatic
+        ? { framework: null }
+        : {
+            framework: config.framework ?? undefined,
+            rootDirectory: config.rootDirectory,
+            installCommand: config.installCommand,
+            buildCommand: config.buildCommand,
+            outputDirectory: config.outputDirectory,
+          }
+      project = await createProject(vercelToken, config.projectName, config.teamId, createInput)
       console.log(`  Created project "${config.projectName}"`)
     }
 
-    // Sync env vars from imported module outputs
     const envVars: Record<string, string> = {}
     for (const [instanceName, outputs] of Object.entries(ctx.imports)) {
       if (typeof outputs === 'object' && outputs !== null) {
-        for (const [key, value] of Object.entries(
-          outputs as Record<string, unknown>,
-        )) {
+        for (const [key, value] of Object.entries(outputs as Record<string, unknown>)) {
           if (typeof value === 'string') {
-            const envKey = `${instanceName}_${key}`
-              .toUpperCase()
-              .replace(/-/g, '_')
+            const envKey = `${instanceName}_${key}`.toUpperCase().replace(/-/g, '_')
             envVars[envKey] = value
           }
         }
       }
     }
-
     if (Object.keys(envVars).length > 0) {
-      await syncEnvVars(vercelToken, project.id, envVars, [
+      await syncEnvVars(vercelToken, project.id, config.teamId, envVars, [
         'production',
         'preview',
         'development',
       ])
-      console.log(
-        `  Synced env vars: ${Object.keys(envVars).join(', ')}`,
-      )
+      console.log(`  Synced env vars: ${Object.keys(envVars).join(', ')}`)
     }
 
-    // Configure domain
     if (config.domain) {
-      await syncDomain(vercelToken, project.id, config.domain)
+      await syncDomain(vercelToken, project.id, config.teamId, config.domain)
       console.log(`  Domain "${config.domain}" configured`)
     }
 
-    // Write .vercel/project.json so the CLI knows which project to deploy to
-    const absSourceDir = path.resolve(ctx.projectRoot, config.sourceDir)
-    const vercelDir = path.join(absSourceDir, '.vercel')
+    let uploadDir: string
+    if (isStatic && config.build) {
+      const buildCwd = path.resolve(ctx.projectRoot, config.build.cwd ?? '.')
+      console.log(
+        `  Building: ${config.build.command} (in ${path.relative(ctx.projectRoot, buildCwd) || '.'})`,
+      )
+      execSync(config.build.command, { cwd: buildCwd, stdio: 'inherit' })
+      uploadDir = path.resolve(ctx.projectRoot, config.build.outputDir)
+    } else if (config.sourceDir) {
+      uploadDir = path.resolve(ctx.projectRoot, config.sourceDir)
+    } else {
+      // refine() guarantees this, but TS doesn't know it
+      throw new Error('unreachable: neither build nor sourceDir set')
+    }
+
+    const vercelDir = path.join(uploadDir, '.vercel')
     fs.mkdirSync(vercelDir, { recursive: true })
     fs.writeFileSync(
       path.join(vercelDir, 'project.json'),
       JSON.stringify({ orgId: project.accountId, projectId: project.id }),
     )
 
-    // Deploy
     const deployUrl = deployToVercel(
       vercelToken,
-      absSourceDir,
+      uploadDir,
+      config.teamId,
       config.production,
       ctx.projectRoot,
     )
@@ -260,9 +291,9 @@ export const vercelModule = defineModule({
     const vercelToken = ctx.secrets['VERCEL_TOKEN']
     if (!vercelToken) throw new Error('Missing secret: VERCEL_TOKEN')
 
-    const project = await findProject(vercelToken, config.projectName)
+    const project = await findProject(vercelToken, config.projectName, config.teamId)
     if (project) {
-      await vercelFetch(`/v9/projects/${project.id}`, vercelToken, {
+      await vercelFetch(`/v9/projects/${project.id}`, vercelToken, config.teamId, {
         method: 'DELETE',
       })
       console.log(`  Deleted project "${config.projectName}"`)
