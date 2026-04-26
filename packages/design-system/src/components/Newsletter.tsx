@@ -16,14 +16,7 @@ export function Newsletter() {
   const [done, setDone] = useState(false)
 
   return (
-    <Section
-      id="start"
-      gap="lg"
-      style={{
-        borderTop: '1px solid var(--color-paper-3)',
-        borderBottom: '1px solid var(--color-paper-3)',
-      }}
-    >
+    <Section id="start" gap="lg" className="border-t border-b border-paper-3">
       <Container>
         <Measure size="wide">
           <Stack gap="md">
@@ -36,14 +29,7 @@ export function Newsletter() {
             </Measure>
 
             {done ? (
-              <p
-                style={{
-                  color: 'var(--color-positive)',
-                  fontFamily: 'var(--font-ui)',
-                  fontSize: 'var(--text-sm)',
-                  margin: 0,
-                }}
-              >
+              <p className="font-ui text-sm text-positive m-0">
                 Thank you. The next letter goes out on the first of the month.
               </p>
             ) : (
@@ -52,12 +38,7 @@ export function Newsletter() {
                   e.preventDefault()
                   if (email) setDone(true)
                 }}
-                style={{
-                  display: 'flex',
-                  gap: 'var(--spacing-3)',
-                  flexWrap: 'wrap',
-                  alignItems: 'stretch',
-                }}
+                className="flex flex-wrap gap-3 items-stretch"
               >
                 <input
                   type="email"
@@ -65,32 +46,19 @@ export function Newsletter() {
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   placeholder="you@studio.com"
-                  style={{
-                    fontFamily: 'var(--font-text)',
-                    fontSize: 'var(--text-md)',
-                    padding: '0.7em 0.9em',
-                    border: '1px solid var(--color-ink-4)',
-                    borderRadius: 'var(--radius-1)',
-                    background: 'var(--color-paper-0)',
-                    color: 'var(--color-ink-0)',
-                    minWidth: '260px',
-                    flex: '1 1 260px',
-                    outline: 'none',
-                  }}
+                  className={
+                    'font-text text-md px-[0.9em] py-[0.7em] ' +
+                    'border border-ink-4 rounded-1 ' +
+                    'bg-paper-0 text-ink-0 ' +
+                    'min-w-[260px] flex-[1_1_260px] outline-none'
+                  }
                 />
                 <button
                   type="submit"
-                  style={{
-                    fontFamily: 'var(--font-ui)',
-                    fontSize: 'var(--text-sm)',
-                    fontWeight: 500,
-                    padding: '0.7em 1.6em',
-                    background: 'var(--color-ink-0)',
-                    color: 'var(--color-paper-0)',
-                    border: 0,
-                    borderRadius: 'var(--radius-1)',
-                    cursor: 'pointer',
-                  }}
+                  className={
+                    'font-ui text-sm font-medium px-[1.6em] py-[0.7em] ' +
+                    'bg-ink-0 text-paper-0 border-0 rounded-1 cursor-pointer'
+                  }
                 >
                   Subscribe
                 </button>
