@@ -27,43 +27,39 @@ jobs:
 
       - run: bun install
 
-      - name: Decrypt secrets & deploy
-        id: deploy
+      - name: Apply preview + comment URLs
         env:
           SOPS_AGE_KEY: ${{ secrets.SOPS_AGE_KEY }}
+          GH_TOKEN: ${{ github.token }}
         run: |
+          set -o pipefail
           OUTPUT=$(bun run --cwd packages/cli src/index.ts apply preview 2>&1)
+          STATUS=$?
           echo "$OUTPUT"
-          DEPLOY_URL=$(echo "$OUTPUT" | grep -oP 'Deployed: \K(https://\S+)' || echo "")
-          echo "url=$DEPLOY_URL" >> "$GITHUB_OUTPUT"
 
-      - name: Comment preview URL on PR
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const url = '${{ steps.deploy.outputs.url }}' || '(deploy URL not captured)';
-            const body = `### Preview deployed :rocket:\n\n${url}`;
-            const { data: comments } = await github.rest.issues.listComments({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: context.issue.number,
-            });
-            const existing = comments.find(c => c.body?.includes('Preview deployed'));
-            if (existing) {
-              await github.rest.issues.updateComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                comment_id: existing.id,
-                body,
-              });
-            } else {
-              await github.rest.issues.createComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: context.issue.number,
-                body,
-              });
-            }
+          # Pair each "Deployed:" URL with the most recent "→ vercel:<name>" header
+          LIST=$(echo "$OUTPUT" | awk '
+            /^→ vercel:/{name=$2; sub(/vercel:/, "", name)}
+            /Deployed:/{print "- **" name "**: " $NF}
+          ')
+
+          if [ -z "$LIST" ]; then
+            LIST="(no deployments captured — see logs)"
+          fi
+
+          BODY=$(printf '### Preview deployed :rocket:\n\n%s\n' "$LIST")
+
+          # Update existing comment if present, else create a new one
+          EXISTING=$(gh api "repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments" \
+            --jq '.[] | select(.body | startswith("### Preview deployed")) | .id' | head -1)
+
+          if [ -n "$EXISTING" ]; then
+            gh api -X PATCH "repos/${{ github.repository }}/issues/comments/$EXISTING" -f body="$BODY"
+          else
+            gh pr comment ${{ github.event.pull_request.number }} --body "$BODY"
+          fi
+
+          exit $STATUS
 
   cleanup:
     if: github.event.action == 'closed'
