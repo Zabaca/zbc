@@ -169,20 +169,6 @@ cd packages/design-system && bun run dev
 
 Opens at [http://localhost:3000](http://localhost:3000). The viewer shows all components and pages in isolation, with dark/light toggle.
 
-## Slash commands
-
-AI slash commands for working inside this repo. Invoke them in Claude Code with `/command-name`.
-
-| Command | Description |
-|---|---|
-| `/mode-b` | Enters implementation mode — scoped, focused, one component at a time. Read `.claude/skills/mode-b` for full protocol. |
-| `/visual-review` | Runs a visual review pass against the design reference, flags divergences, and proposes fixes. Read `.claude/skills/visual-review` for full protocol. |
-| `/design-import <path-to-handoff-zip>` | *(Planned — not yet built)* Ingests a Claude Design handoff bundle into `packages/design-system/` — tokens.css, components, docs, and optional initial page composition. One-shot: after import the code is the source of truth. |
-
-**Mode A (design system authoring)** is delegated to [claude.ai/design](https://claude.ai/design). Author your design system there and export the handoff bundle; use `/design-import` to bring it into the repo.
-
-Skills live in `.claude/skills/` and are loaded automatically by Claude Code.
-
 ## Working with this repo
 
 - **Runtime:** [Bun](https://bun.sh) — use `bun` everywhere (`bun install`, `bun run`, `bunx`). Do not use npm or yarn.
