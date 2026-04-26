@@ -37,34 +37,10 @@ export function Features() {
           </Measure>
           <Columns count={3} gap="xl">
             {ITEMS.map((item) => (
-              <Stack
-                key={item.eyebrow}
-                gap="sm"
-                style={{
-                  borderTop: '1px solid var(--color-ink-4)',
-                  paddingTop: 'var(--spacing-5)',
-                }}
-              >
+              <Stack key={item.eyebrow} gap="sm" className="border-t border-ink-4 pt-5">
                 <span className="eyebrow">{item.eyebrow}</span>
-                <h3
-                  style={{
-                    fontSize: 'var(--text-xl)',
-                    lineHeight: 'var(--leading-tight)',
-                    letterSpacing: 'var(--tracking-tight)',
-                  }}
-                >
-                  {item.title}
-                </h3>
-                <p
-                  style={{
-                    fontSize: 'var(--text-sm)',
-                    lineHeight: 1.55,
-                    margin: 0,
-                    maxWidth: '32ch',
-                  }}
-                >
-                  {item.body}
-                </p>
+                <h3 className="text-xl leading-tight tracking-tight">{item.title}</h3>
+                <p className="text-sm leading-[1.55] m-0 max-w-[32ch]">{item.body}</p>
               </Stack>
             ))}
           </Columns>
