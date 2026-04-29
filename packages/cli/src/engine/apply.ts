@@ -1,4 +1,4 @@
-import type { ApplyContext, ModuleInstance } from '@zbc/infra'
+import type { ApplyContext } from '../infra-types'
 import { discoverInstances } from './discover'
 import { resolveOrder } from './resolve'
 import { loadSecrets } from './secrets'
@@ -21,9 +21,7 @@ export async function applyEnvironment(
 
     const ctx: ApplyContext = { secrets, imports: importOutputs, projectRoot }
 
-    const validatedConfig = instance._definition.configSchema.parse(
-      instance.config,
-    )
+    const validatedConfig = instance._definition.configSchema.parse(instance.config)
 
     console.log(`\n→ ${instance.moduleName}:${instance.name}`)
 

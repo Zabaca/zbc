@@ -20,7 +20,6 @@
     "prepublishOnly": "bun scripts/sync-modules.ts"
   },
   "dependencies": {
-    "@zbc/infra": "workspace:*",
     "citty": "^0.1.6",
     "sops-age": "^4.0.2",
     "yaml": "^2.8.3"

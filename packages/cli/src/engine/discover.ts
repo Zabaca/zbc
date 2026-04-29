@@ -1,5 +1,5 @@
 import * as path from 'node:path'
-import type { ModuleInstance } from '@zbc/infra'
+import type { ModuleInstance } from '../infra-types'
 
 function isModuleInstance(value: unknown): value is ModuleInstance {
   return (
@@ -23,9 +23,7 @@ export async function discoverInstances(envDir: string): Promise<ModuleInstance[
     const instance = mod.default
 
     if (!isModuleInstance(instance)) {
-      throw new Error(
-        `${file} does not export a valid module instance as its default export`,
-      )
+      throw new Error(`${file} does not export a valid module instance as its default export`)
     }
 
     instances.push(instance)

@@ -1,16 +1,7 @@
 import type { z } from 'zod'
-import type {
-  ApplyFn,
-  DestroyFn,
-  ModuleDefinition,
-  ModuleInstance,
-  InstanceOptions,
-} from './types'
+import type { ApplyFn, DestroyFn, ModuleDefinition, ModuleInstance, InstanceOptions } from './types'
 
-interface DefineModuleOptions<
-  TConfig extends z.ZodType,
-  TOutputs extends z.ZodType,
-> {
+interface DefineModuleOptions<TConfig extends z.ZodType, TOutputs extends z.ZodType> {
   name: string
   configSchema: TConfig
   outputs: TOutputs
@@ -18,10 +9,9 @@ interface DefineModuleOptions<
   destroy?: DestroyFn<z.infer<TConfig>>
 }
 
-export function defineModule<
-  TConfig extends z.ZodType,
-  TOutputs extends z.ZodType,
->(opts: DefineModuleOptions<TConfig, TOutputs>): ModuleDefinition<TConfig, TOutputs> {
+export function defineModule<TConfig extends z.ZodType, TOutputs extends z.ZodType>(
+  opts: DefineModuleOptions<TConfig, TOutputs>,
+): ModuleDefinition<TConfig, TOutputs> {
   const definition: ModuleDefinition<TConfig, TOutputs> = {
     name: opts.name,
     configSchema: opts.configSchema,

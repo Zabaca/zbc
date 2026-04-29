@@ -1,9 +1,6 @@
-import type { ModuleInstance } from '@zbc/infra'
+import type { ModuleInstance } from '../infra-types'
 
-export function resolveOrder(
-  instances: ModuleInstance[],
-  target?: string,
-): ModuleInstance[] {
+export function resolveOrder(instances: ModuleInstance[], target?: string): ModuleInstance[] {
   let toProcess = instances
 
   if (target) {
@@ -19,10 +16,7 @@ export function resolveOrder(
   return topologicalSort(toProcess)
 }
 
-function collectTransitiveDeps(
-  instance: ModuleInstance,
-  all: ModuleInstance[],
-): ModuleInstance[] {
+function collectTransitiveDeps(instance: ModuleInstance, _all: ModuleInstance[]): ModuleInstance[] {
   const collected = new Set<string>()
   const result: ModuleInstance[] = []
 

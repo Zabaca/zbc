@@ -1,3 +1,5 @@
+// Mirror of packages/infra/src/types.ts. Inlined here so the published CLI
+// has no runtime/workspace dependency on @zbc/infra. Keep in sync.
 import type { z } from 'zod'
 
 export type ApplyFn<TConfig, TOutputs> = (config: TConfig, ctx: ApplyContext) => Promise<TOutputs>

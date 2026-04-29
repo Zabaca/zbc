@@ -1,17 +1,32 @@
 #!/usr/bin/env bun
 /**
- * Copy packages/infra/modules/<name>/ → packages/cli/modules/<name>/
- * for each module that ships a registry.json. Run before `bun publish`.
+ * Sync CLI canonical sources → dogfood location.
+ *
+ * `packages/cli/templates/` and `packages/cli/modules/` are the source of
+ * truth. `packages/infra/` is zbc's own consumption of the templates — the
+ * dogfood instance — and stays in lockstep with the canonical sources.
+ *
+ * Runs:
+ *   - prepublishOnly (ensures published tarball is consistent)
+ *   - manually whenever CLI canonical sources change
+ *
+ * Direction:
+ *   packages/cli/templates/infra/src/*         → packages/infra/src/*
+ *   packages/cli/modules/<name>/               → packages/infra/modules/<name>/
  */
 import * as path from 'node:path'
 import * as fs from 'node:fs/promises'
 
 const cliPkgDir = path.resolve(import.meta.dir, '..')
 const repoRoot = path.resolve(cliPkgDir, '../..')
-const sourceRoot = path.join(repoRoot, 'packages/infra/modules')
-const destRoot = path.join(cliPkgDir, 'modules')
 
-async function rm(dir: string): Promise<void> {
+const templateSrcDir = path.join(cliPkgDir, 'templates/infra/src')
+const cliModulesDir = path.join(cliPkgDir, 'modules')
+
+const infraSrcDir = path.join(repoRoot, 'packages/infra/src')
+const infraModulesDir = path.join(repoRoot, 'packages/infra/modules')
+
+async function rmrf(dir: string): Promise<void> {
   await fs.rm(dir, { recursive: true, force: true })
 }
 
@@ -29,27 +44,53 @@ async function copyDir(src: string, dest: string): Promise<void> {
   }
 }
 
-async function main() {
-  await rm(destRoot)
-  await fs.mkdir(destRoot, { recursive: true })
+async function syncSrc() {
+  console.log('Syncing infra src primitives:')
+  await rmrf(infraSrcDir)
+  await copyDir(templateSrcDir, infraSrcDir)
+  const files = await fs.readdir(infraSrcDir)
+  for (const f of files) console.log(`  sync ${f}`)
+}
 
-  const entries = await fs.readdir(sourceRoot, { withFileTypes: true })
+async function syncModules() {
+  console.log('\nSyncing infra modules:')
+  if (
+    !(await Bun.file(path.join(cliModulesDir, '.'))
+      .exists()
+      .catch(() => false))
+  ) {
+    // Bun.file().exists() doesn't work on dirs; use fs
+  }
+  let entries: { name: string; isDirectory: () => boolean }[] = []
+  try {
+    entries = await fs.readdir(cliModulesDir, { withFileTypes: true })
+  } catch {
+    console.log(`  (no canonical modules at ${path.relative(repoRoot, cliModulesDir)})`)
+    return
+  }
+
+  await rmrf(infraModulesDir)
+  await fs.mkdir(infraModulesDir, { recursive: true })
+
   let count = 0
   for (const entry of entries) {
     if (!entry.isDirectory()) continue
-    const moduleDir = path.join(sourceRoot, entry.name)
+    const moduleDir = path.join(cliModulesDir, entry.name)
     const registryPath = path.join(moduleDir, 'registry.json')
     if (!(await Bun.file(registryPath).exists())) {
       console.log(`  skip ${entry.name} (no registry.json)`)
       continue
     }
-    const destDir = path.join(destRoot, entry.name)
-    await copyDir(moduleDir, destDir)
+    await copyDir(moduleDir, path.join(infraModulesDir, entry.name))
     console.log(`  sync ${entry.name}`)
     count++
   }
+  console.log(`\n✓ ${count} module(s) synced to ${path.relative(repoRoot, infraModulesDir)}`)
+}
 
-  console.log(`\n✓ synced ${count} module(s) to ${path.relative(repoRoot, destRoot)}`)
+async function main() {
+  await syncSrc()
+  await syncModules()
 }
 
 main().catch((err) => {
