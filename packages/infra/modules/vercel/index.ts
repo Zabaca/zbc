@@ -223,6 +223,14 @@ export const vercelModule = defineModule({
       outputDirectory: z.string().optional(),
 
       production: z.boolean().default(true),
+
+      /**
+       * Secrets to forward to the Vercel project as runtime env vars.
+       * Each entry names a key in the environment's secrets.yaml; the same
+       * name is set on the Vercel project. Used for app-runtime secrets
+       * that aren't outputs of an imported instance (e.g. BETTER_AUTH_SECRET).
+       */
+      secretEnv: z.array(z.string()).default([]),
     })
     .refine((c) => Boolean(c.build) !== Boolean(c.sourceDir), {
       message: 'Provide exactly one of `build` (static prebuilt) or `sourceDir` (Vercel builds).',
@@ -268,6 +276,20 @@ export const vercelModule = defineModule({
           }
         }
       }
+    }
+    // Vercel doesn't expose the project slug as a system env var. Inject it
+    // ourselves so runtime code can construct the bare `<projectName>.vercel.app`
+    // alias (which VERCEL_PROJECT_PRODUCTION_URL hides once a custom domain
+    // is attached).
+    envVars['VERCEL_PROJECT_NAME'] = config.projectName
+    for (const secretName of config.secretEnv) {
+      const value = ctx.secrets[secretName]
+      if (!value) {
+        throw new Error(
+          `secretEnv references "${secretName}" but it's missing from this environment's secrets.yaml`,
+        )
+      }
+      envVars[secretName] = value
     }
     if (Object.keys(envVars).length > 0) {
       await syncEnvVars(vercelToken, project.id, config.teamId, envVars, [
