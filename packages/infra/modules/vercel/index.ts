@@ -84,6 +84,35 @@ async function createProject(
   })
 }
 
+/**
+ * PATCH project settings on every apply so config-as-code stays
+ * authoritative. createProject only sets these on first creation; without
+ * this call, edits to rootDirectory/installCommand/etc. are silently
+ * ignored on existing projects.
+ */
+async function syncProjectSettings(
+  token: string,
+  projectId: string,
+  teamId: string | undefined,
+  input: CreateProjectInput,
+) {
+  const body: Record<string, unknown> = {}
+  // Only set fields the caller explicitly provided. Vercel treats `null`
+  // as "use default", which we want for framework when caller didn't pass.
+  if (input.framework !== undefined) body.framework = input.framework
+  if (input.rootDirectory !== undefined) body.rootDirectory = input.rootDirectory
+  if (input.installCommand !== undefined) body.installCommand = input.installCommand
+  if (input.buildCommand !== undefined) body.buildCommand = input.buildCommand
+  if (input.outputDirectory !== undefined) body.outputDirectory = input.outputDirectory
+
+  if (Object.keys(body).length === 0) return
+
+  await vercelFetch(`/v9/projects/${projectId}`, token, teamId, {
+    method: 'PATCH',
+    body: JSON.stringify(body),
+  })
+}
+
 async function syncEnvVars(
   token: string,
   projectId: string,
@@ -209,20 +238,23 @@ export const vercelModule = defineModule({
 
     const isStatic = Boolean(config.build)
 
+    const settingsInput: CreateProjectInput = isStatic
+      ? { framework: null }
+      : {
+          framework: config.framework ?? undefined,
+          rootDirectory: config.rootDirectory,
+          installCommand: config.installCommand,
+          buildCommand: config.buildCommand,
+          outputDirectory: config.outputDirectory,
+        }
+
     let project = await findProject(vercelToken, config.projectName, config.teamId)
     if (project) {
       console.log(`  Project "${config.projectName}" already exists`)
+      await syncProjectSettings(vercelToken, project.id, config.teamId, settingsInput)
+      console.log(`  Synced project settings`)
     } else {
-      const createInput: CreateProjectInput = isStatic
-        ? { framework: null }
-        : {
-            framework: config.framework ?? undefined,
-            rootDirectory: config.rootDirectory,
-            installCommand: config.installCommand,
-            buildCommand: config.buildCommand,
-            outputDirectory: config.outputDirectory,
-          }
-      project = await createProject(vercelToken, config.projectName, config.teamId, createInput)
+      project = await createProject(vercelToken, config.projectName, config.teamId, settingsInput)
       console.log(`  Created project "${config.projectName}"`)
     }
 
