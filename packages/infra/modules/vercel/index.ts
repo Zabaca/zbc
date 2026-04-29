@@ -84,6 +84,35 @@ async function createProject(
   })
 }
 
+/**
+ * PATCH project settings on every apply so config-as-code stays
+ * authoritative. createProject only sets these on first creation; without
+ * this call, edits to rootDirectory/installCommand/etc. are silently
+ * ignored on existing projects.
+ */
+async function syncProjectSettings(
+  token: string,
+  projectId: string,
+  teamId: string | undefined,
+  input: CreateProjectInput,
+) {
+  const body: Record<string, unknown> = {}
+  // Only set fields the caller explicitly provided. Vercel treats `null`
+  // as "use default", which we want for framework when caller didn't pass.
+  if (input.framework !== undefined) body.framework = input.framework
+  if (input.rootDirectory !== undefined) body.rootDirectory = input.rootDirectory
+  if (input.installCommand !== undefined) body.installCommand = input.installCommand
+  if (input.buildCommand !== undefined) body.buildCommand = input.buildCommand
+  if (input.outputDirectory !== undefined) body.outputDirectory = input.outputDirectory
+
+  if (Object.keys(body).length === 0) return
+
+  await vercelFetch(`/v9/projects/${projectId}`, token, teamId, {
+    method: 'PATCH',
+    body: JSON.stringify(body),
+  })
+}
+
 async function syncEnvVars(
   token: string,
   projectId: string,
@@ -194,6 +223,14 @@ export const vercelModule = defineModule({
       outputDirectory: z.string().optional(),
 
       production: z.boolean().default(true),
+
+      /**
+       * Secrets to forward to the Vercel project as runtime env vars.
+       * Each entry names a key in the environment's secrets.yaml; the same
+       * name is set on the Vercel project. Used for app-runtime secrets
+       * that aren't outputs of an imported instance (e.g. BETTER_AUTH_SECRET).
+       */
+      secretEnv: z.array(z.string()).default([]),
     })
     .refine((c) => Boolean(c.build) !== Boolean(c.sourceDir), {
       message: 'Provide exactly one of `build` (static prebuilt) or `sourceDir` (Vercel builds).',
@@ -209,20 +246,23 @@ export const vercelModule = defineModule({
 
     const isStatic = Boolean(config.build)
 
+    const settingsInput: CreateProjectInput = isStatic
+      ? { framework: null }
+      : {
+          framework: config.framework ?? undefined,
+          rootDirectory: config.rootDirectory,
+          installCommand: config.installCommand,
+          buildCommand: config.buildCommand,
+          outputDirectory: config.outputDirectory,
+        }
+
     let project = await findProject(vercelToken, config.projectName, config.teamId)
     if (project) {
       console.log(`  Project "${config.projectName}" already exists`)
+      await syncProjectSettings(vercelToken, project.id, config.teamId, settingsInput)
+      console.log(`  Synced project settings`)
     } else {
-      const createInput: CreateProjectInput = isStatic
-        ? { framework: null }
-        : {
-            framework: config.framework ?? undefined,
-            rootDirectory: config.rootDirectory,
-            installCommand: config.installCommand,
-            buildCommand: config.buildCommand,
-            outputDirectory: config.outputDirectory,
-          }
-      project = await createProject(vercelToken, config.projectName, config.teamId, createInput)
+      project = await createProject(vercelToken, config.projectName, config.teamId, settingsInput)
       console.log(`  Created project "${config.projectName}"`)
     }
 
@@ -236,6 +276,20 @@ export const vercelModule = defineModule({
           }
         }
       }
+    }
+    // Vercel doesn't expose the project slug as a system env var. Inject it
+    // ourselves so runtime code can construct the bare `<projectName>.vercel.app`
+    // alias (which VERCEL_PROJECT_PRODUCTION_URL hides once a custom domain
+    // is attached).
+    envVars['VERCEL_PROJECT_NAME'] = config.projectName
+    for (const secretName of config.secretEnv) {
+      const value = ctx.secrets[secretName]
+      if (!value) {
+        throw new Error(
+          `secretEnv references "${secretName}" but it's missing from this environment's secrets.yaml`,
+        )
+      }
+      envVars[secretName] = value
     }
     if (Object.keys(envVars).length > 0) {
       await syncEnvVars(vercelToken, project.id, config.teamId, envVars, [

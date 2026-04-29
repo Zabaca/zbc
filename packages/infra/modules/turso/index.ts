@@ -10,6 +10,12 @@ export const tursoModule = defineModule({
     group: z.string().default('default'),
     primaryLocation: z.string().default('iad'),
     ephemeral: z.boolean().default(false),
+    /**
+     * Path to a Drizzle migrations folder, relative to the monorepo root
+     * (resolved via ctx.projectRoot). When provided, apply() runs migrations
+     * after database creation. Idempotent.
+     */
+    migrationsDir: z.string().optional(),
   }),
   outputs: z.object({
     databaseUrl: z.string(),
@@ -70,12 +76,31 @@ export const tursoModule = defineModule({
       authorization: 'full-access',
     })
 
-    const hostname =
-      existing?.hostname ??
-      `${config.dbName}-${config.orgName}.turso.io`
+    const hostname = existing?.hostname ?? `${config.dbName}-${config.orgName}.turso.io`
+    const databaseUrl = `libsql://${hostname}`
+
+    if (config.migrationsDir) {
+      const { resolve } = await import('node:path')
+      const { createClient: createLibsqlClient } = await import('@libsql/client')
+      const { drizzle } = await import('drizzle-orm/libsql')
+      const { migrate } = await import('drizzle-orm/libsql/migrator')
+
+      const folder = resolve(ctx.projectRoot, config.migrationsDir)
+      const migrationClient = createLibsqlClient({
+        url: databaseUrl,
+        authToken: tokenResponse.jwt,
+      })
+      const migrationDb = drizzle(migrationClient)
+
+      console.log(`  Applying migrations from ${folder}`)
+      await migrate(migrationDb, { migrationsFolder: folder })
+      console.log(`  ✓ Migrations applied`)
+
+      migrationClient.close()
+    }
 
     return {
-      databaseUrl: `libsql://${hostname}`,
+      databaseUrl,
       authToken: tokenResponse.jwt,
     }
   },
