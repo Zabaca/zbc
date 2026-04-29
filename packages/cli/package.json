@@ -1,10 +1,23 @@
 {
-  "name": "@zbc/cli",
-  "version": "0.0.1",
-  "private": true,
+  "name": "@zabaca/zbc",
+  "version": "0.1.0",
+  "description": "Zabaca stack CLI — scaffold and deploy infrastructure",
+  "license": "MIT",
   "type": "module",
   "bin": {
     "zbc": "./src/index.ts"
+  },
+  "files": [
+    "src",
+    "templates",
+    "modules"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "sync-modules": "bun scripts/sync-modules.ts",
+    "prepublishOnly": "bun scripts/sync-modules.ts"
   },
   "dependencies": {
     "@zbc/infra": "workspace:*",

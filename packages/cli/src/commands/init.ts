@@ -1,50 +1,125 @@
 import * as path from 'node:path'
+import * as fs from 'node:fs/promises'
 import { defineCommand } from 'citty'
+import { detectMode } from '../utils/detect-mode'
+import { copyTemplateDir, copyTemplateFile, templatesRoot } from '../utils/copy-template'
+
+async function ensureDir(dir: string): Promise<void> {
+  await fs.mkdir(dir, { recursive: true })
+}
+
+async function writeIfMissing(filePath: string, body: string): Promise<void> {
+  const file = Bun.file(filePath)
+  if (await file.exists()) {
+    console.log(`  skip ${path.relative(process.cwd(), filePath)} (exists)`)
+    return
+  }
+  await ensureDir(path.dirname(filePath))
+  await Bun.write(filePath, body)
+  console.log(`  write ${path.relative(process.cwd(), filePath)}`)
+}
 
 export const initCommand = defineCommand({
   meta: {
     name: 'init',
-    description: 'Scaffold a new project from template',
+    description: 'Scaffold zbc infrastructure into the current repo',
   },
   args: {
     project: {
       type: 'positional',
-      description: 'Project name',
-      required: true,
+      description: 'Project name (defaults to current directory name)',
+      required: false,
+    },
+    ci: {
+      type: 'string',
+      description: 'CI provider to scaffold (e.g. "github")',
+      required: false,
+    },
+    'no-sops': {
+      type: 'boolean',
+      description: 'Skip writing .sops.yaml',
+      default: false,
+    },
+    'non-interactive': {
+      type: 'boolean',
+      description: 'Fail instead of prompting',
+      default: false,
     },
   },
   async run({ args }) {
-    const projectDir = path.resolve(process.cwd(), args.project)
+    const cwd = process.cwd()
+    const projectName = args.project ?? path.basename(cwd)
+    const tplRoot = templatesRoot()
 
-    if (await Bun.file(path.join(projectDir, 'package.json')).exists()) {
-      console.error(`Directory "${args.project}" already contains a package.json`)
+    console.log(`zbc init: ${projectName}`)
+    console.log(`  cwd:       ${cwd}`)
+
+    const mode = await detectMode(cwd)
+    if (mode.kind === 'incompatible') {
+      console.error(`✗ ${mode.reason}`)
       process.exit(1)
     }
+    console.log(`  mode:      ${mode.kind}`)
 
-    console.log(`Scaffolding project "${args.project}" at ${projectDir}...`)
+    const vars = { PROJECT_NAME: projectName }
 
-    // TODO: Generate project files from embedded templates
-    // For now, just create the directory structure
-    const dirs = [
-      'packages/web/src',
-      'packages/db/src',
-      'packages/config/src',
-      'packages/cli/src',
-      'packages/infra/src',
-      'packages/infra/modules',
-      'packages/infra/environments/production',
-      'packages/infra/environments/preview',
-      'packages/infra/environments/development',
-      '.github/workflows',
-    ]
-
-    for (const dir of dirs) {
-      await Bun.write(
-        path.join(projectDir, dir, '.gitkeep'),
-        '',
+    // 1. Greenfield-only root files
+    if (mode.kind === 'greenfield') {
+      await copyTemplateFile(
+        path.join(tplRoot, 'root/package.json'),
+        path.join(cwd, 'package.json'),
+        { vars },
       )
+      await copyTemplateFile(
+        path.join(tplRoot, 'root/tsconfig.json'),
+        path.join(cwd, 'tsconfig.json'),
+        { vars },
+      )
+      await copyTemplateFile(path.join(tplRoot, 'gitignore'), path.join(cwd, '.gitignore'))
     }
 
-    console.log(`Project "${args.project}" scaffolded. Run \`cd ${args.project} && bun install\` to get started.`)
+    // 2. zbc.config.ts (both modes)
+    await copyTemplateFile(path.join(tplRoot, 'zbc.config.ts'), path.join(cwd, 'zbc.config.ts'), {
+      vars,
+    })
+
+    // 3. .sops.yaml (unless --no-sops)
+    if (!args['no-sops']) {
+      await copyTemplateFile(path.join(tplRoot, 'sops.yaml'), path.join(cwd, '.sops.yaml'))
+    }
+
+    // 4. packages/infra/ skeleton (always)
+    const infraDest = path.join(cwd, 'packages/infra')
+    await copyTemplateDir(path.join(tplRoot, 'infra'), infraDest, { vars })
+
+    // 5. environments/ dirs with .gitkeep
+    for (const env of ['production', 'preview']) {
+      const envDir = path.join(infraDest, 'environments', env)
+      await ensureDir(envDir)
+      await writeIfMissing(path.join(envDir, '.gitkeep'), '')
+    }
+
+    // 6. CI workflows
+    if (args.ci === 'github') {
+      const wfDest = path.join(cwd, '.github/workflows')
+      await copyTemplateDir(path.join(tplRoot, 'workflows'), wfDest)
+    } else if (args.ci) {
+      console.warn(`  warn: unknown --ci=${args.ci} (only "github" supported)`)
+    }
+
+    console.log('')
+    console.log('✓ init done')
+    console.log('')
+    if (mode.kind === 'greenfield') {
+      console.log('Next steps:')
+      console.log('  1. bun install')
+      console.log('  2. Add your age public keys to .sops.yaml')
+      console.log('  3. bunx @zabaca/zbc add turso       # or vercel')
+    } else {
+      console.log('Next steps:')
+      console.log('  1. bun install                       # pick up packages/infra')
+      console.log('  2. Add your age public keys to .sops.yaml')
+      console.log('  3. bunx @zabaca/zbc add turso       # or vercel')
+    }
   },
 })
