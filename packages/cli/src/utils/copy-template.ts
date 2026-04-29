@@ -6,6 +6,8 @@ interface CopyOptions {
   vars?: Record<string, string>
   /** Override skip-if-exists behavior. Default true. */
   skipIfExists?: boolean
+  /** Directory/file basenames to skip (e.g. ['modules']). */
+  exclude?: string[]
 }
 
 function substitute(body: string, vars: Record<string, string>): string {
@@ -51,9 +53,11 @@ export async function copyTemplateDir(
   opts: CopyOptions & { rename?: Record<string, string> } = {},
 ): Promise<void> {
   const rename = opts.rename ?? {}
+  const exclude = new Set(opts.exclude ?? [])
   const entries = await fs.readdir(sourceDir, { withFileTypes: true })
 
   for (const entry of entries) {
+    if (exclude.has(entry.name)) continue
     const srcPath = path.join(sourceDir, entry.name)
     const destName = rename[entry.name] ?? entry.name
     const destPath = path.join(destDir, destName)
@@ -72,14 +76,7 @@ export function templatesRoot(): string {
   return path.resolve(import.meta.dir, '../../templates')
 }
 
-/**
- * Candidate paths for bundled modules. `zbc add` tries these in order:
- *   1. packages/cli/modules/ — populated at publish time by sync-modules.ts
- *   2. packages/infra/modules/ — sibling fallback when running from this repo
- */
+/** Path to bundled modules: packages/cli/templates/infra/modules/. */
 export function bundledModulesCandidates(): string[] {
-  return [
-    path.resolve(import.meta.dir, '../../modules'),
-    path.resolve(import.meta.dir, '../../../infra/modules'),
-  ]
+  return [path.resolve(import.meta.dir, '../../templates/infra/modules')]
 }

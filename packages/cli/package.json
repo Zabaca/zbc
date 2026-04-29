@@ -9,8 +9,7 @@
   },
   "files": [
     "src",
-    "templates",
-    "modules"
+    "templates"
   ],
   "publishConfig": {
     "access": "public"

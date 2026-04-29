@@ -88,9 +88,13 @@ export const initCommand = defineCommand({
       await copyTemplateFile(path.join(tplRoot, 'sops.yaml'), path.join(cwd, '.sops.yaml'))
     }
 
-    // 4. packages/infra/ skeleton (always)
+    // 4. packages/infra/ skeleton (always). Exclude modules — those are
+    //    added on demand via `zbc add`.
     const infraDest = path.join(cwd, 'packages/infra')
-    await copyTemplateDir(path.join(tplRoot, 'infra'), infraDest, { vars })
+    await copyTemplateDir(path.join(tplRoot, 'infra'), infraDest, {
+      vars,
+      exclude: ['modules'],
+    })
 
     // 5. environments/ dirs with .gitkeep
     for (const env of ['production', 'preview']) {
