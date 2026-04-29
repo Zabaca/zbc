@@ -15,10 +15,6 @@
   "publishConfig": {
     "access": "public"
   },
-  "scripts": {
-    "sync-modules": "bun scripts/sync-modules.ts",
-    "prepublishOnly": "bun scripts/sync-modules.ts"
-  },
   "dependencies": {
     "citty": "^0.1.6",
     "sops-age": "^4.0.2",
