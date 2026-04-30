@@ -12,6 +12,9 @@
     "src",
     "templates"
   ],
+  "scripts": {
+    "publish:npm": "bun publish --access public"
+  },
   "publishConfig": {
     "access": "public"
   },
