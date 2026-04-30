@@ -175,6 +175,7 @@ Opens at [http://localhost:3000](http://localhost:3000). The viewer shows all co
 ## Working with this repo
 
 - **Runtime:** [Bun](https://bun.sh) — use `bun` everywhere (`bun install`, `bun run`, `bunx`). Do not use npm or yarn.
+- **Publishing `@zabaca/zbc`:** use `bun publish`, never `npm publish`. npm strips non-node shebangs from bin entries, breaking the CLI. Run: `cd packages/cli && bun run publish:npm`.
 - **Styling:** Tailwind CSS v4 — uses the new `@import "tailwindcss"` syntax and CSS-first config. No `tailwind.config.js`.
 - **No shadcn/ui** — this is a deliberate choice. Components are hand-authored to match the Prose design system exactly.
 - **Single-tenant design system** — `packages/design-system/` is purpose-built for Zabaca. Do not treat it as a generic component library.
