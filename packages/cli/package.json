@@ -5,7 +5,7 @@
   "license": "MIT",
   "type": "module",
   "bin": {
-    "zbc": "./bin/zbc"
+    "zbc": "./bin/zbc.js"
   },
   "files": [
     "bin",
