@@ -5,9 +5,10 @@
   "license": "MIT",
   "type": "module",
   "bin": {
-    "zbc": "./src/index.ts"
+    "zbc": "./bin/zbc"
   },
   "files": [
+    "bin",
     "src",
     "templates"
   ],
