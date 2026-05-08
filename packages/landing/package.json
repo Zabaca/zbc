@@ -9,8 +9,9 @@
     "start": "bun --bun next start --port 3001"
   },
   "dependencies": {
-    "@zbc/design-system": "workspace:*",
     "@tailwindcss/postcss": "^4.2.4",
+    "@zbc/design-system": "workspace:*",
+    "nats.ws": "^1.30.3",
     "next": "^15.5.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",

@@ -1,4 +1,5 @@
 import { Section, Container, Stack, Measure, PrimaryButton } from '@zbc/design-system'
+import { LiveClicks } from './live-clicks'
 
 // Force dynamic rendering — proves SSR is actually executing per-request,
 // not falling back to static generation at build time.
@@ -23,6 +24,7 @@ export default function Page() {
             hit.
           </Measure>
           <PrimaryButton type="button">A button from the design system</PrimaryButton>
+          <LiveClicks />
         </Stack>
       </Container>
     </Section>
