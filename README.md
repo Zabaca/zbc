@@ -12,14 +12,25 @@ Projects live here under `packages/<project>/`; per-environment module instances
 ├── vercel.json                             # git.deploymentEnabled: false
 │
 ├── packages/
-│   ├── cli/                                # zbc — CLI entry point + commands
-│   └── infra/                              # infrastructure
-│       ├── modules/
-│       │   ├── turso/                      # Turso database module
-│       │   └── vercel/                     # Vercel project + deploy module
+│   ├── cli/                                # zbc — CLI source + bundled module templates
+│   │   ├── src/
+│   │   │   ├── commands/                   # init, add, apply, destroy
+│   │   │   ├── engine/                     # apply graph + secret loading
+│   │   │   └── utils/
+│   │   └── templates/                      # source of truth scaffolded by `zbc init` / `zbc add`
+│   │       ├── infra/
+│   │       │   ├── modules/                # turso, vercel, … (each with registry.json)
+│   │       │   └── src/                    # defineModule helpers + shared types
+│   │       ├── workflows/                  # CI workflows (preview.yml, production.yml)
+│   │       ├── root/                       # package.json, tsconfig.json scaffolds
+│   │       ├── sops.yaml
+│   │       └── zbc.config.ts
+│   └── infra/                              # live consumer of the templates above
+│       ├── modules → ../cli/templates/infra/modules    # symlink
+│       ├── src → ../cli/templates/infra/src            # symlink
 │       └── environments/
-│           ├── production/                 # (empty) — add module instances per project
-│           └── preview/                    # (empty) — ephemeral preview resources
+│           ├── production/                 # add module instances per project
+│           └── preview/                    # ephemeral preview resources
 │
 └── .github/
     └── workflows/
@@ -30,18 +41,31 @@ Projects live here under `packages/<project>/`; per-environment module instances
 ## CLI
 
 ```bash
+zbc init [project] [--ci github]            # scaffold zbc into a repo (greenfield or existing)
+zbc add <module>                            # add a built-in module (turso, vercel, …)
 zbc apply <env>                             # apply all module instances for an environment
 zbc apply <env> <instance>                  # apply a specific instance (+ its dependencies)
 zbc destroy <env>                           # tear down ephemeral resources
 ```
 
-`apply` is declarative and idempotent. Run it the first time — everything is provisioned and deployed. Run it again — no-op except code deploy. Config changed — it converges. Same command locally and in CI.
+**`init`** is the one-time scaffold. It drops `zbc.config.ts`, `.sops.yaml`, the `packages/infra/` skeleton, and (with `--ci github`) the workflows. It does not add modules — those come on demand.
+
+**`add`** brings in a single module: copies the module's `index.ts` into `packages/infra/modules/<name>/`, runs `bun add` for its declared dependencies, and prints the secrets you need to put in `secrets.yaml` along with the provider's signup/token URLs.
+
+**`apply`** is declarative and idempotent. Run it the first time — everything is provisioned and deployed. Run it again — no-op except code deploy. Config changed — it converges. Same command locally and in CI.
 
 For ephemeral instances (`ephemeral: true`), `apply` destroys and recreates the resource on every run, ensuring a clean state. `destroy` tears down ephemeral resources (reverse dependency order) and is used for cleanup when a PR is closed.
 
 ## Modules
 
-Modules live in `packages/infra/modules/` and define the schema and apply/destroy logic for a type of service:
+Modules live in `packages/infra/modules/` (consumer-side) — really at `packages/cli/templates/infra/modules/<name>/` (source of truth). Each module is a directory with two files:
+
+- `index.ts` — schema (zod) + `apply`/`destroy` logic via `defineModule`
+- `registry.json` — manifest read by `zbc add`: files to copy, npm dependencies, required secrets, signup/token URLs, post-install instructions
+
+A new built-in module = drop a directory under `packages/cli/templates/infra/modules/<name>/` containing those two files. It's then available via `zbc add <name>` in any consumer repo.
+
+Module shape (`index.ts`):
 
 ```ts
 import { z } from 'zod'
@@ -174,6 +198,7 @@ Opens at [http://localhost:3000](http://localhost:3000). The viewer shows all co
 
 ## Working with this repo
 
+- **Module/src layout:** `packages/infra/modules/` and `packages/infra/src/` are symlinks into `packages/cli/templates/infra/`. The `cli/templates/` tree is the source of truth (it's what `zbc init` scaffolds into new projects); this repo is a live consumer of its own templates. Edit modules at `packages/cli/templates/infra/modules/<name>/`, not via the symlink.
 - **Runtime:** [Bun](https://bun.sh) — use `bun` everywhere (`bun install`, `bun run`, `bunx`). Do not use npm or yarn.
 - **Publishing `@zabaca/zbc`:** use `bun publish`, never `npm publish`. npm strips non-node shebangs from bin entries, breaking the CLI. Run: `cd packages/cli && bun run publish:npm`.
 - **Styling:** Tailwind CSS v4 — uses the new `@import "tailwindcss"` syntax and CSS-first config. No `tailwind.config.js`.
