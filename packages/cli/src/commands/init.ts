@@ -111,6 +111,14 @@ export const initCommand = defineCommand({
       console.warn(`  warn: unknown --ci=${args.ci} (only "github" supported)`)
     }
 
+    // 7. Claude Code scaffolding (greenfield only — don't touch existing setups)
+    if (mode.kind === 'greenfield') {
+      await copyTemplateFile(path.join(tplRoot, 'CLAUDE.md'), path.join(cwd, 'CLAUDE.md'), {
+        vars,
+      })
+      await copyTemplateDir(path.join(tplRoot, 'claude'), path.join(cwd, '.claude'))
+    }
+
     console.log('')
     console.log('✓ init done')
     console.log('')
