@@ -1,10 +1,10 @@
-import { randomBytes } from 'node:crypto'
 import { z } from 'zod'
+import { createOperator, createAccount, fromSeed } from '@nats-io/nkeys'
+import { encodeOperator, encodeAccount } from '@nats-io/jwt'
 import { defineModule } from '../../src/define-module'
 
 const FLY_API = 'https://api.machines.dev'
 const FLY_GRAPHQL = 'https://api.fly.io/graphql'
-const NATS_USER = 'app'
 const MACHINE_TAG = { 'managed-by': 'zbc', instance: 'nats' } as const
 
 interface FlyApp {
@@ -93,19 +93,20 @@ async function ensureIPs(appName: string, token: string): Promise<void> {
   }
 }
 
-function renderConf(): string {
+function renderConf(operatorJWT: string, accountPub: string, accountJWT: string): string {
   return `# Managed by zbc — do not edit by hand.
+
+operator: ${operatorJWT}
+resolver: MEMORY
+resolver_preload: {
+  ${accountPub}: ${accountJWT}
+}
 
 http_port: 8222
 
 websocket {
   port: 8080
   no_tls: true
-}
-
-authorization {
-  user: ${NATS_USER}
-  password: $NATS_PASSWORD
 }
 
 max_payload: 1MB
@@ -130,22 +131,34 @@ export const natsServerModule = defineModule({
   }),
   outputs: z.object({
     url: z.string(),
-    user: z.string(),
-    password: z.string(),
+    accountPublicKey: z.string(),
+    accountSigningKey: z.string(),
   }),
   async apply(config, ctx) {
     const flyToken = ctx.secrets['FLY_API_TOKEN']
     if (!flyToken) throw new Error('Missing secret: FLY_API_TOKEN')
 
-    const password = ctx.secrets['NATS_PASSWORD']
-    if (!password) {
-      const generated = randomBytes(32).toString('hex')
+    const operatorSeed = ctx.secrets['NATS_OPERATOR_SEED']
+    const accountSeed = ctx.secrets['NATS_ACCOUNT_SEED']
+    if (!operatorSeed || !accountSeed) {
+      const op = createOperator()
+      const ac = createAccount()
+      const opSeed = new TextDecoder().decode(op.getSeed())
+      const acSeed = new TextDecoder().decode(ac.getSeed())
       throw new Error(
-        `Missing secret: NATS_PASSWORD\n` +
-          `  Generated one for you — add to your environment's secrets.yaml and re-run:\n\n` +
-          `    NATS_PASSWORD: ${generated}\n`,
+        `Missing secret: NATS_OPERATOR_SEED and/or NATS_ACCOUNT_SEED\n` +
+          `  Generated a pair for you — add both to your environment's secrets.yaml and re-run:\n\n` +
+          `    NATS_OPERATOR_SEED: ${opSeed}\n` +
+          `    NATS_ACCOUNT_SEED: ${acSeed}\n`,
       )
     }
+
+    const operatorKP = fromSeed(new TextEncoder().encode(operatorSeed))
+    const accountKP = fromSeed(new TextEncoder().encode(accountSeed))
+    const accountPub = accountKP.getPublicKey()
+
+    const operatorJWT = await encodeOperator('zbc-operator', operatorKP)
+    const accountJWT = await encodeAccount('zbc-account', accountKP, {}, { signer: operatorKP })
 
     let app = await flyFetch<FlyApp>(`/v1/apps/${config.appName}`, flyToken)
     if (app) {
@@ -162,11 +175,12 @@ export const natsServerModule = defineModule({
 
     const machineConfig = {
       image: 'nats:latest',
-      env: { NATS_PASSWORD: password },
       files: [
         {
           guest_path: '/etc/nats/nats-server.conf',
-          raw_value: Buffer.from(renderConf(), 'utf8').toString('base64'),
+          raw_value: Buffer.from(renderConf(operatorJWT, accountPub, accountJWT), 'utf8').toString(
+            'base64',
+          ),
         },
       ],
       init: { cmd: ['-c', '/etc/nats/nats-server.conf'] },
@@ -247,8 +261,8 @@ export const natsServerModule = defineModule({
 
     return {
       url: `wss://${config.appName}.fly.dev`,
-      user: NATS_USER,
-      password,
+      accountPublicKey: accountPub,
+      accountSigningKey: accountSeed,
     }
   },
   async destroy(config, ctx) {
