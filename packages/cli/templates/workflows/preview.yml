@@ -27,10 +27,39 @@ jobs:
 
       - run: bun install
 
-      - name: Apply preview
+      - name: Apply preview + comment URLs
         env:
           SOPS_AGE_KEY: ${{ secrets.SOPS_AGE_KEY }}
-        run: bunx @zabaca/zbc apply preview
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -o pipefail
+          OUTPUT=$(bunx @zabaca/zbc apply preview 2>&1)
+          STATUS=$?
+          echo "$OUTPUT"
+
+          # Pair each "Deployed:" URL with the most recent "→ vercel:<name>" header
+          LIST=$(echo "$OUTPUT" | awk '
+            /^→ vercel:/{name=$2; sub(/vercel:/, "", name)}
+            /Deployed:/{print "- **" name "**: " $NF}
+          ')
+
+          if [ -z "$LIST" ]; then
+            LIST="(no deployments captured — see logs)"
+          fi
+
+          BODY=$(printf '### Preview deployed :rocket:\n\n%s\n' "$LIST")
+
+          # Update existing comment if present, else create a new one
+          EXISTING=$(gh api "repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments" \
+            --jq '.[] | select(.body | startswith("### Preview deployed")) | .id' | head -1)
+
+          if [ -n "$EXISTING" ]; then
+            gh api -X PATCH "repos/${{ github.repository }}/issues/comments/$EXISTING" -f body="$BODY"
+          else
+            gh pr comment ${{ github.event.pull_request.number }} --body "$BODY"
+          fi
+
+          exit $STATUS
 
   cleanup:
     if: github.event.action == 'closed'

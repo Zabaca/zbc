@@ -181,6 +181,40 @@ CI has its own age keypair. The private key is stored as a single GitHub Actions
 3. Put any required secrets (API tokens, provider credentials) into `packages/infra/environments/<env>/secrets.yaml`, encrypted via SOPS.
 4. Run `zbc apply <env>` locally to validate. CI will take over on push to main and on PRs.
 
+## Releasing the CLI
+
+`@zabaca/zbc` is published from `packages/cli/`. Tags follow `zbc-cli-v<version>`; release commits follow `release(cli): @zabaca/zbc <version>`.
+
+1. **Bump the version** in `packages/cli/package.json` (semver — patch for template/bugfix tweaks, minor for new commands or modules).
+2. **Commit** the bump (plus any code/template changes shipping with it):
+
+   ```bash
+   git commit -m "release(cli): @zabaca/zbc <version>"
+   ```
+
+3. **Tag** the release commit and push both:
+
+   ```bash
+   git tag zbc-cli-v<version>
+   git push origin main zbc-cli-v<version>
+   ```
+
+4. **Publish to npm** with Bun (never `npm publish` — npm strips the bun shebang from `bin/zbc.js` and breaks the CLI):
+
+   ```bash
+   cd packages/cli && bun run publish:npm
+   ```
+
+   Requires npm auth (`npm whoami` to verify) and publish rights on the `@zabaca` scope.
+
+5. **Verify** the new version is live:
+
+   ```bash
+   npm view @zabaca/zbc version
+   ```
+
+Note: existing scaffolded repos have their own checked-in workflows from whenever they last ran `zbc init` — template changes do not flow into them automatically. They need a re-scaffold or manual patch to pick up workflow updates.
+
 ## Design system
 
 The Prose design system is split across two packages:
