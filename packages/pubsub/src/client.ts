@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { connect, jwtAuthenticator, type NatsConnection, type Subscription } from 'nats.ws'
 import type { MintedCreds } from './shared'
 
@@ -30,6 +30,7 @@ export function useNats(opts: UseNatsOpts): UseNatsResult {
 
   useEffect(() => {
     cancelledRef.current = false
+    let attempt = 0
 
     async function fetchCreds(): Promise<MintedCreds> {
       const res = await fetch(tokenEndpoint)
@@ -63,6 +64,7 @@ export function useNats(opts: UseNatsOpts): UseNatsResult {
         }
 
         ncRef.current = nc
+        attempt = 0
         setStatus('live')
 
         // Re-attach any subscriptions established before/across reconnects
@@ -79,7 +81,13 @@ export function useNats(opts: UseNatsOpts): UseNatsResult {
       } catch (err) {
         if (cancelledRef.current) return
         console.error('useNats: connect failed', err)
-        setStatus('error')
+        attempt++
+        setStatus('reconnecting')
+        // Exponential backoff: 1s, 2s, 4s, 8s, 16s, capped at 30s
+        const delay = Math.min(30_000, 1_000 * 2 ** Math.min(attempt - 1, 5))
+        refreshTimerRef.current = setTimeout(() => {
+          void connectOnce(false)
+        }, delay)
       }
     }
 
@@ -112,7 +120,7 @@ export function useNats(opts: UseNatsOpts): UseNatsResult {
     }
   }, [tokenEndpoint])
 
-  function publish(subject: string, payload?: Uint8Array | string): void {
+  const publish = useCallback((subject: string, payload?: Uint8Array | string): void => {
     const nc = ncRef.current
     if (!nc) return
     const data =
@@ -122,30 +130,30 @@ export function useNats(opts: UseNatsOpts): UseNatsResult {
           ? new TextEncoder().encode(payload)
           : payload
     nc.publish(subject, data)
-  }
+  }, [])
 
-  function subscribe(
-    subject: string,
-    onMsg: (data: Uint8Array, subject: string) => void,
-  ): () => void {
-    const active: ActiveSub = { subject, onMsg }
-    subsRef.current.push(active)
-    const nc = ncRef.current
-    if (nc) {
-      const sub = nc.subscribe(subject)
-      active.sub = sub
-      ;(async () => {
-        for await (const m of sub) {
-          onMsg(m.data, m.subject)
-        }
-      })()
-    }
-    return () => {
-      const idx = subsRef.current.indexOf(active)
-      if (idx >= 0) subsRef.current.splice(idx, 1)
-      active.sub?.unsubscribe()
-    }
-  }
+  const subscribe = useCallback(
+    (subject: string, onMsg: (data: Uint8Array, subject: string) => void): (() => void) => {
+      const active: ActiveSub = { subject, onMsg }
+      subsRef.current.push(active)
+      const nc = ncRef.current
+      if (nc) {
+        const sub = nc.subscribe(subject)
+        active.sub = sub
+        ;(async () => {
+          for await (const m of sub) {
+            onMsg(m.data, m.subject)
+          }
+        })()
+      }
+      return () => {
+        const idx = subsRef.current.indexOf(active)
+        if (idx >= 0) subsRef.current.splice(idx, 1)
+        active.sub?.unsubscribe()
+      }
+    },
+    [],
+  )
 
   return { status, publish, subscribe }
 }

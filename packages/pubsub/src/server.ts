@@ -4,7 +4,6 @@ import type { MintedCreds } from './shared'
 
 export interface MintInput {
   url: string
-  accountPublicKey: string
   accountSigningKey: string
   pub: { allow: string[] }
   sub: { allow: string[] }
