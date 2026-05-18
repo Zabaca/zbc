@@ -271,7 +271,10 @@ export const vercelModule = defineModule({
       if (typeof outputs === 'object' && outputs !== null) {
         for (const [key, value] of Object.entries(outputs as Record<string, unknown>)) {
           if (typeof value === 'string') {
-            const envKey = `${instanceName}_${key}`.toUpperCase().replace(/-/g, '_')
+            const envKey = `${instanceName}_${key}`
+              .replace(/([a-z0-9])([A-Z])/g, '$1_$2')
+              .toUpperCase()
+              .replace(/-/g, '_')
             envVars[envKey] = value
           }
         }

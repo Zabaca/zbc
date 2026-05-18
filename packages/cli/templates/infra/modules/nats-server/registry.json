@@ -1,12 +1,14 @@
 {
   "name": "nats-server",
-  "description": "Self-hosted NATS pub/sub server on Fly.io (WebSocket, single shared cred)",
+  "description": "Self-hosted NATS pub/sub server on Fly.io (WebSocket, scoped JWT auth via @nats-io operator/account chain)",
   "files": [{ "path": "index.ts" }],
   "dependencies": {
-    "zod": "^3.24.0"
+    "zod": "^3.24.0",
+    "@nats-io/jwt": "^0.0.11",
+    "@nats-io/nkeys": "^2.0.3"
   },
-  "secrets": ["FLY_API_TOKEN", "NATS_PASSWORD"],
+  "secrets": ["FLY_API_TOKEN", "NATS_OPERATOR_SEED", "NATS_ACCOUNT_SEED"],
   "signupUrl": "https://fly.io/app/sign-up",
   "tokenUrl": "https://fly.io/user/personal_access_tokens",
-  "instructions": "Add FLY_API_TOKEN and NATS_PASSWORD to packages/infra/environments/<env>/secrets.yaml. If you don't have a NATS_PASSWORD yet, run apply once and the module will print a generated value to paste in. The module creates a single Fly Machine running nats:latest with WebSocket on wss://<appName>.fly.dev."
+  "instructions": "Add FLY_API_TOKEN to packages/infra/environments/<env>/secrets.yaml. NATS_OPERATOR_SEED and NATS_ACCOUNT_SEED are the root of the NATS decentralized auth chain — if you don't have them yet, run apply once and the module will generate a pair and print them; paste both into secrets.yaml and re-run. The module creates a Fly Machine running nats:latest with WebSocket on wss://<appName>.fly.dev and verifies JWTs locally (no network callbacks)."
 }

@@ -1,0 +1,23 @@
+{
+  "name": "@zbc/pubsub",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/shared.ts",
+    "./server": "./src/server.ts",
+    "./client": "./src/client.ts"
+  },
+  "dependencies": {
+    "@nats-io/jwt": "^0.0.11",
+    "@nats-io/nkeys": "^2.0.3",
+    "nats.ws": "^1.30.3"
+  },
+  "peerDependencies": {
+    "react": "^19.0.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.0.0",
+    "typescript": "^5.7.0"
+  }
+}
