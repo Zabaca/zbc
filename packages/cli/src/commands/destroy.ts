@@ -15,6 +15,11 @@ export const destroyCommand = defineCommand({
       description: 'Environment name (e.g., preview)',
       required: true,
     },
+    instance: {
+      type: 'positional',
+      description: 'Specific instance to destroy (omit to destroy the whole environment)',
+      required: false,
+    },
   },
   async run({ args }) {
     const projectRoot = await findProjectRoot()
@@ -27,16 +32,10 @@ export const destroyCommand = defineCommand({
       process.exit(1)
     }
 
-    const envDir = path.join(
-      projectRoot,
-      'packages',
-      'infra',
-      'environments',
-      args.env,
-    )
+    const envDir = path.join(projectRoot, 'packages', 'infra', 'environments', args.env)
 
-    console.log(`Destroying ${args.env}...`)
-    await destroyEnvironment(projectRoot, envDir)
+    console.log(`Destroying ${args.env}${args.instance ? ` (instance: ${args.instance})` : ''}...`)
+    await destroyEnvironment(projectRoot, envDir, args.instance)
     console.log('\nDone.')
   },
 })

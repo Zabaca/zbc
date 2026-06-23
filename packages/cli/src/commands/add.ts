@@ -28,7 +28,9 @@ async function resolveBundledModuleDir(name: string): Promise<string> {
     const registry = path.join(dir, 'registry.json')
     if (await Bun.file(registry).exists()) return dir
   }
-  throw new Error(`Module "${name}" not found in built-in registry. Available: turso, vercel.`)
+  throw new Error(
+    `Module "${name}" not found in built-in registry. Available: cloudflare, nats-server, turso, vercel.`,
+  )
 }
 
 function bunAdd(
