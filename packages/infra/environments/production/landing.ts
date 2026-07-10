@@ -1,16 +1,22 @@
-import { vercelModule } from '../../modules/vercel'
-import nats from './nats'
+import { cloudflareModule } from '../../modules/cloudflare'
 
-// SSR deploy: upload the whole repo, Vercel auto-detects Turborepo +
-// the Next.js project at rootDirectory and handles install + build.
-export default vercelModule.instance({
+// Static Next export + a tiny Worker for the two /api routes (worker/index.ts).
+// The module builds out/ locally (turbo) then `wrangler deploy` ships the worker
+// + assets (topology in packages/landing/wrangler.jsonc).
+//
+// NATS config is sourced directly, NOT via `imports: [nats]` — the generic
+// cloudflare module can't emit nats's url/user/password as structured outputs.
+// NATS_URL / NATS_USER are wrangler vars; NATS_PASSWORD is a worker secret from
+// this environment's secrets.yaml.
+export default cloudflareModule.instance({
   name: 'landing',
-  imports: [nats],
   config: {
-    projectName: 'zbc-landing',
-    teamId: 'team_rbh0EuPftWoCYgGfiHYBstEZ',
-    framework: 'nextjs',
-    sourceDir: '.',
-    rootDirectory: 'packages/landing',
+    workdir: 'packages/landing',
+    accountId: '99a19e584439be0568f33aad0477372b',
+    build: {
+      command: 'bun run build -- --filter=@zbc/landing',
+      cwd: '.',
+    },
+    workerSecrets: ['NATS_PASSWORD'],
   },
 })

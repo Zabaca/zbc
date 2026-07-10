@@ -5,7 +5,10 @@ node_modules/
 *.zip
 .idea/
 *.tsbuildinfo
-.vercel/
+.wrangler/
+**/.wrangler/
+out/
+**/out/
 .next/
 **/.next/
 .astro/

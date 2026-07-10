@@ -6,7 +6,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./turso": "./modules/turso/index.ts",
-    "./vercel": "./modules/vercel/index.ts"
+    "./cloudflare": "./modules/cloudflare/index.ts"
   },
   "dependencies": {
     "@tursodatabase/api": "^2.0.0",

@@ -9,7 +9,6 @@ Projects live here under `packages/<project>/`; per-environment module instances
 ```
 ├── zbc.config.ts                           # project metadata + environment list
 ├── .sops.yaml                              # age public keys for secrets encryption
-├── vercel.json                             # git.deploymentEnabled: false
 │
 ├── packages/
 │   ├── cli/                                # zbc — CLI source + bundled module templates
@@ -19,7 +18,7 @@ Projects live here under `packages/<project>/`; per-environment module instances
 │   │   │   └── utils/
 │   │   └── templates/                      # source of truth scaffolded by `zbc init` / `zbc add`
 │   │       ├── infra/
-│   │       │   ├── modules/                # turso, vercel, … (each with registry.json)
+│   │       │   ├── modules/                # turso, cloudflare, … (each with registry.json)
 │   │       │   └── src/                    # defineModule helpers + shared types
 │   │       ├── workflows/                  # CI workflows (preview.yml, production.yml)
 │   │       ├── root/                       # package.json, tsconfig.json scaffolds
@@ -42,7 +41,7 @@ Projects live here under `packages/<project>/`; per-environment module instances
 
 ```bash
 zbc init [project] [--ci github]            # scaffold zbc into a repo (greenfield or existing)
-zbc add <module>                            # add a built-in module (turso, vercel, …)
+zbc add <module>                            # add a built-in module (turso, cloudflare, …)
 zbc apply <env>                             # apply all module instances for an environment
 zbc apply <env> <instance>                  # apply a specific instance (+ its dependencies)
 zbc destroy <env>                           # tear down ephemeral resources
@@ -111,20 +110,23 @@ export default tursoModule.instance({
 
 ```ts
 // packages/infra/environments/production/web.ts
-import { vercelModule } from '../../modules/vercel'
-import mainDb from './main-db'
+import { cloudflareModule } from '../../modules/cloudflare'
 
-export default vercelModule.instance({
+export default cloudflareModule.instance({
   name: 'web',
-  imports: [mainDb],
   config: {
-    projectName: 'myproject-production',
-    domain: 'myproject.com',
+    workdir: 'packages/web',
+    accountId: '<cloudflare account id>',
+    build: {
+      command: 'bun run build -- --filter=@myproject/web',
+      cwd: '.',
+    },
+    workerSecrets: ['SOME_RUNTIME_SECRET'],
   },
 })
 ```
 
-Imports are between instances — typed, refactor-safe, with outputs flowing from dependency to dependent. Outputs from imported instances are synced to the downstream service as environment variables (e.g. `main-db`'s `databaseUrl` → `MAIN_DB_DATABASE_URL` on the Vercel project).
+Imports (`imports: [mainDb]`) are between instances — typed, refactor-safe, with outputs flowing from dependency to dependent — and a module's `apply` receives them as `ctx.imports`. Whether they're auto-wired into the deployed service is up to the module: the `cloudflare` module deploys **opaque** workers (config comes from the package's own `wrangler.jsonc` `vars` + `workerSecrets`, not from imports), so wire an app's config there rather than through imports.
 
 **Ephemeral preview instances** use dynamic naming and destroy+recreate on every apply:
 
@@ -152,7 +154,7 @@ All secrets are committed to the repo, encrypted with SOPS + age. Each developer
 - `.sops.yaml` lists all age **public keys** (committed to repo) as recipients
 - Secrets are encrypted to all recipients — anyone listed can decrypt
 - Each developer's **private key** stays on their machine only (never shared)
-- No secrets stored in Vercel dashboard, password managers, or other external systems
+- No secrets stored in provider dashboards, password managers, or other external systems
 
 ### Adding a new developer
 
@@ -177,7 +179,7 @@ CI has its own age keypair. The private key is stored as a single GitHub Actions
 ## Onboarding a new project
 
 1. Add the project under `packages/<project>/`.
-2. For each environment it needs, add module instances in `packages/infra/environments/<env>/` — typically a Turso database and a Vercel deploy, wired via imports.
+2. For each environment it needs, add module instances in `packages/infra/environments/<env>/` — typically a Turso database and a Cloudflare Worker deploy, wired via imports.
 3. Put any required secrets (API tokens, provider credentials) into `packages/infra/environments/<env>/secrets.yaml`, encrypted via SOPS.
 4. Run `zbc apply <env>` locally to validate. CI will take over on push to main and on PRs.
 
@@ -240,3 +242,17 @@ Opens at [http://localhost:3000](http://localhost:3000). The viewer shows all co
 - **Single-tenant design system** — `packages/design-system/` is purpose-built for Zabaca. Do not treat it as a generic component library.
 - **`.claude/` directory** — mostly gitignored. The exception is `.claude/skills/`, which is committed and contains AI slash command definitions.
 - **Mode A vs Mode B** — design system authoring (Mode A) happens in [claude.ai/design](https://claude.ai/design); implementation (Mode B) happens here, governed by `/mode-b` and `/visual-review`.
+
+## Agent skills
+
+### Issue tracker
+
+Issues live in GitHub Issues (`Zabaca/zbc`), managed via the `gh` CLI. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Default label vocabulary (`needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`) — `wontfix` already exists as a repo label; the rest will need to be created. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context: one `CONTEXT.md` + `docs/adr/` at the repo root. See `docs/agents/domain.md`.

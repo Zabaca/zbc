@@ -1,0 +1,12 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  // Astro static site (no SSR): a Workers static-assets deployment with no worker
+  // script — the edge serves ./dist directly. `bun run build` (astro build) emits
+  // dist/. Lands on zbc-design-system-viewer.<subdomain>.workers.dev (no custom
+  // domain). Preview PRs deploy a renamed worker via the module's `workerName`.
+  "name": "zbc-design-system-viewer",
+  "compatibility_date": "2025-11-01",
+  "assets": {
+    "directory": "./dist"
+  }
+}

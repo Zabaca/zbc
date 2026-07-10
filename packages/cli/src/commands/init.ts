@@ -124,12 +124,12 @@ export const initCommand = defineCommand({
       console.log('Next steps:')
       console.log('  1. bun install')
       console.log('  2. Add your age public keys to .sops.yaml')
-      console.log('  3. bunx @zabaca/zbc add turso       # or vercel')
+      console.log('  3. bunx @zabaca/zbc add turso       # or cloudflare')
     } else {
       console.log('Next steps:')
       console.log('  1. bun install                       # pick up packages/infra')
       console.log('  2. Add your age public keys to .sops.yaml')
-      console.log('  3. bunx @zabaca/zbc add turso       # or vercel')
+      console.log('  3. bunx @zabaca/zbc add turso       # or cloudflare')
     }
   },
 })

@@ -1,0 +1,28 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  // Self-hosted NATS (WebSocket) as a Durable-Object-bound Cloudflare Container.
+  // The Worker proxies wss traffic to the container's port 8080. Lands on
+  // zbc-nats.<subdomain>.workers.dev — the stable URL landing's NATS_URL points
+  // at. Container-backed: needs Docker running locally at apply time and a
+  // Workers Paid plan with Containers enabled.
+  "name": "zbc-nats",
+  "main": "worker/index.ts",
+  "compatibility_date": "2025-11-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "observability": { "enabled": true },
+  "containers": [
+    {
+      "class_name": "NatsContainer",
+      "image": "./Dockerfile",
+      // Proven instance type on this account (matches cedarpad's canvas); NATS
+      // is tiny, so this can be shrunk later.
+      "instance_type": "standard-1",
+      // One always-warm server so pub/sub fans out across every client.
+      "max_instances": 1
+    }
+  ],
+  "durable_objects": {
+    "bindings": [{ "class_name": "NatsContainer", "name": "NATS_CONTAINER" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["NatsContainer"] }]
+}

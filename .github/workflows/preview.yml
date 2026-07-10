@@ -10,8 +10,6 @@ concurrency:
 
 env:
   PR_NUMBER: ${{ github.event.pull_request.number }}
-  TURBO_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-  TURBO_TEAM: uptownhrs-projects
 
 jobs:
   deploy:
@@ -39,9 +37,10 @@ jobs:
           STATUS=$?
           echo "$OUTPUT"
 
-          # Pair each "Deployed:" URL with the most recent "→ vercel:<name>" header
+          # Pair each "Deployed:" URL with the most recent "→ <module>:<name>" header
+          # (module-agnostic: works for cloudflare and any future provider).
           LIST=$(echo "$OUTPUT" | awk '
-            /^→ vercel:/{name=$2; sub(/vercel:/, "", name)}
+            /^→ /{name=$2; sub(/^[^:]*:/, "", name)}
             /Deployed:/{print "- **" name "**: " $NF}
           ')
 

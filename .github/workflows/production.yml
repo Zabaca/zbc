@@ -8,10 +8,6 @@ concurrency:
   group: production
   cancel-in-progress: false
 
-env:
-  TURBO_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-  TURBO_TEAM: uptownhrs-projects
-
 jobs:
   deploy:
     runs-on: ubuntu-latest

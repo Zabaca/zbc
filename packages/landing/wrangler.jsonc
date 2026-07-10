@@ -1,0 +1,23 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  // Static Next export (out/) fronted by a tiny Worker for the two /api routes.
+  // Static assets are served directly by the edge; the Worker only runs when no
+  // asset matches the path (i.e. /api/hello, /api/nats-config). Lands on
+  // zbc-landing.<subdomain>.workers.dev; preview PRs get a renamed worker via
+  // the module's `workerName`.
+  "name": "zbc-landing",
+  "main": "worker/index.ts",
+  "compatibility_date": "2025-11-01",
+  "assets": {
+    "directory": "./out",
+    "binding": "ASSETS"
+  },
+  // NATS config sourced directly (the generic cloudflare module can't emit the
+  // nats instance's structured outputs). NATS_PASSWORD is a worker secret,
+  // pushed by the module's `workerSecrets`. NATS_URL points at the prod nats
+  // worker; if the password is unset the demo degrades to `unavailable`.
+  "vars": {
+    "NATS_URL": "wss://zbc-nats.james-99a.workers.dev",
+    "NATS_USER": "app"
+  }
+}
