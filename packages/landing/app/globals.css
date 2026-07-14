@@ -6,3 +6,11 @@
 
 /* Tailwind v4 dark variant — descendants of .dark get the dark utilities. */
 @custom-variant dark (&:where(.dark, .dark *));
+
+/* Bind the Google Font family names to the variables tokens.css expects.
+   Without this shim --font-display et al. fall through to Georgia/system. */
+:root {
+  --font-newsreader: 'Newsreader';
+  --font-inter-tight: 'Inter Tight';
+  --font-jetbrains-mono: 'JetBrains Mono';
+}

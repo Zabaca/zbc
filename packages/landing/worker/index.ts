@@ -26,16 +26,18 @@ export default {
       })
     }
 
-    // NATS creds for the browser pub/sub demo (live-clicks.tsx). 503 when any
+    // NATS creds for the live-cursor layer (app/live-cursors.tsx). 503 when any
     // of the three is unset — the UI degrades to `unavailable`.
     if (pathname === '/api/nats-config') {
       const { NATS_URL, NATS_USER, NATS_PASSWORD } = env
       if (!NATS_URL || !NATS_USER || !NATS_PASSWORD) {
         return Response.json({ error: 'NATS env not configured' }, { status: 503 })
       }
-      // Demo-only: handing the shared NATS cred to the browser is fine for a
-      // single-tenant pub/sub demo. For real workloads, mint a scoped JWT per
-      // session or proxy the socket through this Worker.
+      // This credential is public by construction — the page is public and hands
+      // it to every visitor. It is not a secret; it is a rate-limit boundary.
+      // nats-server.conf scopes it to publish/subscribe on `landing.cursors.>`
+      // only, so a leaked copy can move cursors and nothing else. Anything with
+      // real authority must never be served from here.
       return Response.json({ url: NATS_URL, user: NATS_USER, password: NATS_PASSWORD })
     }
 
