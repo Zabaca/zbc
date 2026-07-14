@@ -22,3 +22,6 @@ dist/
 # Add explicit exceptions for things we want checked in (e.g. skills).
 .claude/*
 !.claude/skills/
+
+# Fredrin worktree tooling — the CLI wrapper carries a scoped API token.
+.fredrin/
