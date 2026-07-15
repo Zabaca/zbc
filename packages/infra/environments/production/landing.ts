@@ -7,7 +7,7 @@ import { cloudflareModule } from '../../modules/cloudflare'
 // NATS config is sourced directly, NOT via `imports: [nats]` — the generic
 // cloudflare module can't emit nats's structured outputs. NATS_URL /
 // NATS_ACCOUNT_ID are wrangler vars; NATS_ACCOUNT_SIGNING_SEED is a worker secret
-// from this environment's secrets.yaml — the key the worker signs per-session
+// from this environment's secrets.yaml, the key the worker signs per-session
 // user JWTs with. It never reaches the browser.
 export default cloudflareModule.instance({
   name: 'landing',

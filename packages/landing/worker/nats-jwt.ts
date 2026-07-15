@@ -1,7 +1,7 @@
 /**
  * Mint short-lived, per-session NATS **user JWTs** (ed25519-nkey, v2) from the
- * APP account signing key. Runs inside the Cloudflare Worker — the signing seed
- * never leaves it; only the minted token reaches the browser.
+ * APP account signing key. Runs inside the Cloudflare Worker, so the signing
+ * seed never leaves it; only the minted token reaches the browser.
  *
  * The token is a bearer token (`bearer_token: true`): the client authenticates
  * with the JWT alone and needs no user NKey seed of its own. It is scoped to a
@@ -11,25 +11,6 @@
  * packages/nats-server/scripts/gen-nats-identities.ts.
  */
 import * as nkeys from 'nkeys.js'
-
-const B32 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567'
-
-/** RFC 4648 base32, uppercase, no padding — the encoding NATS uses for `jti`. */
-function base32(bytes: Uint8Array): string {
-  let bits = 0
-  let value = 0
-  let out = ''
-  for (const b of bytes) {
-    value = (value << 8) | b
-    bits += 8
-    while (bits >= 5) {
-      out += B32[(value >>> (bits - 5)) & 31]
-      bits -= 5
-    }
-  }
-  if (bits > 0) out += B32[(value << (5 - bits)) & 31]
-  return out
-}
 
 function b64url(bytes: Uint8Array): string {
   let s = ''
@@ -41,10 +22,11 @@ function b64urlJson(value: unknown): string {
   return b64url(new TextEncoder().encode(JSON.stringify(value)))
 }
 
+/** A unique token id. nats-server ignores `jti`, so any collision-free string works. */
 function newJti(): string {
   const bytes = new Uint8Array(20)
   crypto.getRandomValues(bytes)
-  return base32(bytes)
+  return b64url(bytes)
 }
 
 export type MintOptions = {
@@ -61,7 +43,7 @@ export type MintOptions = {
 }
 
 /**
- * Mint a bearer user JWT. Returns just the JWT string — the client passes it to
+ * Mint a bearer user JWT. Returns just the JWT string; the client passes it to
  * `jwtAuthenticator(jwt)` with no seed.
  */
 export function mintUserJwt(opts: MintOptions): string {

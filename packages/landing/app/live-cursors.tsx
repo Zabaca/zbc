@@ -16,7 +16,7 @@
  * cursors stay pinned to the text they're pointing at while everyone scrolls.
  *
  * Auth comes from the Worker's /api/nats-token, which mints a short-lived,
- * per-session, subject-scoped bearer JWT — never a shared password. The route
+ * per-session, subject-scoped bearer JWT, never a shared password. The route
  * only exists in the deployed Worker; under `next dev` it 404s and we show
  * `unavailable`. Because the token expires (minutes), we hold the latest one in
  * a ref and hand nats.ws a `() => jwt` authenticator, refreshing ahead of expiry
@@ -34,6 +34,14 @@ const MAX_PEERS = 50 // a crowd, not a flood — see the subscribe handler
 // Refresh the token this long before it expires, so the always-valid token is
 // already in hand when nats.ws reconnects on the server's expiry-close.
 const TOKEN_REFRESH_LEAD_MS = 60_000
+// After a failed refresh, retry this often. Much shorter than the lead time, so
+// several attempts fit inside the lead window before the current token actually
+// lapses; a single transient token-endpoint blip can never expire the JWT.
+const TOKEN_REFRESH_RETRY_MS = 10_000
+// Backoff for re-establishing a connection that failed to open or closed for good
+// (nats.ws exhausted its own reconnects, or an auth violation it treats as fatal).
+const RECONNECT_BASE_MS = 1_000
+const RECONNECT_MAX_MS = 30_000
 
 /** Cursor colors, legible on both paper and ink grounds. */
 const COLORS = ['#B8410E', '#2F6B3C', '#3A5FA8', '#8A5AA8', '#B07A12', '#0E7B7B']
@@ -94,6 +102,8 @@ export function LiveCursors() {
     // every (re)connect uses the current one, not the stale one from first load.
     let currentJwt = ''
     let refreshTimer: ReturnType<typeof setTimeout> | undefined
+    let connectTimer: ReturnType<typeof setTimeout> | undefined
+    let connectAttempts = 0
 
     type TokenResponse = { url: string; jwt: string; expiresInMs: number }
 
@@ -107,32 +117,62 @@ export function LiveCursors() {
       }
     }
 
+    /** When to fire the next ahead-of-expiry refresh for a token good for expiresInMs. */
+    function refreshDelay(expiresInMs: number) {
+      return Math.max(15_000, expiresInMs - TOKEN_REFRESH_LEAD_MS)
+    }
+
     // Re-mint ahead of expiry and keep rescheduling. On a failed refresh, retry
     // soon rather than letting the token lapse and the reconnect fail.
-    function scheduleRefresh(expiresInMs: number) {
-      const wait = Math.max(15_000, expiresInMs - TOKEN_REFRESH_LEAD_MS)
+    function scheduleRefresh(delayMs: number) {
       refreshTimer = setTimeout(async () => {
         if (cancelled) return
         const next = await fetchToken()
         if (cancelled) return
         if (next) {
           currentJwt = next.jwt
-          scheduleRefresh(next.expiresInMs)
+          scheduleRefresh(refreshDelay(next.expiresInMs))
         } else {
-          scheduleRefresh(2 * TOKEN_REFRESH_LEAD_MS)
+          scheduleRefresh(TOKEN_REFRESH_RETRY_MS)
         }
-      }, wait)
+      }, delayMs)
+    }
+
+    // Re-establish the connection after it failed to open or closed for good.
+    // Without this, a single failed connect (NATS briefly down at load, or a
+    // reconnect that outlives nats.ws's own attempts) would leave live cursors
+    // dead for the entire page lifetime.
+    function scheduleReconnect() {
+      if (cancelled) return
+      setStatus('error')
+      connectAttempts += 1
+      const delay = Math.min(
+        RECONNECT_MAX_MS,
+        RECONNECT_BASE_MS * 2 ** Math.min(connectAttempts - 1, 5),
+      )
+      connectTimer = setTimeout(() => {
+        if (!cancelled) run()
+      }, delay)
     }
 
     async function run() {
+      if (cancelled) return
+      // A reconnect re-enters run(); drop the previous attempt's refresh timer so
+      // we never stack two token-refresh loops.
+      if (refreshTimer) {
+        clearTimeout(refreshTimer)
+        refreshTimer = undefined
+      }
+
       const token = await fetchToken()
+      if (cancelled) return
       if (!token) {
         // No realtime here, but the page still works.
-        if (!cancelled) setStatus('unavailable')
+        setStatus('unavailable')
         return
       }
       currentJwt = token.jwt
-      scheduleRefresh(token.expiresInMs)
+      scheduleRefresh(refreshDelay(token.expiresInMs))
 
       try {
         const nc = await connect({
@@ -146,6 +186,7 @@ export function LiveCursors() {
           return
         }
         ncRef.current = nc
+        connectAttempts = 0
         setStatus('live')
 
         const sub = nc.subscribe(`${SUBJECT_ROOT}.*`)
@@ -153,7 +194,7 @@ export function LiveCursors() {
           for await (const msg of sub) {
             // Identity comes from the SUBJECT, never from the payload. Every
             // visitor now holds their own short-lived token, but it is scoped to
-            // the whole `landing.cursors.>` prefix — so any client can still
+            // the whole `landing.cursors.>` prefix, so any client can still
             // publish on any `landing.cursors.*` subject. nats-server pins each
             // message to the subject it was published on; trusting a payload `id`
             // instead would let anyone evict a peer, hijack their cursor, or
@@ -212,8 +253,20 @@ export function LiveCursors() {
             if (s.type === 'reconnect') setStatus('live')
           }
         })()
+
+        // If nats.ws gives up (its reconnects exhausted, or an auth violation it
+        // treats as fatal), the connection closes for good. Re-run from a fresh
+        // token so the cursor layer recovers on its own once NATS is back.
+        ;(async () => {
+          await nc.closed()
+          if (cancelled) return
+          ncRef.current = null
+          scheduleReconnect()
+        })()
       } catch {
-        if (!cancelled) setStatus('error')
+        // Initial connect failed (NATS momentarily unreachable at load). Retry
+        // with backoff instead of going dark for the page's lifetime.
+        scheduleReconnect()
       }
     }
 
@@ -222,6 +275,7 @@ export function LiveCursors() {
     return () => {
       cancelled = true
       if (refreshTimer) clearTimeout(refreshTimer)
+      if (connectTimer) clearTimeout(connectTimer)
       const nc = ncRef.current
       ncRef.current = null
       nc?.close()

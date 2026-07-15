@@ -11,7 +11,7 @@ export interface Env {
  *
  * Auth is fully static: nats-server.conf runs in operator/account mode with the
  * operator and account JWTs baked in, so the container needs no secret. The one
- * secret — the account signing seed that mints per-session user JWTs — lives in
+ * secret, the account signing seed that mints per-session user JWTs, lives in
  * the landing Worker, not here.
  */
 export class NatsContainer extends Container<Env> {

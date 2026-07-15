@@ -1,11 +1,11 @@
 /**
- * zbc-landing Worker — fronts the statically exported Next.js site (the `out/`
+ * zbc-landing Worker: fronts the statically exported Next.js site (the `out/`
  * dir, via the ASSETS binding) and serves the two dynamic `/api` routes that
  * used to be Next SSR route handlers.
  */
 import { mintUserJwt } from './nats-jwt'
 
-/** Live-cursor tokens are short-lived on purpose — a leaked one expires fast. */
+/** Live-cursor tokens are short-lived on purpose, so a leaked one expires fast. */
 const TOKEN_TTL_SECONDS = 300
 /** The only subject prefix a landing visitor may publish/subscribe on. */
 const CURSOR_SUBJECT = 'landing.cursors.>'
@@ -34,8 +34,8 @@ export default {
     }
 
     // Per-session NATS auth for the live-cursor layer (app/live-cursors.tsx).
-    // The browser gets a freshly minted, short-lived, subject-scoped bearer JWT
-    // — never a long-lived credential. 503 when NATS auth is unconfigured; the
+    // The browser gets a freshly minted, short-lived, subject-scoped bearer JWT,
+    // never a long-lived credential. 503 when NATS auth is unconfigured; the
     // UI degrades to `unavailable`.
     if (pathname === '/api/nats-token') {
       const { NATS_URL, NATS_ACCOUNT_ID, NATS_ACCOUNT_SIGNING_SEED } = env
