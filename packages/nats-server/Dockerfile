@@ -1,7 +1,7 @@
 # zbc-nats container: nats-server with WebSocket enabled, run as a
 # Durable-Object-bound Cloudflare Container. The Worker (worker/index.ts) proxies
-# wss traffic to port 8080. Mirrors the old Fly machine config (renderConf): ws
-# on 8080, http monitoring on 8222, authorization user `app` / $NATS_PASSWORD.
+# wss traffic to port 8080. ws on 8080, http monitoring on 8222, and operator/
+# account (NKeys + JWT) auth baked into nats-server.conf — no runtime secret.
 FROM nats:latest
 
 COPY nats-server.conf /etc/nats/nats-server.conf

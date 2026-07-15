@@ -2,22 +2,27 @@
   "$schema": "node_modules/wrangler/config-schema.json",
   // Static Next export (out/) fronted by a tiny Worker for the two /api routes.
   // Static assets are served directly by the edge; the Worker only runs when no
-  // asset matches the path (i.e. /api/hello, /api/nats-config). Lands on
+  // asset matches the path (i.e. /api/hello, /api/nats-token). Lands on
   // zbc-landing.<subdomain>.workers.dev; preview PRs get a renamed worker via
   // the module's `workerName`.
   "name": "zbc-landing",
   "main": "worker/index.ts",
   "compatibility_date": "2025-11-01",
+  // nodejs_compat: the /api/nats-token route mints NATS user JWTs with nkeys.js,
+  // which touches Buffer/util at load. Same flag the nats-server worker uses.
+  "compatibility_flags": ["nodejs_compat"],
   "assets": {
     "directory": "./out",
     "binding": "ASSETS"
   },
   // NATS config sourced directly (the generic cloudflare module can't emit the
-  // nats instance's structured outputs). NATS_PASSWORD is a worker secret,
-  // pushed by the module's `workerSecrets`. NATS_URL points at the prod nats
-  // worker; if the password is unset the demo degrades to `unavailable`.
+  // nats instance's structured outputs). NATS_ACCOUNT_SIGNING_SEED is a worker
+  // secret (from secrets.yaml), held only by the Worker to mint per-session user
+  // JWTs. NATS_URL points at the prod nats worker; NATS_ACCOUNT_ID is the public
+  // APP account key the minted tokens name as their issuer_account. If the
+  // signing seed is unset the demo degrades to `unavailable`.
   "vars": {
     "NATS_URL": "wss://zbc-nats.james-99a.workers.dev",
-    "NATS_USER": "app"
+    "NATS_ACCOUNT_ID": "AA6BNVOHHP572B64NQNFOB7DK5WYABBYZGEJWI5A4VHITMAQTREOL2E7"
   }
 }
