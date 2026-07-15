@@ -126,7 +126,7 @@ export default cloudflareModule.instance({
 })
 ```
 
-Imports (`imports: [mainDb]`) are between instances, typed, refactor-safe, with outputs flowing from dependency to dependent, and a module's `apply` receives them as `ctx.imports`. Whether they're auto-wired into the deployed service is up to the module: the `cloudflare` module syncs each imported instance's outputs into the worker as secrets (named `<INSTANCE>_<OUTPUT>`, e.g. `MAIN_DB_DATABASEURL`, mirroring the vercel module's convention); the rest of an app's config still lives in its own `wrangler.jsonc` `vars` + `workerSecrets`.
+Imports (`imports: [mainDb]`) are between instances, typed, refactor-safe, with outputs flowing from dependency to dependent, and a module's `apply` receives them as `ctx.imports`. Whether they're wired into the deployed service is up to the module and is explicit per entry: the `cloudflare` module lets each `workerSecrets`/`workerVars` entry be either a plain name (a key in this environment's `secrets.yaml`) or a `{ name, from, output }` reference that pulls a value from an imported instance's outputs — `from` must be an instance listed in this instance's `imports`, and `output` a key that instance emits, or apply fails with a hard error naming both. Secrets are pushed via `wrangler secret put` (stdin-piped); vars via `wrangler deploy --var` (command-line visible — never route sensitive values through `workerVars`).
 
 **Ephemeral preview instances** use dynamic naming and destroy+recreate on every apply:
 

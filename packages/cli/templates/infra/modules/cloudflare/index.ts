@@ -215,15 +215,24 @@ export const cloudflareModule = defineModule({
       execSync(config.build.command, { cwd: buildCwd, stdio: 'inherit', env })
     }
 
-    // 2. Deploy. Creates/updates the Worker script (+ assets, DO, container).
-    //    --env selects the named wrangler environment (e.g. preview) so it ships
-    //    a distinct worker from the same package; --name overrides the worker
-    //    name (per-PR preview workers); both omitted = the package's default.
-    //    Resolved BEFORE deploy: --var values ship as part of `wrangler deploy`
-    //    itself, not a follow-up call.
+    // 2. Resolve every workerVars/workerSecrets entry BEFORE deploy so a bad
+    //    reference (unknown import, missing output/secret) fails fast, without
+    //    leaving a deployed-but-unconfigured worker. `resolveWorkerValue` is
+    //    pure — only the wrangler pushes below have side effects. --var values
+    //    additionally ship as part of `wrangler deploy` itself (not a follow-up
+    //    call); secrets are pushed after deploy (step 4) since the script must
+    //    exist first.
     const resolvedVars = config.workerVars.map((entry) =>
       resolveWorkerValue(entry, ctx, 'workerVars'),
     )
+    const resolvedSecrets = config.workerSecrets.map((entry) =>
+      resolveWorkerValue(entry, ctx, 'workerSecrets'),
+    )
+
+    // 3. Deploy. Creates/updates the Worker script (+ assets, DO, container).
+    //    --env selects the named wrangler environment (e.g. preview) so it ships
+    //    a distinct worker from the same package; --name overrides the worker
+    //    name (per-PR preview workers); both omitted = the package's default.
     const deployArgs = ['deploy']
     if (config.wranglerEnv) deployArgs.push('--env', config.wranglerEnv)
     if (config.workerName) deployArgs.push('--name', config.workerName)
@@ -244,12 +253,11 @@ export const cloudflareModule = defineModule({
     const deployUrl = urlMatch?.[0] ?? ''
     console.log(`  Deployed: ${deployUrl || '(URL not parsed — see wrangler output)'}`)
 
-    // 3. Push Worker secrets (after deploy: the script must exist first). Each
-    //    entry is a plain name (from secrets.yaml) or a `{ name, from, output }`
-    //    reference into an imported instance's outputs. Value piped via stdin
-    //    so it never lands in a command string or the log.
-    for (const entry of config.workerSecrets) {
-      const { name, value } = resolveWorkerValue(entry, ctx, 'workerSecrets')
+    // 4. Push Worker secrets (after deploy: the script must exist first).
+    //    Already resolved in step 2, so a misconfigured reference never reaches
+    //    this point. Value piped via stdin so it never lands in a command
+    //    string or the log.
+    for (const { name, value } of resolvedSecrets) {
       const secretArgs = ['secret', 'put', name]
       if (config.wranglerEnv) secretArgs.push('--env', config.wranglerEnv)
       if (config.workerName) secretArgs.push('--name', config.workerName)
