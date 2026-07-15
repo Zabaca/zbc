@@ -10,9 +10,11 @@
   "files": [
     "bin",
     "src",
-    "templates"
+    "templates",
+    "!templates/**/*.test.ts"
   ],
   "scripts": {
+    "test": "bun test",
     "publish:npm": "bun publish --access public"
   },
   "publishConfig": {
