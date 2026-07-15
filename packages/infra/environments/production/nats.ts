@@ -13,7 +13,9 @@ export default cloudflareModule.instance({
   config: {
     workdir: 'packages/nats-server',
     accountId: '99a19e584439be0568f33aad0477372b',
-    workerSecrets: ['NATS_PASSWORD'],
+    // No worker secret: auth is decentralized (NKeys + JWT). The operator and
+    // account JWTs are baked into nats-server.conf; the only secret, the account
+    // signing seed that mints user tokens, lives in the landing worker, not here.
     // Single always-warm DO-bound container; the gradual default never drains
     // it, so a redeployed image would silently never take effect. Roll now.
     immediateContainerRollout: true,

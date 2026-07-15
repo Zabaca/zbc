@@ -5,9 +5,10 @@ import { cloudflareModule } from '../../modules/cloudflare'
 // + assets (topology in packages/landing/wrangler.jsonc).
 //
 // NATS config is sourced directly, NOT via `imports: [nats]` — the generic
-// cloudflare module can't emit nats's url/user/password as structured outputs.
-// NATS_URL / NATS_USER are wrangler vars; NATS_PASSWORD is a worker secret from
-// this environment's secrets.yaml.
+// cloudflare module can't emit nats's structured outputs. NATS_URL /
+// NATS_ACCOUNT_ID are wrangler vars; NATS_ACCOUNT_SIGNING_SEED is a worker secret
+// from this environment's secrets.yaml, the key the worker signs per-session
+// user JWTs with. It never reaches the browser.
 export default cloudflareModule.instance({
   name: 'landing',
   config: {
@@ -17,6 +18,6 @@ export default cloudflareModule.instance({
       command: 'bun run build -- --filter=@zbc/landing',
       cwd: '.',
     },
-    workerSecrets: ['NATS_PASSWORD'],
+    workerSecrets: ['NATS_ACCOUNT_SIGNING_SEED'],
   },
 })

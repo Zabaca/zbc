@@ -25,3 +25,7 @@ dist/
 
 # Fredrin worktree tooling — the CLI wrapper carries a scoped API token.
 .fredrin/
+
+# wrangler local secrets (never commit)
+.dev.vars
+**/.dev.vars

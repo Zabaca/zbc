@@ -13,6 +13,7 @@
     "@zbc/design-system": "workspace:*",
     "nats.ws": "^1.30.3",
     "next": "^15.5.0",
+    "nkeys.js": "1.1.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "tailwindcss": "^4.2.4"

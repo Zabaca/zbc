@@ -1,17 +1,24 @@
 /**
- * zbc-landing Worker — fronts the statically exported Next.js site (the `out/`
+ * zbc-landing Worker: fronts the statically exported Next.js site (the `out/`
  * dir, via the ASSETS binding) and serves the two dynamic `/api` routes that
  * used to be Next SSR route handlers.
  */
+import { mintUserJwt } from './nats-jwt'
+
+/** Live-cursor tokens are short-lived on purpose, so a leaked one expires fast. */
+const TOKEN_TTL_SECONDS = 300
+/** The only subject prefix a landing visitor may publish/subscribe on. */
+const CURSOR_SUBJECT = 'landing.cursors.>'
+
 export interface Env {
   /** Workers static-assets binding → Next's `out/` export. */
   ASSETS: { fetch: (request: Request) => Promise<Response> }
   /** NATS WebSocket URL (wrangler var). */
   NATS_URL?: string
-  /** NATS auth user (wrangler var). */
-  NATS_USER?: string
-  /** NATS auth password (worker secret from secrets.yaml). */
-  NATS_PASSWORD?: string
+  /** APP account identity public key, A... (wrangler var, public). */
+  NATS_ACCOUNT_ID?: string
+  /** APP account signing-key seed, SA... (worker secret). Never sent to a client. */
+  NATS_ACCOUNT_SIGNING_SEED?: string
 }
 
 export default {
@@ -26,19 +33,35 @@ export default {
       })
     }
 
-    // NATS creds for the live-cursor layer (app/live-cursors.tsx). 503 when any
-    // of the three is unset — the UI degrades to `unavailable`.
-    if (pathname === '/api/nats-config') {
-      const { NATS_URL, NATS_USER, NATS_PASSWORD } = env
-      if (!NATS_URL || !NATS_USER || !NATS_PASSWORD) {
-        return Response.json({ error: 'NATS env not configured' }, { status: 503 })
+    // Per-session NATS auth for the live-cursor layer (app/live-cursors.tsx).
+    // The browser gets a freshly minted, short-lived, subject-scoped bearer JWT,
+    // never a long-lived credential. 503 when NATS auth is unconfigured; the
+    // UI degrades to `unavailable`.
+    if (pathname === '/api/nats-token') {
+      const { NATS_URL, NATS_ACCOUNT_ID, NATS_ACCOUNT_SIGNING_SEED } = env
+      if (!NATS_URL || !NATS_ACCOUNT_ID || !NATS_ACCOUNT_SIGNING_SEED) {
+        return Response.json({ error: 'NATS auth not configured' }, { status: 503 })
       }
-      // This credential is public by construction — the page is public and hands
-      // it to every visitor. It is not a secret; it is a rate-limit boundary.
-      // nats-server.conf scopes it to publish/subscribe on `landing.cursors.>`
-      // only, so a leaked copy can move cursors and nothing else. Anything with
-      // real authority must never be served from here.
-      return Response.json({ url: NATS_URL, user: NATS_USER, password: NATS_PASSWORD })
+
+      let jwt: string
+      try {
+        jwt = mintUserJwt({
+          signingSeed: NATS_ACCOUNT_SIGNING_SEED,
+          accountId: NATS_ACCOUNT_ID,
+          subject: CURSOR_SUBJECT,
+          ttlSeconds: TOKEN_TTL_SECONDS,
+          name: 'landing-cursors',
+        })
+      } catch {
+        // Never leak the signing key or a stack trace to a public endpoint.
+        return Response.json({ error: 'failed to mint token' }, { status: 500 })
+      }
+
+      // no-store: every visitor must get their own fresh token, never a cached one.
+      return Response.json(
+        { url: NATS_URL, jwt, expiresInMs: TOKEN_TTL_SECONDS * 1000 },
+        { headers: { 'cache-control': 'no-store' } },
+      )
     }
 
     // Everything else: the static Next export.

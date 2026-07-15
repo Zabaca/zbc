@@ -4,9 +4,11 @@ const pr = process.env.PR_NUMBER ?? 'local'
 
 // Preview: same package as production, deployed as a per-PR worker
 // (zbc-landing-pr-<N>) via the module's `workerName` override. NATS_URL (in
-// wrangler.jsonc) points at the prod nats worker; NATS_PASSWORD comes from this
-// environment's secrets.yaml (if unset the live-cursor layer degrades to
-// `unavailable`). `destroy preview` wrangler-deletes the per-PR worker on close.
+// wrangler.jsonc) points at the prod nats worker, so preview must mint tokens
+// that server accepts: its NATS_ACCOUNT_SIGNING_SEED is the SAME account signing
+// key as production, from this environment's secrets.yaml (if unset the
+// live-cursor layer degrades to `unavailable`). `destroy preview`
+// wrangler-deletes the per-PR worker on close.
 export default cloudflareModule.instance({
   name: 'landing',
   config: {
@@ -17,6 +19,6 @@ export default cloudflareModule.instance({
       command: 'bun run build -- --filter=@zbc/landing',
       cwd: '.',
     },
-    workerSecrets: ['NATS_PASSWORD'],
+    workerSecrets: ['NATS_ACCOUNT_SIGNING_SEED'],
   },
 })
