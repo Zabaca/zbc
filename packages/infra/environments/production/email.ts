@@ -4,8 +4,11 @@ import inbox from './inbox'
 // Cloudflare Email Service for mail.cedarpad.com: outbound sending
 // (SPF/DKIM/DMARC/bounce-MX on the subdomain) plus inbound routing with a
 // catch-all → the zbc-inbox worker, so agents can invent addresses at
-// anything@mail.cedarpad.com on the fly. `imports: [inbox]` is for topo order
-// only — the worker must be deployed before the catch-all rule names it.
+// anything@mail.cedarpad.com on the fly. `imports: [inbox]` gives topo order
+// (the worker deploys before the catch-all rule binds to it) AND carries the
+// deployed worker's name: catchAll.workerName is a `{ from, output }`
+// reference into the inbox instance's outputs, so a rename in
+// packages/inbox/wrangler.jsonc flows through without touching this file.
 export default cloudflareEmailModule.instance({
   name: 'email',
   imports: [inbox],
@@ -16,6 +19,6 @@ export default cloudflareEmailModule.instance({
     domain: 'mail.cedarpad.com',
     enableSending: true,
     enableRouting: true,
-    catchAll: { action: 'worker', workerName: 'zbc-inbox' },
+    catchAll: { action: 'worker', workerName: { from: 'inbox', output: 'workerName' } },
   },
 })
