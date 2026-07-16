@@ -7,7 +7,12 @@
   // minimal static web UI. Outbound mail goes through the send_email binding
   // (Cloudflare Email Sending — the cloudflare-email module onboards the
   // domain).
-  "name": "{{PROJECT_NAME}}-inbox",
+  // Generic defaults below (name, bucket_name, DEFAULT_FROM) — the per-project
+  // values live in the zbc instance file instead of here: the cloudflare
+  // module's `workerName` overrides the worker name, `r2Bindings` overrides
+  // the bucket, and a `workerVars` literal sets DEFAULT_FROM. That keeps this
+  // file identical across projects.
+  "name": "inbox",
   "main": "worker/index.ts",
   // Must be recent enough for the Email Service object-form EMAIL.send();
   // older dates fall back to legacy Email Routing semantics (verified
@@ -23,13 +28,14 @@
     "bindings": [{ "name": "INBOX", "class_name": "Inbox" }]
   },
   "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Inbox"] }],
-  "r2_buckets": [{ "binding": "RAW", "bucket_name": "{{PROJECT_NAME}}-inbox-raw" }],
+  "r2_buckets": [{ "binding": "RAW", "bucket_name": "inbox-raw" }],
   // Unrestricted destination: once your domain is onboarded for Email Sending,
   // the worker may send to arbitrary recipients.
   "send_email": [{ "name": "EMAIL" }],
   "vars": {
     // Default From when /api/send omits one. Must be on your onboarded email
-    // domain — EDIT THIS after `zbc add inbox`.
-    "DEFAULT_FROM": "inbox@mail.YOUR-DOMAIN.example"
+    // domain. Set it per project via the instance file:
+    //   workerVars: [{ name: 'DEFAULT_FROM', value: 'inbox@mail.example.com' }]
+    "DEFAULT_FROM": ""
   }
 }

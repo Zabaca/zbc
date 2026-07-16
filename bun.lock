@@ -16,7 +16,7 @@
     },
     "packages/cli": {
       "name": "@zabaca/zbc",
-      "version": "0.5.0",
+      "version": "0.6.2",
       "bin": {
         "zbc": "./bin/zbc.js",
       },
@@ -27,6 +27,18 @@
       },
       "devDependencies": {
         "@types/bun": "^1.3.12",
+      },
+    },
+    "packages/cli/templates/apps/inbox": {
+      "name": "@zbc/inbox",
+      "version": "0.0.1",
+      "dependencies": {
+        "postal-mime": "^2.4.4",
+      },
+      "devDependencies": {
+        "@cloudflare/workers-types": "^4.20250101.0",
+        "typescript": "^5.7.0",
+        "wrangler": "^4.0.0",
       },
     },
     "packages/design-system": {
@@ -57,18 +69,6 @@
       "devDependencies": {
         "@types/react": "^19.0.0",
         "@types/react-dom": "^19.0.0",
-        "typescript": "^5.7.0",
-        "wrangler": "^4.0.0",
-      },
-    },
-    "packages/inbox": {
-      "name": "@zbc/inbox",
-      "version": "0.0.1",
-      "dependencies": {
-        "postal-mime": "^2.4.4",
-      },
-      "devDependencies": {
-        "@cloudflare/workers-types": "^4.20250101.0",
         "typescript": "^5.7.0",
         "wrangler": "^4.0.0",
       },
@@ -586,7 +586,7 @@
 
     "@zbc/design-system-viewer": ["@zbc/design-system-viewer@workspace:packages/design-system-viewer"],
 
-    "@zbc/inbox": ["@zbc/inbox@workspace:packages/inbox"],
+    "@zbc/inbox": ["@zbc/inbox@workspace:packages/cli/templates/apps/inbox"],
 
     "@zbc/infra": ["@zbc/infra@workspace:packages/infra"],
 

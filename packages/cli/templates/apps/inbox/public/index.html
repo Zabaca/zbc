@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{{PROJECT_NAME}} inbox</title>
+<title>Inbox</title>
 <style>
   /* Prose design system tokens (mirrored from packages/design-system/src/tokens.css;
      the inbox UI is a self-contained static page, so no Tailwind pipeline). */
@@ -156,7 +156,7 @@
 </head>
 <body>
 <header>
-  <h1>{{PROJECT_NAME}} inbox</h1>
+  <h1>Inbox</h1>
   <span class="domain"></span>
   <span class="spacer"></span>
   <div class="actions">
@@ -174,7 +174,7 @@
   <h3 id="compose-title">New message</h3>
   <form class="compose" id="compose-form" method="dialog">
     <input name="to" placeholder="To" required>
-    <input name="from" placeholder="From (default inbox)">
+    <input name="from" placeholder="From (optional, defaults to DEFAULT_FROM)">
     <input name="subject" placeholder="Subject" required>
     <input name="inReplyTo" type="hidden">
     <textarea name="text" placeholder="Message" required></textarea>

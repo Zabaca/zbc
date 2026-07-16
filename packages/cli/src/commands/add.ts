@@ -42,7 +42,7 @@ async function resolveBundledDir(name: string): Promise<string> {
     if (await Bun.file(registry).exists()) return dir
   }
   throw new Error(
-    `"${name}" not found in built-in registry. Available: cloudflare, cloudflare-email, turso, inbox.`,
+    `"${name}" not found in built-in registry. Available: cloudflare, cloudflare-email, r2, turso, inbox.`,
   )
 }
 
@@ -159,8 +159,10 @@ async function installApp(
     }
   }
 
-  // 2. Copy the package, substituting {{PROJECT_NAME}} (worker/bucket names,
-  //    package name). registry.json stays in the CLI — it's not app code.
+  // 2. Copy the package verbatim — app templates are placeholder-free (all
+  //    per-project identity lives in the instance file: workerName,
+  //    r2Bindings, workerVars). registry.json stays in the CLI — it's not app
+  //    code. `vars` kept for future templates; a no-op with no {{}} tokens.
   const { project } = await loadConfig(projectRoot)
   await copyTemplateDir(sourceDir, destDir, {
     vars: { PROJECT_NAME: project },
@@ -181,7 +183,7 @@ export const addCommand = defineCommand({
   args: {
     module: {
       type: 'positional',
-      description: 'Module or app name (e.g. turso, cloudflare, cloudflare-email, inbox)',
+      description: 'Module or app name (e.g. turso, cloudflare, cloudflare-email, r2, inbox)',
       required: true,
     },
   },
