@@ -1,0 +1,33 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  // Agent-accessible inbox for mail.cedarpad.com. Receives mail via the email()
+  // handler (Email Routing catch-all points here), stores metadata + parsed
+  // bodies in a SQLite Durable Object and raw MIME in R2, and exposes a
+  // bearer-authed JSON API (list/read/send) plus a minimal static web UI.
+  // Outbound mail goes through the send_email binding (Cloudflare Email
+  // Sending — the cloudflare-email module onboards the domain).
+  "name": "zbc-inbox",
+  "main": "worker/index.ts",
+  // Must be recent enough for the Email Service object-form EMAIL.send();
+  // older dates fall back to legacy Email Routing semantics (verified
+  // destinations only).
+  "compatibility_date": "2026-07-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "observability": { "enabled": true },
+  "assets": {
+    "directory": "./public",
+    "binding": "ASSETS"
+  },
+  "durable_objects": {
+    "bindings": [{ "name": "INBOX", "class_name": "Inbox" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Inbox"] }],
+  "r2_buckets": [{ "binding": "RAW", "bucket_name": "zbc-inbox-raw" }],
+  // Unrestricted destination: the domain is onboarded for Email Sending, so
+  // the worker may send to arbitrary recipients.
+  "send_email": [{ "name": "EMAIL" }],
+  "vars": {
+    // Default From when /api/send omits one. Must be on the onboarded domain.
+    "DEFAULT_FROM": "inbox@mail.cedarpad.com"
+  }
+}

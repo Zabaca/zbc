@@ -6,7 +6,8 @@
   "exports": {
     ".": "./src/index.ts",
     "./turso": "./modules/turso/index.ts",
-    "./cloudflare": "./modules/cloudflare/index.ts"
+    "./cloudflare": "./modules/cloudflare/index.ts",
+    "./cloudflare-email": "./modules/cloudflare-email/index.ts"
   },
   "dependencies": {
     "@tursodatabase/api": "^2.0.0",

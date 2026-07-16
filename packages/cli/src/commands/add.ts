@@ -28,7 +28,9 @@ async function resolveBundledModuleDir(name: string): Promise<string> {
     const registry = path.join(dir, 'registry.json')
     if (await Bun.file(registry).exists()) return dir
   }
-  throw new Error(`Module "${name}" not found in built-in registry. Available: cloudflare, turso.`)
+  throw new Error(
+    `Module "${name}" not found in built-in registry. Available: cloudflare, cloudflare-email, turso.`,
+  )
 }
 
 function bunAdd(
@@ -65,7 +67,7 @@ export const addCommand = defineCommand({
   args: {
     module: {
       type: 'positional',
-      description: 'Module name (e.g. turso, cloudflare)',
+      description: 'Module name (e.g. turso, cloudflare, cloudflare-email)',
       required: true,
     },
   },
