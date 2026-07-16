@@ -13,7 +13,7 @@ This project uses [zbc](https://github.com/Zabaca/zbc) for infrastructure scaffo
 ## Common commands
 
 - `bun install` — install dependencies
-- `bunx @zabaca/zbc add <module>` — vendor an infra module (`turso`, `cloudflare`, `cloudflare-email`)
+- `bunx @zabaca/zbc add <module>` — vendor an infra module (`turso`, `cloudflare`, `cloudflare-email`) or scaffold an app template (`inbox` — an agent-accessible email inbox; auto-vendors its module dependencies)
 - `bunx @zabaca/zbc apply <env>` — apply infrastructure for an environment
 - `bunx @zabaca/zbc destroy <env>` — tear down an ephemeral environment
 

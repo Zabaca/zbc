@@ -1,0 +1,9 @@
+{
+  "name": "inbox",
+  "kind": "app",
+  "description": "Agent-accessible email inbox: a Cloudflare Worker that receives routed mail (SQLite DO metadata + R2 raw MIME), sends via Email Sending, and exposes a bearer-authed JSON API plus a minimal web UI",
+  "targetDir": "packages/inbox",
+  "modules": ["cloudflare-email"],
+  "secrets": ["INBOX_TOKEN", "CLOUDFLARE_API_TOKEN"],
+  "instructions": "1) Edit packages/inbox/wrangler.jsonc: set DEFAULT_FROM to an address on your email domain (e.g. inbox@mail.example.com).\n2) Create two instance files in packages/infra/environments/<env>/:\n\n   // inbox.ts\n   import { cloudflareModule } from '../../modules/cloudflare'\n   export default cloudflareModule.instance({\n     name: 'inbox',\n     config: { workdir: 'packages/inbox', accountId: '<account id>', workerSecrets: ['INBOX_TOKEN'] },\n   })\n\n   // email.ts\n   import { cloudflareEmailModule } from '../../modules/cloudflare-email'\n   import inbox from './inbox'\n   export default cloudflareEmailModule.instance({\n     name: 'email',\n     imports: [inbox],\n     config: {\n       accountId: '<account id>', zoneId: '<zone id>', domain: 'mail.<your-domain>',\n       enableSending: true, enableRouting: true,\n       catchAll: { action: 'worker', workerName: '<project>-inbox' },\n     },\n   })\n\n3) Add INBOX_TOKEN (any long random string, e.g. `openssl rand -hex 32`) to secrets.yaml, and make sure CLOUDFLARE_API_TOKEN has the scopes the cloudflare-email module documents.\n4) `zbc apply <env>`. Create the R2 bucket if wrangler asks for it (`wrangler r2 bucket create <project>-inbox-raw`).\nNote: Cloudflare holds newly onboarded sending domains in a preview sandbox (verified recipients only) for a short period after DNS validates; arbitrary-recipient sending starts working once it drops."
+}

@@ -1,0 +1,189 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{PROJECT_NAME}} inbox</title>
+<style>
+  :root { color-scheme: light dark; --border: #8884; --accent: #4f46e5; }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 14px/1.5 ui-sans-serif, system-ui, sans-serif; }
+  header { display: flex; align-items: center; gap: 12px; padding: 10px 16px; border-bottom: 1px solid var(--border); }
+  header h1 { font-size: 15px; margin: 0; }
+  header .spacer { flex: 1; }
+  button { font: inherit; padding: 4px 12px; border: 1px solid var(--border); border-radius: 6px; background: transparent; cursor: pointer; }
+  button.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+  main { display: grid; grid-template-columns: minmax(260px, 380px) 1fr; height: calc(100vh - 45px); }
+  #list { overflow-y: auto; border-right: 1px solid var(--border); }
+  .msg { padding: 10px 14px; border-bottom: 1px solid var(--border); cursor: pointer; }
+  .msg:hover, .msg.active { background: #8881; }
+  .msg .from { font-weight: 600; }
+  .msg .subject { display: block; }
+  .msg .snippet { opacity: .6; font-size: 12.5px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .msg .meta { font-size: 12px; opacity: .55; }
+  #reader { overflow-y: auto; padding: 18px 22px; }
+  #reader .headers { border-bottom: 1px solid var(--border); padding-bottom: 10px; margin-bottom: 14px; }
+  #reader h2 { margin: 0 0 6px; font-size: 18px; }
+  #reader pre { white-space: pre-wrap; word-wrap: break-word; font: inherit; }
+  #reader iframe { width: 100%; min-height: 60vh; border: 1px solid var(--border); border-radius: 6px; background: #fff; }
+  dialog { border: 1px solid var(--border); border-radius: 10px; padding: 20px; min-width: min(560px, 92vw); }
+  dialog::backdrop { background: #0006; }
+  form.compose { display: grid; gap: 8px; }
+  form.compose input, form.compose textarea { font: inherit; padding: 6px 8px; border: 1px solid var(--border); border-radius: 6px; background: transparent; width: 100%; }
+  form.compose textarea { min-height: 160px; }
+  .row { display: flex; gap: 8px; justify-content: flex-end; }
+  .empty { padding: 40px; text-align: center; opacity: .5; }
+  #loadmore { margin: 12px; width: calc(100% - 24px); }
+</style>
+</head>
+<body>
+<header>
+  <h1>{{PROJECT_NAME}} inbox</h1>
+  <span id="addr" style="opacity:.5">agent inbox</span>
+  <span class="spacer"></span>
+  <button id="compose-btn" class="primary">Compose</button>
+  <button id="refresh-btn">Refresh</button>
+  <button id="token-btn">Token</button>
+</header>
+<main>
+  <div id="list"><div class="empty">Loading…</div></div>
+  <div id="reader"><div class="empty">Select a message</div></div>
+</main>
+
+<dialog id="compose">
+  <form class="compose" id="compose-form" method="dialog">
+    <input name="to" placeholder="To" required>
+    <input name="from" placeholder="From (optional — worker default applies)">
+    <input name="subject" placeholder="Subject" required>
+    <input name="inReplyTo" placeholder="In-Reply-To Message-ID (optional)">
+    <textarea name="text" placeholder="Message" required></textarea>
+    <div class="row">
+      <button type="button" id="compose-cancel">Cancel</button>
+      <button type="submit" class="primary">Send</button>
+    </div>
+  </form>
+</dialog>
+
+<script>
+const $ = (s) => document.querySelector(s)
+let token = localStorage.getItem('inbox_token') || ''
+let cursor = null
+let current = null
+
+function askToken(force) {
+  if (token && !force) return token
+  const t = prompt('Inbox API token (stored in localStorage):', token)
+  if (t !== null) { token = t.trim(); localStorage.setItem('inbox_token', token) }
+  return token
+}
+
+async function api(path, opts = {}) {
+  const res = await fetch(path, {
+    ...opts,
+    headers: { authorization: 'Bearer ' + token, 'content-type': 'application/json', ...(opts.headers || {}) },
+  })
+  if (res.status === 401) { askToken(true); throw new Error('unauthorized — token updated, retry') }
+  if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || res.statusText)
+  return res.json()
+}
+
+const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]))
+const fmtDate = (d) => { const t = new Date(d); return isNaN(t) ? '' : t.toLocaleString() }
+
+async function loadList(append) {
+  askToken(false)
+  try {
+    const q = append && cursor ? '?cursor=' + encodeURIComponent(cursor) : ''
+    const data = await api('/api/messages' + q)
+    cursor = data.nextCursor
+    const html = data.messages.map((m) => `
+      <div class="msg" data-id="${esc(m.id)}">
+        <span class="from">${esc(m.from_addr)}</span>
+        <span class="meta"> → ${esc(m.to_addr)} · ${esc(fmtDate(m.created_at))}</span>
+        <span class="subject">${esc(m.subject) || '(no subject)'}</span>
+        <span class="snippet">${esc(m.snippet)}</span>
+      </div>`).join('')
+    const more = cursor ? '<button id="loadmore">Load more</button>' : ''
+    if (append) { $('#loadmore')?.remove(); $('#list').insertAdjacentHTML('beforeend', html + more) }
+    else $('#list').innerHTML = (html || '<div class="empty">No messages yet</div>') + more
+  } catch (e) {
+    $('#list').innerHTML = '<div class="empty">' + esc(e.message) + '</div>'
+  }
+}
+
+async function openMessage(id) {
+  document.querySelectorAll('.msg').forEach((el) => el.classList.toggle('active', el.dataset.id === id))
+  $('#reader').innerHTML = '<div class="empty">Loading…</div>'
+  try {
+    const m = await api('/api/messages/' + encodeURIComponent(id))
+    current = m
+    const body = m.html_body
+      ? `<iframe sandbox="" referrerpolicy="no-referrer"></iframe>`
+      : `<pre>${esc(m.text_body)}</pre>`
+    $('#reader').innerHTML = `
+      <div class="headers">
+        <h2>${esc(m.subject) || '(no subject)'}</h2>
+        <div><b>${esc(m.from_addr)}</b> → ${esc(m.to_addr)} · ${esc(fmtDate(m.date))}</div>
+        <div class="row" style="justify-content:flex-start; margin-top:8px">
+          <button id="reply-btn">Reply</button>
+          <a href="/api/messages/${esc(m.id)}/raw"><button type="button" id="raw-btn">Raw</button></a>
+          <button id="delete-btn">Delete</button>
+        </div>
+      </div>${body}`
+    const frame = $('#reader iframe')
+    if (frame) frame.srcdoc = m.html_body
+    $('#reply-btn').onclick = () => openCompose({
+      to: m.from_addr, from: m.to_addr,
+      subject: (m.subject || '').startsWith('Re:') ? m.subject : 'Re: ' + (m.subject || ''),
+      inReplyTo: m.message_id,
+    })
+    $('#raw-btn').onclick = async (e) => {
+      e.preventDefault()
+      const res = await fetch('/api/messages/' + m.id + '/raw', { headers: { authorization: 'Bearer ' + token } })
+      const blob = await res.blob()
+      const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(blob), download: m.id + '.eml' })
+      a.click()
+    }
+    $('#delete-btn').onclick = async () => {
+      if (!confirm('Delete this message?')) return
+      await api('/api/messages/' + m.id, { method: 'DELETE' })
+      $('#reader').innerHTML = '<div class="empty">Deleted</div>'
+      loadList()
+    }
+  } catch (e) {
+    $('#reader').innerHTML = '<div class="empty">' + esc(e.message) + '</div>'
+  }
+}
+
+function openCompose(prefill = {}) {
+  const f = $('#compose-form')
+  f.reset()
+  for (const [k, v] of Object.entries(prefill)) if (f[k]) f[k].value = v || ''
+  $('#compose').showModal()
+}
+
+$('#compose-form').addEventListener('submit', async (e) => {
+  e.preventDefault()
+  const f = e.target
+  const body = Object.fromEntries(['to', 'from', 'subject', 'inReplyTo', 'text']
+    .map((k) => [k, f[k].value.trim()]).filter(([, v]) => v))
+  try {
+    await api('/api/send', { method: 'POST', body: JSON.stringify(body) })
+    $('#compose').close()
+  } catch (err) { alert('Send failed: ' + err.message) }
+})
+
+$('#compose-cancel').onclick = () => $('#compose').close()
+$('#compose-btn').onclick = () => openCompose()
+$('#refresh-btn').onclick = () => loadList()
+$('#token-btn').onclick = () => { askToken(true); loadList() }
+$('#list').addEventListener('click', (e) => {
+  if (e.target.id === 'loadmore') return loadList(true)
+  const msg = e.target.closest('.msg')
+  if (msg) openMessage(msg.dataset.id)
+})
+
+loadList()
+</script>
+</body>
+</html>

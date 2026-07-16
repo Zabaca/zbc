@@ -80,3 +80,8 @@ export function templatesRoot(): string {
 export function bundledModulesCandidates(): string[] {
   return [path.resolve(import.meta.dir, '../../templates/infra/modules')]
 }
+
+/** Path to bundled app templates: packages/cli/templates/apps/. */
+export function bundledAppsCandidates(): string[] {
+  return [path.resolve(import.meta.dir, '../../templates/apps')]
+}
