@@ -36,6 +36,13 @@
     // Default From when /api/send omits one. Must be on your onboarded email
     // domain. Set it per project via the instance file:
     //   workerVars: [{ name: 'DEFAULT_FROM', value: 'inbox@mail.example.com' }]
-    "DEFAULT_FROM": ""
+    "DEFAULT_FROM": "",
+    // Optional webhook: every received/sent message POSTs { event, message }
+    // here (signed with the WEBHOOK_SECRET worker secret when set).
+    "WEBHOOK_URL": "",
+    // Optional inbound labeling: comma-separated label set (e.g.
+    // "billing,support,spam,other"). Requires the ANTHROPIC_API_KEY worker
+    // secret; leave empty to disable.
+    "LABELS": ""
   }
 }

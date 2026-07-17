@@ -20,6 +20,10 @@ export interface MessageMeta {
   created_at: string
   direction: 'inbound' | 'outbound'
   thread_id: string
+  /** 'sent' for everything except unsent drafts. */
+  status: 'draft' | 'sent'
+  /** Classifier label ('' until/unless labeling runs). */
+  label: string
 }
 
 export interface ThreadMeta extends MessageMeta {
@@ -50,6 +54,8 @@ export interface InsertMessage {
   size: number
   direction: 'inbound' | 'outbound'
   in_reply_to: string
+  /** 'draft' skips thread resolution (resolved at send time). Default 'sent'. */
+  status?: 'draft' | 'sent'
 }
 
 /** Strip Re:/Fwd: prefixes + whitespace so replies fall into the same thread. */
@@ -107,6 +113,12 @@ export class Inbox extends DurableObject {
       )
       this.sql.exec(`UPDATE messages SET thread_id = id WHERE thread_id = ''`)
     }
+    if (!names.has('status')) {
+      this.sql.exec(`ALTER TABLE messages ADD COLUMN status TEXT NOT NULL DEFAULT 'sent'`)
+    }
+    if (!names.has('label')) {
+      this.sql.exec(`ALTER TABLE messages ADD COLUMN label TEXT NOT NULL DEFAULT ''`)
+    }
     this.sql.exec(`CREATE INDEX IF NOT EXISTS idx_messages_thread ON messages (thread_id, id)`)
   }
 
@@ -126,7 +138,10 @@ export class Inbox extends DurableObject {
   ): string {
     if (inReplyTo) {
       const byRef = this.sql
-        .exec(`SELECT thread_id FROM messages WHERE message_id = ? LIMIT 1`, inReplyTo)
+        .exec(
+          `SELECT thread_id FROM messages WHERE message_id = ? AND status != 'draft' LIMIT 1`,
+          inReplyTo,
+        )
         .toArray()[0] as unknown as { thread_id: string } | undefined
       if (byRef?.thread_id) return byRef.thread_id
     }
@@ -135,7 +150,7 @@ export class Inbox extends DurableObject {
       const participants = [fromAddr, toAddr].map((a) => a.toLowerCase())
       const rows = this.sql
         .exec(
-          `SELECT thread_id, subject, from_addr, to_addr FROM messages ORDER BY id DESC LIMIT 200`,
+          `SELECT thread_id, subject, from_addr, to_addr FROM messages WHERE status != 'draft' ORDER BY id DESC LIMIT 200`,
         )
         .toArray() as unknown as Array<{
         thread_id: string
@@ -154,19 +169,19 @@ export class Inbox extends DurableObject {
   }
 
   insert(msg: InsertMessage): { threadId: string } {
-    const threadId = this.resolveThreadId(
-      msg.id,
-      msg.in_reply_to,
-      msg.subject,
-      msg.from_addr,
-      msg.to_addr,
-    )
+    const status = msg.status ?? 'sent'
+    // Drafts get no thread until they're actually sent — resolving early
+    // could anchor a thread to a message that never goes out.
+    const threadId =
+      status === 'draft'
+        ? ''
+        : this.resolveThreadId(msg.id, msg.in_reply_to, msg.subject, msg.from_addr, msg.to_addr)
     this.sql.exec(
       `INSERT INTO messages
          (id, message_id, from_addr, to_addr, subject, date, snippet,
           text_body, html_body, r2_key, attachments_json, size, created_at,
-          direction, in_reply_to, thread_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          direction, in_reply_to, thread_id, status)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       msg.id,
       msg.message_id,
       msg.from_addr,
@@ -183,29 +198,132 @@ export class Inbox extends DurableObject {
       msg.direction,
       msg.in_reply_to,
       threadId,
+      status,
     )
     return { threadId }
   }
 
-  /** Newest-first page. `cursor` is the last-seen id (ids are time-ordered). */
-  list(limit = 50, cursor?: string): { messages: MessageMeta[]; nextCursor: string | null } {
+  /** Update an unsent draft's editable fields. Returns false if not a draft. */
+  updateDraft(
+    id: string,
+    fields: Partial<
+      Pick<
+        InsertMessage,
+        'from_addr' | 'to_addr' | 'subject' | 'text_body' | 'html_body' | 'in_reply_to' | 'snippet'
+      >
+    >,
+  ): boolean {
+    const row = this.sql
+      .exec(`SELECT status FROM messages WHERE id = ?`, id)
+      .toArray()[0] as unknown as { status: string } | undefined
+    if (!row || row.status !== 'draft') return false
+    const cols = Object.keys(fields) as Array<keyof typeof fields>
+    if (cols.length === 0) return true
+    this.sql.exec(
+      `UPDATE messages SET ${cols.map((c) => `${c} = ?`).join(', ')} WHERE id = ?`,
+      ...cols.map((c) => fields[c] ?? ''),
+      id,
+    )
+    return true
+  }
+
+  /**
+   * Flip a draft to sent: resolve its thread NOW (against what actually
+   * exists at send time) and stamp the send date. Returns null if the row
+   * isn't an unsent draft.
+   */
+  markDraftSent(id: string, date: string): { threadId: string } | null {
+    const row = this.sql
+      .exec(
+        `SELECT status, in_reply_to, subject, from_addr, to_addr FROM messages WHERE id = ?`,
+        id,
+      )
+      .toArray()[0] as unknown as
+      | { status: string; in_reply_to: string; subject: string; from_addr: string; to_addr: string }
+      | undefined
+    if (!row || row.status !== 'draft') return null
+    const threadId = this.resolveThreadId(
+      id,
+      row.in_reply_to,
+      row.subject,
+      row.from_addr,
+      row.to_addr,
+    )
+    this.sql.exec(
+      `UPDATE messages SET status = 'sent', thread_id = ?, date = ? WHERE id = ?`,
+      threadId,
+      date,
+      id,
+    )
+    return { threadId }
+  }
+
+  /** Newest-first drafts (metadata only). */
+  listDrafts(limit = 50): MessageMeta[] {
     const capped = Math.min(Math.max(limit, 1), 200)
-    const rows = (cursor
-      ? this.sql
-          .exec(
-            `SELECT id, from_addr, to_addr, subject, date, snippet, size, created_at, direction, thread_id
-               FROM messages WHERE id < ? ORDER BY id DESC LIMIT ?`,
-            cursor,
-            capped + 1,
-          )
-          .toArray()
-      : this.sql
-          .exec(
-            `SELECT id, from_addr, to_addr, subject, date, snippet, size, created_at, direction, thread_id
-               FROM messages ORDER BY id DESC LIMIT ?`,
-            capped + 1,
-          )
-          .toArray()) as unknown as MessageMeta[]
+    return this.sql
+      .exec(
+        `SELECT id, from_addr, to_addr, subject, date, snippet, size, created_at, direction, thread_id, status, label
+           FROM messages WHERE status = 'draft' ORDER BY id DESC LIMIT ?`,
+        capped,
+      )
+      .toArray() as unknown as MessageMeta[]
+  }
+
+  /**
+   * Case-insensitive keyword search over subject + text_body. Plain LIKE —
+   * fine at this table's scale; revisit with an FTS index if volume grows.
+   * Drafts included; newest first.
+   */
+  search(q: string, limit = 50): MessageMeta[] {
+    const capped = Math.min(Math.max(limit, 1), 200)
+    const term = `%${q.replace(/[\\%_]/g, (c) => `\\${c}`)}%`
+    return this.sql
+      .exec(
+        `SELECT id, from_addr, to_addr, subject, date, snippet, size, created_at, direction, thread_id, status, label
+           FROM messages
+          WHERE subject LIKE ? ESCAPE '\\' OR text_body LIKE ? ESCAPE '\\'
+          ORDER BY id DESC LIMIT ?`,
+        term,
+        term,
+        capped,
+      )
+      .toArray() as unknown as MessageMeta[]
+  }
+
+  /** Set the classifier label. No-op if the row is gone (delete raced it). */
+  setLabel(id: string, label: string): void {
+    this.sql.exec(`UPDATE messages SET label = ? WHERE id = ?`, label, id)
+  }
+
+  /**
+   * Newest-first page (drafts excluded — see listDrafts). `cursor` is the
+   * last-seen id (ids are time-ordered). `label` filters to one label.
+   */
+  list(
+    limit = 50,
+    cursor?: string,
+    label?: string,
+  ): { messages: MessageMeta[]; nextCursor: string | null } {
+    const capped = Math.min(Math.max(limit, 1), 200)
+    const where = [`status != 'draft'`]
+    const params: unknown[] = []
+    if (cursor) {
+      where.push('id < ?')
+      params.push(cursor)
+    }
+    if (label) {
+      where.push('label = ?')
+      params.push(label)
+    }
+    const rows = this.sql
+      .exec(
+        `SELECT id, from_addr, to_addr, subject, date, snippet, size, created_at, direction, thread_id, status, label
+           FROM messages WHERE ${where.join(' AND ')} ORDER BY id DESC LIMIT ?`,
+        ...params,
+        capped + 1,
+      )
+      .toArray() as unknown as MessageMeta[]
     const hasMore = rows.length > capped
     const page = hasMore ? rows.slice(0, capped) : rows
     return { messages: page, nextCursor: hasMore ? page[page.length - 1]!.id : null }
@@ -219,10 +337,11 @@ export class Inbox extends DurableObject {
     const capped = Math.min(Math.max(limit, 1), 200)
     const base = `
       SELECT m.id, m.from_addr, m.to_addr, m.subject, m.date, m.snippet, m.size,
-             m.created_at, m.direction, m.thread_id,
+             m.created_at, m.direction, m.thread_id, m.status, m.label,
              (SELECT COUNT(*) FROM messages c WHERE c.thread_id = m.thread_id) AS thread_count
         FROM messages m
-       WHERE m.id = (SELECT MAX(id) FROM messages x WHERE x.thread_id = m.thread_id)`
+       WHERE m.status != 'draft'
+         AND m.id = (SELECT MAX(id) FROM messages x WHERE x.thread_id = m.thread_id)`
     const rows = (cursor
       ? this.sql
           .exec(`${base} AND m.id < ? ORDER BY m.id DESC LIMIT ?`, cursor, capped + 1)
@@ -241,7 +360,7 @@ export class Inbox extends DurableObject {
       .exec(
         `SELECT id, message_id, from_addr, to_addr, subject, date, snippet,
                 text_body, html_body, r2_key, attachments_json, size, created_at,
-                direction, in_reply_to, thread_id
+                direction, in_reply_to, thread_id, status, label
            FROM messages WHERE thread_id = ? ORDER BY id ASC`,
         threadId,
       )
@@ -257,7 +376,7 @@ export class Inbox extends DurableObject {
       .exec(
         `SELECT id, message_id, from_addr, to_addr, subject, date, snippet,
                 text_body, html_body, r2_key, attachments_json, size, created_at,
-                direction, in_reply_to, thread_id
+                direction, in_reply_to, thread_id, status, label
          FROM messages WHERE id = ?`,
         id,
       )
