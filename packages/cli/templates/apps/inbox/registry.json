@@ -1,7 +1,7 @@
 {
   "name": "inbox",
   "kind": "app",
-  "description": "Agent-accessible email inbox: a Cloudflare Worker that receives routed mail (SQLite DO metadata + R2 raw MIME), sends via Email Sending, and exposes a bearer-authed JSON API plus a minimal web UI",
+  "description": "Agent-accessible email inbox: a Cloudflare Worker that receives routed mail (SQLite DO metadata + R2 raw MIME), sends via Email Sending, and exposes a bearer-authed JSON API, an MCP server at /mcp (same token), and a minimal web UI",
   "targetDir": "packages/inbox",
   "modules": ["cloudflare", "cloudflare-email", "r2"],
   "secrets": ["INBOX_TOKEN", "CLOUDFLARE_API_TOKEN"],

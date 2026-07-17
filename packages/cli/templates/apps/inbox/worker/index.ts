@@ -8,6 +8,7 @@
  */
 import PostalMime from 'postal-mime'
 import { Inbox } from './inbox-do'
+import { handleMcp } from './mcp'
 import { type SendBody, performDraftSend, performSend } from './send-op'
 import { type SendEmailBinding, emitWebhook, makeSnippet, newId, normalizeMsgId } from './shared'
 
@@ -170,7 +171,7 @@ export default {
     const url = new URL(request.url)
     const { pathname } = url
 
-    if (!pathname.startsWith('/api/')) {
+    if (pathname !== '/mcp' && !pathname.startsWith('/api/')) {
       return env.ASSETS.fetch(request)
     }
 
@@ -179,6 +180,11 @@ export default {
     }
 
     const stub = inboxStub(env)
+
+    // POST/GET/DELETE /mcp — MCP server (Streamable HTTP), same bearer token
+    if (pathname === '/mcp') {
+      return handleMcp(request, { env, stub })
+    }
 
     // GET /api/messages?limit=&cursor=&label=
     if (pathname === '/api/messages' && request.method === 'GET') {
