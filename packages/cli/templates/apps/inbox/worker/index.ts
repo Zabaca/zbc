@@ -8,26 +8,10 @@
  */
 import PostalMime from 'postal-mime'
 import { Inbox } from './inbox-do'
+import { type SendBody, performDraftSend, performSend } from './send-op'
+import { type SendEmailBinding, emitWebhook, makeSnippet, newId, normalizeMsgId } from './shared'
 
 export { Inbox }
-
-/**
- * Email Service send binding (the NEW object-based API, not the legacy
- * EmailMessage one). The legacy `new EmailMessage(from, to, raw)` path routes
- * through Email Routing and only delivers to VERIFIED destination addresses;
- * the object form goes through Email Sending and accepts any recipient as
- * long as the From domain is onboarded.
- */
-interface SendEmailBinding {
-  send(message: {
-    from: string
-    to: string
-    subject: string
-    text?: string
-    html?: string
-    headers?: Record<string, string>
-  }): Promise<unknown>
-}
 
 export interface Env {
   ASSETS: { fetch: (request: Request) => Promise<Response> }
@@ -55,24 +39,6 @@ export interface Env {
   LABELS?: string
 }
 
-/** Time-ordered id: ms timestamp (base36, padded) + random suffix. Sortable as TEXT. */
-function newId(): string {
-  const time = Date.now().toString(36).padStart(9, '0')
-  const rand = crypto.getRandomValues(new Uint8Array(8))
-  const suffix = Array.from(rand, (b) => b.toString(36).padStart(2, '0'))
-    .join('')
-    .slice(0, 12)
-  return `${time}-${suffix}`
-}
-
-/**
- * Normalize an RFC 5322 Message-ID to its bare form (no angle brackets or
- * whitespace) so stored ids and In-Reply-To references compare equal.
- */
-function normalizeMsgId(id: string | undefined | null): string {
-  return (id ?? '').replace(/[\s<>]/g, '')
-}
-
 /** Constant-time bearer check: compare SHA-256 digests so length never leaks. */
 async function authorized(request: Request, env: Env): Promise<boolean> {
   if (!env.INBOX_TOKEN) return false
@@ -92,75 +58,6 @@ function json(data: unknown, status = 200): Response {
 
 function inboxStub(env: Env) {
   return env.INBOX.get(env.INBOX.idFromName('inbox'))
-}
-
-/**
- * Dispatch via the Email Sending binding. In-Reply-To/References are the only
- * threading headers Cloudflare accepts (a custom Message-ID is rejected).
- */
-async function sendMail(
-  env: Env,
-  msg: {
-    from: string
-    to: string
-    subject: string
-    text?: string
-    html?: string
-    inReplyTo?: string
-  },
-): Promise<void> {
-  const inReplyTo = normalizeMsgId(msg.inReplyTo)
-  await env.EMAIL.send({
-    from: msg.from,
-    to: msg.to,
-    subject: msg.subject,
-    ...(msg.text ? { text: msg.text } : {}),
-    ...(msg.html ? { html: msg.html } : {}),
-    ...(inReplyTo
-      ? { headers: { 'In-Reply-To': `<${inReplyTo}>`, References: `<${inReplyTo}>` } }
-      : {}),
-  })
-}
-
-/** First 200 chars of the text (or tag-stripped html) body. */
-function makeSnippet(text: string, html: string): string {
-  return (text || html.replace(/<[^>]+>/g, ' ')).replace(/\s+/g, ' ').trim().slice(0, 200)
-}
-
-/**
- * POST an event to WEBHOOK_URL (if configured): fire-and-forget with one
- * retry, run inside ctx.waitUntil so it never delays mail handling. Body is
- * `{ event, message }`; signed when WEBHOOK_SECRET is set.
- */
-async function emitWebhook(
-  env: Env,
-  event: 'message.received' | 'message.sent',
-  message: Record<string, unknown>,
-): Promise<void> {
-  if (!env.WEBHOOK_URL) return
-  const body = JSON.stringify({ event, message })
-  const headers: Record<string, string> = { 'content-type': 'application/json' }
-  if (env.WEBHOOK_SECRET) {
-    const key = await crypto.subtle.importKey(
-      'raw',
-      new TextEncoder().encode(env.WEBHOOK_SECRET),
-      { name: 'HMAC', hash: 'SHA-256' },
-      false,
-      ['sign'],
-    )
-    const sig = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(body))
-    headers['x-inbox-signature'] =
-      `sha256=${Array.from(new Uint8Array(sig), (b) => b.toString(16).padStart(2, '0')).join('')}`
-  }
-  for (let attempt = 0; attempt < 2; attempt++) {
-    try {
-      const res = await fetch(env.WEBHOOK_URL, { method: 'POST', headers, body })
-      if (res.ok) return
-    } catch {
-      // fall through to retry
-    }
-  }
-  console.warn(`webhook delivery failed after 2 attempts: ${event}`)
 }
 
 /**
@@ -202,16 +99,6 @@ async function classify(env: Env, subject: string, snippet: string): Promise<str
   } catch {
     return ''
   }
-}
-
-interface SendBody {
-  to: string
-  subject: string
-  text?: string
-  html?: string
-  from?: string
-  /** RFC 5322 Message-ID of the message being replied to → In-Reply-To/References. */
-  inReplyTo?: string
 }
 
 export default {
@@ -279,7 +166,7 @@ export default {
     )
   },
 
-  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+  async fetch(request: Request, env: Env, _ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url)
     const { pathname } = url
 
@@ -323,7 +210,7 @@ export default {
       return messages.length ? json({ messages }) : json({ error: 'not found' }, 404)
     }
 
-    // POST /api/send
+    // POST /api/send — immediate, or queued for the DO alarm when sendAt set
     if (pathname === '/api/send' && request.method === 'POST') {
       let body: SendBody
       try {
@@ -331,66 +218,21 @@ export default {
       } catch {
         return json({ error: 'invalid JSON body' }, 400)
       }
-      if (!body.to || !body.subject || (!body.text && !body.html)) {
-        return json({ error: 'required: to, subject, and text or html' }, 400)
-      }
-      const from = body.from ?? env.DEFAULT_FROM
-      if (!from) return json({ error: 'no from address (set DEFAULT_FROM or pass from)' }, 400)
+      const outcome = await performSend(env, stub, body)
+      return json(outcome.body, outcome.status)
+    }
 
-      // Email Sending only accepts whitelisted custom headers (a Message-ID
-      // of our own is rejected), so the wire Message-ID is provider-chosen
-      // and unknown to us. We store a synthetic one for OUR send chain;
-      // recipient replies thread via the subject+participant fallback.
-      const id = newId()
-      const messageId = `${id}@${from.split('@')[1] ?? 'localhost'}`
-      const inReplyTo = normalizeMsgId(body.inReplyTo)
+    // GET /api/scheduled — pending + failed scheduled sends, soonest first
+    if (pathname === '/api/scheduled' && request.method === 'GET') {
+      const limit = Number(url.searchParams.get('limit') ?? '50')
+      return json({ scheduled: await stub.listScheduled(Number.isFinite(limit) ? limit : 50) })
+    }
 
-      try {
-        await sendMail(env, {
-          from,
-          to: body.to,
-          subject: body.subject,
-          text: body.text,
-          html: body.html,
-          inReplyTo,
-        })
-      } catch (err) {
-        return json({ error: `send failed: ${(err as Error).message}` }, 502)
-      }
-
-      // Record the outbound message so the inbox shows both sides of a
-      // conversation. No raw MIME (we never see the provider's final wire
-      // form), so r2_key stays empty and /raw 404s for these.
-      const text = body.text ?? ''
-      const snippet = makeSnippet(text, body.html ?? '')
-      const { threadId } = await stub.insert({
-        id,
-        direction: 'outbound',
-        in_reply_to: inReplyTo,
-        message_id: messageId,
-        from_addr: from,
-        to_addr: body.to,
-        subject: body.subject,
-        date: new Date().toISOString(),
-        snippet,
-        text_body: text,
-        html_body: body.html ?? '',
-        r2_key: '',
-        attachments_json: '[]',
-        size: text.length + (body.html?.length ?? 0),
-      })
-      ctx.waitUntil(
-        emitWebhook(env, 'message.sent', {
-          id,
-          threadId,
-          from,
-          to: body.to,
-          subject: body.subject,
-          snippet,
-          direction: 'outbound',
-        }),
-      )
-      return json({ ok: true, id, from, to: body.to, messageId, threadId })
+    // DELETE /api/scheduled/:id — cancel a pending (or dismiss a failed) send
+    const schedMatch = pathname.match(/^\/api\/scheduled\/([^/]+)$/)
+    if (schedMatch && request.method === 'DELETE') {
+      const cancelled = await stub.cancelScheduled(schedMatch[1]!)
+      return cancelled ? json({ ok: true }) : json({ error: 'not a scheduled send' }, 404)
     }
 
     // POST /api/drafts — store an outbound message without sending it
@@ -460,43 +302,8 @@ export default {
       }
 
       if (sendSuffix && request.method === 'POST') {
-        const draft = await stub.get(draftId!)
-        if (!draft || draft.status !== 'draft') return json({ error: 'not a draft' }, 404)
-        const from = draft.from_addr || env.DEFAULT_FROM
-        if (!from)
-          return json({ error: 'no from address (set DEFAULT_FROM or the draft from)' }, 400)
-        if (!draft.to_addr || !draft.subject || (!draft.text_body && !draft.html_body)) {
-          return json({ error: 'draft incomplete: needs to, subject, and text or html' }, 400)
-        }
-        try {
-          await sendMail(env, {
-            from,
-            to: draft.to_addr,
-            subject: draft.subject,
-            text: draft.text_body || undefined,
-            html: draft.html_body || undefined,
-            inReplyTo: draft.in_reply_to,
-          })
-        } catch (err) {
-          return json({ error: `send failed: ${(err as Error).message}` }, 502)
-        }
-        // Persist the from that was actually used (may have come from
-        // DEFAULT_FROM), then flip the row to sent — thread resolves NOW.
-        if (from !== draft.from_addr) await stub.updateDraft(draftId!, { from_addr: from })
-        const sent = await stub.markDraftSent(draftId!, new Date().toISOString())
-        if (!sent) return json({ error: 'draft vanished during send' }, 500)
-        ctx.waitUntil(
-          emitWebhook(env, 'message.sent', {
-            id: draftId,
-            threadId: sent.threadId,
-            from,
-            to: draft.to_addr,
-            subject: draft.subject,
-            snippet: draft.snippet,
-            direction: 'outbound',
-          }),
-        )
-        return json({ ok: true, id: draftId, from, to: draft.to_addr, threadId: sent.threadId })
+        const outcome = await performDraftSend(env, stub, draftId!)
+        return json(outcome.body, outcome.status)
       }
       if (!sendSuffix && request.method === 'GET') {
         const draft = await stub.get(draftId!)

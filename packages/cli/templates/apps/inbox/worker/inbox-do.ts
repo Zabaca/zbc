@@ -1,4 +1,5 @@
 import { DurableObject } from 'cloudflare:workers'
+import { type MailEnv, emitWebhook, sendMail } from './shared'
 
 /**
  * Inbox — a single SQLite-backed Durable Object holding message metadata and
@@ -20,10 +21,21 @@ export interface MessageMeta {
   created_at: string
   direction: 'inbound' | 'outbound'
   thread_id: string
-  /** 'sent' for everything except unsent drafts. */
-  status: 'draft' | 'sent'
+  /**
+   * 'sent' for everything visible in the inbox (inbound rows included);
+   * 'draft' = unsent draft, 'scheduled' = queued for the alarm,
+   * 'failed' = a scheduled send the alarm could not dispatch (see send_error
+   * in the scheduled listing).
+   */
+  status: 'draft' | 'scheduled' | 'sent' | 'failed'
   /** Classifier label ('' until/unless labeling runs). */
   label: string
+}
+
+/** A scheduled/failed row as returned by listScheduled. */
+export interface ScheduledMeta extends MessageMeta {
+  scheduled_at: string
+  send_error: string
 }
 
 export interface ThreadMeta extends MessageMeta {
@@ -54,8 +66,13 @@ export interface InsertMessage {
   size: number
   direction: 'inbound' | 'outbound'
   in_reply_to: string
-  /** 'draft' skips thread resolution (resolved at send time). Default 'sent'. */
-  status?: 'draft' | 'sent'
+  /**
+   * 'draft'/'scheduled' skip thread resolution (resolved at actual send
+   * time). Default 'sent'.
+   */
+  status?: 'draft' | 'scheduled' | 'sent'
+  /** Required when status is 'scheduled': ISO time the alarm should send at. */
+  scheduled_at?: string
 }
 
 /** Strip Re:/Fwd: prefixes + whitespace so replies fall into the same thread. */
@@ -67,11 +84,11 @@ function normalizeSubject(subject: string): string {
     .toLowerCase()
 }
 
-export class Inbox extends DurableObject {
+export class Inbox extends DurableObject<MailEnv> {
   private sql: SqlStorage
 
-  constructor(ctx: DurableObjectState, env: unknown) {
-    super(ctx, env as never)
+  constructor(ctx: DurableObjectState, env: MailEnv) {
+    super(ctx, env)
     this.sql = ctx.storage.sql
     this.sql.exec(`
       CREATE TABLE IF NOT EXISTS messages (
@@ -119,6 +136,10 @@ export class Inbox extends DurableObject {
     if (!names.has('label')) {
       this.sql.exec(`ALTER TABLE messages ADD COLUMN label TEXT NOT NULL DEFAULT ''`)
     }
+    if (!names.has('scheduled_at')) {
+      this.sql.exec(`ALTER TABLE messages ADD COLUMN scheduled_at TEXT NOT NULL DEFAULT ''`)
+      this.sql.exec(`ALTER TABLE messages ADD COLUMN send_error TEXT NOT NULL DEFAULT ''`)
+    }
     this.sql.exec(`CREATE INDEX IF NOT EXISTS idx_messages_thread ON messages (thread_id, id)`)
   }
 
@@ -139,7 +160,7 @@ export class Inbox extends DurableObject {
     if (inReplyTo) {
       const byRef = this.sql
         .exec(
-          `SELECT thread_id FROM messages WHERE message_id = ? AND status != 'draft' LIMIT 1`,
+          `SELECT thread_id FROM messages WHERE message_id = ? AND status = 'sent' LIMIT 1`,
           inReplyTo,
         )
         .toArray()[0] as unknown as { thread_id: string } | undefined
@@ -150,7 +171,7 @@ export class Inbox extends DurableObject {
       const participants = [fromAddr, toAddr].map((a) => a.toLowerCase())
       const rows = this.sql
         .exec(
-          `SELECT thread_id, subject, from_addr, to_addr FROM messages WHERE status != 'draft' ORDER BY id DESC LIMIT 200`,
+          `SELECT thread_id, subject, from_addr, to_addr FROM messages WHERE status = 'sent' ORDER BY id DESC LIMIT 200`,
         )
         .toArray() as unknown as Array<{
         thread_id: string
@@ -170,18 +191,18 @@ export class Inbox extends DurableObject {
 
   insert(msg: InsertMessage): { threadId: string } {
     const status = msg.status ?? 'sent'
-    // Drafts get no thread until they're actually sent — resolving early
-    // could anchor a thread to a message that never goes out.
+    // Drafts/scheduled get no thread until they're actually sent — resolving
+    // early could anchor a thread to a message that never goes out.
     const threadId =
-      status === 'draft'
-        ? ''
-        : this.resolveThreadId(msg.id, msg.in_reply_to, msg.subject, msg.from_addr, msg.to_addr)
+      status === 'sent'
+        ? this.resolveThreadId(msg.id, msg.in_reply_to, msg.subject, msg.from_addr, msg.to_addr)
+        : ''
     this.sql.exec(
       `INSERT INTO messages
          (id, message_id, from_addr, to_addr, subject, date, snippet,
           text_body, html_body, r2_key, attachments_json, size, created_at,
-          direction, in_reply_to, thread_id, status)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          direction, in_reply_to, thread_id, status, scheduled_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       msg.id,
       msg.message_id,
       msg.from_addr,
@@ -199,8 +220,123 @@ export class Inbox extends DurableObject {
       msg.in_reply_to,
       threadId,
       status,
+      msg.scheduled_at ?? '',
     )
+    if (status === 'scheduled') this.armAlarm()
     return { threadId }
+  }
+
+  /**
+   * (Re)arm the DO alarm for the earliest pending scheduled send. Safe to
+   * call any time — a DO has ONE alarm, so we always point it at MIN(
+   * scheduled_at); alarm() re-arms for the next one after each batch.
+   */
+  private armAlarm(): void {
+    const next = this.sql
+      .exec(`SELECT MIN(scheduled_at) AS next FROM messages WHERE status = 'scheduled'`)
+      .toArray()[0] as unknown as { next: string | null } | undefined
+    if (next?.next) {
+      void this.ctx.storage.setAlarm(new Date(next.next).getTime())
+    }
+  }
+
+  /**
+   * Dispatch every due scheduled send. Handles past-due backlogs (missed
+   * alarms after redeploys/hibernation): everything with scheduled_at <= now
+   * goes out in this pass, then the alarm re-arms for the next future one.
+   * A failed dispatch marks the row 'failed' with send_error rather than
+   * blocking the rest of the batch.
+   */
+  async alarm(): Promise<void> {
+    const now = new Date().toISOString()
+    const due = this.sql
+      .exec(
+        `SELECT id, from_addr, to_addr, subject, text_body, html_body, in_reply_to, snippet
+           FROM messages WHERE status = 'scheduled' AND scheduled_at <= ? ORDER BY scheduled_at ASC`,
+        now,
+      )
+      .toArray() as unknown as Array<{
+      id: string
+      from_addr: string
+      to_addr: string
+      subject: string
+      text_body: string
+      html_body: string
+      in_reply_to: string
+      snippet: string
+    }>
+    for (const row of due) {
+      try {
+        await sendMail(this.env, {
+          from: row.from_addr,
+          to: row.to_addr,
+          subject: row.subject,
+          text: row.text_body || undefined,
+          html: row.html_body || undefined,
+          inReplyTo: row.in_reply_to,
+        })
+        const threadId = this.resolveThreadId(
+          row.id,
+          row.in_reply_to,
+          row.subject,
+          row.from_addr,
+          row.to_addr,
+        )
+        const sentAt = new Date().toISOString()
+        this.sql.exec(
+          `UPDATE messages SET status = 'sent', thread_id = ?, date = ? WHERE id = ?`,
+          threadId,
+          sentAt,
+          row.id,
+        )
+        await emitWebhook(this.env, 'message.sent', {
+          id: row.id,
+          threadId,
+          from: row.from_addr,
+          to: row.to_addr,
+          subject: row.subject,
+          snippet: row.snippet,
+          direction: 'outbound',
+          scheduled: true,
+        })
+      } catch (err) {
+        this.sql.exec(
+          `UPDATE messages SET status = 'failed', send_error = ? WHERE id = ?`,
+          (err as Error).message ?? 'send failed',
+          row.id,
+        )
+      }
+    }
+    this.armAlarm()
+  }
+
+  /** Scheduled + failed rows, soonest first (failed sort by original slot). */
+  listScheduled(limit = 50): ScheduledMeta[] {
+    const capped = Math.min(Math.max(limit, 1), 200)
+    return this.sql
+      .exec(
+        `SELECT id, from_addr, to_addr, subject, date, snippet, size, created_at, direction,
+                thread_id, status, label, scheduled_at, send_error
+           FROM messages WHERE status IN ('scheduled', 'failed')
+          ORDER BY scheduled_at ASC LIMIT ?`,
+        capped,
+      )
+      .toArray() as unknown as ScheduledMeta[]
+  }
+
+  /**
+   * Cancel a pending scheduled send (deletes the row). Failed rows can be
+   * cancelled too — that's how they're dismissed. Returns false if the id
+   * isn't a scheduled/failed row.
+   */
+  cancelScheduled(id: string): boolean {
+    const row = this.sql
+      .exec(`SELECT status FROM messages WHERE id = ?`, id)
+      .toArray()[0] as unknown as { status: string } | undefined
+    if (!row || (row.status !== 'scheduled' && row.status !== 'failed')) return false
+    this.sql.exec(`DELETE FROM messages WHERE id = ?`, id)
+    this.armAlarm()
+    return true
   }
 
   /** Update an unsent draft's editable fields. Returns false if not a draft. */
@@ -306,7 +442,7 @@ export class Inbox extends DurableObject {
     label?: string,
   ): { messages: MessageMeta[]; nextCursor: string | null } {
     const capped = Math.min(Math.max(limit, 1), 200)
-    const where = [`status != 'draft'`]
+    const where = [`status = 'sent'`]
     const params: unknown[] = []
     if (cursor) {
       where.push('id < ?')
@@ -340,7 +476,7 @@ export class Inbox extends DurableObject {
              m.created_at, m.direction, m.thread_id, m.status, m.label,
              (SELECT COUNT(*) FROM messages c WHERE c.thread_id = m.thread_id) AS thread_count
         FROM messages m
-       WHERE m.status != 'draft'
+       WHERE m.status = 'sent'
          AND m.id = (SELECT MAX(id) FROM messages x WHERE x.thread_id = m.thread_id)`
     const rows = (cursor
       ? this.sql
