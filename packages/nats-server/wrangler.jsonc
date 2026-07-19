@@ -14,9 +14,9 @@
     {
       "class_name": "NatsContainer",
       "image": "./Dockerfile",
-      // Proven instance type on this account (matches cedarpad's canvas); NATS
-      // is tiny, so this can be shrunk later.
-      "instance_type": "standard-1",
+      // Smallest available tier (1/16 vCPU, 256 MiB, 2 GB disk); NATS idles
+      // around 20-30 MB, so this is ample.
+      "instance_type": "lite",
       // One always-warm server so pub/sub fans out across every client.
       "max_instances": 1
     }
