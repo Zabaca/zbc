@@ -1,0 +1,11 @@
+{
+  "name": "secret-relay",
+  "kind": "app",
+  "description": "Secret Relay: a tiny permanent Cloudflare Worker that brokers Secret Requests between the zbc CLI and a human's browser. Carries only E2E-encrypted ciphertext (ADR-0003).",
+  "targetDir": "packages/secret-relay",
+  "modules": ["cloudflare"],
+  "secrets": ["CLOUDFLARE_API_TOKEN"],
+  "instanceFile": "secret-relay.ts",
+  "instanceTemplate": "import { cloudflareModule } from '../../modules/cloudflare'\n\nexport default cloudflareModule.instance({\n  name: 'secret-relay',\n  config: {\n    workdir: 'packages/secret-relay',\n    accountId: '{{ACCOUNT_ID}}',\n    workerName: '{{PROJECT_NAME}}-secret-relay',\n  },\n})\n",
+  "instructions": "The relay is permanent, single-tenant infrastructure: deploy it once (production) and every environment's `zbc secret request` uses it. Deploying needs CLOUDFLARE_API_TOKEN in production/secrets.yaml (Workers Scripts: Edit scope)."
+}

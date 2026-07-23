@@ -33,6 +33,12 @@ interface RegistryManifest {
   signupUrl?: string
   tokenUrl?: string
   instructions?: string
+  /** app only: generate this instance file under environments/<env>/ after
+   *  scaffolding, substituting {{ACCOUNT_ID}} / {{PROJECT_NAME}}. Keeps the
+   *  one-command flow declarative: files land in the repo, `zbc apply`
+   *  converges (CONTEXT.md: scaffold freely, deploy only through the graph). */
+  instanceFile?: string
+  instanceTemplate?: string
 }
 
 async function resolveBundledDir(name: string): Promise<string> {
@@ -42,7 +48,7 @@ async function resolveBundledDir(name: string): Promise<string> {
     if (await Bun.file(registry).exists()) return dir
   }
   throw new Error(
-    `"${name}" not found in built-in registry. Available: cloudflare, cloudflare-email, r2, turso, inbox.`,
+    `"${name}" not found in built-in registry. Available: cloudflare, cloudflare-email, r2, turso, inbox, secret-relay.`,
   )
 }
 
@@ -175,6 +181,46 @@ async function installApp(
   printPostInstall(registry)
 }
 
+/** Generate an app's declared instance file. Files only — convergence stays
+ *  with `zbc apply` (never deploys from here). */
+async function generateInstanceFile(
+  registry: RegistryManifest,
+  projectRoot: string,
+  opts: { accountId?: string; env: string },
+): Promise<void> {
+  if (!registry.instanceFile || !registry.instanceTemplate) return
+
+  const instancePath = path.join(
+    projectRoot,
+    'packages/infra/environments',
+    opts.env,
+    registry.instanceFile,
+  )
+  const instanceName = registry.instanceFile.replace(/\.ts$/, '')
+
+  if (await Bun.file(instancePath).exists()) {
+    console.log(`✓ instance file already exists at ${path.relative(projectRoot, instancePath)}`)
+    return
+  }
+  if (registry.instanceTemplate.includes('{{ACCOUNT_ID}}') && !opts.accountId) {
+    console.log('')
+    console.log(
+      `No --account-id given — create the instance file yourself, or re-run: zbc add ${registry.name} --account-id <cloudflare account id>`,
+    )
+    return
+  }
+
+  const { project } = await loadConfig(projectRoot)
+  const content = registry.instanceTemplate
+    .replaceAll('{{ACCOUNT_ID}}', opts.accountId ?? '')
+    .replaceAll('{{PROJECT_NAME}}', project)
+  await fs.mkdir(path.dirname(instancePath), { recursive: true })
+  await Bun.write(instancePath, content)
+  console.log(`✓ instance file generated: ${path.relative(projectRoot, instancePath)}`)
+  console.log('')
+  console.log(`Deploy it with: zbc apply ${opts.env} ${instanceName}`)
+}
+
 export const addCommand = defineCommand({
   meta: {
     name: 'add',
@@ -183,8 +229,23 @@ export const addCommand = defineCommand({
   args: {
     module: {
       type: 'positional',
-      description: 'Module or app name (e.g. turso, cloudflare, cloudflare-email, r2, inbox)',
+      description:
+        'Module or app name (e.g. turso, cloudflare, cloudflare-email, r2, inbox, secret-relay)',
       required: true,
+    },
+    'account-id': {
+      type: 'string',
+      description: 'Cloudflare account id — lets app templates generate their instance file',
+    },
+    env: {
+      type: 'string',
+      description: 'Environment for the generated instance file (default: production)',
+      default: 'production',
+    },
+    prompt: {
+      type: 'boolean',
+      description: 'Collect missing registry-declared secrets via a Secret Request (default: true)',
+      default: true,
     },
   },
   async run({ args }) {
@@ -204,6 +265,11 @@ export const addCommand = defineCommand({
 
     if (registry.kind === 'app') {
       await installApp(registry, sourceDir, projectRoot, infraDir)
+      await generateInstanceFile(registry, projectRoot, {
+        accountId: args['account-id'],
+        env: args.env,
+      })
+      await collectDeclaredSecrets(registry, projectRoot, args.env, args.prompt)
       return
     }
 
@@ -215,5 +281,40 @@ export const addCommand = defineCommand({
         `Next: create an instance file under packages/infra/environments/<env>/ that imports from ../../modules/${name}.`,
       )
     }
+    await collectDeclaredSecrets(registry, projectRoot, args.env, args.prompt)
   },
 })
+
+/** Post-install: collect the registry's declared secrets via a Secret Request.
+ *  A missing relay downgrades to instructions — `add` itself still succeeds. */
+async function collectDeclaredSecrets(
+  registry: RegistryManifest,
+  projectRoot: string,
+  env: string,
+  prompt: boolean,
+): Promise<void> {
+  const keys = registry.secrets ?? []
+  if (keys.length === 0) return
+  if (!prompt) {
+    console.log('')
+    console.log(`Secrets required in ${env}/secrets.yaml (skipped --no-prompt): ${keys.join(', ')}`)
+    return
+  }
+  const { collectSecrets } = await import('./secret')
+  try {
+    await collectSecrets({
+      projectRoot,
+      env,
+      keys,
+      reason: `required by the ${registry.name} module`,
+    })
+  } catch (err) {
+    if (err instanceof Error && err.message.includes('no Secret Relay found')) {
+      console.log('')
+      console.log(`Secrets still needed in ${env}/secrets.yaml: ${keys.join(', ')}`)
+      console.log('(no Secret Relay deployed — `zbc add secret-relay` enables browser collection)')
+      return
+    }
+    throw err
+  }
+}

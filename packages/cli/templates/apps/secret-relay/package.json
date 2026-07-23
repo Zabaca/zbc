@@ -1,0 +1,10 @@
+{
+  "name": "secret-relay",
+  "private": true,
+  "type": "module",
+  "description": "zbc Secret Relay — brokers E2E-encrypted Secret Requests between the CLI and a browser",
+  "devDependencies": {
+    "wrangler": "^4.0.0",
+    "@cloudflare/workers-types": "^4.20250620.0"
+  }
+}

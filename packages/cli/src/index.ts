@@ -5,6 +5,7 @@ import { addCommand } from './commands/add'
 import { applyCommand } from './commands/apply'
 import { destroyCommand } from './commands/destroy'
 import { initCommand } from './commands/init'
+import { secretCommand } from './commands/secret'
 
 const main = defineCommand({
   meta: {
@@ -17,6 +18,7 @@ const main = defineCommand({
     destroy: destroyCommand,
     init: initCommand,
     add: addCommand,
+    secret: secretCommand,
   },
 })
 

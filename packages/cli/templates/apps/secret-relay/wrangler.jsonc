@@ -1,0 +1,11 @@
+{
+  // Worker name is supplied per-instance by the cloudflare module (workerName);
+  // this file only describes the shape of the worker.
+  "name": "secret-relay",
+  "main": "src/worker.ts",
+  "compatibility_date": "2025-06-01",
+  "durable_objects": {
+    "bindings": [{ "name": "CHANNELS", "class_name": "SecretRelayChannels" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["SecretRelayChannels"] }]
+}

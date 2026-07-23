@@ -7,7 +7,7 @@ export async function applyEnvironment(
   projectRoot: string,
   envDir: string,
   target?: string,
-): Promise<void> {
+): Promise<Map<string, unknown>> {
   const instances = await discoverInstances(envDir)
   const sorted = resolveOrder(instances, target)
   const secrets = await loadSecrets(envDir)
@@ -32,4 +32,6 @@ export async function applyEnvironment(
     outputs.set(instance.name, result)
     console.log(`✓ ${instance.moduleName}:${instance.name} applied`)
   }
+
+  return outputs
 }
