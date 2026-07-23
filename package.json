@@ -2,7 +2,13 @@
   "name": "zbc",
   "private": true,
   "packageManager": "bun@1.3.4",
-  "workspaces": ["packages/*", "!packages/inbox", "packages/cli/templates/apps/inbox"],
+  "workspaces": [
+    "packages/*",
+    "!packages/inbox",
+    "!packages/secret-relay",
+    "packages/cli/templates/apps/inbox",
+    "packages/cli/templates/apps/secret-relay"
+  ],
   "scripts": {
     "build": "turbo run build",
     "dev": "turbo run dev",
