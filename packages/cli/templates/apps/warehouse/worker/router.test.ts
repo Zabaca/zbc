@@ -8,7 +8,7 @@
 
 import { describe, expect, test } from 'bun:test'
 import type { MaterializeExecResult } from './materialize-dispatch'
-import { authorized, handleFetch, route, type Env } from './router'
+import { authorized, handleFetch, handleScheduled, route, type Env } from './router'
 
 const TOKEN = 'sekrit-token-123'
 
@@ -121,7 +121,7 @@ describe('route — GET /marts/:name', () => {
 })
 
 describe('route — POST /materialize', () => {
-  test("dispatches to materialize-dispatch's dispatchMaterialize (success -> 202)", async () => {
+  test("dispatches to materialize-dispatch's dispatchMaterialize (success -> 200)", async () => {
     let received: Env | undefined
     const res = await route(req('/materialize', { method: 'POST' }), fakeEnv(), {
       exec: async (env) => {
@@ -129,17 +129,17 @@ describe('route — POST /materialize', () => {
         return { success: true, stdout: 'ok', stderr: '' }
       },
     })
-    expect(res.status).toBe(202)
-    expect(await res.json()).toEqual({ materializing: true })
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual({ materialized: true })
     expect(received).toBeDefined()
   })
 
-  test('exec failure surfaces as 502 with stderr', async () => {
+  test('exec failure surfaces as an opaque 502 (stderr stays in the log)', async () => {
     const res = await route(req('/materialize', { method: 'POST' }), fakeEnv(), {
       exec: async () => ({ success: false, stdout: '', stderr: 'dbt run failed' }),
     })
     expect(res.status).toBe(502)
-    expect(await res.json()).toEqual({ error: 'materialize failed', stderr: 'dbt run failed' })
+    expect(await res.json()).toEqual({ error: 'materialize failed' })
   })
 
   test('wrong method on /materialize (GET) does not match the materialize route', async () => {
@@ -153,5 +153,29 @@ describe('route — unknown paths', () => {
     const res = await route(req('/nope'), fakeEnv(), { exec: okExec })
     expect(res.status).toBe(404)
     expect(await res.json()).toEqual({ error: 'not found' })
+  })
+})
+
+// The cron path is ADR-0004's PRIMARY trigger and previously had zero coverage — which is
+// how it shipped discarding every failure (dispatchMaterialize reports failure by returning
+// a 502 Response, not by rejecting, so `.then(() => undefined)` silently swallowed it).
+describe('handleScheduled — the Cron Trigger path', () => {
+  test('resolves when the run succeeds', async () => {
+    await expect(handleScheduled(fakeEnv(), { exec: okExec })).resolves.toBeUndefined()
+  })
+
+  test('REJECTS when the run fails, so the invocation is recorded as failed', async () => {
+    await expect(
+      handleScheduled(fakeEnv(), {
+        exec: async () => ({ success: false, stdout: '', stderr: 'dbt run failed' }),
+      }),
+    ).rejects.toThrow(/scheduled materialize failed/)
+  })
+
+  test('requires no bearer token — a cron invocation carries no request headers', async () => {
+    // fakeEnv() has a WAREHOUSE_TOKEN, but handleScheduled never sees a Request at all;
+    // this pins that the cron path is not accidentally gated on one.
+    const envWithoutToken = { ...fakeEnv(), WAREHOUSE_TOKEN: undefined }
+    await expect(handleScheduled(envWithoutToken, { exec: okExec })).resolves.toBeUndefined()
   })
 })

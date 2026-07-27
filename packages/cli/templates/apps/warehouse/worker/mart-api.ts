@@ -16,8 +16,8 @@ import {
   MartSidecarSchema,
   type MartRow,
   type MartSidecar,
-} from './mart-contract'
-import { martKey, martSidecarKey } from './r2-keys'
+} from '../shared/mart-contract'
+import { martKey, martSidecarKey } from '../shared/r2-keys'
 
 /** Minimal structural shape of a Cloudflare R2 binding's `get` — narrower than the full
  * R2Bucket SDK type, only the one read this route needs. Structurally compatible with the
@@ -51,24 +51,60 @@ export async function readMart(
     bucket.get(martSidecarKey(name)),
   ])
   if (parquetObj === null || sidecarObj === null) return null
+
   const sidecarJson = JSON.parse(new TextDecoder().decode(await sidecarObj.arrayBuffer()))
   const sidecar = MartSidecarSchema.parse(sidecarJson)
+
+  // A sidecar stored under `marts/foo.schema.json` that calls itself "bar" would be served
+  // as foo, handing the caller a contract for a different mart. Cheap invariant, and the
+  // only thing tying the storage key to the document's own claim about itself.
+  if (sidecar.name !== name) {
+    throw new Error(`mart "${name}" has a sidecar declaring a different name ("${sidecar.name}")`)
+  }
+
   const parquetBytes = new Uint8Array(await parquetObj.arrayBuffer())
   const raw = await parquetReadObjects({ file: toAsyncBuffer(parquetBytes) })
   const rows = raw.map((row: Record<string, unknown>) => coerceMartRow(row))
+
+  // The sidecar's rowCount is the writer's claim; rows.length is the data. They disagree
+  // exactly when a publish was interrupted between the two uploads (see
+  // container/materialize.ts's retire-then-write ordering) or when something wrote R2 out
+  // of band. Treating that as unreadable is what keeps "the sidecar describes THIS parquet"
+  // true for a reader, rather than merely intended by the writer.
+  if (sidecar.rowCount !== rows.length) {
+    throw new Error(
+      `mart "${name}" sidecar declares ${sidecar.rowCount} rows but its parquet holds ${rows.length}`,
+    )
+  }
+
   return { sidecar, rows }
 }
 
-const NOT_FOUND = () => Response.json({ error: 'not found' }, { status: 404 })
+const NOT_FOUND = () =>
+  Response.json({ error: 'not found' }, { status: 404, headers: { 'cache-control': 'no-store' } })
 
 /** The full route: reject a malformed name (`MartName`, mart-contract.ts) with 404 BEFORE
  * ever building a storage key — an unvalidated name must never reach
  * `martKey`/`martSidecarKey`, and a malformed name must be indistinguishable from a
  * real-but-missing one (no enumeration oracle). Every caller reaching this function has
- * already cleared the bearer-token gate one layer up and may read any mart. */
+ * already cleared the bearer-token gate one layer up and may read any mart.
+ *
+ * Every failure mode inside `readMart` — a truncated sidecar (JSON.parse), a sidecar that
+ * no longer satisfies the contract (MartSidecarSchema.parse), a torn parquet
+ * (parquetReadObjects), an unsupported column type (coerceMartRow), or either of the two
+ * consistency checks above — is caught here. Uncaught, they escape to workerd's default
+ * handler as a bare non-JSON 500, breaking this API's own content-type contract for every
+ * client and logging nothing that names the mart. A mart that cannot be read as promised is
+ * reported as absent, consistent with "a mart is not a mart without its declared schema",
+ * and the reason is logged for the operator rather than returned to the caller. */
 export async function handleMartRead(bucket: MartBucket, name: string): Promise<Response> {
   if (!MartName.safeParse(name).success) return NOT_FOUND()
-  const mart = await readMart(bucket, name)
-  if (mart === null) return NOT_FOUND()
-  return Response.json(mart)
+  try {
+    const mart = await readMart(bucket, name)
+    if (mart === null) return NOT_FOUND()
+    return Response.json(mart, { headers: { 'cache-control': 'no-store' } })
+  } catch (err) {
+    console.error(`mart read failed for "${name}": ${String(err)}`)
+    return NOT_FOUND()
+  }
 }

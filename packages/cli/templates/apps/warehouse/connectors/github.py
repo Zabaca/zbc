@@ -40,8 +40,20 @@ def github_issues_source() -> object:
     set; unauthenticated otherwise (fine for public repos at GitHub's low anonymous
     rate limit — good enough for local/dev runs, not for a scheduled production job).
     """
-    owner = os.environ["GITHUB_OWNER"]
-    repo = os.environ["GITHUB_REPO"]
+    # `os.environ[...]` raises on an ABSENT key but happily returns an empty string for a
+    # key that is present and blank — which is exactly what wrangler.jsonc's placeholder
+    # vars produce. Unguarded, that builds the URL `repos///issues`, GitHub 404s, and dlt
+    # raises a pipeline error that says nothing about configuration. container/connectors.ts
+    # normally skips this connector before it ever runs; this guard covers a direct
+    # invocation and makes the reason obvious either way.
+    owner = os.environ.get("GITHUB_OWNER", "").strip()
+    repo = os.environ.get("GITHUB_REPO", "").strip()
+    if not owner or not repo:
+        raise SystemExit(
+            "connectors/github.py: GITHUB_OWNER and GITHUB_REPO must both be set and non-empty. "
+            "Set them as workerVars on the warehouse instance, or remove this connector from "
+            "container/connectors.ts if the project does not use it."
+        )
     token = os.environ.get("GITHUB_TOKEN")
 
     config: RESTAPIConfig = {

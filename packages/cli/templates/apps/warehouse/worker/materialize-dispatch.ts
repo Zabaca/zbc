@@ -55,28 +55,51 @@ export interface MaterializeDeps {
  */
 export interface Env {
   WAREHOUSE_CONTAINER: DurableObjectNamespace<Sandbox>
-  GITHUB_TOKEN?: string
-  GITHUB_OWNER?: string
-  GITHUB_REPO?: string
+  /** R2 S3-compatible credentials for the CONTAINER's own mart uploads. Deliberately
+   *  separate from the Worker's WAREHOUSE_BUCKET binding (wrangler.jsonc's `r2_buckets`,
+   *  used for edge mart reads): the container is a separate process outside the Worker's
+   *  binding graph, so it cannot use that binding and needs real API credentials. */
   WAREHOUSE_BUCKET_NAME?: string
   WAREHOUSE_R2_ACCESS_KEY_ID?: string
   WAREHOUSE_R2_SECRET_ACCESS_KEY?: string
   WAREHOUSE_R2_ENDPOINT?: string
+  /** Connector configuration and secrets (e.g. GITHUB_OWNER/GITHUB_REPO/GITHUB_TOKEN for the
+   *  shipped reference connector) arrive as ordinary string bindings from the instance's
+   *  workerSecrets/workerVars and are forwarded wholesale by `buildContainerEnv`. They are
+   *  NOT named individually here: doing so would weld each connector into the framework's
+   *  own type, which is exactly what container/connectors.ts exists to avoid. */
+  [key: string]: unknown
 }
 
 /**
- * Dispatch one materialize run: exec the container (injected), map the result to the
- * HTTP response the caller (the cron handler, or a manual POST /materialize route)
- * returns. 202 on success — a materialize run outlives the request, so this is a
- * kickoff acknowledgment, not a "done" signal. 502 on failure, carrying stderr for
- * diagnosis (mirrors cedarpad's kickWarehouseMaterialize error shape).
+ * Dispatch one materialize run: exec the container (injected), map the result to the HTTP
+ * response the caller (the cron handler, or a manual POST /materialize route) returns.
+ *
+ * NOTE this is SYNCHRONOUS with the run — `deps.exec` is awaited to completion, so the
+ * request lasts as long as the whole extract + transform. That is fine at the reference
+ * connector's scale (one repo's issues) and it is what makes a failure reportable at all,
+ * but it does mean a large warehouse will outgrow the caller's HTTP timeout. If that
+ * happens, the fix is to move the await behind `ctx.waitUntil` and expose a last-run
+ * record for polling — not to keep pretending the response is a kickoff acknowledgment.
  */
 export async function dispatchMaterialize(env: Env, deps: MaterializeDeps): Promise<Response> {
   const result = await deps.exec(env)
   if (!result.success) {
-    return Response.json({ error: 'materialize failed', stderr: result.stderr }, { status: 502 })
+    // stderr is LOGGED, not returned. The container this ran in holds the connector
+    // secrets (containerExec injects GITHUB_TOKEN below), and dlt/dbt tracebacks routinely
+    // echo client configuration — `BearerTokenAuth(token)` is constructed inside
+    // connectors/github.py and can appear in a repr. Returning raw stderr over HTTP would
+    // hand that to any bearer holder, which is a wider boundary than ADR-0004's
+    // secret-scoping caveat already concedes. The operator gets the detail in the Worker
+    // log; the caller gets only that it failed.
+    console.error(`materialize failed: ${result.stderr}`)
+    return Response.json({ error: 'materialize failed' }, { status: 502 })
   }
-  return Response.json({ materializing: true }, { status: 202 })
+  // 200, not 202: `deps.exec` above is awaited to completion, so by the time this returns
+  // the run is genuinely finished. A 202 would claim the work was merely accepted and is
+  // still in flight, which was never true here and invited callers to poll for a completion
+  // that had already happened.
+  return Response.json({ materialized: true }, { status: 200 })
 }
 
 /**
@@ -90,17 +113,27 @@ export async function containerExec(env: Env): Promise<MaterializeExecResult> {
   const sandbox = getSandbox(env.WAREHOUSE_CONTAINER, 'warehouse', { normalizeId: true })
   const result = await sandbox.exec('bun run container/materialize.ts', {
     cwd: '/app',
-    env: {
-      GITHUB_TOKEN: env.GITHUB_TOKEN ?? '',
-      GITHUB_OWNER: env.GITHUB_OWNER ?? '',
-      GITHUB_REPO: env.GITHUB_REPO ?? '',
-      // R2 upload creds — see the Env doc comment above for why these can't just be
-      // the Worker's WAREHOUSE_BUCKET binding.
-      WAREHOUSE_BUCKET_NAME: env.WAREHOUSE_BUCKET_NAME ?? '',
-      WAREHOUSE_R2_ACCESS_KEY_ID: env.WAREHOUSE_R2_ACCESS_KEY_ID ?? '',
-      WAREHOUSE_R2_SECRET_ACCESS_KEY: env.WAREHOUSE_R2_SECRET_ACCESS_KEY ?? '',
-      WAREHOUSE_R2_ENDPOINT: env.WAREHOUSE_R2_ENDPOINT ?? '',
-    },
+    env: buildContainerEnv(env),
   })
   return { success: result.success, stdout: result.stdout, stderr: result.stderr }
+}
+
+/** The exact set of values that crosses into the container, built in one place and unit
+ * tested (see materialize-dispatch.test.ts) so the boundary is asserted rather than assumed.
+ *
+ * Two rules encoded here. First, the four WAREHOUSE_R2_* / WAREHOUSE_BUCKET_NAME values are
+ * always forwarded — the container writes marts to R2 directly over the S3 API because it
+ * runs outside the Worker's binding graph and cannot use the WAREHOUSE_BUCKET r2Binding.
+ * Second, connector configuration is forwarded by CONVENTION, not by an allowlist naming
+ * GitHub: anything the instance sets whose name isn't a Worker-only concern goes through, so
+ * adding a connector needs no edit here. WAREHOUSE_TOKEN is deliberately excluded — it gates
+ * the edge API and the container has no use for it. */
+export function buildContainerEnv(env: Env): Record<string, string> {
+  const WORKER_ONLY = new Set(['WAREHOUSE_TOKEN', 'WAREHOUSE_CONTAINER', 'WAREHOUSE_BUCKET'])
+  const out: Record<string, string> = {}
+  for (const [key, value] of Object.entries(env as Record<string, unknown>)) {
+    if (WORKER_ONLY.has(key)) continue
+    if (typeof value === 'string') out[key] = value
+  }
+  return out
 }

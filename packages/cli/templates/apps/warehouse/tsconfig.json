@@ -13,7 +13,7 @@
     "lib": ["esnext"],
     "types": ["@types/bun"]
   },
-  "include": ["container"],
-  "// container": "container/ runs as a Bun CLI inside the warehouse image, never in the Workers runtime — see tsconfig.worker.json for the split reasoning.",
+  "include": ["container", "shared"],
+  "// container": "container/ runs as a Bun CLI inside the warehouse image, never in the Workers runtime — see tsconfig.worker.json for the split reasoning. shared/ is runtime-agnostic (pure zod + string builders, no Workers or Bun API surface) and is compiled by BOTH configs, which is what keeps it honest: a Workers-only or Bun-only import added there fails one of the two typechecks immediately.",
   "exclude": ["node_modules", "**/*.test.ts"]
 }

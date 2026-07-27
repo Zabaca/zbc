@@ -170,9 +170,15 @@ async function installApp(
   //    r2Bindings, workerVars). registry.json stays in the CLI — it's not app
   //    code. `vars` kept for future templates; a no-op with no {{}} tokens.
   const { project } = await loadConfig(projectRoot)
+  //    `.wrangler` is local miniflare state (SQLite DO/KV files) that appears the moment
+  //    anyone runs `wrangler dev` in the template dir. It is gitignored so it never gets
+  //    committed, but npm's default-ignore list doesn't cover it, so it ships in the
+  //    published tarball — and copyTemplateFile reads through `.text()`, so those binary
+  //    files would land in the consumer's package mangled by a UTF-8 round-trip.
+  //    `.DS_Store` is the same class of debris.
   await copyTemplateDir(sourceDir, destDir, {
     vars: { PROJECT_NAME: project },
-    exclude: ['registry.json', 'node_modules'],
+    exclude: ['registry.json', 'node_modules', '.wrangler', '.DS_Store'],
   })
 
   // 3. Install workspace deps (the app ships its own package.json).

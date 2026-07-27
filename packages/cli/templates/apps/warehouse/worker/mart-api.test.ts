@@ -12,14 +12,20 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import { handleMartRead, readMart, type MartBucket } from './mart-api'
-import { martKey, martSidecarKey } from './r2-keys'
+import { martKey, martSidecarKey } from '../shared/r2-keys'
 
 const MART_NAME = 'mart_test'
 
 /** Build a real DuckDB-written parquet + sidecar, wired into an in-memory MartBucket at the
  * real `marts/<name>.parquet` / `marts/<name>.schema.json` keys (r2-keys.ts) — exercising
  * the whole path hyparquet parses in the Worker, not a hand-rolled stub. */
-function withMartBucket<T>(fn: (bucket: MartBucket) => Promise<T>): Promise<T> {
+function withMartBucket<T>(
+  fn: (bucket: MartBucket) => Promise<T>,
+  /** Mutate the in-memory object map before the bucket is handed over — lets a test model
+   * a half-written or corrupted mart (drop one key, replace the sidecar bytes) against a
+   * REAL DuckDB parquet rather than a stub. */
+  mutate: (objects: Map<string, Uint8Array>) => void = () => {},
+): Promise<T> {
   const dir = mkdtempSync(join(tmpdir(), 'warehouse-mart-api-test-'))
   const parquetPath = join(dir, 'mart.parquet')
   return (async () => {
@@ -59,6 +65,7 @@ function withMartBucket<T>(fn: (bucket: MartBucket) => Promise<T>): Promise<T> {
           }),
         ),
       )
+      mutate(objects)
       const bucket: MartBucket = {
         get: async (key) => {
           const bytes = objects.get(key)
@@ -153,6 +160,82 @@ describe('handleMartRead', () => {
         expect(typeof body.rows[0]?.input_tokens).toBe('number')
         expect(typeof body.rows[0]?.ts).toBe('string')
       })
+    })
+  })
+
+  // The asymmetric half-written cases. The suite previously only ever mocked BOTH objects
+  // missing, which is not the situation the "a partial write reads as absent" promise is
+  // about — that promise is precisely about one of the two existing without the other.
+  maybeDescribe('partial and corrupted writes read as absent', () => {
+    test('parquet present, sidecar missing -> 404 (a mart without its schema is not a mart)', async () => {
+      await withMartBucket(
+        async (bucket) => {
+          expect(await readMart(bucket, MART_NAME)).toBeNull()
+          expect((await handleMartRead(bucket, MART_NAME)).status).toBe(404)
+        },
+        (objects) => objects.delete(martSidecarKey(MART_NAME)),
+      )
+    })
+
+    test('sidecar present, parquet missing -> 404', async () => {
+      await withMartBucket(
+        async (bucket) => {
+          expect(await readMart(bucket, MART_NAME)).toBeNull()
+          expect((await handleMartRead(bucket, MART_NAME)).status).toBe(404)
+        },
+        (objects) => objects.delete(martKey(MART_NAME)),
+      )
+    })
+
+    test('a truncated (non-JSON) sidecar 404s as JSON instead of escaping as a bare 500', async () => {
+      await withMartBucket(
+        async (bucket) => {
+          const res = await handleMartRead(bucket, MART_NAME)
+          expect(res.status).toBe(404)
+          expect(await res.json()).toEqual({ error: 'not found' })
+        },
+        (objects) =>
+          objects.set(martSidecarKey(MART_NAME), new TextEncoder().encode('{"name":"mart_test"')),
+      )
+    })
+
+    test('a sidecar that no longer satisfies the contract 404s rather than 500s', async () => {
+      await withMartBucket(
+        async (bucket) => {
+          expect((await handleMartRead(bucket, MART_NAME)).status).toBe(404)
+        },
+        (objects) =>
+          objects.set(
+            martSidecarKey(MART_NAME),
+            new TextEncoder().encode(JSON.stringify({ name: MART_NAME, columns: [] })),
+          ),
+      )
+    })
+
+    test('a sidecar naming a DIFFERENT mart is not served under this key', async () => {
+      await withMartBucket(
+        async (bucket) => {
+          expect((await handleMartRead(bucket, MART_NAME)).status).toBe(404)
+        },
+        (objects) => {
+          const raw = JSON.parse(new TextDecoder().decode(objects.get(martSidecarKey(MART_NAME))!))
+          raw.name = 'mart_something_else'
+          objects.set(martSidecarKey(MART_NAME), new TextEncoder().encode(JSON.stringify(raw)))
+        },
+      )
+    })
+
+    test('a sidecar whose rowCount disagrees with the parquet 404s — stale sidecar detection', async () => {
+      await withMartBucket(
+        async (bucket) => {
+          expect((await handleMartRead(bucket, MART_NAME)).status).toBe(404)
+        },
+        (objects) => {
+          const raw = JSON.parse(new TextDecoder().decode(objects.get(martSidecarKey(MART_NAME))!))
+          raw.rowCount = 999
+          objects.set(martSidecarKey(MART_NAME), new TextEncoder().encode(JSON.stringify(raw)))
+        },
+      )
     })
   })
 })

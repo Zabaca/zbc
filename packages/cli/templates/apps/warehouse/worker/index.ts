@@ -11,8 +11,8 @@
 // seam — deploy-only code exercised by wrangler dev/deploy, not by `bun test`.
 
 import { Sandbox as BaseSandbox } from '@cloudflare/sandbox'
-import { containerExec, dispatchMaterialize } from './materialize-dispatch'
-import { handleFetch, type Env } from './router'
+import { containerExec } from './materialize-dispatch'
+import { handleFetch, handleScheduled, type Env } from './router'
 
 export { type Env }
 
@@ -25,11 +25,12 @@ export default {
     return handleFetch(request, env, { exec: containerExec })
   },
 
-  /** Cloudflare Cron Trigger handler (wrangler.jsonc's `triggers.crons`) — the same
-   * one-shot materialize dispatch as POST /materialize, minus the bearer check (a cron
-   * invocation isn't a Request, there's no header to check). ctx.waitUntil keeps the
-   * container exec alive past this handler returning. */
-  async scheduled(_event: ScheduledEvent, env: Env, ctx: ExecutionContext): Promise<void> {
-    ctx.waitUntil(dispatchMaterialize(env, { exec: containerExec }).then(() => undefined))
+  /** Cloudflare Cron Trigger handler (wrangler.jsonc's `triggers.crons`). All behavior —
+   * including failure logging — lives in router.ts's `handleScheduled` so it is testable;
+   * this stays a one-line binding, like `fetch` above. Awaited rather than wrapped in
+   * `ctx.waitUntil`: the whole point is that a failed run must reject THIS invocation so
+   * the platform records it as failed, which `waitUntil` on a discarded promise cannot do. */
+  async scheduled(_event: ScheduledEvent, env: Env, _ctx: ExecutionContext): Promise<void> {
+    await handleScheduled(env, { exec: containerExec })
   },
 }

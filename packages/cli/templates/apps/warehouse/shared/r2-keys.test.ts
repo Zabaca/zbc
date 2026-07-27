@@ -1,11 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { martKey, martSidecarKey, rawKey } from './r2-keys'
-
-describe('rawKey', () => {
-  test('prefixes the given path with raw/', () => {
-    expect(rawKey('github/issues/2026-07-26.jsonl')).toBe('raw/github/issues/2026-07-26.jsonl')
-  })
-})
+import { martKey, martSidecarKey } from './r2-keys'
 
 describe('martKey', () => {
   test('builds a marts/<name>.parquet path', () => {

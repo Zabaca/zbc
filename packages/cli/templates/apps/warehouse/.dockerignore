@@ -1,0 +1,10 @@
+# The container runs the pipeline; it never runs the test suite, and it never runs the edge
+# Worker. Keeping these out of the build context makes the image smaller and — more usefully
+# — makes a container→worker import fail at build time rather than silently working locally
+# because the file happened to be lying around (see container/imports.test.ts).
+**/*.test.ts
+worker/
+node_modules/
+.wrangler/
+.dev.vars
+.DS_Store

@@ -11,7 +11,9 @@
     "bin",
     "src",
     "templates",
-    "!templates/**/*.test.ts"
+    "!templates/**/*.test.ts",
+    "!templates/**/.wrangler",
+    "!templates/**/.DS_Store"
   ],
   "scripts": {
     "test": "bun test",

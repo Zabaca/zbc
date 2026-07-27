@@ -26,8 +26,14 @@
 // toolchain: materialize.test.ts fakes `run`/`readFile`/`upload` and writes real
 // manifest.json-shaped fixtures rather than shelling out.
 
-import { MartSidecarSchema, type MartColumn, type MartSidecar } from '../worker/mart-contract'
-import { martKey, martSidecarKey } from '../worker/r2-keys'
+import {
+  MartColumnTypeSchema,
+  MartSidecarSchema,
+  type MartColumn,
+  type MartSidecar,
+} from '../shared/mart-contract'
+import { martKey, martSidecarKey } from '../shared/r2-keys'
+import { CONNECTORS, type Connector } from './connectors'
 
 export interface RunResult {
   stdout: string
@@ -37,15 +43,30 @@ export interface RunResult {
 
 export interface MaterializeDeps {
   /** Run a command to completion (Bun.spawn in the real CLI entrypoint). Used for the
-   *  GitHub connector, `dbt run`, and a `duckdb -json` row-count query. */
-  run: (cmd: string[]) => Promise<RunResult>
+   *  GitHub connector, `dbt run`, and the `duckdb -json` count/describe queries. `env`
+   *  entries are overlaid on the process environment for that one command — used to scope
+   *  the multiprocessing-lock workaround to dbt alone (see sitecustomize.py). */
+  run: (cmd: string[], env?: Record<string, string>) => Promise<RunResult>
   /** Read a file's raw bytes off disk (manifest.json, a mart's parquet artifact). */
   readFile: (path: string) => Promise<Uint8Array>
   /** Upload one object (mart parquet or sidecar JSON) to R2. */
   upload: (key: string, bytes: Uint8Array) => Promise<void>
+  /** Delete one object from R2. Used to retire a mart's stale sidecar before rewriting it
+   *  (see `publishMart`) and to reap marts the dbt project no longer declares. Must treat
+   *  an already-absent key as success. */
+  remove: (key: string) => Promise<void>
+  /** List object keys under a prefix — the input to orphan reaping. */
+  list: (prefix: string) => Promise<string[]>
+  /** Read one environment variable — the input to each connector's `requiredEnv` check.
+   *  Injected rather than reading `process.env` directly so the skip/run decision is
+   *  testable without mutating the test process's environment. */
+  env: (name: string) => string | undefined
   /** The mart's freshness stamp — the time THIS materialize run produced it, not an
    *  inferred file mtime (mart-contract.ts). */
   now: () => string
+  /** Connector list override — defaults to the declared CONNECTORS registry. Tests use this
+   *  to exercise the framework without depending on the shipped GitHub sample. */
+  connectors?: Connector[]
 }
 
 const MANIFEST_PATH = 'dbt/target/manifest.json'
@@ -70,8 +91,13 @@ interface DbtManifest {
   nodes: Record<string, DbtManifestNode>
 }
 
-async function run(deps: MaterializeDeps, cmd: string[], step: string): Promise<RunResult> {
-  const result = await deps.run(cmd)
+async function run(
+  deps: MaterializeDeps,
+  cmd: string[],
+  step: string,
+  env?: Record<string, string>,
+): Promise<RunResult> {
+  const result = await deps.run(cmd, env)
   if (result.code !== 0) {
     // dbt (and several other CLIs this pipeline shells out to) writes its actual error
     // detail to stdout, not stderr — surfacing stderr alone silently drops the real
@@ -107,9 +133,25 @@ function buildSidecar(node: DbtManifestNode, rowCount: number, generatedAt: stri
         `materialize: mart "${node.name}" column "${col.name}" has no description in schema.yml — refusing to ship it`,
       )
     }
+    // dbt's `data_type` is free-form author text validated against nothing, and it is
+    // simply absent (null) whenever schema.yml omits it — so without this check the value
+    // reaches MartSidecarSchema as `undefined`/`'bigint'`/`'INTEGER'` and surfaces as a raw
+    // ZodError naming a numeric column index and no mart. Uppercase first (dbt authors
+    // routinely write lowercase types), then name the accepted vocabulary in the error, so
+    // the most common schema.yml mistake gets the same quality of message the description
+    // checks above already produce.
+    const declared = (col.data_type ?? '').trim().toUpperCase()
+    const parsedType = MartColumnTypeSchema.safeParse(declared)
+    if (!parsedType.success) {
+      throw new Error(
+        `materialize: mart "${node.name}" column "${col.name}" declares data_type ` +
+          `"${col.data_type ?? '(none)'}" in schema.yml, which this mart contract does not accept. ` +
+          `Use one of: ${MartColumnTypeSchema.options.join(', ')}.`,
+      )
+    }
     return {
       name: col.name,
-      type: col.data_type as MartColumn['type'],
+      type: parsedType.data,
       description: col.description,
     }
   })
@@ -125,6 +167,23 @@ function buildSidecar(node: DbtManifestNode, rowCount: number, generatedAt: stri
 
 /** `SELECT count(*)` against a mart's produced parquet via the duckdb CLI (see the file
  * header for why this replaces catalog.json). */
+/** dbt hands us `config.location` as free text from the consumer's own model config, and it
+ * goes into a single-quoted DuckDB string literal below. A `'` in that value would break out
+ * of the literal into a CLI that can read and write the filesystem (`COPY … TO`, `read_text`,
+ * `INSTALL`). Today the value is config-controlled rather than request-controlled, but the
+ * template encourages setting config via `workerVars`, so this is one wiring change away from
+ * being externally influenced — validate rather than rely on that staying true. */
+const SAFE_PARQUET_PATH_RE = /^[A-Za-z0-9._/-]+$/
+
+function assertSafeParquetPath(martName: string, parquetPath: string): void {
+  if (!SAFE_PARQUET_PATH_RE.test(parquetPath)) {
+    throw new Error(
+      `materialize: mart "${martName}" has an unsafe config.location ("${parquetPath}") — ` +
+        'only letters, digits, and . _ - / are allowed',
+    )
+  }
+}
+
 async function countRows(deps: MaterializeDeps, parquetPath: string): Promise<number> {
   const result = await run(
     deps,
@@ -137,8 +196,77 @@ async function countRows(deps: MaterializeDeps, parquetPath: string): Promise<nu
     ],
     `row count for ${parquetPath}`,
   )
-  const rows = JSON.parse(result.stdout) as Array<{ n: number }>
+  const rows = parseDuckdbJson(result.stdout, `row count for ${parquetPath}`) as Array<{
+    n: number
+  }>
   return Number(rows[0]?.n ?? 0)
+}
+
+/** duckdb's `-json` output is the only thing we parse from a CLI, and a stray notice on
+ * stdout (extension autoload, a warning) turns `JSON.parse` into a bare SyntaxError naming
+ * nothing. Wrap it so the failure says which step produced the unparseable output. */
+function parseDuckdbJson(stdout: string, step: string): unknown {
+  try {
+    return JSON.parse(stdout)
+  } catch {
+    throw new Error(
+      `materialize: ${step} produced output that is not JSON: ${stdout.slice(0, 300)}`,
+    )
+  }
+}
+
+/** The check that makes the declared schema mean something. `buildSidecar` derives columns
+ * purely from dbt's manifest (i.e. from schema.yml); nothing else ever looks at the parquet
+ * dbt actually wrote. ADR-0004's central claim is "a mart is not a mart without its declared
+ * column schema" — declaring it is not the same as it being TRUE, and the two drift the first
+ * time someone edits a model's SELECT without editing its schema.yml (or vice versa). A
+ * declared column absent from the data is the worse direction: any consumer generated from
+ * the contract breaks at runtime on a column that never existed. */
+async function assertSidecarMatchesParquet(
+  deps: MaterializeDeps,
+  sidecar: MartSidecar,
+  parquetPath: string,
+): Promise<void> {
+  const result = await run(
+    deps,
+    ['duckdb', ':memory:', '-json', '-c', `describe select * from read_parquet('${parquetPath}')`],
+    `describe ${parquetPath}`,
+  )
+  const described = parseDuckdbJson(result.stdout, `describe ${parquetPath}`) as Array<{
+    column_name: string
+    column_type: string
+  }>
+
+  const actual = described.map((c) => c.column_name)
+  const declared = sidecar.columns.map((c) => c.name)
+
+  const missing = declared.filter((name) => !actual.includes(name))
+  const undeclared = actual.filter((name) => !declared.includes(name))
+  if (missing.length > 0 || undeclared.length > 0) {
+    throw new Error(
+      `materialize: mart "${sidecar.name}" schema.yml does not match the parquet dbt wrote` +
+        (missing.length > 0 ? `; declared but absent from the data: ${missing.join(', ')}` : '') +
+        (undeclared.length > 0
+          ? `; present in the data but undeclared: ${undeclared.join(', ')}`
+          : ''),
+    )
+  }
+
+  // Types too — a column declared VARCHAR that DuckDB wrote as BIGINT is a contract a
+  // consumer will trust and be wrong about. Compared case-insensitively against DuckDB's
+  // own spelling (it reports `bigint`/`varchar`/`timestamp` lowercase).
+  const actualTypes = new Map(described.map((c) => [c.column_name, c.column_type.toUpperCase()]))
+  const mismatched = sidecar.columns
+    .filter((c) => {
+      const got = actualTypes.get(c.name)
+      return got !== undefined && got !== c.type
+    })
+    .map((c) => `${c.name} (declared ${c.type}, actual ${actualTypes.get(c.name)})`)
+  if (mismatched.length > 0) {
+    throw new Error(
+      `materialize: mart "${sidecar.name}" declares column types that do not match the parquet: ${mismatched.join('; ')}`,
+    )
+  }
 }
 
 /** Run one materialize pass: extract (dlt) → transform (dbt run) → validate + upload
@@ -152,8 +280,37 @@ export async function materialize(deps: MaterializeDeps): Promise<{ marts: strin
   // every fresh container. `marts/` matches every mart model's WAREHOUSE_MART_DIR
   // default (dbt/profiles.yml / models/marts/mart_github_issues.sql).
   await run(deps, ['mkdir', '-p', 'marts'], 'ensure marts directory')
-  await run(deps, ['python3', 'connectors/github.py'], 'GitHub connector')
-  await run(deps, ['dbt', 'run', '--project-dir', 'dbt', '--profiles-dir', 'dbt'], 'dbt run')
+
+  // Every declared connector, in order (container/connectors.ts). A connector whose required
+  // env is missing is SKIPPED, not failed: a project that scaffolded this template and never
+  // wired GitHub should not get a daily failing cron for a sample it doesn't use.
+  //
+  // NORMALIZE__WORKERS=1 makes dlt's normalize step resolve pool_type to "none" instead of
+  // its default "process". That matters on Cloudflare's Firecracker runtime, where there is
+  // no working /dev/shm and any POSIX-semaphore-backed multiprocessing primitive raises
+  // FileNotFoundError the moment it is constructed — so a real ProcessPoolExecutor would
+  // fail there regardless. Pinning it makes single-process extraction an explicit invariant
+  // rather than something that currently holds only because this connector's row count
+  // happens to keep dlt on its single-threaded map path.
+  for (const connector of deps.connectors ?? CONNECTORS) {
+    const missing = connector.requiredEnv.filter((name) => !deps.env(name))
+    if (missing.length > 0) {
+      console.log(
+        `materialize: skipping connector "${connector.name}" — missing ${missing.join(', ')}`,
+      )
+      continue
+    }
+    await run(deps, ['python3', connector.script], `connector "${connector.name}"`, {
+      NORMALIZE__WORKERS: '1',
+    })
+  }
+
+  // WAREHOUSE_PATCH_MP_LOCKS is read by sitecustomize.py and set for THIS command only —
+  // dbt is the one tool here that needs the multiprocessing-lock workaround, and the one
+  // for which it is provably safe (it never spawns a real process). See sitecustomize.py.
+  await run(deps, ['dbt', 'run', '--project-dir', 'dbt', '--profiles-dir', 'dbt'], 'dbt run', {
+    WAREHOUSE_PATCH_MP_LOCKS: '1',
+  })
 
   const manifestBytes = await deps.readFile(MANIFEST_PATH)
   const manifest = JSON.parse(new TextDecoder().decode(manifestBytes)) as DbtManifest
@@ -167,10 +324,24 @@ export async function materialize(deps: MaterializeDeps): Promise<{ marts: strin
       )
     }
 
+    assertSafeParquetPath(node.name, location)
+
     const rowCount = await countRows(deps, location)
     const sidecar = buildSidecar(node, rowCount, deps.now())
+    await assertSidecarMatchesParquet(deps, sidecar, location)
 
     const parquetBytes = await deps.readFile(location)
+
+    // Publish order is deliberate: RETIRE the old sidecar, then write the parquet, then
+    // write the new sidecar. The obvious order (parquet, then sidecar) is what makes a
+    // failed sidecar upload leave TODAY'S parquet described by YESTERDAY'S sidecar — the
+    // reader finds both objects, returns 200, and every consumer gets a stale rowCount and
+    // a columns list that no longer matches the data. That is silently wrong, which is
+    // strictly worse than missing. Deleting the sidecar first means any failure from here
+    // on leaves the mart with no sidecar at all, which `readMart` already treats as absent
+    // — the documented "a partial write reads as absent" behaviour, now true on every
+    // write rather than only the first one. Cost: the mart is briefly unreadable mid-run.
+    await deps.remove(martSidecarKey(sidecar.name))
     await deps.upload(martKey(sidecar.name), parquetBytes)
     await deps.upload(
       martSidecarKey(sidecar.name),
@@ -180,10 +351,59 @@ export async function materialize(deps: MaterializeDeps): Promise<{ marts: strin
     marts.push(sidecar.name)
   }
 
+  // A dbt project that declares no external models means the consumer has deleted the
+  // sample marts and not yet written their own — or a selector silently matched nothing.
+  // Returning `{marts: []}` with exit 0 is indistinguishable from a healthy run that
+  // published everything, especially on the cron path where nobody reads stdout.
+  if (marts.length === 0) {
+    throw new Error(
+      'materialize: dbt produced no external (mart) models — nothing to publish. Declare at ' +
+        "least one model with materialized='external' under dbt/models/marts/.",
+    )
+  }
+
+  await reapOrphanedMarts(deps, marts)
+
   return { marts }
 }
 
+/** Delete mart artifacts the dbt project no longer declares. Without this, removing a model
+ * leaves its parquet + sidecar in R2 forever and `GET /marts/<name>` keeps returning 200
+ * with data frozen at the last successful run — a mart that no longer exists still serving
+ * confidently stale answers. Runs only after every mart published successfully, so a failed
+ * run never reaps. */
+async function reapOrphanedMarts(deps: MaterializeDeps, published: string[]): Promise<void> {
+  const live = new Set(published)
+  const keys = await deps.list('marts/')
+  for (const key of keys) {
+    const name = key.replace(/^marts\//, '').replace(/\.(parquet|schema\.json)$/, '')
+    if (name !== key && !live.has(name)) {
+      await deps.remove(key)
+    }
+  }
+}
+
 if (import.meta.main) {
+  // Fail before the extract, not after it. These four arrive from the Worker's env via
+  // containerExec (worker/materialize-dispatch.ts), which defaults each to '' — so a deploy
+  // that never wired them up would otherwise run the full dlt + dbt pipeline and only die
+  // at the final upload, burning minutes and a GitHub rate-limit budget to report a
+  // configuration mistake that was knowable at startup.
+  const REQUIRED_R2_ENV = [
+    'WAREHOUSE_R2_ACCESS_KEY_ID',
+    'WAREHOUSE_R2_SECRET_ACCESS_KEY',
+    'WAREHOUSE_BUCKET_NAME',
+    'WAREHOUSE_R2_ENDPOINT',
+  ] as const
+  const missingEnv = REQUIRED_R2_ENV.filter((name) => !process.env[name])
+  if (missingEnv.length > 0) {
+    throw new Error(
+      `materialize: missing required R2 configuration: ${missingEnv.join(', ')}. ` +
+        'These are set on the warehouse instance (workerSecrets/workerVars) and forwarded ' +
+        'into the container — see the warehouse app template registry.json instructions.',
+    )
+  }
+
   const client = new Bun.S3Client({
     accessKeyId: process.env.WAREHOUSE_R2_ACCESS_KEY_ID,
     secretAccessKey: process.env.WAREHOUSE_R2_SECRET_ACCESS_KEY,
@@ -192,8 +412,12 @@ if (import.meta.main) {
   })
 
   const deps: MaterializeDeps = {
-    run: async (cmd) => {
-      const proc = Bun.spawn(cmd, { stdout: 'pipe', stderr: 'pipe' })
+    run: async (cmd, env) => {
+      const proc = Bun.spawn(cmd, {
+        stdout: 'pipe',
+        stderr: 'pipe',
+        env: env ? { ...process.env, ...env } : undefined,
+      })
       const [stdout, stderr, code] = await Promise.all([
         new Response(proc.stdout).text(),
         new Response(proc.stderr).text(),
@@ -205,6 +429,19 @@ if (import.meta.main) {
     upload: async (key, bytes) => {
       await client.file(key).write(bytes)
     },
+    // An already-absent key is success: `publishMart`'s retire-then-write ordering deletes
+    // a sidecar that legitimately may not exist yet on a mart's very first run.
+    remove: async (key) => {
+      await client
+        .file(key)
+        .unlink()
+        .catch(() => undefined)
+    },
+    list: async (prefix) => {
+      const listed = await client.list({ prefix })
+      return (listed.contents ?? []).map((o) => o.key)
+    },
+    env: (name) => process.env[name] || undefined,
     now: () => new Date().toISOString(),
   }
 

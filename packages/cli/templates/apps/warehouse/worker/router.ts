@@ -76,3 +76,23 @@ export async function handleFetch(
   }
   return route(request, env, deps)
 }
+
+/** The Cron Trigger's whole behavior, kept HERE rather than inline in index.ts so it is
+ * reachable from bun:test (index.ts can never be imported under the test runner — see this
+ * file's header). That matters more than it looks: the scheduled path is the ADR's PRIMARY
+ * trigger, and it previously discarded every failure, because `dispatchMaterialize` reports
+ * failure by RETURNING a 502 Response rather than rejecting — so `.then(() => undefined)`
+ * threw the error on the floor. A pipeline could fail every night for a month while
+ * `/marts/:name` kept serving progressively staler data at 200, with nothing logged.
+ *
+ * No bearer check: a cron invocation is not a Request and carries no header. Rethrows after
+ * logging so the platform records the invocation as failed instead of successful. */
+export async function handleScheduled(env: Env, deps: MaterializeDeps): Promise<void> {
+  const res = await dispatchMaterialize(env, deps)
+  if (!res.ok) {
+    const body = await res.text()
+    console.error(`scheduled materialize failed (${res.status}): ${body}`)
+    throw new Error(`scheduled materialize failed with status ${res.status}`)
+  }
+  console.log('scheduled materialize completed')
+}

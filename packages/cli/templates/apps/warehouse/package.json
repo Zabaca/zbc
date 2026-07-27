@@ -7,7 +7,7 @@
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
     "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.worker.json",
-    "test": "bun test worker container"
+    "test": "bun test worker container shared"
   },
   "dependencies": {
     "@cloudflare/sandbox": "0.12.1",

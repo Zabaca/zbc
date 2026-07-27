@@ -37,9 +37,13 @@
   // wrangler config if a different cadence is needed (wrangler has no CLI
   // flag for crons, so a differing schedule means patching this file).
   "triggers": { "crons": ["0 9 * * *"] },
+  // Placeholders only — real values come from the instance file's workerVars, which
+  // override these at deploy time. Left EMPTY on purpose: container/connectors.ts skips any
+  // connector whose `requiredEnv` is unset, so an unconfigured project gets a pipeline that
+  // runs dbt over whatever data it does have rather than a daily failing cron for a sample
+  // connector it never wired up. The container additionally needs WAREHOUSE_BUCKET_NAME and
+  // WAREHOUSE_R2_ENDPOINT (plus the two WAREHOUSE_R2_* secrets) — see registry.json.
   "vars": {
-    // Set per project via workerVars, or leave empty to disable the
-    // reference GitHub connector's target (see connectors/github.py).
     "GITHUB_OWNER": "",
     "GITHUB_REPO": ""
   }

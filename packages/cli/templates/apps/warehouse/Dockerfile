@@ -46,7 +46,8 @@ RUN ARCH=$(dpkg --print-architecture) \
 # the app's own deps (zod for the mart contract, @cloudflare/sandbox, hyparquet) matter,
 # and only container/ + the Python connectors/dbt project run in here (worker/ is the
 # edge half, never baked into this image).
-# Auto-imported by every python3 invocation (site-packages sitecustomize.py convention)
+# Gated multiprocessing-lock workaround, active only when WAREHOUSE_PATCH_MP_LOCKS=1
+# (site-packages sitecustomize.py convention)
 # — see container/sitecustomize.py's header for why: production Containers run on
 # Firecracker microVMs with no working /dev/shm, which dbt-core's hardcoded
 # multiprocessing.RLock() call needs and has no config override to avoid. APPENDED to
@@ -65,10 +66,10 @@ RUN bun install --frozen-lockfile || bun install
 COPY container container
 COPY connectors connectors
 COPY dbt dbt
-# container/materialize.ts imports the mart contract + R2 key layout from worker/ (both
-# pure — no @cloudflare/sandbox or Workers-runtime dependency) so the two sides share one
-# source of truth instead of duplicating the schema. Only these two files, not the whole
-# worker/ dir: index.ts statically imports '@cloudflare/sandbox', which has no business
-# running inside this container's Bun process, and *.test.ts has no business in the image.
-COPY worker/mart-contract.ts worker/mart-contract.ts
-COPY worker/r2-keys.ts worker/r2-keys.ts
+# shared/ is the cross-runtime contract (mart schema + R2 key layout) — a whole directory
+# that EXISTS to be imported by both runtimes, so copying it wholesale is safe. This
+# replaces cherry-picking two individual files out of worker/, which was fragile in a way
+# that only showed up at runtime: worker/index.ts statically imports '@cloudflare/sandbox'
+# (fatal in a plain Bun process), so the moment anyone added a third container→worker import
+# the image would build fine and then die on `bun run container/materialize.ts`.
+COPY shared shared

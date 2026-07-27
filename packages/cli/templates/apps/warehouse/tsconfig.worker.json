@@ -13,7 +13,7 @@
     "lib": ["esnext"],
     "types": ["@cloudflare/workers-types"]
   },
-  "include": ["worker"],
+  "include": ["worker", "shared"],
   "// worker": "worker/ imports the Cloudflare Workers runtime (Durable Objects, R2), which conflicts with the bun ambient types used by container/ (see tsconfig.json). Test files are excluded because bun:test's `expect` typings clash with @cloudflare/workers-types' Response/Request shapes when both are in one program — bun test still runs and type-checks them via its own transpiler, just not via tsc.",
   "exclude": ["node_modules", "**/*.test.ts", "worker/test-setup.ts"]
 }

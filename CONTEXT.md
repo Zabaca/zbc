@@ -40,11 +40,11 @@ _Avoid_: app module (conflates with Provisioning/Deploy Module, which own only a
 ## Data Warehouse (ADR-0004)
 
 **Warehouse**:
-A project's analytical store — parquet files under its own R2 prefix. Storage, not a server: DuckDB is a stateless query engine that reads those files inside the container, never a durable file the container keeps on disk.
+A project's analytical store — the Mart parquet files under its own R2 bucket. Storage, not a server: DuckDB is a stateless query engine that reads those files inside the container, never a durable file the container keeps on disk.
 _Avoid_: "the DuckDB", "the database"
 
 **Connector**:
-A declared `dlt` source that lands raw data in the warehouse's raw R2 prefix, run one-shot inside the container during a materialize run. Its third-party secret lives in the environment's `secrets.yaml` and is injected only into that one materialize invocation, never into the Worker's general runtime.
+A declared `dlt` source that lands raw data for one materialize run, run one-shot inside the container. Its third-party secret lives in the environment's `secrets.yaml` and is injected only into that one materialize invocation, never into the Worker's general runtime. Raw output is **container-local and discarded when the container sleeps** — only Marts are durable — so every run re-extracts in full.
 _Avoid_: source (ambiguous with dbt's `source()`), integration
 
 **Mart**:

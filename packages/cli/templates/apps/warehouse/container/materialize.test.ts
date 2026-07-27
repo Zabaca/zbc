@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { martKey, martSidecarKey } from '../worker/r2-keys'
+import { martKey, martSidecarKey } from '../shared/r2-keys'
 import { materialize, type MaterializeDeps, type RunResult } from './materialize'
 
 // Manifest fixtures below are trimmed to the fields materialize.ts actually reads, but
@@ -11,7 +11,12 @@ import { materialize, type MaterializeDeps, type RunResult } from './materialize
 // back as `description: ""`, never an absent key.
 
 const MANIFEST_PATH = 'dbt/target/manifest.json'
-const PARQUET_PATH = '/work/marts/mart_github_issues.parquet'
+// RELATIVE on purpose — this is the real shape of `config.location`
+// (dbt/models/marts/mart_github_issues.sql resolves `env_var('WAREHOUSE_MART_DIR', './marts')`).
+// Three separate processes resolve it against a shared cwd (dbt's COPY, the duckdb CLI in
+// countRows, and Bun.file in readFile), which is exactly why materialize() has to `mkdir -p
+// marts` first; an absolute fixture path would hide that coupling.
+const PARQUET_PATH = './marts/mart_github_issues.parquet'
 
 interface FixtureManifest {
   nodes: {
@@ -68,15 +73,35 @@ function readFileFor(manifest: FixtureManifest): MaterializeDeps['readFile'] {
   }
 }
 
+/** DuckDB's `describe` output for the columns validManifest() declares. Shaped like the real
+ * `duckdb -json` rows (it reports types lowercase), so assertSidecarMatchesParquet is
+ * exercised against realistic input rather than a shape invented to match the assertion. */
+const DESCRIBED_COLUMNS = [
+  { column_name: 'issue_id', column_type: 'bigint' },
+  { column_name: 'title', column_type: 'varchar' },
+]
+
+const NOW = '2026-07-24T12:00:00.000Z'
+
+interface Calls {
+  run: string[][]
+  upload: Array<{ key: string; bytes: Uint8Array }>
+  remove: string[]
+}
+
 function baseDeps(overrides: Partial<MaterializeDeps> = {}): {
   deps: MaterializeDeps
-  calls: { run: string[][]; upload: Array<{ key: string; bytes: Uint8Array }> }
+  calls: Calls
 } {
-  const calls = { run: [] as string[][], upload: [] as Array<{ key: string; bytes: Uint8Array }> }
+  const calls: Calls = { run: [], upload: [], remove: [] }
 
   const run = async (cmd: string[]): Promise<RunResult> => {
     calls.run.push(cmd)
     if (cmd[0] === 'duckdb') {
+      const sql = cmd[cmd.length - 1] ?? ''
+      if (sql.startsWith('describe')) {
+        return { stdout: JSON.stringify(DESCRIBED_COLUMNS), stderr: '', code: 0 }
+      }
       return { stdout: JSON.stringify([{ n: 2 }]), stderr: '', code: 0 }
     }
     return { stdout: '', stderr: '', code: 0 }
@@ -86,9 +111,34 @@ function baseDeps(overrides: Partial<MaterializeDeps> = {}): {
     calls.upload.push({ key, bytes })
   }
 
-  const now = () => '2026-07-24T12:00:00.000Z'
+  const remove = async (key: string): Promise<void> => {
+    calls.remove.push(key)
+  }
 
-  return { deps: { run, readFile: readFileFor(validManifest()), upload, now, ...overrides }, calls }
+  // Default: R2 holds exactly what this run publishes, so nothing is orphaned.
+  const list = async (): Promise<string[]> => [
+    martKey('mart_github_issues'),
+    martSidecarKey('mart_github_issues'),
+  ]
+
+  // A single test connector, so these tests exercise the FRAMEWORK rather than depending on
+  // the shipped GitHub sample continuing to exist (a consumer is expected to delete it).
+  const connectors = [{ name: 'test', script: 'connectors/test.py', requiredEnv: ['TEST_TARGET'] }]
+
+  return {
+    deps: {
+      run,
+      readFile: readFileFor(validManifest()),
+      upload,
+      remove,
+      list,
+      env: (name: string) => (name === 'TEST_TARGET' ? 'set' : undefined),
+      now: () => NOW,
+      connectors,
+      ...overrides,
+    },
+    calls,
+  }
 }
 
 describe('materialize', () => {
@@ -101,7 +151,7 @@ describe('materialize', () => {
 
     // marts dir ensured, then connector, then dbt, ran before anything else
     expect(calls.run[0]).toEqual(['mkdir', '-p', 'marts'])
-    expect(calls.run[1]).toEqual(['python3', 'connectors/github.py'])
+    expect(calls.run[1]).toEqual(['python3', 'connectors/test.py'])
     expect(calls.run[2]).toEqual(['dbt', 'run', '--project-dir', 'dbt', '--profiles-dir', 'dbt'])
 
     const parquetUpload = calls.upload.find((u) => u.key === martKey('mart_github_issues'))
@@ -128,7 +178,199 @@ describe('materialize', () => {
 
     const result = await materialize(deps)
 
-    expect(result.marts).not.toContain('stg_github_issues')
+    // Asserted as EQUALITY, not `.not.toContain`: a filter broken to match nothing would
+    // yield [] and satisfy a not-contains check while publishing no marts at all.
+    expect(result.marts).toEqual(['mart_github_issues'])
+  })
+
+  test('scopes the multiprocessing-lock patch to dbt, and pins dlt to a single worker', async () => {
+    const envs: Array<{ cmd: string; env?: Record<string, string> }> = []
+    const { deps } = baseDeps({
+      run: async (cmd, env) => {
+        envs.push({ cmd: cmd[0] ?? '', env })
+        if (cmd[0] === 'duckdb') {
+          const sql = cmd[cmd.length - 1] ?? ''
+          if (sql.startsWith('describe')) {
+            return { stdout: JSON.stringify(DESCRIBED_COLUMNS), stderr: '', code: 0 }
+          }
+          return { stdout: JSON.stringify([{ n: 2 }]), stderr: '', code: 0 }
+        }
+        return { stdout: '', stderr: '', code: 0 }
+      },
+    })
+
+    await materialize(deps)
+
+    // dbt gets the lock patch; the connector must NOT (a threading.RLock is unpicklable,
+    // so it would break dlt's ProcessPoolExecutor rather than help it).
+    const dbt = envs.find((e) => e.cmd === 'dbt')
+    const connector = envs.find((e) => e.cmd === 'python3')
+    expect(dbt?.env?.WAREHOUSE_PATCH_MP_LOCKS).toBe('1')
+    expect(connector?.env?.WAREHOUSE_PATCH_MP_LOCKS).toBeUndefined()
+    expect(connector?.env?.NORMALIZE__WORKERS).toBe('1')
+  })
+
+  test('retires the old sidecar BEFORE writing the parquet, so a failed run reads as absent', async () => {
+    const { deps, calls } = baseDeps()
+
+    await materialize(deps)
+
+    // The ordering is the entire atomicity story: if the sidecar were written last without
+    // first being removed, a crash between the two uploads would leave a NEW parquet
+    // described by a STALE sidecar — served as a confident 200 with wrong metadata.
+    const removedAt = calls.remove.indexOf(martSidecarKey('mart_github_issues'))
+    const parquetAt = calls.upload.findIndex((u) => u.key === martKey('mart_github_issues'))
+    const sidecarAt = calls.upload.findIndex((u) => u.key === martSidecarKey('mart_github_issues'))
+    expect(removedAt).toBeGreaterThanOrEqual(0)
+    expect(parquetAt).toBeLessThan(sidecarAt)
+  })
+
+  test('throws when the declared schema omits a column the parquet actually has', async () => {
+    const { deps, calls } = baseDeps({
+      run: async (cmd) => {
+        if (cmd[0] === 'duckdb') {
+          const sql = cmd[cmd.length - 1] ?? ''
+          if (sql.startsWith('describe')) {
+            return {
+              stdout: JSON.stringify([
+                ...DESCRIBED_COLUMNS,
+                { column_name: 'assignee_login', column_type: 'varchar' },
+              ]),
+              stderr: '',
+              code: 0,
+            }
+          }
+          return { stdout: JSON.stringify([{ n: 2 }]), stderr: '', code: 0 }
+        }
+        return { stdout: '', stderr: '', code: 0 }
+      },
+    })
+
+    await expect(materialize(deps)).rejects.toThrow(/assignee_login/)
+    expect(calls.upload).toEqual([])
+  })
+
+  test('throws when the declared schema names a column the parquet does not have', async () => {
+    const { deps, calls } = baseDeps({
+      run: async (cmd) => {
+        if (cmd[0] === 'duckdb') {
+          const sql = cmd[cmd.length - 1] ?? ''
+          if (sql.startsWith('describe')) {
+            return { stdout: JSON.stringify([DESCRIBED_COLUMNS[0]]), stderr: '', code: 0 }
+          }
+          return { stdout: JSON.stringify([{ n: 2 }]), stderr: '', code: 0 }
+        }
+        return { stdout: '', stderr: '', code: 0 }
+      },
+    })
+
+    await expect(materialize(deps)).rejects.toThrow(/title/)
+    expect(calls.upload).toEqual([])
+  })
+
+  test('throws when a declared column type disagrees with the parquet', async () => {
+    const { deps, calls } = baseDeps({
+      run: async (cmd) => {
+        if (cmd[0] === 'duckdb') {
+          const sql = cmd[cmd.length - 1] ?? ''
+          if (sql.startsWith('describe')) {
+            return {
+              stdout: JSON.stringify([
+                { column_name: 'issue_id', column_type: 'varchar' },
+                { column_name: 'title', column_type: 'varchar' },
+              ]),
+              stderr: '',
+              code: 0,
+            }
+          }
+          return { stdout: JSON.stringify([{ n: 2 }]), stderr: '', code: 0 }
+        }
+        return { stdout: '', stderr: '', code: 0 }
+      },
+    })
+
+    await expect(materialize(deps)).rejects.toThrow(/issue_id.*BIGINT/s)
+    expect(calls.upload).toEqual([])
+  })
+
+  test('accepts a lowercase data_type from schema.yml by normalizing it', async () => {
+    const manifest = validManifest()
+    manifest.nodes['model.warehouse.mart_github_issues'].columns.issue_id!.data_type = 'bigint'
+    const { deps } = baseDeps({ readFile: readFileFor(manifest) })
+
+    const result = await materialize(deps)
+    expect(result.marts).toEqual(['mart_github_issues'])
+  })
+
+  test('a data_type outside the accepted vocabulary names the mart, column, and the legal set', async () => {
+    const manifest = validManifest()
+    manifest.nodes['model.warehouse.mart_github_issues'].columns.issue_id!.data_type = 'INTEGER'
+    const { deps, calls } = baseDeps({ readFile: readFileFor(manifest) })
+
+    await expect(materialize(deps)).rejects.toThrow(
+      /mart_github_issues.*issue_id.*INTEGER.*VARCHAR, TIMESTAMP, BIGINT, DOUBLE, BOOLEAN/s,
+    )
+    expect(calls.upload).toEqual([])
+  })
+
+  test('throws when dbt declares no external models rather than reporting a silent success', async () => {
+    const manifest = validManifest()
+    manifest.nodes['model.warehouse.mart_github_issues'].config.materialized = 'view'
+    const { deps, calls } = baseDeps({ readFile: readFileFor(manifest) })
+
+    await expect(materialize(deps)).rejects.toThrow(/no external \(mart\) models/)
+    expect(calls.upload).toEqual([])
+  })
+
+  test('reaps R2 artifacts for marts the dbt project no longer declares', async () => {
+    const { deps, calls } = baseDeps({
+      list: async () => [
+        martKey('mart_github_issues'),
+        martSidecarKey('mart_github_issues'),
+        martKey('mart_retired'),
+        martSidecarKey('mart_retired'),
+      ],
+    })
+
+    await materialize(deps)
+
+    expect(calls.remove).toContain(martKey('mart_retired'))
+    expect(calls.remove).toContain(martSidecarKey('mart_retired'))
+    // The live mart's parquet must survive; only its sidecar is retired-and-rewritten.
+    expect(calls.remove).not.toContain(martKey('mart_github_issues'))
+  })
+
+  test('rejects a config.location that could break out of the duckdb string literal', async () => {
+    const manifest = validManifest()
+    manifest.nodes['model.warehouse.mart_github_issues'].config.location =
+      "./marts/x.parquet'); install shell; --"
+    const { deps, calls } = baseDeps({ readFile: readFileFor(manifest) })
+
+    await expect(materialize(deps)).rejects.toThrow(/unsafe config.location/)
+    expect(calls.upload).toEqual([])
+  })
+
+  test('a mart model with no config.location throws before any upload', async () => {
+    const manifest = validManifest()
+    // @ts-expect-error deliberately removing a required fixture field
+    delete manifest.nodes['model.warehouse.mart_github_issues'].config.location
+    const { deps, calls } = baseDeps({ readFile: readFileFor(manifest) })
+
+    await expect(materialize(deps)).rejects.toThrow(/config.location/)
+    expect(calls.upload).toEqual([])
+  })
+
+  test('non-JSON output from duckdb names the step instead of throwing a bare SyntaxError', async () => {
+    const { deps } = baseDeps({
+      run: async (cmd) => {
+        if (cmd[0] === 'duckdb') {
+          return { stdout: 'extension autoload notice', stderr: '', code: 0 }
+        }
+        return { stdout: '', stderr: '', code: 0 }
+      },
+    })
+
+    await expect(materialize(deps)).rejects.toThrow(/is not JSON/)
   })
 
   test('a mart model missing a column description throws before any upload call happens', async () => {
@@ -156,11 +398,13 @@ describe('materialize', () => {
     manifest.nodes['model.warehouse.mart_github_issues'].name = 'Mart-Github-Issues'
     const { deps, calls } = baseDeps({ readFile: readFileFor(manifest) })
 
-    await expect(materialize(deps)).rejects.toThrow()
+    // Matched, not bare: an unmatched `.rejects.toThrow()` passes on ANY error, including
+    // an unrelated fixture mistake, so it would not actually pin the name-validation gate.
+    await expect(materialize(deps)).rejects.toThrow(/mart name/)
     expect(calls.upload).toEqual([])
   })
 
-  test('throws if the GitHub connector fails, and never runs dbt', async () => {
+  test('throws if a connector fails, and never runs dbt', async () => {
     const { deps, calls } = baseDeps({
       run: async (cmd) => {
         calls.run.push(cmd)
@@ -172,9 +416,24 @@ describe('materialize', () => {
     await expect(materialize(deps)).rejects.toThrow(/boom/)
     expect(calls.run).toEqual([
       ['mkdir', '-p', 'marts'],
-      ['python3', 'connectors/github.py'],
+      ['python3', 'connectors/test.py'],
     ])
     expect(calls.upload).toEqual([])
+  })
+
+  test('SKIPS a connector whose required env is unset instead of failing the whole run', async () => {
+    const { deps, calls } = baseDeps({
+      // Nothing configured — the shipped sample's target isn't wired.
+      env: () => undefined,
+    })
+
+    const result = await materialize(deps)
+
+    // dbt still runs and the marts still publish: a project that never wired the reference
+    // connector must not get a daily failing cron for a sample it doesn't use.
+    expect(result.marts).toEqual(['mart_github_issues'])
+    expect(calls.run.some((c) => c[0] === 'python3')).toBe(false)
+    expect(calls.run.some((c) => c[0] === 'dbt')).toBe(true)
   })
 
   test('throws if dbt run fails, and never uploads', async () => {

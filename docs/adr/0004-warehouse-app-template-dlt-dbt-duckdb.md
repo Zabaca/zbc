@@ -4,9 +4,9 @@
 
 `zbc add warehouse` scaffolds a data warehouse/BI app template (ported from cedarpad's ADR-0017
 design, generalized for any zbc project): a Container-backed Worker running the real `duckdb` CLI
-plus a Python venv with `dlt` (extraction) and `dbt-duckdb` (transform). Raw data and marts both
-live as parquet under the project's own R2 bucket (the `r2` module) — never a durable DuckDB file
-in the container, since disk is capped and the container sleeps at 5 minutes idle. A **materialize**
+plus a Python venv with `dlt` (extraction) and `dbt-duckdb` (transform). **Marts** live as parquet
+under the project's own R2 bucket (the `r2` module) — never a durable DuckDB file in the container,
+since disk is capped and the container sleeps at 5 minutes idle. A **materialize**
 run (dlt extract → `dbt run`, external-materialized to parquet) is triggered one-shot by the
 Worker's own Cloudflare Cron Trigger — no daemon, no Dagster. Marts are read via a bearer-authed
 HTTP API that parses parquet at the edge (no container wake for reads); a mart isn't a mart without
@@ -58,6 +58,38 @@ general runtime env.
 - Ingestion beyond the one reference connector is deliberately out of v1 scope; each additional
   connector is real per-provider work (auth flow, pagination, rate limits) independent of the
   warehouse's own design.
+- **Raw is container-local, not durable.** A connector writes raw parquet to the container's own
+  disk (`./raw`); dbt reads it from there and only *marts* are uploaded. The container's disk is
+  discarded when it sleeps, so **there is no durable raw layer and no incremental extraction —
+  every materialize run re-extracts its sources in full.** That is acceptable at reference scale
+  and keeps the storage story to one prefix, but it caps how large a source this can serve before
+  the extract itself becomes the bottleneck, and it means raw history is unrecoverable if a
+  transform is later found to be wrong. (An earlier draft of this ADR claimed raw landed in R2
+  alongside marts; it never did, and a `rawKey` builder existed with no callers, which made the
+  raw layer look durable. Both corrected.)
+- **The `/dev/shm` workaround is scoped to dbt, not global.** `container/sitecustomize.py` only
+  acts when `WAREHOUSE_PATCH_MP_LOCKS=1`, which `container/materialize.ts` sets on the `dbt`
+  invocation alone. This matters because the patch is safe for dbt and *not* safe in general:
+  reading dbt-core/dbt-adapters/dbt-duckdb source confirms dbt never creates a real OS process
+  (its `threads:` is a `ThreadPool`, and every `mp_context` consumer builds a lock used only for
+  cross-thread synchronization), whereas dlt's normalize step defaults to `pool_type="process"`
+  and builds a genuine `ProcessPoolExecutor` — into which an unpicklable `threading.RLock` would
+  fail loudly. dlt therefore runs unpatched and is pinned to `NORMALIZE__WORKERS=1`, making
+  single-process extraction an explicit invariant rather than a property that currently holds
+  only because the reference connector's row count keeps dlt on its single-threaded path.
+- **Mart publication is ordered retire-sidecar → write-parquet → write-sidecar.** The obvious
+  order (parquet then sidecar) makes a failed sidecar upload leave *today's* parquet described by
+  *yesterday's* sidecar — served as a confident 200 with a stale `rowCount` and a column list that
+  no longer matches the data, which is silently wrong rather than merely missing. Deleting the
+  sidecar first means any failure leaves the mart with no sidecar at all, which the reader already
+  treats as absent — so "a partial write reads as absent" is true on every write, not just the
+  first. The reader additionally rejects a sidecar whose `rowCount` disagrees with the parquet, or
+  whose `name` disagrees with its storage key.
+- **The declared schema is verified against the parquet at write time.** Declaring a column schema
+  is not the same as it being true: `schema.yml` and a model's `SELECT` drift the first time one is
+  edited without the other. Each run `DESCRIBE`s the parquet dbt produced and refuses to publish on
+  a missing column, an undeclared column, or a type mismatch. Note this is stricter than cedarpad's
+  ADR-0017 implementation, which declares but never verifies.
 - **Production Containers run on Firecracker microVMs with no working `/dev/shm`** (confirmed via
   `wrangler containers info`'s `runtime: "firecracker"`, and by SSHing into a live instance) —
   every POSIX-semaphore-backed `multiprocessing` primitive raises `FileNotFoundError: [Errno 2]`
