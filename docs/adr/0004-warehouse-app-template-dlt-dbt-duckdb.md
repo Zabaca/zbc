@@ -4,9 +4,12 @@
 
 `zbc add warehouse` scaffolds a data warehouse/BI app template (ported from cedarpad's ADR-0017
 design, generalized for any zbc project): a Container-backed Worker running the real `duckdb` CLI
-plus a Python venv with `dlt` (extraction) and `dbt-duckdb` (transform). **Marts** live as parquet
-under the project's own R2 bucket (the `r2` module) — never a durable DuckDB file in the container,
-since disk is capped and the container sleeps at 5 minutes idle. A **materialize**
+plus a Python venv with `dlt` (extraction) and `dbt-duckdb` (transform). Both the append-only
+**raw layer** (`raw/`) and the published **marts** (`marts/`) live as parquet under the project's
+own R2 bucket (the `r2` module) — never a durable DuckDB file in the container, since disk is
+capped and the container sleeps at 5 minutes idle. Raw being durable is what lets a connector
+extract only what changed since its last run: dlt persists its incremental cursor beside the data
+and restores it on each cold start. A **materialize**
 run (dlt extract → `dbt run`, external-materialized to parquet) is triggered one-shot by the
 Worker's own Cloudflare Cron Trigger — no daemon, no Dagster. Marts are read via a bearer-authed
 HTTP API that parses parquet at the edge (no container wake for reads); a mart isn't a mart without
@@ -58,15 +61,62 @@ general runtime env.
 - Ingestion beyond the one reference connector is deliberately out of v1 scope; each additional
   connector is real per-provider work (auth flow, pagination, rate limits) independent of the
   warehouse's own design.
-- **Raw is container-local, not durable.** A connector writes raw parquet to the container's own
-  disk (`./raw`); dbt reads it from there and only *marts* are uploaded. The container's disk is
-  discarded when it sleeps, so **there is no durable raw layer and no incremental extraction —
-  every materialize run re-extracts its sources in full.** That is acceptable at reference scale
-  and keeps the storage story to one prefix, but it caps how large a source this can serve before
-  the extract itself becomes the bottleneck, and it means raw history is unrecoverable if a
-  transform is later found to be wrong. (An earlier draft of this ADR claimed raw landed in R2
-  alongside marts; it never did, and a `rawKey` builder existed with no callers, which made the
-  raw layer look durable. Both corrected.)
+- **Raw is durable, under the bucket's own `raw/` prefix** (amended — v1 shipped raw as
+  container-local, which meant every run re-extracted in full and raw history was
+  unrecoverable if a transform was later found wrong). dlt's filesystem destination writes
+  `s3://<bucket>/raw` directly and dbt reads it back over DuckDB's `httpfs`; the container's
+  disk holds nothing that must survive. Raw growth is now proportional to *change volume*
+  rather than *run count*, which is what makes an unbounded-looking append-only layer
+  bounded in practice.
+
+  The load-bearing part is not the parquet — it is dlt's **cursor**. `_dlt_pipeline_state`
+  lands beside the data, and `pipeline.run()` restores it on every cold container; that
+  restore is the whole mechanism behind incremental extraction. Keeping raw parquet while
+  leaving state on the container's disk would have paid the storage cost for none of the
+  saving, since every run would still re-extract from scratch.
+
+  Verified end-to-end against a real R2 bucket, not just unit tests: a cold run landed 18
+  rows and advanced the cursor; a second cold container restored it and extracted **nothing**
+  (dlt's own `unique_hashes` drops the rows GitHub returns twice, since `since` is
+  inclusive); resetting the cursor re-extracted all 18 alongside the originals, and the mart
+  still published exactly 18 distinct issues.
+- **Raw is append-only, so the mart layer must deduplicate.** `write_disposition: "append"`
+  is what makes raw a history rather than a mirror of the current state; the same issue lands
+  once per run that touched it. `stg_github_issues.sql` keeps the newest row per `issue_id`,
+  tie-broken on `_dlt_load_id`. Two traps: dlt's parquet normalizer omits `_dlt_load_id` by
+  default (`add_dlt_load_id=False`, unlike the model normalizer) so it must be turned on
+  explicitly, and switching the disposition to `merge` would look like it fixed the
+  duplicates while doing nothing — the filesystem destination silently falls back to append.
+- **`union_by_name := true` is mandatory when reading the raw glob.** Raw spans files written
+  months apart and their schemas diverge as GitHub adds response fields. Measured on duckdb
+  1.5.5: the default `read_parquet` binds to the *first* file's schema and **silently drops**
+  a column present in every other file — no error, no warning, the data simply isn't there.
+  A loud failure would be safe; this isn't.
+- **A durable cursor is durable when it is wrong, too.** Found the hard way: GitHub answers
+  `200` with an empty array for a `since` at or before the Unix epoch
+  (`1970-01-01T00:00:00Z` → 0 issues, `1971-01-01T00:00:00Z` → 18), so the obvious spelling
+  of "extract everything" means "extract nothing". Worse, that value then persisted as the
+  cursor and could never advance — a self-perpetuating dead pipeline reporting success daily,
+  with the empty-table bootstrap (below) dutifully covering for it. The initial floor is now
+  `2008-01-01T00:00:00Z` (GitHub predates no issue), but the general lesson outlives the
+  specific bug: **editing `initial_value` in connector code does not move a cursor that
+  already exists.** Resetting one means deleting `raw/<dataset>/_dlt_pipeline_state/`, which
+  is safe — raw data is left intact and the next run simply re-extracts and dedupes.
+- **The empty-table bootstrap masks a broken first extract.** `_ensure_issues_table_exists`
+  exists so a genuinely issue-less repo doesn't fail the run on a missing `read_parquet`
+  glob, and it cannot distinguish that from an extract that returned nothing because it was
+  misconfigured. Both publish a legitimate-looking 0-row mart. Kept, because failing a quiet
+  repo's nightly cron is worse, but it is the reason the epoch bug above survived several
+  runs looking like a success.
+- **The R2 credentials must be spelled two different ways in the same file**, and this is not
+  duplication to be refactored away: dlt's filesystem destination binds them to its own
+  `AwsCredentials` config (`aws_access_key_id`/`aws_secret_access_key`/`endpoint_url`), while
+  fsspec's `S3FileSystem` — used directly for the empty-table bootstrap — takes
+  `key`/`secret`/`client_kwargs.endpoint_url`. dlt raises `ConfigFieldMissingException` on an
+  fsspec-shaped dict because it does not read the alien keys at all. dbt needs a third
+  spelling: a `secrets:` entry in `profiles.yml` with `url_style: path`, `region: auto`, and
+  a *scheme-stripped* endpoint, since DuckDB's `CREATE SECRET` wants a bare host where every
+  other consumer wants a URL.
 - **The `/dev/shm` workaround is scoped to dbt, not global.** `container/sitecustomize.py` only
   acts when `WAREHOUSE_PATCH_MP_LOCKS=1`, which `container/materialize.ts` sets on the `dbt`
   invocation alone. This matters because the patch is safe for dbt and *not* safe in general:

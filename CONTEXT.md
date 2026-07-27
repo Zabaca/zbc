@@ -40,12 +40,19 @@ _Avoid_: app module (conflates with Provisioning/Deploy Module, which own only a
 ## Data Warehouse (ADR-0004)
 
 **Warehouse**:
-A project's analytical store — the Mart parquet files under its own R2 bucket. Storage, not a server: DuckDB is a stateless query engine that reads those files inside the container, never a durable file the container keeps on disk.
+A project's analytical store — the Raw Layer and the Mart parquet files, both under its own R2 bucket. Storage, not a server: DuckDB is a stateless query engine that reads those files inside the container, never a durable file the container keeps on disk.
 _Avoid_: "the DuckDB", "the database"
 
 **Connector**:
-A declared `dlt` source that lands raw data for one materialize run, run one-shot inside the container. Its third-party secret lives in the environment's `secrets.yaml` and is injected only into that one materialize invocation, never into the Worker's general runtime. Raw output is **container-local and discarded when the container sleeps** — only Marts are durable — so every run re-extracts in full.
+A declared `dlt` source that lands raw data for one materialize run, run one-shot inside the container. Its third-party secret lives in the environment's `secrets.yaml` and is injected only into that one materialize invocation, never into the Worker's general runtime.
 _Avoid_: source (ambiguous with dbt's `source()`), integration
+
+**Raw Layer**:
+Append-only parquet under the bucket's `raw/` prefix, written by Connectors through dlt's filesystem destination and read back by dbt over `s3://`. Durable, so a Connector extracts only what changed since its last run — the **Cursor** dlt persists beside the data is what survives the container sleeping, and restoring it is the entire mechanism. Distinct from a Mart: raw is unshaped, unverified, never served.
+_Avoid_: staging (means a dbt model layer here), landing zone
+
+**Cursor**:
+A Connector's incremental position, persisted by dlt to `_dlt_pipeline_state` in the Raw Layer and restored on every cold container. Durable in both directions: a **bad** cursor is equally permanent, and editing `initial_value` in connector code does not move one that already exists.
 
 **Mart**:
 The published unit of meaning — exactly one parquet artifact with a declared column schema and freshness stamp, never inferred. Materialized by dbt-duckdb's `external` materialization; read two ways — DuckDB inside the container, and a pure-JS parquet reader at the edge behind the mart-read API.

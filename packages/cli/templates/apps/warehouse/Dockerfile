@@ -35,7 +35,9 @@ ENV TZ=UTC
 # `[parquet]` extra pulls in pyarrow, which its filesystem destination needs to write
 # parquet at all — a plain `dlt==` install resolves without it and fails at runtime
 # (ModuleNotFoundError: pyarrow) the first time a connector actually lands data.
-RUN uv pip install --system --no-cache duckdb==1.5.5 dbt-duckdb==1.10.1 "dlt[parquet]==1.29.1"
+# The `s3` extra brings s3fs/fsspec — without it dlt's filesystem destination cannot address
+# an s3:// bucket_url at all, which is how the durable raw layer (docs/adr/0004) reaches R2.
+RUN uv pip install --system --no-cache duckdb==1.5.5 dbt-duckdb==1.10.1 "dlt[parquet,s3]==1.29.1"
 
 # duckdb CLI, pinned to the SAME version as the python `duckdb` package above so the CLI
 # and the Python bindings read/write the identical on-disk/parquet format.

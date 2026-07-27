@@ -15,3 +15,27 @@ warehouse:
       type: duckdb
       path: "{{ env_var('WAREHOUSE_DUCKDB_PATH', ':memory:') }}"
       threads: 4
+      # The staging models read raw parquet straight out of R2 over s3:// (docs/adr/0004's
+      # durable raw layer) — httpfs is what gives DuckDB the s3 protocol at all.
+      extensions:
+        - httpfs
+        - parquet
+      # R2 is S3-compatible but not AWS, so three things differ from a stock s3 secret and
+      # all three are required: an explicit endpoint, `region: auto` (R2 has no regions, and
+      # DuckDB still wants the field populated to sign requests), and path-style URLs —
+      # DuckDB's default virtual-host style resolves to a hostname R2 does not serve.
+      #
+      # DuckDB's ENDPOINT wants a bare host; WAREHOUSE_R2_ENDPOINT carries the scheme because
+      # every other consumer of it (Bun.S3Client, s3fs) requires one. Strip rather than
+      # introduce a second, near-identical env var that can drift out of sync with the first.
+      #
+      # dbt-duckdb passes unrecognised secret keys through to CREATE SECRET verbatim (it
+      # excludes only `name`/`persistent`), which is what makes `endpoint`/`url_style`
+      # expressible here at all despite not appearing in its documented key list.
+      secrets:
+        - type: s3
+          key_id: "{{ env_var('WAREHOUSE_R2_ACCESS_KEY_ID', '') }}"
+          secret: "{{ env_var('WAREHOUSE_R2_SECRET_ACCESS_KEY', '') }}"
+          endpoint: "{{ env_var('WAREHOUSE_R2_ENDPOINT', '') | replace('https://', '') | replace('http://', '') }}"
+          region: auto
+          url_style: path

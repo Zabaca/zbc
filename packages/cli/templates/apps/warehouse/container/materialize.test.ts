@@ -85,6 +85,9 @@ const NOW = '2026-07-24T12:00:00.000Z'
 
 interface Calls {
   run: string[][]
+  /** Per-command env overlay, parallel to `run` — the channel materialize() uses to scope
+   *  WAREHOUSE_RAW_URL / the mp-lock patch / NORMALIZE__WORKERS to one step. */
+  runEnv: Array<Record<string, string> | undefined>
   upload: Array<{ key: string; bytes: Uint8Array }>
   remove: string[]
 }
@@ -93,10 +96,11 @@ function baseDeps(overrides: Partial<MaterializeDeps> = {}): {
   deps: MaterializeDeps
   calls: Calls
 } {
-  const calls: Calls = { run: [], upload: [], remove: [] }
+  const calls: Calls = { run: [], runEnv: [], upload: [], remove: [] }
 
-  const run = async (cmd: string[]): Promise<RunResult> => {
+  const run = async (cmd: string[], env?: Record<string, string>): Promise<RunResult> => {
     calls.run.push(cmd)
+    calls.runEnv.push(env)
     if (cmd[0] === 'duckdb') {
       const sql = cmd[cmd.length - 1] ?? ''
       if (sql.startsWith('describe')) {
@@ -539,5 +543,75 @@ describe('materialize', () => {
     })
 
     await expect(materialize(deps)).rejects.toThrow(/Compilation Error in model mart_x/)
+  })
+})
+
+// The durable raw layer (docs/adr/0004). The load-bearing property is not "an s3:// URL gets
+// built" — it is that the EXTRACT step and the TRANSFORM step are handed the same location
+// from the same variable. If they can diverge, dbt rebuilds a stale mart from whatever the
+// container's disk still holds and the pipeline stamps it fresh, which every downstream
+// schema check passes.
+const envWith =
+  (values: Record<string, string>) =>
+  (name: string): string | undefined =>
+    values[name]
+
+describe('materialize raw location', () => {
+  /** The env overlay materialize() passed to a given command, by argv[0]. */
+  function envForCommand(calls: Calls, argv0: string): Record<string, string> | undefined {
+    const index = calls.run.findIndex((cmd) => cmd[0] === argv0)
+    expect(index).toBeGreaterThanOrEqual(0)
+    return calls.runEnv[index]
+  }
+
+  test('points raw at R2 under the bucket, in its own prefix', async () => {
+    const { deps, calls } = baseDeps({
+      env: envWith({ TEST_TARGET: 'set', WAREHOUSE_BUCKET_NAME: 'zbc-warehouse' }),
+    })
+
+    await materialize(deps)
+
+    // `raw/` and not the bucket root: marts/ is reaped by prefix listing, so raw sharing a
+    // namespace with it would put orphan-reaping and the raw layer on a collision course.
+    expect(envForCommand(calls, 'python3')?.WAREHOUSE_RAW_URL).toBe('s3://zbc-warehouse/raw')
+  })
+
+  test('hands the connector and dbt the identical location', async () => {
+    const { deps, calls } = baseDeps({
+      env: envWith({ TEST_TARGET: 'set', WAREHOUSE_BUCKET_NAME: 'zbc-warehouse' }),
+    })
+
+    await materialize(deps)
+
+    const extract = envForCommand(calls, 'python3')?.WAREHOUSE_RAW_URL
+    const transform = envForCommand(calls, 'dbt')?.WAREHOUSE_RAW_URL
+    expect(extract).toBe('s3://zbc-warehouse/raw')
+    expect(transform).toBe(extract)
+  })
+
+  test('falls back to a local directory when no bucket is configured', async () => {
+    const { deps, calls } = baseDeps({
+      env: envWith({ TEST_TARGET: 'set', WAREHOUSE_RAW_DIR: './raw-local' }),
+    })
+
+    await materialize(deps)
+
+    // Standalone development: no R2 credentials, no durable state, full re-extract each run.
+    expect(envForCommand(calls, 'python3')?.WAREHOUSE_RAW_URL).toBe('./raw-local')
+    expect(envForCommand(calls, 'dbt')?.WAREHOUSE_RAW_URL).toBe('./raw-local')
+  })
+
+  test('refuses a bucket name that would escape the DuckDB string literal', async () => {
+    const { deps } = baseDeps({
+      env: envWith({
+        TEST_TARGET: 'set',
+        WAREHOUSE_BUCKET_NAME: "b') union all select * from read_csv('evil.csv",
+      }),
+    })
+
+    // Must fail BEFORE dbt runs: the raw URL is interpolated into read_parquet() in the
+    // staging model, and a forged row landing in a published mart keeps every declared
+    // column name and type, so nothing downstream would notice it.
+    await expect(materialize(deps)).rejects.toThrow(/interpolated into dbt SQL/)
   })
 })

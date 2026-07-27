@@ -169,4 +169,10 @@ const BLOCKED_FROM_CONTAINER = new Set([
   'WAREHOUSE_MART_DIR',
   'WAREHOUSE_PATCH_MP_LOCKS',
   'NORMALIZE__WORKERS',
+  // Computed by container/materialize.ts (resolveRawUrl) and injected into the connector and
+  // dbt steps from one variable, precisely so extract and transform cannot disagree about
+  // where raw lives. An instance-supplied value would be overridden anyway — the per-command
+  // overlay wins over the inherited environment — so blocking it keeps the env honest rather
+  // than leaving a variable present that looks authoritative and is silently ignored.
+  'WAREHOUSE_RAW_URL',
 ])

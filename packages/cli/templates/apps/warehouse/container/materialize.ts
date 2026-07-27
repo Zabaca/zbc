@@ -184,6 +184,41 @@ function assertSafeParquetPath(martName: string, parquetPath: string): void {
   }
 }
 
+/** Where the raw layer lives, resolved ONCE here and handed to both halves of the run.
+ *
+ * This is deliberately not read independently by the connector and by dbt. They must agree
+ * exactly — dbt reads back what dlt just wrote — and two sides each deriving a location from
+ * overlapping env vars is precisely how they silently stop agreeing (dbt reading a stale
+ * local `./raw` while dlt writes to R2 would rebuild yesterday's mart and stamp it fresh,
+ * which is the failure `extracted === 0` further down exists to prevent in the other
+ * direction). So: computed here, exported as WAREHOUSE_RAW_URL, injected into the connector
+ * step and the dbt step from the same variable.
+ *
+ * Durable (R2) whenever the bucket is configured — which is always, in a deployed container,
+ * since materialize.ts's entrypoint refuses to start without it. The `file://`-less local
+ * fallback keeps `python3 connectors/github.py` runnable standalone on a laptop with no R2
+ * credentials, which is how the connector is developed. */
+function resolveRawUrl(deps: MaterializeDeps): string {
+  const bucket = deps.env('WAREHOUSE_BUCKET_NAME')
+  return bucket ? `s3://${bucket}/raw` : (deps.env('WAREHOUSE_RAW_DIR') ?? './raw')
+}
+
+/** As SAFE_PARQUET_PATH_RE, plus the `s3://` scheme the durable raw layer needs. Same
+ * threat: WAREHOUSE_RAW_URL is interpolated into a single-quoted DuckDB string literal in
+ * the staging model, so a `'` in the bucket name would escape into arbitrary SQL. Bucket
+ * names come from an instance file rather than a request, but so did WAREHOUSE_RAW_DIR. */
+const SAFE_RAW_URL_RE = /^(s3:\/\/)?[A-Za-z0-9._/-]+$/
+
+function assertSafeRawUrl(rawUrl: string): void {
+  if (!SAFE_RAW_URL_RE.test(rawUrl)) {
+    throw new Error(
+      `materialize: raw location ("${rawUrl}") is interpolated into dbt SQL and must be a ` +
+        'plain path or s3:// URL containing only letters, digits, and . _ - / — check ' +
+        'WAREHOUSE_BUCKET_NAME / WAREHOUSE_RAW_DIR on the warehouse instance',
+    )
+  }
+}
+
 /** Directory env vars that dbt models interpolate DIRECTLY into DuckDB string literals
  * (`read_parquet('{{ env_var("WAREHOUSE_RAW_DIR") }}/...')` in the staging model, and the
  * `location=` config on every external mart model). A `'` in either escapes the literal into
@@ -361,6 +396,10 @@ export async function materialize(deps: MaterializeDeps): Promise<{ marts: strin
   // default (dbt/profiles.yml / models/marts/mart_github_issues.sql).
   assertSafeDbtPathEnv(deps)
 
+  const rawUrl = resolveRawUrl(deps)
+  assertSafeRawUrl(rawUrl)
+  console.log(`materialize: raw layer at ${rawUrl}`)
+
   await run(deps, ['mkdir', '-p', 'marts'], 'ensure marts directory')
 
   // Every declared connector, in order (container/connectors.ts). A connector whose required
@@ -386,6 +425,7 @@ export async function materialize(deps: MaterializeDeps): Promise<{ marts: strin
     }
     await run(deps, ['python3', connector.script], `connector "${connector.name}"`, {
       NORMALIZE__WORKERS: '1',
+      WAREHOUSE_RAW_URL: rawUrl,
     })
     extracted++
   }
@@ -412,6 +452,7 @@ export async function materialize(deps: MaterializeDeps): Promise<{ marts: strin
   // for which it is provably safe (it never spawns a real process). See sitecustomize.py.
   await run(deps, ['dbt', 'run', '--project-dir', 'dbt', '--profiles-dir', 'dbt'], 'dbt run', {
     WAREHOUSE_PATCH_MP_LOCKS: '1',
+    WAREHOUSE_RAW_URL: rawUrl,
   })
 
   const manifestBytes = await deps.readFile(MANIFEST_PATH)
