@@ -58,3 +58,20 @@ general runtime env.
 - Ingestion beyond the one reference connector is deliberately out of v1 scope; each additional
   connector is real per-provider work (auth flow, pagination, rate limits) independent of the
   warehouse's own design.
+- **Production Containers run on Firecracker microVMs with no working `/dev/shm`** (confirmed via
+  `wrangler containers info`'s `runtime: "firecracker"`, and by SSHing into a live instance) —
+  every POSIX-semaphore-backed `multiprocessing` primitive raises `FileNotFoundError: [Errno 2]`
+  the instant one is constructed. dbt-core hits this unconditionally at startup
+  (`dbt/mp_context.py` hardcodes `multiprocessing.get_context("spawn")`, no config override;
+  `ConnectionManager.__init__` calls `mp_context.RLock()` before running a single model) — so
+  every `dbt run` failed in real production even though the identical image worked under plain
+  Docker and `wrangler dev` (both are ordinary Docker, not Firecracker, so this gap is invisible
+  until you actually deploy). Fixed by `container/sitecustomize.py`, appended to the base image's
+  own `/usr/lib/python3.10/sitecustomize.py` (Python only auto-imports the *first*
+  `sitecustomize.py` on `sys.path`, and that one resolves before `dist-packages` — a second copy
+  placed there silently never loads): it monkeypatches `multiprocessing.context.BaseContext.RLock`
+  to a `threading.RLock`-backed shim. Safe here specifically because dbt's own `threads:` config
+  is a `ThreadPoolExecutor`, not real OS processes, so nothing in this container ever needs a
+  cross-process primitive. **Anything future work adds to this container that genuinely forks a
+  real subprocess needing shared-memory synchronization will hit this same wall** and cannot use
+  this workaround.

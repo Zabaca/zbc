@@ -23,8 +23,11 @@ ENV PATH="/usr/local/bin:${PATH}"
 # the unpinned two to whatever's current, which may demand a duckdb version the pin
 # forbids. Bump all three together, deliberately. `--system` installs onto the image's
 # python3 directly (no venv) — this container runs exactly one job at a time (the
-# materialize run), so there's no dependency-isolation need a venv would buy.
-RUN uv pip install --system --no-cache duckdb==1.5.5 dbt-duckdb==1.10.1 dlt==1.29.1
+# materialize run), so there's no dependency-isolation need a venv would buy. dlt's
+# `[parquet]` extra pulls in pyarrow, which its filesystem destination needs to write
+# parquet at all — a plain `dlt==` install resolves without it and fails at runtime
+# (ModuleNotFoundError: pyarrow) the first time a connector actually lands data.
+RUN uv pip install --system --no-cache duckdb==1.5.5 dbt-duckdb==1.10.1 "dlt[parquet]==1.29.1"
 
 # duckdb CLI, pinned to the SAME version as the python `duckdb` package above so the CLI
 # and the Python bindings read/write the identical on-disk/parquet format.
@@ -43,9 +46,29 @@ RUN ARCH=$(dpkg --print-architecture) \
 # the app's own deps (zod for the mart contract, @cloudflare/sandbox, hyparquet) matter,
 # and only container/ + the Python connectors/dbt project run in here (worker/ is the
 # edge half, never baked into this image).
+# Auto-imported by every python3 invocation (site-packages sitecustomize.py convention)
+# — see container/sitecustomize.py's header for why: production Containers run on
+# Firecracker microVMs with no working /dev/shm, which dbt-core's hardcoded
+# multiprocessing.RLock() call needs and has no config override to avoid. APPENDED to
+# (not placed alongside) the base image's own /usr/lib/python3.10/sitecustomize.py
+# (an apport crash-hook installer, harmless to keep): sys.path resolves that path
+# BEFORE /usr/local/lib/python3.10/dist-packages, so Python imports the FIRST
+# sitecustomize.py it finds and never reaches a second one placed later on the path —
+# verified the hard way, a copy into dist-packages silently never loaded.
+COPY container/sitecustomize.py /tmp/warehouse-sitecustomize.py
+RUN cat /tmp/warehouse-sitecustomize.py >> /usr/lib/python3.10/sitecustomize.py \
+  && rm /tmp/warehouse-sitecustomize.py
+
 WORKDIR /app
 COPY package.json bun.lock* tsconfig.json ./
 RUN bun install --frozen-lockfile || bun install
 COPY container container
 COPY connectors connectors
 COPY dbt dbt
+# container/materialize.ts imports the mart contract + R2 key layout from worker/ (both
+# pure — no @cloudflare/sandbox or Workers-runtime dependency) so the two sides share one
+# source of truth instead of duplicating the schema. Only these two files, not the whole
+# worker/ dir: index.ts statically imports '@cloudflare/sandbox', which has no business
+# running inside this container's Bun process, and *.test.ts has no business in the image.
+COPY worker/mart-contract.ts worker/mart-contract.ts
+COPY worker/r2-keys.ts worker/r2-keys.ts

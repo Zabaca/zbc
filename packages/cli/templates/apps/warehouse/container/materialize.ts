@@ -73,7 +73,11 @@ interface DbtManifest {
 async function run(deps: MaterializeDeps, cmd: string[], step: string): Promise<RunResult> {
   const result = await deps.run(cmd)
   if (result.code !== 0) {
-    throw new Error(`materialize: ${step} failed (exit ${result.code}): ${result.stderr}`)
+    // dbt (and several other CLIs this pipeline shells out to) writes its actual error
+    // detail to stdout, not stderr — surfacing stderr alone silently drops the real
+    // reason and leaves only an empty-looking "(exit N): " message.
+    const detail = [result.stdout, result.stderr].filter((s) => s.trim() !== '').join('\n')
+    throw new Error(`materialize: ${step} failed (exit ${result.code}): ${detail}`)
   }
   return result
 }
@@ -142,6 +146,12 @@ async function countRows(deps: MaterializeDeps, parquetPath: string): Promise<nu
  * uploads nothing for the offending mart) on a failed connector run, a failed `dbt run`,
  * or a mart that fails its schema/description contract. */
 export async function materialize(deps: MaterializeDeps): Promise<{ marts: string[] }> {
+  // dbt-duckdb's `external` materialization (dbt/models/marts/*.sql) COPYs straight to
+  // this path — DuckDB does not create missing parent directories on write, so a bare
+  // `dbt run` fails with "IO Error: Cannot open file ... No such file or directory" on
+  // every fresh container. `marts/` matches every mart model's WAREHOUSE_MART_DIR
+  // default (dbt/profiles.yml / models/marts/mart_github_issues.sql).
+  await run(deps, ['mkdir', '-p', 'marts'], 'ensure marts directory')
   await run(deps, ['python3', 'connectors/github.py'], 'GitHub connector')
   await run(deps, ['dbt', 'run', '--project-dir', 'dbt', '--profiles-dir', 'dbt'], 'dbt run')
 

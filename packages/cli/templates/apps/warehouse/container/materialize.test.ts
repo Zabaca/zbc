@@ -99,9 +99,10 @@ describe('materialize', () => {
 
     expect(result.marts).toEqual(['mart_github_issues'])
 
-    // connector, then dbt, ran before anything else
-    expect(calls.run[0]).toEqual(['python3', 'connectors/github.py'])
-    expect(calls.run[1]).toEqual(['dbt', 'run', '--project-dir', 'dbt', '--profiles-dir', 'dbt'])
+    // marts dir ensured, then connector, then dbt, ran before anything else
+    expect(calls.run[0]).toEqual(['mkdir', '-p', 'marts'])
+    expect(calls.run[1]).toEqual(['python3', 'connectors/github.py'])
+    expect(calls.run[2]).toEqual(['dbt', 'run', '--project-dir', 'dbt', '--profiles-dir', 'dbt'])
 
     const parquetUpload = calls.upload.find((u) => u.key === martKey('mart_github_issues'))
     const sidecarUpload = calls.upload.find((u) => u.key === martSidecarKey('mart_github_issues'))
@@ -169,7 +170,10 @@ describe('materialize', () => {
     })
 
     await expect(materialize(deps)).rejects.toThrow(/boom/)
-    expect(calls.run).toEqual([['python3', 'connectors/github.py']])
+    expect(calls.run).toEqual([
+      ['mkdir', '-p', 'marts'],
+      ['python3', 'connectors/github.py'],
+    ])
     expect(calls.upload).toEqual([])
   })
 
@@ -184,5 +188,17 @@ describe('materialize', () => {
 
     await expect(materialize(deps)).rejects.toThrow(/compilation error/)
     expect(calls.upload).toEqual([])
+  })
+
+  test('surfaces stdout in the failure, not just stderr — dbt writes its real errors there', async () => {
+    const { deps } = baseDeps({
+      run: async (cmd) => {
+        if (cmd[0] === 'dbt')
+          return { stdout: 'Compilation Error in model mart_x', stderr: '', code: 2 }
+        return { stdout: '', stderr: '', code: 0 }
+      },
+    })
+
+    await expect(materialize(deps)).rejects.toThrow(/Compilation Error in model mart_x/)
   })
 })

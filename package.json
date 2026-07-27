@@ -6,8 +6,10 @@
     "packages/*",
     "!packages/inbox",
     "!packages/secret-relay",
+    "!packages/warehouse",
     "packages/cli/templates/apps/inbox",
-    "packages/cli/templates/apps/secret-relay"
+    "packages/cli/templates/apps/secret-relay",
+    "packages/cli/templates/apps/warehouse"
   ],
   "scripts": {
     "build": "turbo run build",
