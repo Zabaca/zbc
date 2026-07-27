@@ -44,13 +44,27 @@ with deduplicated as (
     )
 )
 
+-- EVERY column is cast explicitly, including the ones that "obviously" need no cast. This is
+-- the staging layer's job and the reason it exists: the mart's column types are DECLARED here,
+-- not inherited from whatever type the raw parquet happened to have on the day it was written.
+--
+-- That distinction became load-bearing when raw became durable. This glob spans files written
+-- months apart, and `union_by_name` resolves a column whose type differs between files by
+-- silently promoting it to VARCHAR (measured on duckdb 1.5.5 — a BIGINT 5 arrives as the
+-- string '5', no error). Without these casts that promoted type flows straight into the mart.
+--
+-- `cast`, deliberately, NOT `try_cast`: a recoverable drift is recovered ('5' -> 5, an ISO
+-- string -> the right instant), and an unrecoverable one raises "Could not convert string
+-- 'many' to INT64" naming the column and value. `try_cast` would turn that same case into a
+-- silent NULL — a mart full of nulls that satisfies every type check downstream, which is the
+-- exact failure mode this pipeline keeps having to design against.
 select
-    id as issue_id,
-    number as issue_number,
-    title,
-    state,
-    user__login as author_login,
-    comments as comment_count,
+    cast(id as bigint) as issue_id,
+    cast(number as bigint) as issue_number,
+    cast(title as varchar) as title,
+    cast(state as varchar) as state,
+    cast(user__login as varchar) as author_login,
+    cast(comments as bigint) as comment_count,
     pull_request__url is not null as is_pull_request,
     -- `at time zone 'UTC'` is NOT decoration. dlt lands these as TIMESTAMP WITH TIME ZONE,
     -- and a bare `cast(tstz as timestamp)` in DuckDB converts to the SESSION time zone and
@@ -60,9 +74,15 @@ select
     -- simply wrong. Pinning the zone here makes the conversion independent of the
     -- environment (the Dockerfile also sets ENV TZ=UTC, and TZ is blocked from crossing into
     -- the container — three layers, because the failure is invisible).
-    cast(created_at at time zone 'UTC' as timestamp) as created_at,
-    cast(updated_at at time zone 'UTC' as timestamp) as updated_at,
-    cast(closed_at at time zone 'UTC' as timestamp) as closed_at,
-    html_url
+    --
+    -- The inner `cast(... as timestamptz)` is the same declare-don't-inherit rule applied to
+    -- the input side: it is an identity no-op on the TIMESTAMPTZ dlt normally writes (verified
+    -- — both forms produce the identical value), and it makes the `at time zone` conversion
+    -- still correct if raw ever drifts to an ISO string, which `at time zone` alone would not
+    -- reliably handle.
+    cast(cast(created_at as timestamptz) at time zone 'UTC' as timestamp) as created_at,
+    cast(cast(updated_at as timestamptz) at time zone 'UTC' as timestamp) as updated_at,
+    cast(cast(closed_at as timestamptz) at time zone 'UTC' as timestamp) as closed_at,
+    cast(html_url as varchar) as html_url
 from deduplicated
 where _row_rank = 1

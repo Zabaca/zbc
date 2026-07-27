@@ -97,15 +97,27 @@ general runtime env.
   staging model selects columns explicitly, the mart is unaffected. A *type change* for an
   existing column name is different — measured on duckdb 1.5.5, `union_by_name` silently
   promotes the conflict to VARCHAR (a BIGINT `5` becomes the string `"5"`), with no error.
-  Nothing in the raw layer objects to this. What catches it is the mart contract:
-  `assertSidecarMatchesParquet` DESCRIBEs the produced parquet and refuses to publish when a
-  column's actual type disagrees with `schema.yml`, so the run fails loudly instead of
-  shipping a retyped column into a mart consumers trust. That makes the type check — added
-  originally to stop `schema.yml` drifting from a model's SELECT — load-bearing for a second
-  reason it was not designed for. (dlt's own schema evolution is believed to avoid producing
-  the conflict in the first place, by emitting a variant column rather than changing a
-  column's type; that behaviour is *assumed here, not verified*, which is precisely why the
-  backstop matters.)
+  Nothing in the raw layer objects to this.
+
+  **The staging layer is where that is handled, by casting every column explicitly** — the
+  reason a staging layer exists at all. `stg_github_issues.sql` casts all eleven columns, not
+  just the timestamps that originally needed it, so the mart's types are *declared* rather
+  than inherited from whatever type raw happened to hold on the day a file was written. It
+  uses `cast`, never `try_cast`: a recoverable drift is recovered (`'5'` → `5`, an ISO string
+  → the right instant) and an unrecoverable one aborts the run naming the column and the
+  offending value, where `try_cast` would produce a mart full of silent NULLs that satisfies
+  every downstream check. Verified end-to-end against a real bucket by injecting a
+  type-drifted raw file: recoverable drift republished a correct 18-row mart with
+  `comment_count` back to int64, and an unconvertible `'many'` failed with
+  `Conversion Error: Could not convert string 'many' to INT64 when casting from source column
+  comments`, leaving the previous mart intact.
+
+  The mart contract's type verification remains as the backstop behind it (a column the
+  staging model forgets to cast, or casts to something `schema.yml` does not declare, still
+  cannot publish) — defence in depth rather than the only guard, which is what it briefly was
+  when raw first became durable. (dlt's own schema evolution likely avoids producing the
+  conflict at all, by emitting a variant column rather than retyping one; that behaviour is
+  *assumed here, not verified*, which is why neither guard leans on it.)
 - **A durable cursor is durable when it is wrong, too.** Found the hard way: GitHub answers
   `200` with an empty array for a `since` at or before the Unix epoch
   (`1970-01-01T00:00:00Z` → 0 issues, `1971-01-01T00:00:00Z` → 18), so the obvious spelling
