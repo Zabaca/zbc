@@ -92,6 +92,20 @@ general runtime env.
   1.5.5: the default `read_parquet` binds to the *first* file's schema and **silently drops**
   a column present in every other file — no error, no warning, the data simply isn't there.
   A loud failure would be safe; this isn't.
+- **Raw schema drift has two shapes, and only one of them is handled quietly.** A *new*
+  column is absorbed: `union_by_name` fills it with NULL for older files, and since the
+  staging model selects columns explicitly, the mart is unaffected. A *type change* for an
+  existing column name is different — measured on duckdb 1.5.5, `union_by_name` silently
+  promotes the conflict to VARCHAR (a BIGINT `5` becomes the string `"5"`), with no error.
+  Nothing in the raw layer objects to this. What catches it is the mart contract:
+  `assertSidecarMatchesParquet` DESCRIBEs the produced parquet and refuses to publish when a
+  column's actual type disagrees with `schema.yml`, so the run fails loudly instead of
+  shipping a retyped column into a mart consumers trust. That makes the type check — added
+  originally to stop `schema.yml` drifting from a model's SELECT — load-bearing for a second
+  reason it was not designed for. (dlt's own schema evolution is believed to avoid producing
+  the conflict in the first place, by emitting a variant column rather than changing a
+  column's type; that behaviour is *assumed here, not verified*, which is precisely why the
+  backstop matters.)
 - **A durable cursor is durable when it is wrong, too.** Found the hard way: GitHub answers
   `200` with an empty array for a `since` at or before the Unix epoch
   (`1970-01-01T00:00:00Z` → 0 issues, `1971-01-01T00:00:00Z` → 18), so the obvious spelling
