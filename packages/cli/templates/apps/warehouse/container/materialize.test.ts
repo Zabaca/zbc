@@ -340,6 +340,73 @@ describe('materialize', () => {
     expect(calls.remove).not.toContain(martKey('mart_github_issues'))
   })
 
+  test("strips dbt-duckdb's all-NULL sentinel row so an empty mart is genuinely empty", async () => {
+    // dbt-duckdb's external.sql deliberately inserts one all-NULL row when a model produces
+    // no rows ("write a non-empty table with column names and null values"). Left alone, the
+    // mart-read API serves that as a real record and the sidecar claims rowCount 1.
+    const rewrites: string[][] = []
+    const { deps, calls } = baseDeps({
+      run: async (cmd) => {
+        calls.run.push(cmd)
+        if (cmd[0] === 'duckdb') {
+          const sql = cmd[cmd.length - 1] ?? ''
+          if (sql.startsWith('describe')) {
+            return { stdout: JSON.stringify(DESCRIBED_COLUMNS), stderr: '', code: 0 }
+          }
+          if (sql.includes('filter (where')) {
+            // One row, and it is entirely NULL — the sentinel's exact shape.
+            return { stdout: JSON.stringify([{ total: 1, blanks: 1 }]), stderr: '', code: 0 }
+          }
+          if (sql.startsWith('copy')) {
+            rewrites.push(cmd)
+            return { stdout: '', stderr: '', code: 0 }
+          }
+          return { stdout: JSON.stringify([{ n: 0 }]), stderr: '', code: 0 }
+        }
+        return { stdout: '', stderr: '', code: 0 }
+      },
+      env: (name) => (name === 'TEST_TARGET' ? 'set' : undefined),
+    })
+
+    const result = await materialize(deps)
+
+    expect(result.marts).toEqual(['mart_github_issues'])
+    expect(rewrites.length).toBe(1)
+    expect(calls.run.some((c) => c[0] === 'mv')).toBe(true)
+
+    // And the published sidecar must say 0, not 1.
+    const sidecarUpload = calls.upload.find((u) => u.key === martSidecarKey('mart_github_issues'))
+    const sidecar = JSON.parse(new TextDecoder().decode(sidecarUpload?.bytes))
+    expect(sidecar.rowCount).toBe(0)
+  })
+
+  test('leaves a populated mart untouched — no rewrite when there is no sentinel', async () => {
+    const { deps, calls } = baseDeps()
+
+    await materialize(deps)
+
+    expect(calls.run.some((c) => c[0] === 'mv')).toBe(false)
+  })
+
+  test('refuses to run dbt at all when WAREHOUSE_RAW_DIR could escape a DuckDB string literal', async () => {
+    // The staging model interpolates this straight into read_parquet('<value>/...'), so a
+    // quote escapes into arbitrary SQL — verified exploitable end-to-end, landing a forged
+    // row in a published mart that passes every downstream schema check. Must be caught
+    // BEFORE dbt executes; validating config.location afterwards is too late by definition.
+    const { deps, calls } = baseDeps({
+      env: (name) =>
+        name === 'WAREHOUSE_RAW_DIR'
+          ? "./raw') union all select 999::bigint --"
+          : name === 'TEST_TARGET'
+            ? 'set'
+            : undefined,
+    })
+
+    await expect(materialize(deps)).rejects.toThrow(/WAREHOUSE_RAW_DIR/)
+    expect(calls.run.some((c) => c[0] === 'dbt')).toBe(false)
+    expect(calls.upload).toEqual([])
+  })
+
   test('rejects a config.location that could break out of the duckdb string literal', async () => {
     const manifest = validManifest()
     manifest.nodes['model.warehouse.mart_github_issues'].config.location =
@@ -421,19 +488,32 @@ describe('materialize', () => {
     expect(calls.upload).toEqual([])
   })
 
-  test('SKIPS a connector whose required env is unset instead of failing the whole run', async () => {
+  test('SKIPS an unconfigured connector but still runs, as long as another one extracted', async () => {
     const { deps, calls } = baseDeps({
-      // Nothing configured — the shipped sample's target isn't wired.
-      env: () => undefined,
+      connectors: [
+        { name: 'configured', script: 'connectors/a.py', requiredEnv: ['TEST_TARGET'] },
+        { name: 'unwired', script: 'connectors/b.py', requiredEnv: ['NOT_SET'] },
+      ],
     })
 
     const result = await materialize(deps)
 
-    // dbt still runs and the marts still publish: a project that never wired the reference
-    // connector must not get a daily failing cron for a sample it doesn't use.
     expect(result.marts).toEqual(['mart_github_issues'])
-    expect(calls.run.some((c) => c[0] === 'python3')).toBe(false)
+    const scripts = calls.run.filter((c) => c[0] === 'python3').map((c) => c[1])
+    expect(scripts).toEqual(['connectors/a.py'])
     expect(calls.run.some((c) => c[0] === 'dbt')).toBe(true)
+  })
+
+  test('REFUSES to publish when EVERY connector was skipped — no fresh stamp without an extract', async () => {
+    const { deps, calls } = baseDeps({
+      // Nothing configured at all. In a warm container ./raw still holds the previous run's
+      // data, so dbt would rebuild the same mart and we'd stamp it as freshly generated —
+      // a mart that claims to be current forever while nothing is being fetched.
+      env: () => undefined,
+    })
+
+    await expect(materialize(deps)).rejects.toThrow(/every declared connector was skipped/)
+    expect(calls.upload).toEqual([])
   })
 
   test('throws if dbt run fails, and never uploads', async () => {

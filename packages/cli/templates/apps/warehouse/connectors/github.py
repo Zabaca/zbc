@@ -27,6 +27,7 @@ from __future__ import annotations
 import os
 
 import dlt
+from dlt.sources.helpers.requests import Client
 from dlt.sources.helpers.rest_client.auth import BearerTokenAuth
 from dlt.sources.rest_api import RESTAPIConfig, rest_api_source
 
@@ -63,8 +64,27 @@ def github_issues_source() -> object:
                 "Accept": "application/vnd.github+json",
                 "X-GitHub-Api-Version": "2022-11-28",
             },
-            # GitHub paginates list endpoints via the standard RFC 5988 Link header.
+            # GitHub paginates list endpoints via the standard RFC 5988 Link header. (It has
+            # since moved this endpoint to cursor pagination — only `rel="next"`, no
+            # `rel="last"` — which header_link follows correctly.)
             "paginator": "header_link",
+            # dlt's DEFAULT retry set is (429, 5xx) — and GitHub signals PRIMARY rate-limit
+            # exhaustion with **403**, not 429. So out of the box a rate-limited extract gets
+            # ZERO retries and kills the whole materialize run on the first refusal; with no
+            # incremental cursor, every page already fetched is discarded with it. This
+            # session adds 403 and honours Retry-After / X-RateLimit-Reset instead of blind
+            # exponential backoff. Retrying 403 is safe because this connector only issues
+            # GETs — the worst case is re-reading a page.
+            #
+            # NOTE: this must be a `session`, not a `retry` key. RESTAPIConfig's ClientConfig
+            # accepts only base_url/headers/auth/paginator/session — an unknown key is
+            # silently ignored, which would leave the default retry set in place while
+            # looking configured.
+            "session": Client(
+                status_codes=(403, 429, *range(500, 600)),
+                request_max_attempts=5,
+                respect_retry_after_header=True,
+            ).session,
             **({"auth": BearerTokenAuth(token)} if token else {}),
         },
         "resources": [
@@ -85,6 +105,13 @@ def github_issues_source() -> object:
 
 
 def run() -> None:
+    # dlt retains every completed load package under its pipelines dir forever, and each one
+    # holds a full SECOND copy of that run's parquet. On a long-lived container instance with
+    # a daily cron that grows without bound against a disk measured in single-digit GB —
+    # roughly 2x the extract size per run. Nothing here needs load history: raw is
+    # container-local and discarded anyway (docs/adr/0004), and marts are the durable output.
+    os.environ.setdefault("LOAD__DELETE_COMPLETED_JOBS", "true")
+
     pipeline = dlt.pipeline(
         pipeline_name="github",
         destination=dlt.destinations.filesystem(bucket_url=f"file://{os.path.abspath(RAW_DIR)}"),
@@ -92,6 +119,60 @@ def run() -> None:
     )
     load_info = pipeline.run(github_issues_source(), loader_file_format="parquet")
     print(load_info)
+    _ensure_issues_table_exists()
+
+
+# The column set (and exact arrow types) the staging model reads. Timestamps are tz-aware to
+# match what dlt writes for a non-empty load — the mart's declared TIMESTAMP type flows from
+# this through `cast(... at time zone 'UTC' as timestamp)`, and materialize.ts verifies the
+# produced parquet against schema.yml, so an empty run must produce the SAME types a
+# populated run does or it would fail that check instead.
+_ISSUES_SCHEMA_FIELDS = [
+    ("id", "int64"),
+    ("number", "int64"),
+    ("title", "string"),
+    ("state", "string"),
+    ("user__login", "string"),
+    ("comments", "int64"),
+    ("pull_request__url", "string"),
+    ("created_at", "timestamp"),
+    ("updated_at", "timestamp"),
+    ("closed_at", "timestamp"),
+    ("html_url", "string"),
+]
+
+
+def _ensure_issues_table_exists() -> None:
+    """Write an empty, correctly-typed issues parquet when the repo has no issues at all.
+
+    dlt's filesystem destination only materializes a table it actually saw rows for, so a
+    repo with zero issues produces `_dlt_loads`/`_dlt_version`/`_dlt_pipeline_state` and no
+    `issues/` directory. The staging model then dies on
+    `read_parquet('.../issues/*.parquet')` with "No files found that match the pattern",
+    failing the entire materialize run — for what is a perfectly legitimate state (a new or
+    quiet repo). Column hints on the resource do NOT fix this; the directory is simply never
+    created. So create it, with the schema a populated run would have produced, and let the
+    mart correctly come out at 0 rows.
+    """
+    import glob
+
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+
+    issues_dir = os.path.join(os.path.abspath(RAW_DIR), "github", "issues")
+    if glob.glob(os.path.join(issues_dir, "*.parquet")):
+        return
+
+    os.makedirs(issues_dir, exist_ok=True)
+    timestamp_type = pa.timestamp("us", tz="UTC")
+    schema = pa.schema(
+        [
+            pa.field(name, timestamp_type if kind == "timestamp" else getattr(pa, kind)())
+            for name, kind in _ISSUES_SCHEMA_FIELDS
+        ]
+    )
+    pq.write_table(schema.empty_table(), os.path.join(issues_dir, "empty.parquet"))
+    print(f"connectors/github.py: no issues found — wrote an empty typed table to {issues_dir}")
 
 
 if __name__ == "__main__":

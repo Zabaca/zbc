@@ -85,6 +85,31 @@ general runtime env.
   treats as absent — so "a partial write reads as absent" is true on every write, not just the
   first. The reader additionally rejects a sidecar whose `rowCount` disagrees with the parquet, or
   whose `name` disagrees with its storage key.
+- **Timestamps are pinned to UTC in three places, because getting it wrong is invisible.**
+  dlt lands timestamps as `TIMESTAMP WITH TIME ZONE`, and DuckDB's cast to `TIMESTAMP`
+  resolves against the *session* zone before dropping the offset — so a stray `TZ` rewrites
+  every timestamp in every mart while the column names, types, and every schema check stay
+  valid, and dbt reports success. Measured: `TZ=America/New_York` shifted values four hours
+  off the GitHub API's ground truth. Hence the dbt models cast `at time zone 'UTC'`
+  explicitly, the Dockerfile sets `ENV TZ=UTC`, and the Worker blocks `TZ` from crossing into
+  the container.
+- **A short denylist governs what reaches the container**, not just "everything except
+  bindings". Forwarding by convention is what makes connector config cheap to add, but
+  `TZ`, `WAREHOUSE_RAW_DIR`, `WAREHOUSE_MART_DIR`, `WAREHOUSE_PATCH_MP_LOCKS`, and
+  `NORMALIZE__WORKERS` are pipeline-correctness controls rather than configuration, and an
+  instance file must not be able to set them. The two `*_DIR` values are additionally
+  validated container-side before dbt runs: they are interpolated straight into DuckDB
+  string literals inside dbt models, and a quote in either escapes into arbitrary SQL — a
+  forged row landed in a published mart passes every downstream schema check, since its
+  column names and types are unchanged. (Validating `config.location` *after* dbt returns,
+  which the code already did, cannot prevent this — dbt has executed by then.)
+- **An empty mart is genuinely empty.** dbt-duckdb's `external` materialization deliberately
+  inserts one all-NULL row when a model produces no rows ("write a non-empty table with
+  column names and null values"), so a repo with no issues would publish a phantom record
+  that the mart-read API serves as real data. The pipeline detects that exact shape — one
+  row, every declared column NULL — and rewrites the artifact as truly empty. Relatedly, a
+  connector that lands no rows at all now writes an empty typed table rather than no table,
+  since dbt's `read_parquet` otherwise fails the whole run on a legitimate state.
 - **The declared schema is verified against the parquet at write time.** Declaring a column schema
   is not the same as it being true: `schema.yml` and a model's `SELECT` drift the first time one is
   edited without the other. Each run `DESCRIBE`s the parquet dbt produced and refuses to publish on

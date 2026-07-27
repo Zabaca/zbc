@@ -129,11 +129,44 @@ export async function containerExec(env: Env): Promise<MaterializeExecResult> {
  * adding a connector needs no edit here. WAREHOUSE_TOKEN is deliberately excluded — it gates
  * the edge API and the container has no use for it. */
 export function buildContainerEnv(env: Env): Record<string, string> {
-  const WORKER_ONLY = new Set(['WAREHOUSE_TOKEN', 'WAREHOUSE_CONTAINER', 'WAREHOUSE_BUCKET'])
   const out: Record<string, string> = {}
   for (const [key, value] of Object.entries(env as Record<string, unknown>)) {
-    if (WORKER_ONLY.has(key)) continue
+    if (BLOCKED_FROM_CONTAINER.has(key)) continue
     if (typeof value === 'string') out[key] = value
   }
   return out
 }
+
+/**
+ * Names that must never cross into the container, and why each one is here.
+ *
+ * WAREHOUSE_TOKEN gates the edge API; the container has no use for it, so it has no business
+ * sitting in a process whose stderr and filesystem a connector script can reach.
+ * WAREHOUSE_CONTAINER / WAREHOUSE_BUCKET are bindings (objects, not strings) and could not
+ * cross a process boundary meaningfully anyway.
+ *
+ * The rest are LOAD-BEARING runtime configuration that the pipeline's own correctness
+ * depends on, and forwarding-by-convention would otherwise let an instance file quietly
+ * override them:
+ *   - TZ silently shifts every timestamp. dlt lands timestamps as TIMESTAMP WITH TIME ZONE
+ *     and DuckDB's cast-to-TIMESTAMP resolves against the session zone, so a stray TZ
+ *     rewrites the data while every column name, type, and schema check still passes.
+ *   - WAREHOUSE_RAW_DIR / WAREHOUSE_MART_DIR are interpolated into DuckDB string literals
+ *     inside dbt models; a value containing a quote escapes into arbitrary SQL.
+ *     container/materialize.ts validates these too (defence in depth — that check also
+ *     covers a value set inside the image), but they should never arrive from instance
+ *     config in the first place.
+ *   - WAREHOUSE_PATCH_MP_LOCKS / NORMALIZE__WORKERS are set per-command by
+ *     container/materialize.ts to scope the multiprocessing-lock workaround to dbt alone;
+ *     an ambient value would silently widen or disable it.
+ */
+const BLOCKED_FROM_CONTAINER = new Set([
+  'WAREHOUSE_TOKEN',
+  'WAREHOUSE_CONTAINER',
+  'WAREHOUSE_BUCKET',
+  'TZ',
+  'WAREHOUSE_RAW_DIR',
+  'WAREHOUSE_MART_DIR',
+  'WAREHOUSE_PATCH_MP_LOCKS',
+  'NORMALIZE__WORKERS',
+])

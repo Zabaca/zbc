@@ -46,8 +46,18 @@ class _ThreadBackedLock:
     def __init__(self, *_args, **_kwargs):
         self._lock = threading.RLock()
 
-    def acquire(self, *args, **kwargs):
-        return self._lock.acquire(*args, **kwargs)
+    def acquire(self, block=True, timeout=None, **kwargs):
+        # multiprocessing's signature is acquire(block=True, timeout=None); threading's is
+        # acquire(blocking=True, timeout=-1). Passing multiprocessing's spelling straight
+        # through raises TypeError ("'block' is an invalid keyword argument", and
+        # "'NoneType' cannot be interpreted as an integer" for timeout=None). dbt only ever
+        # uses `with self.lock:` today, so this is unreachable — but a caller that used the
+        # documented multiprocessing API would fail in a way that looks nothing like the
+        # cause. Accept both spellings and translate.
+        blocking = kwargs.pop("blocking", block)
+        if timeout is None:
+            timeout = -1
+        return self._lock.acquire(blocking, timeout)
 
     def release(self):
         return self._lock.release()

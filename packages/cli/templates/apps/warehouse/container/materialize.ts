@@ -184,6 +184,86 @@ function assertSafeParquetPath(martName: string, parquetPath: string): void {
   }
 }
 
+/** Directory env vars that dbt models interpolate DIRECTLY into DuckDB string literals
+ * (`read_parquet('{{ env_var("WAREHOUSE_RAW_DIR") }}/...')` in the staging model, and the
+ * `location=` config on every external mart model). A `'` in either escapes the literal into
+ * a DuckDB session that can `COPY … TO`, `read_text`, and `INSTALL`/`LOAD` — i.e. arbitrary
+ * container filesystem read/write, and a forged row in a published mart that passes every
+ * downstream schema check because its column names and types are unchanged.
+ *
+ * This has to run BEFORE the dbt step. `assertSafeParquetPath` validates `config.location`
+ * too, but it reads that value out of the manifest dbt produces — by which point dbt has
+ * already executed the injected SQL, so it cannot prevent this, only notice afterwards. */
+const DBT_PATH_ENV_VARS = ['WAREHOUSE_RAW_DIR', 'WAREHOUSE_MART_DIR'] as const
+
+function assertSafeDbtPathEnv(deps: MaterializeDeps): void {
+  for (const name of DBT_PATH_ENV_VARS) {
+    const value = deps.env(name)
+    if (value !== undefined && !SAFE_PARQUET_PATH_RE.test(value)) {
+      throw new Error(
+        `materialize: ${name} is interpolated into dbt SQL and must contain only letters, ` +
+          `digits, and . _ - / — refusing to run dbt with ${name}="${value}"`,
+      )
+    }
+  }
+}
+
+/**
+ * Remove dbt-duckdb's empty-relation sentinel row.
+ *
+ * `external.sql` (dbt-duckdb 1.10.1) does this deliberately:
+ *
+ *     -- if relation is empty, write a non-empty table with column names and null values
+ *     {% if row_count[0][0] == 0 %} insert into {{ temp_relation }} values (NULL, …) {% endif %}
+ *
+ * So a mart that legitimately has no rows ships as ONE row of all-NULLs. Upstream's reason
+ * is to keep column names in the file, but for this pipeline it is a data-correctness bug:
+ * the mart-read API would serve that row, a consumer would read it as a real record, and the
+ * sidecar's rowCount would say 1. Empty has to mean empty.
+ *
+ * Detected narrowly — exactly one row, every declared column NULL — which is precisely the
+ * sentinel's shape, so a real single all-NULL record (already meaningless, and impossible
+ * here since the mart's key columns are non-nullable) is the only false positive available.
+ * Rewrites via a temp file because DuckDB cannot COPY over a file it is reading.
+ */
+async function stripEmptySentinelRow(
+  deps: MaterializeDeps,
+  columns: MartColumn[],
+  parquetPath: string,
+): Promise<void> {
+  const allNull = columns.map((c) => `"${c.name}" is null`).join(' and ')
+  const probe = await run(
+    deps,
+    [
+      'duckdb',
+      ':memory:',
+      '-json',
+      '-c',
+      `select count(*) as total, count(*) filter (where ${allNull}) as blanks from read_parquet('${parquetPath}')`,
+    ],
+    `sentinel probe for ${parquetPath}`,
+  )
+  const [row] = parseDuckdbJson(probe.stdout, `sentinel probe for ${parquetPath}`) as Array<{
+    total: number
+    blanks: number
+  }>
+  if (Number(row?.total) !== 1 || Number(row?.blanks) !== 1) return
+
+  const tmpPath = `${parquetPath}.compacted`
+  await run(
+    deps,
+    [
+      'duckdb',
+      ':memory:',
+      '-c',
+      `copy (select * from read_parquet('${parquetPath}') where not (${allNull})) to '${tmpPath}' (format parquet)`,
+    ],
+    `strip empty sentinel from ${parquetPath}`,
+  )
+  await run(deps, ['mv', tmpPath, parquetPath], `replace ${parquetPath}`)
+  console.log(`materialize: stripped dbt-duckdb's empty-relation sentinel row from ${parquetPath}`)
+}
+
 async function countRows(deps: MaterializeDeps, parquetPath: string): Promise<number> {
   const result = await run(
     deps,
@@ -279,6 +359,8 @@ export async function materialize(deps: MaterializeDeps): Promise<{ marts: strin
   // `dbt run` fails with "IO Error: Cannot open file ... No such file or directory" on
   // every fresh container. `marts/` matches every mart model's WAREHOUSE_MART_DIR
   // default (dbt/profiles.yml / models/marts/mart_github_issues.sql).
+  assertSafeDbtPathEnv(deps)
+
   await run(deps, ['mkdir', '-p', 'marts'], 'ensure marts directory')
 
   // Every declared connector, in order (container/connectors.ts). A connector whose required
@@ -292,7 +374,9 @@ export async function materialize(deps: MaterializeDeps): Promise<{ marts: strin
   // fail there regardless. Pinning it makes single-process extraction an explicit invariant
   // rather than something that currently holds only because this connector's row count
   // happens to keep dlt on its single-threaded map path.
-  for (const connector of deps.connectors ?? CONNECTORS) {
+  const declared = deps.connectors ?? CONNECTORS
+  let extracted = 0
+  for (const connector of declared) {
     const missing = connector.requiredEnv.filter((name) => !deps.env(name))
     if (missing.length > 0) {
       console.log(
@@ -303,6 +387,24 @@ export async function materialize(deps: MaterializeDeps): Promise<{ marts: strin
     await run(deps, ['python3', connector.script], `connector "${connector.name}"`, {
       NORMALIZE__WORKERS: '1',
     })
+    extracted++
+  }
+
+  // Skipping connectors is fine; skipping EVERY connector while still publishing is not. In
+  // a warm container `./raw` still holds the previous run's extract, so dbt happily rebuilds
+  // the identical mart and we would stamp it with a fresh `generatedAt` and upload — a mart
+  // that reports itself as current forever while no new data has been fetched since the
+  // config broke. (In a cold container the same path fails on missing raw input instead, so
+  // the symptom depends on scheduling, which is worse.) Freshness must mean "an extract
+  // happened", so refuse rather than republish.
+  if (declared.length > 0 && extracted === 0) {
+    throw new Error(
+      `materialize: every declared connector was skipped (${declared
+        .map((c) => c.name)
+        .join(', ')}) — refusing to republish marts with a fresh timestamp when nothing was ` +
+        'extracted. Configure at least one connector, or remove the unused ones from ' +
+        'container/connectors.ts.',
+    )
   }
 
   // WAREHOUSE_PATCH_MP_LOCKS is read by sitecustomize.py and set for THIS command only —
@@ -325,6 +427,11 @@ export async function materialize(deps: MaterializeDeps): Promise<{ marts: strin
     }
 
     assertSafeParquetPath(node.name, location)
+
+    // Before counting: dbt-duckdb writes an all-NULL placeholder row for an empty mart, so
+    // the count (and the published data) would otherwise report one phantom record.
+    const declaredColumns = buildSidecar(node, 0, deps.now()).columns
+    await stripEmptySentinelRow(deps, declaredColumns, location)
 
     const rowCount = await countRows(deps, location)
     const sidecar = buildSidecar(node, rowCount, deps.now())

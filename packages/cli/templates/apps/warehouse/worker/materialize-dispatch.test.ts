@@ -91,6 +91,31 @@ describe('buildContainerEnv — what crosses into the container', () => {
     expect(out.WAREHOUSE_CONTAINER).toBeUndefined()
     expect(out.WAREHOUSE_BUCKET).toBeUndefined()
   })
+
+  test('blocks the load-bearing runtime vars an instance file must not be able to override', () => {
+    const out = buildContainerEnv({
+      WAREHOUSE_CONTAINER: {} as Env['WAREHOUSE_CONTAINER'],
+      // TZ silently shifts every timestamp: dlt lands TIMESTAMP WITH TIME ZONE and DuckDB
+      // casts against the session zone, so the data changes while names, types, and every
+      // schema check stay valid. Verified reachable — TZ=America/New_York moved timestamps
+      // 4 hours and dbt still reported success.
+      TZ: 'America/New_York',
+      // Interpolated into DuckDB string literals inside dbt models — a quote escapes into
+      // arbitrary SQL. Verified exploitable end-to-end.
+      WAREHOUSE_RAW_DIR: "./raw') union all select 1 --",
+      WAREHOUSE_MART_DIR: './evil',
+      // Set per-command by container/materialize.ts to scope the multiprocessing-lock
+      // workaround to dbt alone; an ambient value would widen or disable it.
+      WAREHOUSE_PATCH_MP_LOCKS: '1',
+      NORMALIZE__WORKERS: '8',
+    } as unknown as Env)
+
+    expect(out.TZ).toBeUndefined()
+    expect(out.WAREHOUSE_RAW_DIR).toBeUndefined()
+    expect(out.WAREHOUSE_MART_DIR).toBeUndefined()
+    expect(out.WAREHOUSE_PATCH_MP_LOCKS).toBeUndefined()
+    expect(out.NORMALIZE__WORKERS).toBeUndefined()
+  })
 })
 
 describe('containerExec', () => {

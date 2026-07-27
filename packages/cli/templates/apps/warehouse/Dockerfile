@@ -18,6 +18,14 @@ RUN wget -nv -O /tmp/uv-installer.sh https://astral.sh/uv/0.5.11/install.sh \
   && mv /root/.local/bin/uv /root/.local/bin/uvx /usr/local/bin/
 ENV PATH="/usr/local/bin:${PATH}"
 
+# Pin the container's clock to UTC. dlt lands timestamps as TIMESTAMP WITH TIME ZONE, and
+# DuckDB's cast-to-TIMESTAMP resolves against the SESSION time zone — so whatever TZ this
+# image happens to carry silently rewrites every timestamp in every mart, while the column
+# names, types, and schema checks all still pass. The dbt models pin `at time zone 'UTC'`
+# explicitly and the Worker blocks TZ from crossing in; this is the third layer, and it also
+# covers anyone running the pipeline in this image by hand.
+ENV TZ=UTC
+
 # duckdb + dbt-duckdb + dlt, ALL THREE pinned together — an unpinned dbt-duckdb/dlt next
 # to a pinned duckdb is the fragile combination: a rebuild months from now would resolve
 # the unpinned two to whatever's current, which may demand a duckdb version the pin
