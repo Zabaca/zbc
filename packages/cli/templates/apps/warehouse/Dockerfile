@@ -52,6 +52,22 @@ RUN ARCH=$(dpkg --print-architecture) \
   && rm /tmp/duckdb.zip \
   && chmod +x /usr/local/bin/duckdb
 
+# Bake the httpfs extension INTO the image. dbt reads the raw layer over s3:// (docs/adr/0004),
+# which needs httpfs, and DuckDB does not bundle it — a bare `LOAD httpfs` fails with
+# `Extension "httpfs" not found ... Install it first`, so dbt-duckdb's `extensions:` block would
+# otherwise have to INSTALL it at connection time, i.e. download it from extensions.duckdb.org
+# on every cold container.
+#
+# That runtime download is exactly the kind of dependency that works everywhere except where it
+# matters: it succeeds under plain Docker and fails on Cloudflare's Firecracker runtime, the same
+# invisible-until-deployed shape as the /dev/shm problem sitecustomize.py exists for. Fetching it
+# at BUILD time makes the image self-sufficient, and is why the CLI and the Python `duckdb`
+# package are pinned to one version — both resolve extensions from the same
+# ~/.duckdb/extensions/<version>/<platform>/ directory, so a version skew would silently
+# re-download at runtime.
+RUN duckdb -c "INSTALL httpfs; INSTALL parquet;" \
+  && duckdb -c "LOAD httpfs; LOAD parquet;"
+
 # Bake the package. `bun` ships in the base image, so no runtime install needed — only
 # the app's own deps (zod for the mart contract, @cloudflare/sandbox, hyparquet) matter,
 # and only container/ + the Python connectors/dbt project run in here (worker/ is the
