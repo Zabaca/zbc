@@ -1,0 +1,59 @@
+# The mart contract's source of truth (ADR-0004; CONTEXT.md "Mart Contract"): every
+# column below MUST carry a `description` and a `data_type` drawn from the exact type
+# vocabulary worker/mart-contract.ts's MartColumnTypeSchema accepts (VARCHAR, TIMESTAMP,
+# BIGINT, DOUBLE, BOOLEAN) — a column with no description is exactly the failure mode
+# ADR-0017 in cedarpad was written to prevent: an undocumented mart shipping anyway. The
+# container-side orchestrator derives the mart's R2 sidecar (marts/<name>.schema.json)
+# from this file after each `dbt run`, so this is not documentation-for-humans-only —
+# it's parsed.
+
+version: 2
+
+models:
+  - name: mart_github_issues
+    description: >
+      One row per GitHub issue (open + closed, pull requests included — GitHub's REST
+      API models a PR as an issue with a non-null `pull_request` field, exposed here as
+      `is_pull_request`) for the repo named by the materialize run's GITHUB_OWNER/
+      GITHUB_REPO. Extracted by connectors/github.py (dlt), transformed by
+      stg_github_issues.sql.
+    columns:
+      - name: issue_id
+        data_type: BIGINT
+        description: >
+          GitHub's globally unique issue id (distinct from issue_number, which is only
+          unique within the repo).
+      - name: issue_number
+        data_type: BIGINT
+        description: >
+          Issue number within the repo — the # shown in the GitHub UI (e.g. #42).
+      - name: title
+        data_type: VARCHAR
+        description: Issue title.
+      - name: state
+        data_type: VARCHAR
+        description: "GitHub issue state at extraction time: 'open' or 'closed'."
+      - name: is_pull_request
+        data_type: BOOLEAN
+        description: >
+          True if this issue is actually a pull request. GitHub's REST API models PRs
+          as issues; this column makes that fact explicit instead of leaving it an
+          implicit property of the source API.
+      - name: author_login
+        data_type: VARCHAR
+        description: GitHub username of the issue's author.
+      - name: comment_count
+        data_type: BIGINT
+        description: Number of comments on the issue as of extraction time.
+      - name: created_at
+        data_type: TIMESTAMP
+        description: When the issue was created, in UTC.
+      - name: updated_at
+        data_type: TIMESTAMP
+        description: When the issue was last updated, in UTC.
+      - name: closed_at
+        data_type: TIMESTAMP
+        description: When the issue was closed, in UTC; null if the issue is still open.
+      - name: html_url
+        data_type: VARCHAR
+        description: Link to the issue on github.com.

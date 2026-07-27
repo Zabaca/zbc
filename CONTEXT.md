@@ -32,3 +32,27 @@ A short human-checkable code shown by both the CLI and the browser page so the h
 **Deploy Module**:
 A module that only orchestrates build+deploy against topology the *consuming package* defines itself (e.g. its own `wrangler.jsonc`, `Dockerfile`). The module doesn't know the shape of what it's deploying. `cloudflare` is the only deploy module.
 _Avoid_: thin module
+
+**App Template**:
+A `kind: "app"` template that scaffolds a full package into the consumer's `packages/<name>/` — real application code (worker routes, business logic), not just a resource's config schema. Declares its module dependencies in `registry.json`, which `zbc add <app>` auto-vendors. `inbox`, `secret-relay`, and `warehouse` are app templates.
+_Avoid_: app module (conflates with Provisioning/Deploy Module, which own only a resource's config, not a scaffolded package)
+
+## Data Warehouse (ADR-0004)
+
+**Warehouse**:
+A project's analytical store — parquet files under its own R2 prefix. Storage, not a server: DuckDB is a stateless query engine that reads those files inside the container, never a durable file the container keeps on disk.
+_Avoid_: "the DuckDB", "the database"
+
+**Connector**:
+A declared `dlt` source that lands raw data in the warehouse's raw R2 prefix, run one-shot inside the container during a materialize run. Its third-party secret lives in the environment's `secrets.yaml` and is injected only into that one materialize invocation, never into the Worker's general runtime.
+_Avoid_: source (ambiguous with dbt's `source()`), integration
+
+**Mart**:
+The published unit of meaning — exactly one parquet artifact with a declared column schema and freshness stamp, never inferred. Materialized by dbt-duckdb's `external` materialization; read two ways — DuckDB inside the container, and a pure-JS parquet reader at the edge behind the mart-read API.
+_Avoid_: report, dataset, table
+
+**Mart Contract**:
+The zod-defined shape (name, description, typed+described columns, `generatedAt`, `rowCount`) written as a sidecar JSON next to a mart's parquet file, derived from dbt's own `schema.yml`/`manifest.json`/`catalog.json` after a run. A mart without its sidecar isn't a mart — a partial write reads as absent.
+
+**Materialize**:
+One `dlt` extract + `dbt run` pass inside the warehouse container, triggered by the Worker's own Cloudflare Cron Trigger. No daemon, no Dagster, no external scheduler.

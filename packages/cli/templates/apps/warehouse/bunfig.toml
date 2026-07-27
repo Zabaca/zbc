@@ -1,0 +1,5 @@
+[test]
+# See worker/test-setup.ts: shims crypto.subtle.timingSafeEqual (a workerd-only
+# SubtleCrypto extension Bun doesn't implement) so router.test.ts can exercise
+# authorized() locally under `bun test`.
+preload = ["./worker/test-setup.ts"]

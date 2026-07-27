@@ -48,7 +48,7 @@ async function resolveBundledDir(name: string): Promise<string> {
     if (await Bun.file(registry).exists()) return dir
   }
   throw new Error(
-    `"${name}" not found in built-in registry. Available: cloudflare, cloudflare-email, r2, turso, inbox, secret-relay.`,
+    `"${name}" not found in built-in registry. Available: cloudflare, cloudflare-email, r2, turso, inbox, secret-relay, warehouse.`,
   )
 }
 
@@ -230,7 +230,7 @@ export const addCommand = defineCommand({
     module: {
       type: 'positional',
       description:
-        'Module or app name (e.g. turso, cloudflare, cloudflare-email, r2, inbox, secret-relay)',
+        'Module or app name (e.g. turso, cloudflare, cloudflare-email, r2, inbox, secret-relay, warehouse)',
       required: true,
     },
     'account-id': {

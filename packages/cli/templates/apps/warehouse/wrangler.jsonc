@@ -1,0 +1,46 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  // Data warehouse / BI pipeline (ADR-0004): a Durable-Object-bound Cloudflare
+  // Container running dlt (extraction) + dbt-duckdb (transform) one-shot on a
+  // materialize run, plus a bearer-authed edge API that reads mart parquet
+  // straight from R2 (no container wake for reads). Container-backed: needs
+  // Docker running locally at apply time and a Workers Paid plan with
+  // Containers enabled.
+  // Generic defaults below — per-project values (name, bucket, cron schedule)
+  // live in the zbc instance file: the cloudflare module's `workerName`
+  // overrides the worker name, `r2Bindings` overrides the bucket. Keeps this
+  // file identical across projects.
+  "name": "warehouse",
+  "main": "worker/index.ts",
+  "compatibility_date": "2026-07-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "observability": { "enabled": true },
+  "containers": [
+    {
+      "class_name": "Warehouse",
+      "image": "./Dockerfile",
+      // dlt + dbt-duckdb transforms need real headroom (Python venv, in-memory
+      // DuckDB scratch) — standard-4 is deliberately oversized for a small
+      // warehouse but cheap for a job that runs once a day.
+      "instance_type": "standard-4",
+      // One-shot materialize runs, never a serving path — a single instance
+      // is enough; the container sleeps between runs.
+      "max_instances": 1
+    }
+  ],
+  "durable_objects": {
+    "bindings": [{ "class_name": "Warehouse", "name": "WAREHOUSE_CONTAINER" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Warehouse"] }],
+  "r2_buckets": [{ "binding": "WAREHOUSE_BUCKET", "bucket_name": "warehouse" }],
+  // Daily materialize by default; override per project via the instance's
+  // wrangler config if a different cadence is needed (wrangler has no CLI
+  // flag for crons, so a differing schedule means patching this file).
+  "triggers": { "crons": ["0 9 * * *"] },
+  "vars": {
+    // Set per project via workerVars, or leave empty to disable the
+    // reference GitHub connector's target (see connectors/github.py).
+    "GITHUB_OWNER": "",
+    "GITHUB_REPO": ""
+  }
+}

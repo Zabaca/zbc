@@ -1,0 +1,19 @@
+{
+  "compilerOptions": {
+    "target": "esnext",
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "resolveJsonModule": true,
+    "noUncheckedIndexedAccess": true,
+    "noEmit": true,
+    "lib": ["esnext"],
+    "types": ["@types/bun"]
+  },
+  "include": ["container"],
+  "// container": "container/ runs as a Bun CLI inside the warehouse image, never in the Workers runtime — see tsconfig.worker.json for the split reasoning.",
+  "exclude": ["node_modules", "**/*.test.ts"]
+}

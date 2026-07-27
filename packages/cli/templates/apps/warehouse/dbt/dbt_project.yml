@@ -1,0 +1,34 @@
+# The warehouse app template's dbt project (ADR-0004): transforms the raw parquet dlt
+# lands (connectors/github.py) into marts, materialized straight to parquet via
+# dbt-duckdb's `external` materialization. Invoked one-shot inside a materialize run —
+# `dbt run --project-dir dbt --profiles-dir dbt` from the container's app root — never a
+# long-running dbt process.
+
+name: 'warehouse'
+version: '1.0.0'
+config-version: 2
+
+profile: 'warehouse'
+
+model-paths: ['models']
+macro-paths: ['macros']
+seed-paths: ['seeds']
+test-paths: ['tests']
+analysis-paths: ['analyses']
+
+clean-targets:
+  - 'target'
+  - 'dbt_packages'
+
+models:
+  warehouse:
+    staging:
+      # Raw-to-typed reshaping only, re-derived from the parquet dlt just wrote on every
+      # materialize run — a view costs nothing to keep current and never goes stale.
+      +materialized: view
+    marts:
+      # Every mart model overrides this explicitly via its own external `location`
+      # config (see models/marts/mart_github_issues.sql) — declared here too so a new
+      # mart model that forgets the config still lands as a real artifact, not an
+      # in-memory-only table that disappears when the container exits.
+      +materialized: external

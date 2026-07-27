@@ -1,0 +1,17 @@
+# dbt-duckdb profile for the warehouse app template (ADR-0004). A single `dev` target —
+# this container runs one materialize job at a time, so there's no environment split to
+# model here (unlike a typical dbt project's dev/prod targets). `path` defaults to
+# `:memory:`: dbt's own catalog never needs to survive past one `dbt run` — every mart
+# that must survive is written out explicitly via the `external` materialization
+# (models/marts/*.sql), never left sitting in a durable DuckDB file the container would
+# otherwise have to carry across runs (CONTEXT.md "Warehouse": "never a durable DuckDB
+# file the container keeps on disk"). Override WAREHOUSE_DUCKDB_PATH to a real file only
+# for local debugging (e.g. to inspect intermediate state with the duckdb CLI after a run).
+
+warehouse:
+  target: dev
+  outputs:
+    dev:
+      type: duckdb
+      path: "{{ env_var('WAREHOUSE_DUCKDB_PATH', ':memory:') }}"
+      threads: 4
