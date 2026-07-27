@@ -165,6 +165,17 @@ general runtime env.
   edited without the other. Each run `DESCRIBE`s the parquet dbt produced and refuses to publish on
   a missing column, an undeclared column, or a type mismatch. Note this is stricter than cedarpad's
   ADR-0017 implementation, which declares but never verifies.
+- **DuckDB extensions must be baked into the image, never installed at runtime.** Reading
+  raw over `s3://` needs `httpfs`, which DuckDB does not bundle — `LOAD httpfs` fails with
+  "Install it first". dbt-duckdb's `extensions:` block would otherwise `INSTALL` it at
+  connection time, i.e. download from extensions.duckdb.org on every cold container. That
+  download works under plain Docker and failed on Firecracker, so `dbt run` broke in
+  production while the identical image passed locally — and because extraction had already
+  written raw to R2 by then, the only symptom was an opaque 502 with the previous marts left
+  intact. This is the second instance of the same trap as `/dev/shm` below, which is the
+  general rule worth extracting: **anything the container fetches or maps at runtime is
+  invisible until deployed.** Verified with `--network none` that the CLI and the Python
+  binding both `LOAD httpfs` offline, and that `INSTALL` is a no-op once it is present.
 - **Production Containers run on Firecracker microVMs with no working `/dev/shm`** (confirmed via
   `wrangler containers info`'s `runtime: "firecracker"`, and by SSHing into a live instance) —
   every POSIX-semaphore-backed `multiprocessing` primitive raises `FileNotFoundError: [Errno 2]`
