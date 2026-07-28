@@ -37,9 +37,10 @@ export default function Page() {
               </Measure>
 
               <Measure size="wide" as="p" className="lede">
-                Describe your database and your workers in TypeScript. <code>zbc apply</code>{' '}
-                provisions what is missing, converges what drifted, and deploys your code — on your
-                laptop and in CI, by the same path. There is no state file.
+                Describe your database, your workers and your whole applications in TypeScript.{' '}
+                <code>zbc apply</code> provisions what is missing, converges what drifted, and
+                deploys your code — on your laptop and in CI, by the same path. There is no state
+                file.
               </Measure>
 
               <InstallCommand command="bunx @zabaca/zbc apply production" />
@@ -54,28 +55,63 @@ export default function Page() {
           <Container>
             <Stack gap="2xl">
               <Measure size="display" as="h2">
-                Four commands is the entire surface area.
+                Five commands is the entire surface area.
               </Measure>
 
-              <Columns count={3} gap="xl">
-                {COMMANDS.map((c) => (
-                  <Stack key={c.name} gap="sm" className="border-t border-ink-4 pt-5">
+              {/* A ledger, not a card grid: five rows read down in order. */}
+              <div>
+                {COMMANDS.map((c, i) => (
+                  <div
+                    key={c.name}
+                    className="grid grid-cols-[3rem_1fr] items-baseline gap-x-4 gap-y-2 border-t border-ink-4 py-5 wide:grid-cols-[3rem_12rem_1fr]"
+                  >
+                    <span className="label-mono">{`0${i + 1}`}</span>
                     <code className="font-mono text-sm text-ink-0">{c.name}</code>
-                    <p className="m-0 max-w-[32ch] text-sm leading-[1.55]">{c.body}</p>
-                  </Stack>
+                    <p className="col-start-2 m-0 max-w-[56ch] text-sm leading-[1.55] wide:col-start-3">
+                      {c.body}
+                    </p>
+                  </div>
                 ))}
-              </Columns>
+              </div>
+            </Stack>
+          </Container>
+        </Section>
 
-              <Measure as="p" className="label-mono m-0">
-                destroy tears an environment down in reverse dependency order — how per-PR previews
-                clean up after themselves.
-              </Measure>
+        {/* ---- app templates -------------------------------------------- */}
+        <Section id="apps">
+          <Container>
+            <Stack gap="2xl">
+              <Stack gap="md">
+                <span className="eyebrow">App templates</span>
+                <Measure size="display" as="h2">
+                  <code className="font-mono text-[0.62em]">zbc add inbox</code> is not a resource.
+                  It&rsquo;s an inbox.
+                </Measure>
+                <Measure size="wide" as="p" className="lede">
+                  A Cloudflare Worker that receives routed mail, stores raw MIME in R2, and exposes
+                  a bearer-authed JSON API, an MCP server at <code>/mcp</code>, and a web UI. Three
+                  instance files and <code>zbc apply</code>. Vendored into your repo as source —
+                  read it, change it, it&rsquo;s yours.
+                </Measure>
+              </Stack>
+
+              <div>
+                {APP_TEMPLATES.map((a) => (
+                  <div
+                    key={a.name}
+                    className="grid grid-cols-1 items-baseline gap-x-6 gap-y-3 border-t border-ink-4 py-6 wide:grid-cols-[16rem_1fr]"
+                  >
+                    <code className="font-mono text-md text-ink-0">{`zbc add ${a.name}`}</code>
+                    <p className="m-0 max-w-[56ch] text-sm leading-[1.55]">{a.body}</p>
+                  </div>
+                ))}
+              </div>
             </Stack>
           </Container>
         </Section>
 
         {/* ---- previews ------------------------------------------------- */}
-        <Section id="modules">
+        <Section id="modules" tone="quiet">
           <Container>
             <Columns count={2} ratio="2:1" gap="2xl" collapseAt="wide">
               <Stack gap="md">
@@ -96,16 +132,44 @@ export default function Page() {
                   first, dependencies after.
                 </p>
                 <p className="m-0 text-sm leading-prose">
-                  Two modules ship today: <strong>turso</strong> provisions the libSQL database,
+                  Four modules ship today: <strong>turso</strong> provisions the libSQL database,
                   mints its token and runs your migrations; <strong>cloudflare</strong> builds and
-                  deploys the Worker. <code>zbc add</code> vendors either one into your repo as
-                  source you can read and change.
+                  deploys the Worker or Container; <strong>r2</strong> provisions object storage;{' '}
+                  <strong>cloudflare-email</strong> onboards a sending domain and routes inbound
+                  mail. <code>zbc add</code> vendors any of them into your repo as source you can
+                  read and change.
                 </p>
                 <a href={REPO} className="font-ui text-sm font-medium text-ink-0">
                   Read the source →
                 </a>
               </Stack>
             </Columns>
+          </Container>
+        </Section>
+
+        {/* ---- secrets --------------------------------------------------- */}
+        <Section id="secrets">
+          <Container>
+            <Stack gap="2xl">
+              <Measure size="display" as="h2">
+                Your secrets live in your repo. Encrypted, committed, reviewable.
+              </Measure>
+
+              <Columns count={2} gap="2xl" collapseAt="wide">
+                <p className="m-0 text-sm leading-prose">
+                  No dashboard, no vault, no password manager. <code>.sops.yaml</code> lists the
+                  public age keys; private keys never leave a laptop, and the ciphertext sits in the
+                  same pull request as the code that reads it. Onboarding a developer is a PR.
+                  Offboarding is a PR.
+                </p>
+                <p className="m-0 text-sm leading-prose">
+                  <code>zbc secret request</code> opens a link a non-technical human can paste an
+                  API key into. It travels end-to-end encrypted through a relay you deploy yourself
+                  and lands in <code>secrets.yaml</code> — whoever asked for it learns only that it
+                  arrived.
+                </p>
+              </Columns>
+            </Stack>
           </Container>
         </Section>
 
@@ -121,6 +185,11 @@ export default function Page() {
                 They reach you through a NATS server running as a Cloudflare Container — declared as
                 one more instance in the same environment directory as this page, and applied by the
                 same command. No special case.
+              </Measure>
+              <Measure as="p">
+                This page, that NATS server, an inbox, a warehouse and a secret relay are five
+                instances in one <code>environments/production/</code> directory. One command
+                applies all of them.
               </Measure>
               {/* Mounted once. Renders the fixed cursor overlay for the whole
                   page plus the presence line right here. */}
@@ -170,11 +239,34 @@ const COMMANDS = [
   },
   {
     name: 'zbc add',
-    body: "Vendors a module's source into your repo, installs its dependencies, and tells you which secrets to add and where to get them.",
+    body: 'Vendors a module — or a whole app — into your repo as source, installs its dependencies, and tells you which secrets to add and where to get them.',
   },
   {
     name: 'zbc apply',
     body: 'Sorts the graph from your imports, decrypts your secrets, converges every resource. Idempotent — run it as often as you like.',
+  },
+  {
+    name: 'zbc destroy',
+    body: 'Tears an environment down in reverse dependency order — how per-PR previews clean up after themselves.',
+  },
+  {
+    name: 'zbc secret',
+    body: 'request, list, edit. Reads and writes an environment’s encrypted secrets file without ever printing a value to your terminal.',
+  },
+]
+
+const APP_TEMPLATES = [
+  {
+    name: 'inbox',
+    body: 'An agent-accessible email inbox. Routed mail lands as raw MIME in R2 with its metadata in a SQLite Durable Object; reads and sends go through a bearer-authed JSON API, an MCP server at /mcp, and a small web UI.',
+  },
+  {
+    name: 'warehouse',
+    body: 'A Container running dlt and dbt-duckdb. Connectors extract incrementally into a durable append-only raw layer in R2; a daily Cron Trigger materializes schema-declared parquet marts, read at the edge with no container wake.',
+  },
+  {
+    name: 'secret-relay',
+    body: 'A permanent worker that brokers secret requests between the CLI and a human’s browser. It carries ciphertext only — the value is decrypted on your machine, never in the relay and never in an agent’s context.',
   },
 ]
 
@@ -210,6 +302,12 @@ function Terminal() {
         <span className="text-ink-3">$ </span>
         <span className="text-paper-0">zbc apply production</span>
         {'\n\n'}
+        <span className="text-paper-0">→ r2:inbox-raw</span>
+        {'\n'}
+        <span className="text-ink-4"> Bucket "myproject-inbox-raw" ready</span>
+        {'\n'}
+        <span className="text-paper-0">✓ r2:inbox-raw applied</span>
+        {'\n\n'}
         <span className="text-paper-0">→ turso:main-db</span>
         {'\n'}
         <span className="text-ink-4">
@@ -227,7 +325,16 @@ function Terminal() {
         {'\n'}
         <span className="text-paper-0">✓ cloudflare:web applied</span>
         {'\n\n'}
-        <span className="text-ink-4">Done.</span>
+        <span className="text-paper-0">→ cloudflare-email:mail</span>
+        {'\n'}
+        <span className="text-ink-4">
+          {' '}
+          SPF, DKIM, DMARC and bounce MX provisioned for mail.myproject.com
+        </span>
+        {'\n'}
+        <span className="text-paper-0">✓ cloudflare-email:mail applied</span>
+        {'\n\n'}
+        <span className="text-ink-4">Done. 4 instances, 1 graph.</span>
       </pre>
     </div>
   )
