@@ -1,27 +1,45 @@
 // Cloudflare REST client. Read-only for now: c9s lists and watches, it does not
 // mutate. Mutation is `zbc apply`'s job, deliberately.
+import { existsSync } from 'node:fs'
 const BASE = 'https://api.cloudflare.com/client/v4'
 
 export type Cf = { token: string; accountId: string }
 
 /**
- * Token from the environment, else decrypted out of this repo's production
- * secrets. Never a flag, so it stays out of shell history and process listings.
+ * Where to look for a sops-encrypted secrets file holding CLOUDFLARE_API_TOKEN.
+ * `C9S_SOPS_FILE` if set, else this repo's production secrets when they exist.
+ * Installed from npm that sibling path is absent, and the answer is simply "no
+ * sops file", not a confusing decrypt failure.
+ */
+export function sopsPath(): string | undefined {
+  const explicit = process.env.C9S_SOPS_FILE
+  if (explicit) return explicit
+  const inRepo = new URL('../../infra/environments/production/secrets.yaml', import.meta.url)
+    .pathname
+  return existsSync(inRepo) ? inRepo : undefined
+}
+
+/**
+ * Token from the environment, else decrypted from a sops file. Never a flag, so
+ * it stays out of shell history and process listings.
  */
 export function resolveToken(): string {
   const fromEnv = process.env.CLOUDFLARE_API_TOKEN
   if (fromEnv) return fromEnv
 
-  const secrets = new URL('../../infra/environments/production/secrets.yaml', import.meta.url)
-    .pathname
-  const sops = Bun.spawnSync(['sops', '-d', secrets])
-  if (sops.exitCode !== 0) {
+  const secrets = sopsPath()
+  if (!secrets) {
     throw new Error(
-      `no CLOUDFLARE_API_TOKEN and sops decrypt failed: ${sops.stderr.toString().trim()}`,
+      'no CLOUDFLARE_API_TOKEN. Export one (needs Workers, D1, R2, KV, Queues and Analytics read),\n' +
+        'or point C9S_SOPS_FILE at a sops file containing it.',
     )
   }
+  const sops = Bun.spawnSync(['sops', '-d', secrets])
+  if (sops.exitCode !== 0) {
+    throw new Error(`sops could not decrypt ${secrets}: ${sops.stderr.toString().trim()}`)
+  }
   const token = sops.stdout.toString().match(/^CLOUDFLARE_API_TOKEN:\s*(\S+)/m)?.[1]
-  if (!token) throw new Error('CLOUDFLARE_API_TOKEN not found in production secrets')
+  if (!token) throw new Error(`CLOUDFLARE_API_TOKEN not found in ${secrets}`)
   return token
 }
 
