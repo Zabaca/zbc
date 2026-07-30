@@ -1,5 +1,5 @@
 {
-  "name": "c9s",
+  "name": "@zabaca/c9s",
   "version": "0.1.0",
   "description": "k9s for Cloudflare: a terminal UI for Workers, Containers, Durable Objects, D1, R2, KV and Queues",
   "license": "MIT",

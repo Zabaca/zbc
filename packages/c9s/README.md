@@ -3,9 +3,27 @@
 k9s for Cloudflare compute. One live table of everything running in the account,
 switchable by resource kind, filterable, refreshing on its own.
 
+**Requires [bun](https://bun.sh).** c9s ships as TypeScript and runs under bun, so
+`npx c9s` under node will not work. Use `bunx`.
+
 ```bash
-bun run --cwd packages/c9s demo    # fixtures, no network, no token
-bun run --cwd packages/c9s dev     # live account
+bunx @zabaca/c9s --demo    # fixtures, no network, no token
+bunx @zabaca/c9s           # live account, needs CLOUDFLARE_API_TOKEN
+```
+
+Installed globally (`bun add -g @zabaca/c9s`) the command is just `c9s`. The
+package is scoped because npm refuses the bare name: it is "too similar to
+existing packages c8, co, coz, c12, cpx, cpr, cli, cpy, crc, cac", a distance
+rule on short names that no amount of waiting will clear.
+
+The token needs read on Workers Scripts, Containers, D1, R2, KV, Queues, and
+Account Analytics. Nothing needs write: c9s never mutates.
+
+Working in this repo instead:
+
+```bash
+bun run --cwd packages/c9s demo
+bun run --cwd packages/c9s dev
 ```
 
 Keys: `:` command, `/` filter, `1-9`/`tab` switch kind, `0` clear project scope,
