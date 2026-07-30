@@ -251,7 +251,7 @@ Opens at [http://localhost:3000](http://localhost:3000). The viewer shows all co
 
 ### Issue tracker
 
-Issues live in GitHub Issues (`Zabaca/zbc`), managed via the `gh` CLI. See `docs/agents/issue-tracker.md`.
+Issues live in **Fredrin** as tickets, managed via the `fredrin` CLI — not GitHub Issues. See `docs/agents/issue-tracker.md`.
 
 ### Triage labels
 
