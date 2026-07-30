@@ -289,12 +289,12 @@ const PROJ_CANDIDATES = 8
  * The command prompt has two halves. At the head you are naming a resource kind,
  * which `matchKinds`/`completion` already cover. After `:proj ` you are naming a
  * *project*, and c9s is the only thing that knows what those are — the account is
- * a flat bag, so the list is inferred, never queryable. `projects` is that inferred
+ * a flat bag, so the list is inferred, never queryable. `known` is that inferred
  * list, passed in rather than fetched, so this stays pure.
  */
 export function suggest(
   input: string,
-  projects: string[],
+  known: string[],
 ): { completion: string; candidates: string[] } {
   const arg = PROJ_ARG.exec(input.trimStart().toLowerCase())
   if (!arg)
@@ -302,7 +302,7 @@ export function suggest(
 
   const q = arg[1] ?? ''
   // `all` clears the scope, so it is a real value of this input, not a project.
-  const hits = [...projects, 'all'].filter((p) => p.toLowerCase().startsWith(q))
+  const hits = [...known, 'all'].filter((p) => p.toLowerCase().startsWith(q))
   const shown = hits.slice(0, PROJ_CANDIDATES)
   return {
     completion: hits[0] ? hits[0].slice(q.length) : '',
