@@ -1,10 +1,19 @@
 {
   "name": "@zabaca/c9s",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "k9s for Cloudflare: a terminal UI for Workers, Containers, Durable Objects, D1, R2, KV and Queues",
   "license": "MIT",
   "type": "module",
-  "keywords": ["cloudflare", "workers", "tui", "k9s", "terminal", "durable-objects", "d1", "r2"],
+  "keywords": [
+    "cloudflare",
+    "workers",
+    "tui",
+    "k9s",
+    "terminal",
+    "durable-objects",
+    "d1",
+    "r2"
+  ],
   "repository": {
     "type": "git",
     "url": "git+https://github.com/Zabaca/zbc.git",
@@ -13,7 +22,12 @@
   "bin": {
     "c9s": "./bin/c9s.js"
   },
-  "files": ["bin", "src", "!src/**/*.test.tsx", "!src/**/*.test.ts"],
+  "files": [
+    "bin",
+    "src",
+    "!src/**/*.test.tsx",
+    "!src/**/*.test.ts"
+  ],
   "engines": {
     "bun": ">=1.2.0"
   },

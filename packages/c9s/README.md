@@ -16,8 +16,8 @@ package is scoped because npm refuses the bare name: it is "too similar to
 existing packages c8, co, coz, c12, cpx, cpr, cli, cpy, crc, cac", a distance
 rule on short names that no amount of waiting will clear.
 
-The token needs read on Workers Scripts, Containers, D1, R2, KV, Queues, and
-Account Analytics. Nothing needs write: c9s never mutates.
+Inside any zbc project it needs no token at all: it decrypts the project's own
+secrets. See [Auth](#auth). Nothing ever needs write access, c9s never mutates.
 
 Working in this repo instead:
 
@@ -93,10 +93,28 @@ of Cloudflare shipping real grouping.
 
 ## Auth
 
-`CLOUDFLARE_API_TOKEN` from the environment, else decrypted from this repo's
-`packages/infra/environments/production/secrets.yaml`. Account is
-`CLOUDFLARE_ACCOUNT_ID`, else the token's first account. Both are exported into
+In a zbc project, there is nothing to configure. c9s walks up from the working
+directory to the nearest `zbc.config.ts` and decrypts
+`packages/infra/environments/production/secrets.yaml` with your age key. Every
+zbc project keeps secrets in that same place, so a single global install works
+across all of them, and you get the credentials of the project you are standing
+in rather than whichever one happened to be installed from.
+
+Resolution order:
+
+1. `CLOUDFLARE_API_TOKEN` in the environment.
+2. `C9S_SOPS_FILE`, an explicit path to any sops file with that key in it.
+3. The enclosing zbc project's secrets, environment picked by `C9S_ENV`
+   (default `production`).
+4. Otherwise an error naming which of those to set.
+
+The token is read at call time and passed as a header. It is never written to a
+file, logged, or passed as a command-line argument. Account is
+`CLOUDFLARE_ACCOUNT_ID`, else the token's first account; both are exported into
 the environment so the wrangler shell-outs reuse them.
+
+Outside a zbc project, export `CLOUDFLARE_API_TOKEN` (read on Workers Scripts,
+Containers, D1, R2, KV, Queues, and Account Analytics) or set `C9S_SOPS_FILE`.
 
 ## Adding a resource kind
 

@@ -1,22 +1,42 @@
 // Cloudflare REST client. Read-only for now: c9s lists and watches, it does not
 // mutate. Mutation is `zbc apply`'s job, deliberately.
 import { existsSync } from 'node:fs'
+import { dirname, join, resolve } from 'node:path'
 const BASE = 'https://api.cloudflare.com/client/v4'
 
 export type Cf = { token: string; accountId: string }
 
+/** What makes a directory a zbc project. */
+const MARKER = 'zbc.config.ts'
+
+/** Nearest ancestor of `from` holding a zbc.config.ts. Undefined outside a zbc project. */
+export function findProjectRoot(from: string = process.cwd()): string | undefined {
+  let dir = resolve(from)
+  for (;;) {
+    if (existsSync(join(dir, MARKER))) return dir
+    const parent = dirname(dir)
+    if (parent === dir) return undefined
+    dir = parent
+  }
+}
+
 /**
  * Where to look for a sops-encrypted secrets file holding CLOUDFLARE_API_TOKEN.
- * `C9S_SOPS_FILE` if set, else this repo's production secrets when they exist.
- * Installed from npm that sibling path is absent, and the answer is simply "no
- * sops file", not a confusing decrypt failure.
+ *
+ * Resolved from the working directory rather than from this module's own path,
+ * so one global install serves every zbc project: they all keep secrets at
+ * `packages/infra/environments/<env>/secrets.yaml`, and walking up from the cwd
+ * gets you the credentials of the project you are actually standing in.
+ * `C9S_ENV` picks the environment, `C9S_SOPS_FILE` overrides the lot.
  */
-export function sopsPath(): string | undefined {
+export function sopsPath(from: string = process.cwd()): string | undefined {
   const explicit = process.env.C9S_SOPS_FILE
   if (explicit) return explicit
-  const inRepo = new URL('../../infra/environments/production/secrets.yaml', import.meta.url)
-    .pathname
-  return existsSync(inRepo) ? inRepo : undefined
+  const root = findProjectRoot(from)
+  if (!root) return undefined
+  const env = process.env.C9S_ENV ?? 'production'
+  const secrets = join(root, 'packages', 'infra', 'environments', env, 'secrets.yaml')
+  return existsSync(secrets) ? secrets : undefined
 }
 
 /**
@@ -29,9 +49,16 @@ export function resolveToken(): string {
 
   const secrets = sopsPath()
   if (!secrets) {
+    const root = findProjectRoot()
+    const env = process.env.C9S_ENV ?? 'production'
     throw new Error(
-      'no CLOUDFLARE_API_TOKEN. Export one (needs Workers, D1, R2, KV, Queues and Analytics read),\n' +
-        'or point C9S_SOPS_FILE at a sops file containing it.',
+      root
+        ? `no CLOUDFLARE_API_TOKEN, and ${root} has no ${env} secrets at\n` +
+            `packages/infra/environments/${env}/secrets.yaml.\n` +
+            'Set C9S_ENV to another environment, or C9S_SOPS_FILE to a specific file.'
+        : 'no CLOUDFLARE_API_TOKEN, and this is not a zbc project (no zbc.config.ts above the\n' +
+            'working directory). Export a token with read on Workers, D1, R2, KV, Queues and\n' +
+            'Analytics, or point C9S_SOPS_FILE at a sops file containing one.',
     )
   }
   const sops = Bun.spawnSync(['sops', '-d', secrets])
