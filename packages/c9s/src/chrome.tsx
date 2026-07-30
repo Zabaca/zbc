@@ -31,11 +31,14 @@ export function InfoPanel({
   project,
   count,
   refreshSecs,
+  rates,
 }: {
   account: string
   project: string
   count: number
   refreshSecs: number
+  /** Rate-card date. Only the cost view sets it: elsewhere it would be noise. */
+  rates?: string
 }) {
   return (
     <Box flexDirection="column" width={30}>
@@ -45,12 +48,17 @@ export function InfoPanel({
       {field('Resources:', String(count))}
       {field('Refresh:', `${refreshSecs}s`)}
       {field('Rev:', 'v0.0.1')}
+      {rates ? field('Rates:', rates, 'yellow') : null}
     </Box>
   )
 }
 
+/** Only the first nine kinds get a number key, because `10` is not one keypress. */
+const NUMBERED = 9
+
 const HINTS: [string, string][] = [
-  ...KINDS.map((k, i) => [String(i + 1), k.key] as [string, string]),
+  ...KINDS.slice(0, NUMBERED).map((k, i) => [String(i + 1), k.key] as [string, string]),
+  ...KINDS.slice(NUMBERED).map((k) => [`:${k.aliases[0] ?? k.key}`, k.key] as [string, string]),
   ['0', 'all projects'],
   [':', 'command'],
   ['/', 'filter'],

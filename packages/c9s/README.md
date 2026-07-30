@@ -42,17 +42,53 @@ quits. Ambiguous input resolves to the first match in `KINDS` order, which is wh
 ## Views
 
 Seven product tables (Workers, Containers, Durable Objects, D1, R2, KV, Queues)
-plus two derived ones:
+plus three derived ones:
 
 - **`:all`**: every resource in the account on one screen, each attributed to a
   project. Filter it (`/foothill`) to see everything one project owns across all
   products at once, which the Cloudflare dashboard cannot do: it makes you visit
   six product pages and join them in your head.
 - **`:projects`**: the rollup, one line per project with counts per product.
+- **`:cost`** (also `:$`): estimated spend per project, one dollar column per
+  product. See [Cost](#cost). It is the tenth kind, so it has no number key.
 
 Workers carry live 24h metrics (`REQ`, `ERR`, `P50`) from the GraphQL Analytics
 API. That query is allowed to fail: a token without analytics scope still gets a
 usable table, with `-` in those columns.
+
+## Cost
+
+`:cost` answers "what is actually costing money", which no Cloudflare view does:
+the dashboard bills an account, and you think in projects.
+
+Usage is real, read month-to-date from the GraphQL Analytics API — Worker
+requests and CPU, container memory/CPU/disk seconds, DO duration and rows, D1
+rows, R2 operations by class, KV operations, queue operations, and storage for
+each. **The dollars are ours.** Cloudflare exposes no price anywhere: there is no
+billing field on the GraphQL account node and `/accounts/{id}/billing/*` rejects
+API tokens, so c9s carries a rate card (`RATES` in `src/cost.ts`) and multiplies.
+Every figure is an estimate, which is why the info panel shows the date the rates
+were last checked and every number is prefixed `~`.
+
+Three things worth knowing before you act on a number:
+
+- **Included allowances are account-wide**, so they cannot be handed to any one
+  project. Each meter's billable remainder is shared out in proportion to usage:
+  an account inside its free tier reads zero everywhere, and one over it shows
+  each project paying its share of the overage.
+- **`$/MO` is projected**, month-to-date usage extrapolated to month end
+  (floored at a day's worth, so the 1st does not scream). Month-to-date is in the
+  breakdown pane.
+- **Storage is charged at its latest observed size**, not averaged over the month.
+
+`↵` on a row opens the per-resource breakdown: every meter that charged the
+project, sorted by cost, with the usage behind it. That is the view that tells
+you a container costs $15/mo for memory it merely reserved while its CPU rounds
+to nothing — containers bill provisioned memory and disk, but actual CPU.
+
+Usage that outlives its resource (a Worker deleted mid-month) lands under
+`(unknown)` rather than being dropped, so the rows still add up. The $5 plan fee
+and anything that is not compute or storage are not counted.
 
 ## Actions
 

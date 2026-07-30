@@ -1,6 +1,7 @@
 import { Box, Text, useApp, useInput, useStdout } from 'ink'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { HEADER_ROWS, InfoPanel, KeyHints, Logo, Prompt } from './chrome'
+import { REVISED } from './cost'
 import { Describe, Logs } from './panes'
 import type { Kind, Row } from './resources'
 import { KINDS, matchKinds, suggest } from './resources'
@@ -326,6 +327,7 @@ export function App({ account, load, instances, tail, shell, initialKind }: AppP
           project={scope}
           count={visible.length}
           refreshSecs={REFRESH_MS / 1000}
+          rates={kind.key === 'cost' ? REVISED : undefined}
         />
         <KeyHints />
         <Box flexGrow={1} />
@@ -343,7 +345,9 @@ export function App({ account, load, instances, tail, shell, initialKind }: AppP
 
       {view === 'describe' && selected ? (
         <Describe
-          title={`${rowKind.title}: ${selected.NAME ?? ''}`}
+          // A row's identity is its first column, which is NAME for a product and
+          // PROJECT for a rollup — reaching for NAME alone titles Cost as `Cost: `.
+          title={`${rowKind.title}: ${selected[rowKind.columns[0] ?? 'NAME'] ?? ''}`}
           raw={selected._raw ?? '(no detail)'}
           instances={inst}
           height={bodyRows}

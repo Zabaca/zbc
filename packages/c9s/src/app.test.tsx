@@ -142,7 +142,8 @@ test('command mode lists candidates and narrows as you type', async () => {
   await settle()
   // Assert on the candidate line specifically: every kind name also appears in
   // the always-visible key-hints panel, so a whole-frame check proves nothing.
-  expect(candidates(lastFrame()!)).toEqual(['containers'])
+  // `co` narrows ten kinds to two, and still resolves to the first of them.
+  expect(candidates(lastFrame()!)).toEqual(['containers', 'cost'])
 })
 
 test('tab accepts the ghost completion, changing what the prompt resolves to', async () => {

@@ -23,6 +23,8 @@ const STATES: { name: string; keys: string[] }[] = [
   { name: 'r2', keys: ['5'] },
   { name: 'describe', keys: ['\r'] },
   { name: 'command', keys: [':'] },
+  { name: 'cost', keys: [':', 'cost', '\r'] },
+  { name: 'cost-describe', keys: [':', 'cost', '\r', '\r'] },
 ]
 
 const OUT = join(dirname(new URL(import.meta.url).pathname), '..', 'screenshots')

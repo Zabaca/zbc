@@ -1,7 +1,10 @@
 // Fixed rows so the UI boots with no network and no token: `c9s --demo`, and
 // every test. Values are pre-rendered strings (no clock, no PRNG) so frames are
 // byte-stable across runs.
+import type { Resource, Sample } from './cost'
+import { costRows } from './resources'
 import type { Kind, Row } from './resources'
+import { projectOf } from './project'
 import type { Instance } from './wrangler'
 
 const raw = (o: unknown) => JSON.stringify(o, null, 2)
@@ -102,6 +105,63 @@ const FIXTURE: Record<string, Row[]> = {
   queues: [],
 }
 
+/**
+ * Halfway through the month. Pinned rather than read off the clock: `estimate`
+ * projects month-to-date usage forward, so a live `elapsed` would make the demo's
+ * dollar figures — and every frame a test asserts on — drift day to day.
+ */
+const DEMO_ELAPSED = 0.5
+
+const DEMO_ANCHORS = (FIXTURE.workers ?? []).map((w) => w.NAME ?? '')
+
+const DEMO_RESOURCES: Resource[] = Object.entries(FIXTURE).flatMap(([kind, rows]) =>
+  rows.map((r) => ({
+    kind,
+    id: r._id ?? '',
+    name: r.NAME ?? '',
+    project: r._project || projectOf(r.NAME ?? '', DEMO_ANCHORS),
+  })),
+)
+
+/**
+ * Half a month of usage, chosen to show the shape of a real account rather than a
+ * pretty one: Workers sit inside their included allowance and cost nothing, while
+ * a container nobody thinks about bills for memory it merely reserved.
+ */
+const DEMO_USAGE: Sample[] = [
+  { rate: 'workers.requests', id: 'agent-canvas', amount: 900_000 },
+  { rate: 'workers.requests', id: 'zbc-inbox', amount: 37_000 },
+  { rate: 'workers.requests', id: 'tour-guide', amount: 13_000 },
+  { rate: 'workers.cpu', id: 'agent-canvas', amount: 4_900_000 },
+  { rate: 'workers.cpu', id: 'zbc-inbox', amount: 96_000 },
+  { rate: 'workers.cpu', id: 'tour-guide', amount: 7_000 },
+
+  { rate: 'containers.memory', id: 'b1470b60-c5ed-51b4-af9f-59286832d474', amount: 6_200_000 },
+  { rate: 'containers.memory', id: 'a0369a59-b4dc-40a3-9a8e-48175721c363', amount: 500_000 },
+  { rate: 'containers.cpu', id: 'b1470b60-c5ed-51b4-af9f-59286832d474', amount: 60_000 },
+  { rate: 'containers.cpu', id: 'a0369a59-b4dc-40a3-9a8e-48175721c363', amount: 5_000 },
+  { rate: 'containers.disk', id: 'b1470b60-c5ed-51b4-af9f-59286832d474', amount: 12_340_000 },
+  { rate: 'containers.disk', id: 'a0369a59-b4dc-40a3-9a8e-48175721c363', amount: 900_000 },
+
+  { rate: 'do.requests', id: 'c0ebd89e', amount: 160_000 },
+  { rate: 'do.duration', id: 'c0ebd89e', amount: 520_000 },
+  { rate: 'do.rowsRead', id: 'c0ebd89e', amount: 340_000 },
+  { rate: 'do.rowsWritten', id: 'c0ebd89e', amount: 12_000 },
+  { rate: 'do.storage', id: 'c0ebd89e', amount: 0.2 },
+
+  { rate: 'd1.rowsRead', id: '18dc8b49', amount: 3_300_000 },
+  { rate: 'd1.rowsWritten', id: '18dc8b49', amount: 30_000_000 },
+  { rate: 'd1.storage', id: '18dc8b49', amount: 0.36 },
+
+  { rate: 'r2.classA', id: 'agent-canvas', amount: 900_000 },
+  { rate: 'r2.classA', id: 'tour-guide-cache', amount: 400_000 },
+  { rate: 'r2.classB', id: 'agent-canvas', amount: 5_000_000 },
+  { rate: 'r2.storage', id: 'agent-canvas', amount: 12 },
+  { rate: 'r2.storage', id: 'tour-guide-cache', amount: 3 },
+]
+
+const DEMO_COST = costRows(DEMO_USAGE, DEMO_RESOURCES, DEMO_ELAPSED)
+
 export const demoInstances = async (): Promise<Instance[]> => [
   {
     id: '18200440edded555',
@@ -125,7 +185,9 @@ export const demoTail = (worker: string, onLine: (line: string) => void): (() =>
 }
 
 export const demoLoad = async (kind: Kind): Promise<Row[]> => {
-  const own = FIXTURE[kind.key]
+  // Cost is computed, not canned: its `list` would otherwise reach the network for
+  // usage, and `--demo` promises to be genuinely offline.
+  const own = kind.key === 'cost' ? DEMO_COST : FIXTURE[kind.key]
   if (own) return own
   // `all` and `projects` are derived views: run their real logic over the fixture
   // by handing them this same loader, so the demo exercises the real aggregation.

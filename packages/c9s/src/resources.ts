@@ -5,6 +5,7 @@
 // Keys beginning with `_` are metadata, not columns: `_raw` carries the API object
 // through to the describe pane, `_id` the handle wrangler needs.
 import { type Cf, age, bytes, get } from './cf'
+import { type Resource, type Sample, breakdown, estimate, usage, usd } from './cost'
 import { micros, workerMetrics } from './metrics'
 import { projectOf, taggedService } from './project'
 
@@ -258,7 +259,45 @@ const projects: Kind = {
   },
 }
 
-export const KINDS: Kind[] = [...PRODUCTS, all, projects]
+/**
+ * Estimated spend per project. The usage is Cloudflare's, the prices are ours:
+ * see cost.ts for why there is no dollar figure to fetch.
+ *
+ * Every product's `_id` happens to be exactly the dimension its usage dataset is
+ * keyed by — scriptName, bucketName, databaseId, namespaceId, applicationId,
+ * queueId — so attribution is a plain join rather than a second set of lookups.
+ */
+const cost: Kind = {
+  key: 'cost',
+  aliases: ['$', 'spend', 'billing'],
+  title: 'Cost',
+  columns: ['PROJECT', '$/MO', ...PRODUCTS.map((k) => k.key.toUpperCase())],
+  async list(cf, load) {
+    const [rows, samples] = await Promise.all([all.list(cf, load), usage(cf)])
+    return costRows(
+      samples,
+      rows.map((r) => ({
+        kind: r._kind ?? '',
+        id: r._id ?? '',
+        name: r.NAME ?? '',
+        project: r.PROJECT ?? '',
+      })),
+    )
+  },
+}
+
+/** Shared with the fixture, which pins `elapsed` so the demo does not drift with the clock. */
+export function costRows(samples: Sample[], resources: Resource[], elapsed?: number): Row[] {
+  return estimate(samples, resources, elapsed).map((p) => ({
+    PROJECT: p.project,
+    '$/MO': usd(p.projected),
+    ...Object.fromEntries(PRODUCTS.map((k) => [k.key.toUpperCase(), usd(p.byKind[k.key] ?? 0)])),
+    _id: p.project,
+    _raw: breakdown(p),
+  }))
+}
+
+export const KINDS: Kind[] = [...PRODUCTS, all, projects, cost]
 
 /** Kinds whose key or any alias starts with `input`, keys before aliases. */
 export function matchKinds(input: string): Kind[] {
