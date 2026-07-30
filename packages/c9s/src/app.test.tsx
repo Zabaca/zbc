@@ -162,6 +162,29 @@ test('tab accepts the ghost completion, changing what the prompt resolves to', a
   expect(lastFrame()).toContain('Durable Objects(all)[1]')
 })
 
+test(':proj autocompletes the project name, and tab accepts it', async () => {
+  const { lastFrame, stdin } = await boot()
+  stdin.write(':')
+  stdin.write('proj to')
+  await settle()
+  // The fixture's only project starting with `to` is `tour-guide`.
+  expect(candidates(lastFrame()!)).toEqual(['tour-guide'])
+  stdin.write(TAB)
+  await settle()
+  stdin.write(ENTER)
+  await settle()
+  // Scoped to the full name, not the two characters that were typed.
+  expect(lastFrame()).toContain('Workers(tour-guide)[1]')
+})
+
+test(':proj offers no suggestion for a name matching no project', async () => {
+  const { lastFrame, stdin } = await boot()
+  stdin.write(':')
+  stdin.write('proj nope')
+  await settle()
+  expect(candidates(lastFrame()!)).toEqual([])
+})
+
 test('escape leaves command mode without navigating', async () => {
   const { lastFrame, stdin } = await boot()
   stdin.write(':')

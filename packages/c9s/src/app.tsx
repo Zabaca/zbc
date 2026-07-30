@@ -3,7 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { HEADER_ROWS, InfoPanel, KeyHints, Logo, Prompt } from './chrome'
 import { Describe, Logs } from './panes'
 import type { Kind, Row } from './resources'
-import { KINDS, completion, matchKinds } from './resources'
+import { KINDS, matchKinds, suggest } from './resources'
 import { projectOf } from './project'
 import type { Instance } from './wrangler'
 
@@ -74,6 +74,7 @@ export function App({ account, load, instances, tail, shell, initialKind }: AppP
   const [tick, setTick] = useState(0)
   const [scope, setScope] = useState('')
   const [anchors, setAnchors] = useState<string[]>([])
+  const [projectNames, setProjectNames] = useState<string[]>([])
 
   const kind = KINDS[k]!
 
@@ -138,6 +139,20 @@ export function App({ account, load, instances, tail, shell, initialKind }: AppP
     (r: Row) => r.PROJECT || r._project || projectOf(r.NAME ?? '', anchors),
     [anchors],
   )
+
+  // The completion source for `:proj <name>`. Cloudflare has no project list to
+  // query — c9s infers it — so accumulate the names attribution has produced so
+  // far instead of paying for a `projects` fan-out on boot. Monotonic: a refresh
+  // or a kind switch only ever adds.
+  useEffect(() => {
+    const seen = rows.map(projectOfRow).filter(Boolean)
+    if (seen.length === 0) return
+    setProjectNames((prev) => {
+      const next = new Set(prev)
+      for (const p of seen) next.add(p)
+      return next.size === prev.length ? prev : [...next].toSorted()
+    })
+  }, [rows, projectOfRow])
 
   const visible = useMemo(() => {
     let out = rows
@@ -216,7 +231,7 @@ export function App({ account, load, instances, tail, shell, initialKind }: AppP
         }
         setMode('normal')
       } else if (key.tab && m === 'command') {
-        setCommand((c) => c + completion(c))
+        setCommand((c) => c + suggest(c, projectNames).completion)
       } else if (key.backspace || key.delete) {
         set((c) => c.slice(0, -1))
       } else if (input) {
@@ -263,6 +278,8 @@ export function App({ account, load, instances, tail, shell, initialKind }: AppP
       setCursor((c) => Math.min(c + 1, Math.max(visible.length - 1, 0)))
     if (input === 'k' || key.upArrow) setCursor((c) => Math.max(c - 1, 0))
   })
+
+  const prompted = useMemo(() => suggest(command, projectNames), [command, projectNames])
 
   const cols = stdout?.columns ?? 100
   const inner = Math.max(cols - 6, 20)
@@ -319,8 +336,8 @@ export function App({ account, load, instances, tail, shell, initialKind }: AppP
         <Prompt
           mode={mode === 'filter' || (mode === 'normal' && !!filter) ? 'filter' : 'command'}
           value={mode === 'command' ? command : filter}
-          completion={mode === 'command' ? completion(command) : ''}
-          candidates={mode === 'command' ? matchKinds(command).map((c) => c.key) : []}
+          completion={mode === 'command' ? prompted.completion : ''}
+          candidates={mode === 'command' ? prompted.candidates : []}
         />
       ) : null}
 
