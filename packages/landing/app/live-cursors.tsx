@@ -1,14 +1,14 @@
 'use client'
 
 /**
- * Live cursors — every visitor's pointer, fanned out to every other visitor
+ * Live cursors: every visitor's pointer, fanned out to every other visitor
  * through the self-hosted NATS server (packages/nats-server), over WebSocket.
  *
  * Protocol (subject `landing.cursors.<id>`, JSON body):
  *   { n: name, c: color, x: fraction of page width, y: document px }
  *   { bye: true }                                         on unload
  *
- * The sender's id is the last subject token — never a field in the body. See
+ * The sender's id is the last subject token, never a field in the body. See
  * the subscribe handler for why that distinction is load-bearing here.
  *
  * x travels as a fraction of page width so a peer on a 1440px screen lands in
@@ -27,10 +27,10 @@ import { useEffect, useRef, useState } from 'react'
 import { connect, jwtAuthenticator, type NatsConnection } from 'nats.ws'
 
 const SUBJECT_ROOT = 'landing.cursors'
-const PUBLISH_INTERVAL_MS = 50 // 20 updates/sec — smooth without flooding
+const PUBLISH_INTERVAL_MS = 50 // 20 updates/sec, smooth without flooding
 const HEARTBEAT_MS = 2000 // re-announce while idle, comfortably inside the TTL
 const PEER_TTL_MS = 5000 // a peer silent for this long is treated as gone
-const MAX_PEERS = 50 // a crowd, not a flood — see the subscribe handler
+const MAX_PEERS = 50 // a crowd, not a flood; see the subscribe handler
 // Refresh the token this long before it expires, so the always-valid token is
 // already in hand when nats.ws reconnects on the server's expiry-close.
 const TOKEN_REFRESH_LEAD_MS = 60_000
@@ -49,7 +49,7 @@ const COLORS = ['#B8410E', '#2F6B3C', '#3A5FA8', '#8A5AA8', '#B07A12', '#0E7B7B'
 /**
  * The cursor's outline and its label text. Deliberately theme-INVARIANT: a
  * cursor sits on a saturated peer color that does not flip between themes, so
- * its chrome must not flip either — a token here (`text-paper-0`) would turn
+ * its chrome must not flip either: a token here (`text-paper-0`) would turn
  * near-black in dark mode and disappear against the badge. This is
  * --color-paper-0's light value, pinned on purpose.
  */
@@ -206,7 +206,7 @@ export function LiveCursors() {
             try {
               data = msg.json<CursorMsg>()
             } catch {
-              continue // not our shape — ignore it
+              continue // not our shape, so ignore it
             }
 
             if (data?.bye) {
@@ -327,12 +327,12 @@ export function LiveCursors() {
 
   // ---- render loop: expire stale peers, follow the scroll ------------------
   useEffect(() => {
-    // Only worth running when there's a live connection — under `next dev`, or
+    // Only worth running when there's a live connection: under `next dev`, or
     // any 503, no cursor can ever arrive and this would spin forever for nothing.
     if (status !== 'live') return
 
     // One rAF loop drives everything. Peer updates land in a ref (not state),
-    // so React only re-renders on a frame where something actually changed —
+    // so React only re-renders on a frame where something actually changed,
     // not 60 times a second for a page nobody is moving on.
     let raf = 0
     let lastScroll = -1
@@ -427,8 +427,8 @@ function CursorLayer({
 const STATUS_COPY: Record<Status, string> = {
   connecting: 'connecting…',
   live: '', // replaced by the peer count
-  unavailable: 'realtime unavailable here — it runs on the deployed Worker',
-  error: 'lost the connection — retrying',
+  unavailable: 'realtime unavailable here; it runs on the deployed Worker',
+  error: 'lost the connection, retrying',
 }
 
 function PresenceBadge({ status, count }: { status: Status; count: number }) {

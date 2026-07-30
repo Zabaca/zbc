@@ -2,7 +2,7 @@
 
 /**
  * The landing page's own header. The design system's <Header> is hardcoded to
- * the Prose wordmark and its own nav, so it can't carry zbc's — this composes
+ * the Prose wordmark and its own nav, so it can't carry zbc's. This composes
  * the same shell (sticky, paper ground, hairline rule) from tokens.
  */
 
@@ -18,7 +18,7 @@ const REPO = 'https://github.com/Zabaca/zbc'
 
 export function SiteHeader() {
   // The inline script in layout.tsx has already applied the class before paint,
-  // so read it back rather than assuming light — otherwise a dark-mode visitor
+  // so read it back rather than assuming light, or a dark-mode visitor
   // sees the sun icon (and an aria-label that lies) until hydration lands.
   const [theme, setTheme] = useState<'light' | 'dark'>(() => {
     if (typeof document === 'undefined') return 'light'
@@ -42,7 +42,7 @@ export function SiteHeader() {
     try {
       localStorage.setItem('zbc-theme', next)
     } catch {
-      // private mode — the toggle still works for this page view
+      // private mode; the toggle still works for this page view
     }
   }
 

@@ -7,11 +7,11 @@ const REPO = 'https://github.com/Zabaca/zbc'
 
 /**
  * Composed from the design system's layout primitives rather than its page
- * sections — those carry Prose's own hardcoded marketing copy and take no props.
+ * sections: those carry Prose's own hardcoded marketing copy and take no props.
  *
  * Accent budget (Prose allows three static marks per page): the header wordmark
  * underscore, the headline period, and the footer wordmark underscore. Hover
- * states and the base layer's link underline don't count against the budget —
+ * states and the base layer's link underline don't count against the budget,
  * they're not standing marks on the resting page.
  */
 export default function Page() {
@@ -39,7 +39,7 @@ export default function Page() {
               <Measure size="wide" as="p" className="lede">
                 Describe your database, your workers and your whole applications in TypeScript.{' '}
                 <code>zbc apply</code> provisions what is missing, converges what drifted, and
-                deploys your code — on your laptop and in CI, by the same path. There is no state
+                deploys your code, on your laptop and in CI, by the same path. There is no state
                 file.
               </Measure>
 
@@ -90,8 +90,8 @@ export default function Page() {
                 <Measure size="wide" as="p" className="lede">
                   A Cloudflare Worker that receives routed mail, stores raw MIME in R2, and exposes
                   a bearer-authed JSON API, an MCP server at <code>/mcp</code>, and a web UI. Three
-                  instance files and <code>zbc apply</code>. Vendored into your repo as source —
-                  read it, change it, it&rsquo;s yours.
+                  instance files and <code>zbc apply</code>. Vendored into your repo as source: read
+                  it, change it, it&rsquo;s yours.
                 </Measure>
               </Stack>
 
@@ -128,7 +128,7 @@ export default function Page() {
                   worker and database, then comments the URL back onto the PR.
                 </p>
                 <p className="m-0 text-sm leading-prose">
-                  Close it and <code>zbc destroy preview</code> takes them down again — dependents
+                  Close it and <code>zbc destroy preview</code> takes them down again, dependents
                   first, dependencies after.
                 </p>
                 <p className="m-0 text-sm leading-prose">
@@ -165,7 +165,7 @@ export default function Page() {
                 <p className="m-0 text-sm leading-prose">
                   <code>zbc secret request</code> opens a link a non-technical human can paste an
                   API key into. It travels end-to-end encrypted through a relay you deploy yourself
-                  and lands in <code>secrets.yaml</code> — whoever asked for it learns only that it
+                  and lands in <code>secrets.yaml</code>. Whoever asked for it learns only that it
                   arrived.
                 </p>
               </Columns>
@@ -182,7 +182,7 @@ export default function Page() {
                 Those cursors are other people.
               </Measure>
               <Measure as="p">
-                They reach you through a NATS server running as a Cloudflare Container — declared as
+                They reach you through a NATS server running as a Cloudflare Container, declared as
                 one more instance in the same environment directory as this page, and applied by the
                 same command. No special case.
               </Measure>
@@ -279,19 +279,19 @@ export default function Page() {
 const COMMANDS = [
   {
     name: 'zbc init',
-    body: 'Scaffolds the infra skeleton, the SOPS config and your CI workflows. Skips anything that already exists — it will not clobber your repo.',
+    body: 'Scaffolds the infra skeleton, the SOPS config and your CI workflows. Skips anything that already exists; it will not clobber your repo.',
   },
   {
     name: 'zbc add',
-    body: 'Vendors a module — or a whole app — into your repo as source, installs its dependencies, and tells you which secrets to add and where to get them.',
+    body: 'Vendors a module, or a whole app, into your repo as source, installs its dependencies, and tells you which secrets to add and where to get them.',
   },
   {
     name: 'zbc apply',
-    body: 'Sorts the graph from your imports, decrypts your secrets, converges every resource. Idempotent — run it as often as you like.',
+    body: 'Sorts the graph from your imports, decrypts your secrets, converges every resource. Idempotent, so run it as often as you like.',
   },
   {
     name: 'zbc destroy',
-    body: 'Tears an environment down in reverse dependency order — how per-PR previews clean up after themselves.',
+    body: 'Tears an environment down in reverse dependency order, which is how per-PR previews clean up after themselves.',
   },
   {
     name: 'zbc secret',
@@ -310,7 +310,7 @@ const APP_TEMPLATES = [
   },
   {
     name: 'secret-relay',
-    body: 'A permanent worker that brokers secret requests between the CLI and a human’s browser. It carries ciphertext only — the value is decrypted on your machine, never in the relay and never in an agent’s context.',
+    body: 'A permanent worker that brokers secret requests between the CLI and a human’s browser. It carries ciphertext only. The value is decrypted on your machine, never in the relay and never in an agent’s context.',
   },
 ]
 
