@@ -34,6 +34,7 @@
   "scripts": {
     "dev": "bun run src/cli.tsx",
     "demo": "bun run src/cli.tsx --demo",
+    "frames": "FORCE_COLOR=3 bun run scripts/frames.tsx",
     "test": "bun test src",
     "publish:npm": "bun publish --access public"
   },
