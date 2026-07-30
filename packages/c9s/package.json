@@ -1,0 +1,23 @@
+{
+  "name": "@zbc/c9s",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "c9s": "./src/cli.tsx"
+  },
+  "scripts": {
+    "dev": "bun run src/cli.tsx",
+    "demo": "bun run src/cli.tsx --demo",
+    "test": "bun test src"
+  },
+  "dependencies": {
+    "ink": "^7.1.1",
+    "react": "^19.2.8"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.3.14",
+    "@types/react": "^19.2.17",
+    "ink-testing-library": "^4.0.0"
+  }
+}
