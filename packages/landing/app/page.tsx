@@ -198,6 +198,50 @@ export default function Page() {
           </Container>
         </Section>
 
+        {/* ---- c9s ------------------------------------------------------- */}
+        <Section id="c9s">
+          <Container>
+            <Stack gap="2xl">
+              <Stack gap="md">
+                <span className="eyebrow">Companion CLI</span>
+                <Measure size="display" as="h2">
+                  <code className="font-mono text-[0.62em]">apply</code> changes it.{' '}
+                  <code className="font-mono text-[0.62em]">c9s</code> is how you look at it.
+                </Measure>
+                <Measure size="wide" as="p" className="lede">
+                  A k9s-style terminal UI for the account you just deployed into. Workers with live
+                  request, error and CPU numbers, Containers, Durable Objects, D1, R2, KV and
+                  Queues, in one table you can page through, filter and drill into. It never writes:
+                  changing infrastructure stays <code>zbc apply</code>&rsquo;s job.
+                </Measure>
+              </Stack>
+
+              <Columns count={2} ratio="2:1" gap="2xl" collapseAt="wide">
+                <C9sTerminal />
+
+                <Stack gap="md">
+                  <p className="m-0 text-sm leading-prose">
+                    Inside a zbc project there is nothing to configure. It walks up to your{' '}
+                    <code>zbc.config.ts</code> and decrypts that project&rsquo;s own{' '}
+                    <code>secrets.yaml</code> with your age key, so one global install serves every
+                    repo and you always get the account you are standing in.
+                  </p>
+                  <p className="m-0 text-sm leading-prose">
+                    Cloudflare has no namespace, so c9s infers one. It attributes every bucket,
+                    database and container to the Worker it belongs to, and{' '}
+                    <code>:proj foothill</code> scopes each view to that project as you browse.
+                  </p>
+                  <p className="m-0 text-sm leading-prose">
+                    <code>↵</code> describes a resource, <code>l</code> tails its logs and{' '}
+                    <code>s</code> drops you into a running container.
+                  </p>
+                  <InstallCommand command="bun add -g @zabaca/c9s" />
+                </Stack>
+              </Columns>
+            </Stack>
+          </Container>
+        </Section>
+
         {/* ---- closing CTA ---------------------------------------------- */}
         <Section gap="md" className="border-t border-paper-3">
           <Container>
@@ -288,6 +332,44 @@ function Code({ children }: { children: string }) {
     <pre className="m-0 overflow-x-auto rounded-1 border border-paper-3 bg-paper-1 p-5 font-mono text-xs leading-loose text-ink-1">
       {children}
     </pre>
+  )
+}
+
+/**
+ * c9s, rendered as it actually draws: the projects rollup, which is the view the
+ * Cloudflare dashboard cannot give you at all. Same inversion as Terminal.
+ */
+function C9sTerminal() {
+  const rows = [
+    ['agent-canvas', '8', '2', '2', '3', '0', '1'],
+    ['foothill-inbox', '4', '1', '0', '1', '1', '1'],
+    ['tour-guide', '3', '1', '0', '1', '0', '1'],
+    ['zbc-inbox', '3', '1', '0', '1', '0', '1'],
+    ['zbc-nats', '3', '1', '1', '1', '0', '0'],
+  ]
+  const w = [22, 7, 9, 12, 4, 4, 4]
+  const cell = (v: string, i: number) => v.padEnd(w[i] ?? 0)
+  const line = (cells: string[]) => cells.map(cell).join('')
+
+  return (
+    <div className="w-full overflow-x-auto rounded-1 bg-ink-0 p-6 text-left font-mono text-xs leading-loose">
+      <pre className="m-0">
+        <span className="text-ink-3">$ </span>
+        <span className="text-paper-0">c9s</span>
+        {'\n\n'}
+        <span className="text-ink-4">{'Account:  99a19e58    Project:  all\n\n'}</span>
+        <span className="text-paper-0">
+          {`  ${line(['PROJECT', 'TOTAL', 'WORKERS', 'CONTAINERS', 'DO', 'D1', 'R2'])}\n`}
+        </span>
+        {rows.map((r, i) => (
+          <span key={r[0]} className={i === 0 ? 'text-paper-0' : 'text-ink-4'}>
+            {`${i === 0 ? '> ' : '  '}${line(r)}\n`}
+          </span>
+        ))}
+        {'\n'}
+        <span className="text-ink-4">{'Projects(all)[33]  1-5/33'}</span>
+      </pre>
+    </div>
   )
 }
 
