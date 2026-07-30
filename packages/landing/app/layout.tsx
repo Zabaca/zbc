@@ -2,9 +2,9 @@ import type { ReactNode } from 'react'
 import './globals.css'
 
 const SITE = 'https://zbc-landing.james-99a.workers.dev'
-const TITLE = 'zbc — declarative infrastructure for Bun'
+const TITLE = 'zbc: declarative infrastructure for Bun'
 const DESCRIPTION =
-  'Describe your database and your workers in TypeScript. One command provisions what is missing, converges what drifted, and deploys your code — locally and in CI, the same way. No state file.'
+  'Describe your database and your workers in TypeScript. One command provisions what is missing, converges what drifted, and deploys your code, locally and in CI, the same way. No state file.'
 
 export const metadata = {
   metadataBase: new URL(SITE),
@@ -17,7 +17,7 @@ export const metadata = {
     siteName: 'zbc',
     type: 'website',
   },
-  // `summary`, not `summary_large_image` — there is no OG image to show yet, and
+  // `summary`, not `summary_large_image`: there is no OG image to show yet, and
   // a large-image card without one degrades to a broken-looking summary anyway.
   twitter: { card: 'summary', title: TITLE, description: DESCRIPTION },
 }

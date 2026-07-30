@@ -28,7 +28,7 @@ export function InstallCommand({ command }: { command: string }) {
       await navigator.clipboard.writeText(command)
       setState('copied')
     } catch {
-      // No clipboard permission — select it so ⌘C still works.
+      // No clipboard permission, so select it and ⌘C still works.
       const node = codeRef.current
       if (node) {
         const range = document.createRange()
@@ -46,9 +46,12 @@ export function InstallCommand({ command }: { command: string }) {
 
   return (
     <div className="flex max-w-full items-stretch overflow-hidden rounded-1 border border-ink-4 bg-paper-0">
+      {/* Wraps rather than scrolls. On a phone every command on this page is
+          wider than the chip, and a horizontal scroll inside a code chip is a
+          scroll nobody finds: the CTA just reads as a truncated command. */}
       <code
         ref={codeRef}
-        className="overflow-x-auto whitespace-nowrap px-[1.5em] py-[0.85em] font-mono text-sm text-ink-0"
+        className="whitespace-pre-wrap break-words px-[1.5em] py-[0.85em] font-mono text-sm text-ink-0"
       >
         <span className="text-ink-3">$ </span>
         {command}
@@ -62,7 +65,7 @@ export function InstallCommand({ command }: { command: string }) {
           state === 'copied'
             ? `Copied "${command}" to the clipboard`
             : state === 'failed'
-              ? `Could not copy automatically — "${command}" is selected, press Command-C`
+              ? `Could not copy automatically. "${command}" is selected, press Command-C`
               : `Copy "${command}" to the clipboard`
         }
         className="shrink-0 cursor-pointer border-0 bg-ink-0 px-5 font-ui text-xs font-medium text-paper-0 transition-colors duration-fast ease-prose hover:bg-accent"
