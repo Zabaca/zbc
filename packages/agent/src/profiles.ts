@@ -38,6 +38,14 @@ export const caveman: Profile = {
   ].join(' '),
 }
 
+/**
+ * Profiles reachable through `askAs` — one prompt in, text out.
+ *
+ * `coding` is deliberately not here. It cannot run without a Workspace to be
+ * confined to, so it has its own entry point (`code()` in `./coding`) rather
+ * than an interface that would let someone start it pointed at their own
+ * checkout with no sandbox.
+ */
 export const profiles = { caveman } satisfies Record<string, Profile>
 
 export type ProfileName = keyof typeof profiles

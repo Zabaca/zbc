@@ -165,12 +165,54 @@ Not for prose deliverables or anything user-facing — commit bodies, docs,
 customer-visible text. It is for machine-consumed output and operators who
 opted in.
 
+### `coding`
+
+An agent that edits code. It is the one profile that inverts everything above:
+it costs **7,404 input tokens** of tool schemas against the base package's 124,
+plus ~3,148 for Claude Code's own system prompt. Both sit in the cached prefix,
+so the recurring cost is a cache read — there is nothing to win by trimming them
+and a working agent to lose.
+
+Because it needs `Bash`, it does not run in your checkout. It runs in a
+**Workspace** — a disposable clone outside `$HOME` — with the SDK's sandbox
+denying reads under `$HOME` and restricting egress to `api.anthropic.com`:
+
+```ts
+import { code } from '@zbc/agent/coding'
+import { collect } from '@zbc/agent/workspace'
+
+const run = await code('Fix the failing test in src/parser.ts')
+
+const { branch, commits } = await collect(run.workspace)  // fetch, do not merge
+await run.workspace.dispose()
+```
+
+`code()` returns with the workspace still on disk. Nothing is merged and nothing
+is cleaned up: `collect()` fetches the agent's branch into your repository as a
+ref for you to review, and that fetch is host-initiated — the workspace's
+`origin` sits inside denied territory, so the agent cannot push even if told to.
+
+Verified end to end, from inside a real run:
+
+```
+cat $HOME/.zshrc   → Operation not permitted
+curl example.com   → CONNECT tunnel failed, response 403
+author             → zbc agent <agent@zbc.local>
+```
+
+The reasoning, the four rejected alternatives, and two environment variables
+that must never be set are in
+[`docs/adr/0001-coding-agents-work-in-a-disposable-clone.md`](./docs/adr/0001-coding-agents-work-in-a-disposable-clone.md).
+Read it before widening the sandbox — `sandbox: { enabled: true }` on its own
+restricts almost nothing, and the escape hatch is open by default.
+
 ## Development
 
 ```bash
 bun run dev "your prompt"   # run the CLI
 bun test src                # levers are pinned by tests
 bun run typecheck
+bun run e2e                 # live containment check — spends ~$0.14, macOS only
 ```
 
 The tests assert the defaults rather than the SDK: a change that quietly

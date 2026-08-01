@@ -47,6 +47,21 @@ export type MinimalOptions = {
    */
   thinking?: Options['thinking']
   /**
+   * Reasoning effort. Left unset by default, which is *not* neutral: on Opus 5
+   * the client sends `output_config: { effort: 'high' }` when you say nothing,
+   * so `'low'` is a real step down rather than a no-op.
+   *
+   * Orthogonal to `thinking` — they are separate fields on the wire and
+   * compose. Adaptive thinking is already the default on Opus 5.
+   */
+  effort?: Options['effort']
+  /**
+   * Extra environment for the subprocess, merged over `process.env` but under
+   * this module's own flags, so a caller cannot accidentally re-enable
+   * attribution or non-essential traffic by passing an env bag.
+   */
+  env?: Record<string, string | undefined>
+  /**
    * Auto-memory. Off by default, and this one is not really about tokens:
    * `settingSources: []` does *not* suppress it, so the operator's personal
    * memory index is otherwise injected into every request as a
@@ -108,6 +123,8 @@ export function minimalOptions({
   systemPrompt,
   settingSources = [],
   thinking = { type: 'disabled' },
+  effort,
+  env: extraEnv,
   autoMemory = false,
   attribution = false,
   nonessentialTraffic = false,
@@ -118,12 +135,20 @@ export function minimalOptions({
     tools,
     settingSources,
     thinking,
+    ...(effort === undefined ? {} : { effort }),
 
     // The spread is load-bearing: `env` REPLACES the subprocess environment
     // rather than merging into it, so dropping it would take PATH and HOME
     // with it and the subprocess would not start.
+    //
+    // Never put HOME or CLAUDE_CONFIG_DIR in here. Both break authentication in
+    // ways that look like unrelated bugs: HOME hides the login Keychain (and
+    // raises a "Keychain Not Found" dialog at whoever is at the machine), and
+    // CLAUDE_CONFIG_DIR fails even when set to its own default value, apparently
+    // by switching the CLI off Keychain and onto credentials that do not exist.
     env: {
       ...process.env,
+      ...extraEnv,
       ...(attribution ? {} : { CLAUDE_CODE_ATTRIBUTION_HEADER: '0' }),
       ...(nonessentialTraffic ? {} : { CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1' }),
     },

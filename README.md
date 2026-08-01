@@ -255,4 +255,4 @@ Issues live in **Fredrin** as tickets, managed via the `fredrin` CLI — not Git
 
 ### Domain docs
 
-Single-context: one `CONTEXT.md` + `docs/adr/` at the repo root. See `docs/agents/domain.md`.
+Multi-context: `CONTEXT-MAP.md` at the root lists them. **Infrastructure** keeps its glossary at the root (`CONTEXT.md` + `docs/adr/`) because it spans `packages/cli/` and `packages/infra/`; **Agent** keeps its own under `packages/agent/`. See `docs/agents/domain.md`.

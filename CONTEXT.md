@@ -1,6 +1,8 @@
-# zbc
+# Infrastructure
 
 Zabaca's infrastructure-as-code system: modules provision/deploy resources, instances bind a module to config for one environment.
+
+One of two contexts — see [`CONTEXT-MAP.md`](./CONTEXT-MAP.md). This glossary stays at the root because the context spans `packages/cli/` and `packages/infra/`. The vocabulary below does not apply to `packages/agent/`, which keeps its own.
 
 ## Principles
 
