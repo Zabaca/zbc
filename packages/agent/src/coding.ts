@@ -49,9 +49,18 @@ export const coding = {
   model: CODING_MODEL,
   effort: 'low',
   tools: [...CODING_TOOLS],
-  // Safe only because the workspace lives outside $HOME: CLAUDE.md discovery
-  // walks up the directory tree, and from a repo under $HOME it reaches the
-  // user's own home-directory CLAUDE.md.
+  // Two separate risks, only one of which the workspace solves.
+  //
+  // CLAUDE.md discovery walks up the directory tree, so from a repo under $HOME
+  // it would also load the operator's own home-directory CLAUDE.md. Putting the
+  // workspace in a temp root terminates that walk — that part is handled.
+  //
+  // What remains: 'project' also loads the *cloned repo's* .claude/settings.json,
+  // hooks included, and that file arrives from the target repository — the same
+  // untrusted input everything else here defends against. We accept it because
+  // the targets are our own repositories and the clone is disposable; point this
+  // at a repo you did not write and that assumption is gone. Note the asymmetry
+  // with `strictMcpConfig`, which exists precisely to stop a stray .mcp.json.
   settingSources: ['project'],
   thinking: { type: 'adaptive' },
   systemPrompt: {
@@ -99,6 +108,10 @@ export function codingOptions(workspace: Workspace, options: CodeOptions = {}): 
       ...profile,
       ...options.overrides,
       env: { ...workspaceEnv(workspace), ...options.overrides?.env },
+      // After the overrides, so it cannot be switched back on by accident. An
+      // agent with Bash can run `env`; denyRead protects credential files, not
+      // credential values. Name what this agent needs in `overrides.env`.
+      inheritEnv: false,
     }),
 
     cwd: workspace.dir,

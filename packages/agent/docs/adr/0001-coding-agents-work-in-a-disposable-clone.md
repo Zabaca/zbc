@@ -95,6 +95,30 @@ env:        GIT_CONFIG_GLOBAL + XDG_CONFIG_HOME → into the Workspace
 - **New tools cost an `allowRead` entry or a redirect.** Prefer the redirect.
   `git` reaches for `~/.config/git/ignore` and warns when denied; pointing
   `XDG_CONFIG_HOME` into the Workspace fixed it without touching `$HOME`.
+- **The clone must be `--no-hardlinks`.** A local clone hardlinks its object
+  store, and a hardlink is a second name for an inode rather than a path, so the
+  sandbox cannot filter it. Writing through one from inside the workspace
+  corrupts the *origin* — verified: `chmod u+w` on a cloned object, one `echo`,
+  and `git -C <origin> cat-file` reports `loose object … is corrupt`. That is a
+  write path out of a workspace whose whole promise is that it has none, and
+  `dispose()` cannot undo it. Costs one object-store copy; asserted by a test.
+- **The operator's environment is not inherited.** `denyRead` protects a
+  credential *file*; nothing protects a credential *value* in the environment,
+  and an agent with `Bash` only has to run `env`. CI sets `SOPS_AGE_KEY` at the
+  step level in `production.yml` and `preview.yml` — the key that decrypts every
+  environment — so an agent invoked from those steps would have been handed it,
+  and no egress rule helps once the value is in the transcript. Sandboxed
+  profiles pass `inheritEnv: false` after their overrides, so it cannot be
+  switched back on by accident; anything genuinely needed is named explicitly
+  via `env`. The allowlist is `ESSENTIAL_ENV` in `src/index.ts`.
+- **`settingSources: ['project']` still loads the target repo's
+  `.claude/settings.json`, hooks included.** The workspace solves the CLAUDE.md
+  half of this (the discovery walk terminates outside `$HOME`) and nothing about
+  the settings half. Accepted because the targets are our own repositories and
+  the clone is disposable — point this at a repo you did not write and the
+  assumption is gone. Note the asymmetry with `strictMcpConfig`, which exists
+  precisely to stop a stray `.mcp.json` from contributing. Whether the SDK runs
+  project hooks inside or outside the sandbox is **unverified**.
 - **Custom Tools are outside the sandbox** — SDK MCP tools run in the host
   process. That is the intended escape hatch: grant one narrow, audited capability
   rather than widening `allowedDomains` or `allowRead` for everything. It is also

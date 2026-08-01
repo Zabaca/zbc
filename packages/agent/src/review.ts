@@ -78,9 +78,9 @@ export const reviewer = {
   model: REVIEW_MODEL,
   effort: 'high',
   tools: [...REVIEW_TOOLS],
-  // Safe only because the workspace lives outside $HOME: CLAUDE.md discovery
-  // walks up the directory tree, and from a repo under $HOME it reaches the
-  // user's own home-directory CLAUDE.md.
+  // Same trade as the coding profile, including the part the workspace does not
+  // solve: 'project' loads the cloned repo's .claude/settings.json and its hooks.
+  // See the note in coding.ts.
   settingSources: ['project'],
   thinking: { type: 'adaptive' },
   systemPrompt: REVIEW_PROMPT,
@@ -123,6 +123,10 @@ export function reviewerOptions(workspace: Workspace, options: ReviewOptions = {
       ...profile,
       ...options.overrides,
       env: { ...workspaceEnv(workspace), ...options.overrides?.env },
+      // After the overrides, so it cannot be switched back on by accident. A
+      // reviewer cannot write, but it can still run `env` and put a credential
+      // into the review text.
+      inheritEnv: false,
     }),
 
     cwd: workspace.dir,

@@ -200,6 +200,18 @@ curl example.com   → CONNECT tunnel failed, response 403
 author             → zbc agent <agent@zbc.local>
 ```
 
+`review` is the read-only sibling: `Read, Grep, Glob, Bash`, no `Write`/`Edit`,
+Opus 5 at **high** effort — the inverse of `coding`'s low, because a review is a
+few turns whose whole value is catching what a cheaper pass misses.
+
+```ts
+import { review } from '@zbc/agent/review'
+
+const r = await review('main..my-feature')
+console.log(r.text)          // the review is the product; it leaves no commits
+await r.workspace.dispose()
+```
+
 The reasoning, the four rejected alternatives, and two environment variables
 that must never be set are in
 [`docs/adr/0001-coding-agents-work-in-a-disposable-clone.md`](./docs/adr/0001-coding-agents-work-in-a-disposable-clone.md).

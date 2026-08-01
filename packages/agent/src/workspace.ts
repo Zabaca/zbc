@@ -65,10 +65,20 @@ export type CreateWorkspaceOptions = {
 /**
  * Clone `repo` into a disposable tree and check out a fresh branch.
  *
- * The clone is deliberately plain: local clones hardlink objects, which is
- * fine because the sandbox filters by path and the hardlinks live inside the
- * workspace. What must not appear is an `alternates` file pointing back at the
- * origin, so that is asserted rather than assumed.
+ * `--no-hardlinks` is a containment requirement, not a preference. A local
+ * clone hardlinks its object store by default, and a hardlink is not a path —
+ * it is a second name for the same inode. The sandbox permits writes under the
+ * workspace, so writing through one of those names corrupts the *origin*:
+ *
+ *     chmod u+w <clone>/.git/objects/xx/yyyy && echo x > <clone>/.git/objects/xx/yyyy
+ *     git -C <origin> cat-file -p HEAD:a.txt
+ *     fatal: loose object xxyyyy… is corrupt
+ *
+ * That is a write path out of a workspace whose whole promise is that it has
+ * none, and `dispose()` cannot undo it. The cost is one object-store copy.
+ *
+ * An `alternates` file is the same class of leak by a different route, so it is
+ * asserted against rather than assumed absent.
  */
 export async function createWorkspace({
   repo = process.cwd(),
@@ -76,7 +86,11 @@ export async function createWorkspace({
   root = tmpdir(),
 }: CreateWorkspaceOptions = {}): Promise<Workspace> {
   const repoPath = resolve(repo)
-  const rootPath = resolve(root)
+  // Resolved through symlinks before the guard, or the guard is decorative: a
+  // root that is a symlink into $HOME passes a `resolve()`-only check and then
+  // lands somewhere `denyRead: [$HOME]` covers, leaving an agent that cannot
+  // read its own workspace and an error a long way from its cause.
+  const rootPath = await realpath(resolve(root)).catch(() => resolve(root))
 
   if (isInside(rootPath, homedir())) {
     throw new Error(
@@ -98,7 +112,7 @@ export async function createWorkspace({
   const dir = join(workspaceRoot, 'repo')
   const home = join(workspaceRoot, 'home')
 
-  await git(['clone', '--quiet', toplevel, dir])
+  await git(['clone', '--quiet', '--no-hardlinks', toplevel, dir])
 
   // Defensive: a clone that borrows objects from the origin reads into the
   // denied path on the first command that needs a missing object, and the

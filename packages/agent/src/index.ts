@@ -13,6 +13,48 @@ import { type Options, query } from '@anthropic-ai/claude-agent-sdk'
 /** Default model for zbc agents. Cheapest tier that handles routine work. */
 export const DEFAULT_MODEL = 'claude-haiku-4-5'
 
+/**
+ * Environment carried into an agent that does not inherit the operator's.
+ *
+ * Deliberately an allowlist. `denyRead` protects a credential *file*; nothing
+ * protects a credential *value* sitting in the environment, and an agent with
+ * `Bash` only has to run `env`. In this repository CI sets `SOPS_AGE_KEY` at
+ * the step level (`.github/workflows/production.yml`, `preview.yml`), which is
+ * the key that decrypts every environment's secrets — so inheriting the
+ * environment would hand it to any agent invoked from that step, and egress
+ * rules cannot help because the value would already be in the transcript.
+ *
+ * Anything an agent legitimately needs is passed explicitly via `env`.
+ */
+export const ESSENTIAL_ENV = [
+  // Without these the subprocess does not start.
+  'PATH',
+  'HOME',
+  'SHELL',
+  'USER',
+  'LOGNAME',
+  'TMPDIR',
+  // Locale, or tool output encoding becomes machine-dependent.
+  'TERM',
+  'LANG',
+  'LC_ALL',
+  'LC_CTYPE',
+  // How the CLI authenticates and where it points.
+  'ANTHROPIC_API_KEY',
+  'ANTHROPIC_AUTH_TOKEN',
+  'CLAUDE_CODE_OAUTH_TOKEN',
+  'ANTHROPIC_BASE_URL',
+  // Corporate proxy and custom CA, without which the API is unreachable.
+  'HTTP_PROXY',
+  'HTTPS_PROXY',
+  'NO_PROXY',
+  'http_proxy',
+  'https_proxy',
+  'no_proxy',
+  'NODE_EXTRA_CA_CERTS',
+  'SSL_CERT_FILE',
+] as const
+
 export type MinimalOptions = {
   /**
    * Built-in tools to keep. `[]` — the default — sends no tool schemas at all,
@@ -56,11 +98,20 @@ export type MinimalOptions = {
    */
   effort?: Options['effort']
   /**
-   * Extra environment for the subprocess, merged over `process.env` but under
-   * this module's own flags, so a caller cannot accidentally re-enable
-   * attribution or non-essential traffic by passing an env bag.
+   * Extra environment for the subprocess, merged over the inherited environment
+   * but under this module's own flags, so a caller cannot accidentally
+   * re-enable attribution or non-essential traffic by passing an env bag.
    */
   env?: Record<string, string | undefined>
+  /**
+   * Whether the agent inherits the operator's environment. Default `true`,
+   * which is safe only while the agent has no way to read it back — with
+   * `tools: []` there is no `Bash` and nothing to leak to.
+   *
+   * Any agent that can run commands should pass `false` and name what it needs
+   * via `env`. See {@link ESSENTIAL_ENV}.
+   */
+  inheritEnv?: boolean
   /**
    * Auto-memory. Off by default, and this one is not really about tokens:
    * `settingSources: []` does *not* suppress it, so the operator's personal
@@ -113,6 +164,16 @@ export type MinimalOptions = {
   claudeAiConnectors?: boolean
 }
 
+/** Read named variables out of the current environment, skipping unset ones. */
+function pickEnv(names: readonly string[]): Record<string, string> {
+  const out: Record<string, string> = {}
+  for (const name of names) {
+    const value = process.env[name]
+    if (value !== undefined) out[name] = value
+  }
+  return out
+}
+
 /**
  * Options that strip everything the SDK sends by default but an agent rarely
  * needs. Spread the result to extend it — every field stays overridable.
@@ -125,6 +186,7 @@ export function minimalOptions({
   thinking = { type: 'disabled' },
   effort,
   env: extraEnv,
+  inheritEnv = true,
   autoMemory = false,
   attribution = false,
   nonessentialTraffic = false,
@@ -147,7 +209,7 @@ export function minimalOptions({
     // CLAUDE_CONFIG_DIR fails even when set to its own default value, apparently
     // by switching the CLI off Keychain and onto credentials that do not exist.
     env: {
-      ...process.env,
+      ...(inheritEnv ? process.env : pickEnv(ESSENTIAL_ENV)),
       ...extraEnv,
       ...(attribution ? {} : { CLAUDE_CODE_ATTRIBUTION_HEADER: '0' }),
       ...(nonessentialTraffic ? {} : { CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1' }),

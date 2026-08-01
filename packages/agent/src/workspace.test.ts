@@ -55,6 +55,17 @@ test('the clone is a real repository, not a linked worktree', async () => {
   expect(await git(['-C', ws.dir, 'rev-parse', '--show-toplevel'])).toBe(ws.dir)
 })
 
+test('the clone shares no inodes with the origin', async () => {
+  // A hardlink is a second name for an inode, not a path, so the sandbox cannot
+  // filter it: writing through one inside the workspace corrupts the origin's
+  // object store, and dispose() cannot undo that.
+  const ws = await workspace()
+  const linked = (
+    await execFile('find', [join(ws.dir, '.git/objects'), '-type', 'f', '-links', '+1'])
+  ).stdout.trim()
+  expect(linked).toBe('')
+})
+
 test('the workspace lives outside $HOME, which is what makes denyRead possible', async () => {
   const ws = await workspace()
   expect(ws.dir.startsWith(homedir())).toBe(false)
@@ -62,6 +73,17 @@ test('the workspace lives outside $HOME, which is what makes denyRead possible',
 
 test('a root inside $HOME is refused rather than silently uncontained', async () => {
   await expect(createWorkspace({ repo: origin, root: homedir() })).rejects.toThrow(/inside \$HOME/)
+})
+
+test('the $HOME guard sees through a symlinked root', async () => {
+  // resolve() does not follow symlinks. Without a realpath the guard passes,
+  // the workspace lands under $HOME, and denyRead then hides it from the agent
+  // working in it — an error a long way from its cause.
+  const linkRoot = await mkdtemp(join(tmpdir(), 'zbc-link-'))
+  const link = join(linkRoot, 'home-link')
+  await execFile('ln', ['-s', homedir(), link])
+  await expect(createWorkspace({ repo: origin, root: link })).rejects.toThrow(/inside \$HOME/)
+  await execFile('rm', ['-rf', linkRoot])
 })
 
 test('a non-repository is refused with a useful message', async () => {

@@ -16,6 +16,7 @@ import {
   reviewer,
   reviewerOptions,
 } from './review'
+import { ESSENTIAL_ENV } from './index'
 import { type Workspace, createWorkspace } from './workspace'
 
 const execFile = promisify(execFileCb)
@@ -168,4 +169,34 @@ test('description is metadata and never reaches the wire', () => {
 test('maxTurns is omitted unless asked for', () => {
   expect('maxTurns' in reviewerOptions(ws)).toBe(false)
   expect(reviewerOptions(ws, { maxTurns: 8 }).maxTurns).toBe(8)
+})
+
+test('the operator environment is not inherited — only an allowlist', () => {
+  // denyRead protects a credential *file*; nothing protects a credential
+  // *value* in the environment, and an agent with Bash only has to run `env`.
+  // CI sets SOPS_AGE_KEY at the step level, which decrypts every environment.
+  process.env.ZBC_FAKE_SECRET = 'sops-age-key-would-be-here'
+  try {
+    const env = reviewerOptions(ws).env ?? {}
+    expect(env.ZBC_FAKE_SECRET).toBeUndefined()
+    for (const name of ESSENTIAL_ENV) {
+      if (process.env[name] !== undefined) expect(env[name]).toBe(process.env[name])
+    }
+  } finally {
+    delete process.env.ZBC_FAKE_SECRET
+  }
+})
+
+test('an override cannot re-inherit the environment, but can name what it needs', () => {
+  process.env.ZBC_FAKE_SECRET = 'still-secret'
+  try {
+    const env = reviewerOptions(ws, { overrides: { inheritEnv: true } }).env ?? {}
+    expect(env.ZBC_FAKE_SECRET).toBeUndefined()
+
+    const named =
+      reviewerOptions(ws, { overrides: { env: { GITHUB_TOKEN: 'explicit' } } }).env ?? {}
+    expect(named.GITHUB_TOKEN).toBe('explicit')
+  } finally {
+    delete process.env.ZBC_FAKE_SECRET
+  }
 })
