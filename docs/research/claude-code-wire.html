@@ -1,0 +1,1186 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="Byte-level comparison of what Claude Code sends over the wire, across delivery surfaces, credentials, base URLs and output styles.">
+<title>Claude Code on the wire</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body { margin: 0; min-height: 100vh; }
+  img, svg { display: block; max-width: 100%; }
+  button { font: inherit; color: inherit; }
+  table { border-collapse: collapse; }
+
+  .themebtn {
+    position: fixed; top: 1rem; right: 1rem; z-index: 50;
+    font-family: var(--mono); font-size: 0.7rem; letter-spacing: 0.08em;
+    text-transform: uppercase; background: var(--surface); color: var(--ink-soft);
+    border: 1px solid var(--rule); border-radius: 4px; padding: 0.4rem 0.7rem;
+    cursor: pointer; box-shadow: 0 1px 3px rgb(0 0 0 / 0.12);
+  }
+  .themebtn:hover { border-color: var(--accent-dim); color: var(--accent); }
+  @media print { .themebtn, .expand, .filter { display: none; } }
+</style>
+</head>
+<body>
+<style>
+  :root {
+    --paper:#F4F6F8; --surface:#FFFFFF; --sunk:#EAEDF1; --ink:#151A21;
+    --ink-soft:#4A5462; --muted:#6B7684; --rule:#D6DBE2;
+    --accent:#8A6210; --accent-dim:#B9903A; --accent-wash:#F5EEDC;
+    --add:#226B4B; --add-bg:#E4F1EA; --del:#A03A37; --del-bg:#F8E6E5;
+    --b0:#9AA4B0; --b1:#C6A961; --b2:#8A6210; --b3:#4F6480;
+    --mono: ui-monospace, "SF Mono", SFMono-Regular, "JetBrains Mono", Menlo, Consolas, "Liberation Mono", monospace;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    --measure: 68ch; --pad: clamp(1.1rem, 4vw, 3rem);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --paper:#12161B; --surface:#1A1F26; --sunk:#0D1116; --ink:#E4E8ED;
+      --ink-soft:#AEB7C2; --muted:#8A94A1; --rule:#2C333C;
+      --accent:#D4A33C; --accent-dim:#9A7A2E; --accent-wash:#241D0F;
+      --add:#5FBF92; --add-bg:#16281F; --del:#E8827A; --del-bg:#2C1B1A;
+      --b0:#58626E; --b1:#8A7238; --b2:#D4A33C; --b3:#6E88AA; }
+  }
+  :root[data-theme="dark"] {
+    --paper:#12161B; --surface:#1A1F26; --sunk:#0D1116; --ink:#E4E8ED;
+    --ink-soft:#AEB7C2; --muted:#8A94A1; --rule:#2C333C;
+    --accent:#D4A33C; --accent-dim:#9A7A2E; --accent-wash:#241D0F;
+    --add:#5FBF92; --add-bg:#16281F; --del:#E8827A; --del-bg:#2C1B1A;
+    --b0:#58626E; --b1:#8A7238; --b2:#D4A33C; --b3:#6E88AA;
+  }
+  :root[data-theme="light"] {
+    --paper:#F4F6F8; --surface:#FFFFFF; --sunk:#EAEDF1; --ink:#151A21;
+    --ink-soft:#4A5462; --muted:#6B7684; --rule:#D6DBE2;
+    --accent:#8A6210; --accent-dim:#B9903A; --accent-wash:#F5EEDC;
+    --add:#226B4B; --add-bg:#E4F1EA; --del:#A03A37; --del-bg:#F8E6E5;
+    --b0:#9AA4B0; --b1:#C6A961; --b2:#8A6210; --b3:#4F6480;
+  }
+
+  body { background:var(--paper); color:var(--ink); font-family:var(--sans);
+         font-size:16.5px; line-height:1.62; -webkit-font-smoothing:antialiased; }
+  .wrap { max-width:104rem; margin:0 auto; padding:var(--pad);
+          display:flex; flex-direction:column; gap:3.2rem; }
+
+  .mast { display:flex; flex-direction:column; gap:1rem; }
+  .mast h1 { font-family:var(--mono); font-size:clamp(1.6rem,4vw,2.5rem); font-weight:600;
+             letter-spacing:-0.035em; line-height:1.1; text-wrap:balance; margin:0; }
+  .mast h1 em { font-style:normal; color:var(--accent); }
+  .standfirst { font-size:1.06rem; color:var(--ink-soft); max-width:var(--measure); margin:0; }
+  .provenance { display:flex; flex-wrap:wrap; gap:0.4rem 1.5rem; font-family:var(--mono);
+                font-size:0.77rem; color:var(--muted);
+                border-top:1px solid var(--rule); border-bottom:1px solid var(--rule); padding:0.7rem 0; }
+  .provenance b { color:var(--ink); font-weight:600; }
+
+  section { display:flex; flex-direction:column; gap:1.1rem; }
+  .eyebrow { font-family:var(--mono); font-size:0.7rem; letter-spacing:0.16em;
+             text-transform:uppercase; color:var(--accent); margin:0; }
+  h2 { font-family:var(--mono); font-size:clamp(1.1rem,2.4vw,1.42rem); font-weight:600;
+       letter-spacing:-0.025em; margin:0; text-wrap:balance; }
+  h3 { font-family:var(--mono); font-size:0.93rem; font-weight:600; margin:0; text-wrap:balance; }
+  h4 { font-family:var(--mono); font-size:0.81rem; font-weight:600; margin:0; color:var(--ink-soft); }
+  p { margin:0; max-width:var(--measure); }
+  .note { color:var(--ink-soft); font-size:0.93rem; }
+  .wide { max-width:none; }
+  code { font-family:var(--mono); font-size:0.855em; background:var(--sunk);
+         padding:0.1em 0.36em; border-radius:3px; border:1px solid var(--rule); }
+
+  /* ---------- matrix ---------- */
+  .mbox { border:1px solid var(--rule); border-radius:6px; background:var(--surface);
+          display:flex; flex-direction:column; min-height:0; }
+  .mhead { display:flex; align-items:center; justify-content:space-between; gap:1rem;
+           padding:0.6rem 0.8rem; border-bottom:1px solid var(--rule); background:var(--sunk);
+           border-radius:6px 6px 0 0; flex-wrap:wrap; }
+  .mhead .cap { font-family:var(--mono); font-size:0.73rem; letter-spacing:0.05em; color:var(--ink-soft); }
+  .expand { font-family:var(--mono); font-size:0.72rem; letter-spacing:0.06em; text-transform:uppercase;
+            background:var(--surface); color:var(--accent); border:1px solid var(--accent-dim);
+            border-radius:4px; padding:0.32rem 0.7rem; cursor:pointer; white-space:nowrap; }
+  .expand:hover { background:var(--accent-wash); }
+  .mctl { display:flex; gap:0.55rem; align-items:center; flex-wrap:wrap; }
+  .mhead .count { font-family:var(--mono); font-size:0.7rem; color:var(--muted); white-space:nowrap; }
+  .filter { font-family:var(--mono); font-size:0.72rem; letter-spacing:0.06em; text-transform:uppercase;
+            background:var(--surface); color:var(--ink-soft); border:1px solid var(--rule);
+            border-radius:4px; padding:0.32rem 0.7rem; cursor:pointer; white-space:nowrap; }
+  .filter:hover { border-color:var(--accent-dim); color:var(--accent); }
+  .filter[aria-pressed="true"] { background:var(--accent); color:var(--paper);
+                                 border-color:var(--accent); font-weight:600; }
+  table.mx.varyonly tr.novary, table.mx.varyonly tr.grpnovary { display:none; }
+  .mscroll { overflow:auto; max-height:none; }
+  .mbox:fullscreen { background:var(--paper); border-radius:0; height:100%; }
+  .mbox:fullscreen .mscroll { max-height:none; flex:1; }
+  .mbox.blown { position:fixed; inset:0; z-index:9999; border-radius:0; background:var(--paper); }
+  .mbox.blown .mscroll { flex:1; }
+
+  table.mx { border-collapse:separate; border-spacing:0; width:100%; font-size:0.8rem; }
+  table.mx th, table.mx td { text-align:left; padding:0.44rem 0.75rem; white-space:nowrap;
+                             border-bottom:1px solid var(--rule); }
+  table.mx thead th { position:sticky; top:0; z-index:3; background:var(--sunk);
+                      font-family:var(--mono); font-size:0.69rem; letter-spacing:0.05em;
+                      color:var(--ink); font-weight:600; border-bottom:2px solid var(--rule); }
+  table.mx thead th span { display:block; font-weight:400; color:var(--muted);
+                           font-size:0.66rem; letter-spacing:0; }
+  table.mx th.rh { position:sticky; left:0; z-index:2; background:var(--surface);
+                   font-weight:600; font-size:0.76rem; border-right:1px solid var(--rule);
+                   white-space:normal; min-width:13rem; max-width:17rem; }
+  table.mx thead th.rh { z-index:4; background:var(--sunk); }
+  table.mx tr.grp th { position:sticky; left:0; z-index:2;
+                       background:var(--accent-wash); color:var(--accent);
+                       font-family:var(--mono); font-size:0.68rem; letter-spacing:0.14em;
+                       text-transform:uppercase; padding-top:0.55rem; padding-bottom:0.55rem; }
+  table.mx tr.grp td { background:var(--accent-wash); }
+  table.mx td { font-family:var(--mono); font-size:0.76rem; font-variant-numeric:tabular-nums;
+                color:var(--ink-soft); vertical-align:top; }
+  table.mx td.hi { color:var(--ink); background:color-mix(in srgb, var(--accent) 9%, transparent); font-weight:600; }
+  table.mx td.gone { color:var(--del); background:var(--del-bg); font-weight:600; }
+  table.mx td.plus { color:var(--add); background:var(--add-bg); font-weight:600; }
+  table.mx td.na { color:var(--muted); }
+  table.mx td.v { white-space:normal; min-width:14rem; }
+  table.mx tr:hover td, table.mx tr:hover th.rh { background:color-mix(in srgb, var(--accent) 5%, var(--surface)); }
+  table.mx tr.grp:hover td, table.mx tr.grp:hover th { background:var(--accent-wash); }
+  .vary { font-family:var(--mono); font-size:0.7rem; text-align:center; }
+  .vary.y { color:var(--accent); font-weight:700; }
+  .vary.n { color:var(--muted); }
+
+  /* ---------- other ---------- */
+  .scroll { overflow-x:auto; border:1px solid var(--rule); border-radius:5px; background:var(--surface); }
+  table.std { border-collapse:collapse; width:100%; font-size:0.85rem; }
+  table.std th, table.std td { text-align:left; padding:0.55rem 0.8rem;
+                               border-bottom:1px solid var(--rule); white-space:nowrap; }
+  table.std thead th { font-family:var(--mono); font-size:0.69rem; letter-spacing:0.08em;
+                       text-transform:uppercase; color:var(--muted); font-weight:600; background:var(--sunk); }
+  table.std tbody tr:last-child td { border-bottom:0; }
+  .num { font-family:var(--mono); font-variant-numeric:tabular-nums; text-align:right; }
+  .lbl { font-weight:600; white-space:normal; min-width:12rem; }
+  .wrapcell { white-space:normal; min-width:20rem; }
+  .mono { font-family:var(--mono); font-size:0.79rem; }
+  .dim { color:var(--muted); }
+  .yes { color:var(--add); font-weight:600; }
+  .no { color:var(--del); font-weight:600; }
+  tr.spotlight td { background:color-mix(in srgb, var(--del) 8%, transparent); }
+
+  .finding { background:var(--surface); border:1px solid var(--rule); border-left:3px solid var(--accent);
+             border-radius:4px; padding:1rem 1.15rem; display:flex; flex-direction:column; gap:0.5rem; }
+  .finding.warn { border-left-color:var(--del); }
+  .finding p { max-width:none; font-size:0.93rem; }
+  .grid2 { display:grid; grid-template-columns:repeat(auto-fit,minmax(19rem,1fr)); gap:1rem; }
+
+  .diff { font-family:var(--mono); font-size:0.75rem; line-height:1.7; background:var(--surface);
+          border:1px solid var(--rule); border-radius:5px; overflow-x:auto; }
+  .diff .ln { display:block; padding:0 0.85rem; white-space:pre; min-width:max-content; }
+  .diff .hunk { background:var(--sunk); color:var(--muted); border-block:1px solid var(--rule); }
+  .diff .add { background:var(--add-bg); color:var(--add); }
+  .diff .del { background:var(--del-bg); color:var(--del); }
+  .diff .ctx { color:var(--ink-soft); }
+  .diff .dcap { display:block; padding:0.5rem 0.85rem; background:var(--sunk);
+                border-bottom:1px solid var(--rule); color:var(--ink-soft);
+                font-size:0.71rem; letter-spacing:0.04em; white-space:normal; }
+
+  pre { font-family:var(--mono); font-size:0.755rem; line-height:1.65; background:var(--surface);
+        border:1px solid var(--rule); border-radius:5px; padding:0.9rem 1rem; overflow-x:auto; margin:0; }
+  pre .c { color:var(--muted); } pre .s { color:var(--add); }
+
+  ul { margin:0; padding-left:1.15rem; max-width:var(--measure);
+       display:flex; flex-direction:column; gap:0.4rem; }
+  li::marker { color:var(--accent-dim); }
+  footer { border-top:1px solid var(--rule); padding-top:1.2rem; font-size:0.85rem;
+           color:var(--muted); display:flex; flex-direction:column; gap:0.5rem; }
+  a { color:var(--accent); text-underline-offset:2px; }
+  :focus-visible { outline:2px solid var(--accent); outline-offset:2px; border-radius:2px; }
+</style>
+
+<div class="wrap">
+
+  <header class="mast">
+    <p class="eyebrow">Wire capture · client 2.1.220</p>
+    <h1>Claude Code on the wire: <em>every field, every client</em></h1>
+    <p class="standfirst">
+      405 flows through a local mitmproxy, diffed field by field. Two matrices: what changes
+      across delivery surfaces, credentials and base URLs, and what changes across output styles. Expand either to full
+      screen.
+    </p>
+    <div class="provenance">
+      <span>claude <b>2.1.220</b></span>
+      <span>agent-sdk <b>0.3.220</b></span>
+      <span>mitmproxy <b>12.2.3</b></span>
+      <span>flows <b>405</b></span>
+      <span>endpoint <b>POST /v1/messages?beta=true</b></span>
+    </div>
+  </header>
+
+  <!-- ================= MATRIX 1 ================= -->
+  <section>
+    <p class="eyebrow">Matrix one</p>
+    <h2>Every field, by client</h2>
+    <p class="note">
+      All five columns: <code>claude-opus-5</code>, same working directory, no output style. The
+      only variable is how the request was issued. Highlighted cells diverge from the rest of
+      the row.
+    </p>
+
+    <div class="mbox" data-expand>
+      <div class="mhead">
+        <span class="cap">clients · 8 configurations <span class="count"></span></span>
+        <span class="mctl">
+          <button class="filter" type="button" aria-pressed="false">Differences only</button>
+          <button class="expand" type="button">Expand full screen</button>
+        </span>
+      </div>
+      <div class="mscroll">
+        <table class="mx">
+          <thead>
+            <tr>
+              <th class="rh">Field</th>
+              <th>Interactive<span>cc_entrypoint=cli</span></th>
+              <th>Headless <code>-p</code><span>cc_entrypoint=sdk-cli</span></th>
+              <th>Headless, proxied<span>custom ANTHROPIC_BASE_URL</span></th>
+              <th>SDK default<span>no systemPrompt</span></th>
+              <th>SDK default, proxied<span>no systemPrompt + custom base URL</span></th>
+              <th>SDK default + token<span>CLAUDE_CODE_OAUTH_TOKEN</span></th>
+              <th>SDK preset<span>preset: claude_code</span></th>
+              <th>SDK + excludeDynamic<span>preset + flag</span></th>
+              <th>Varies</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr class="grp"><th>Transport</th><td colspan="9"></td></tr>
+            <tr><th class="rh">User-Agent</th><td class="hi v">claude-cli/2.1.220<br>(external, cli)</td><td class="hi v">claude-cli/2.1.220<br>(external, sdk-cli)</td><td class="hi v">claude-cli/2.1.220<br>(external, sdk-cli)</td><td class="hi v">claude-cli/2.1.220<br>(external, sdk-ts,<br>agent-sdk/0.3.220)</td><td class="hi v">claude-cli/2.1.220<br>(external, sdk-ts,<br>agent-sdk/0.3.220)</td><td class="hi v">claude-cli/2.1.220<br>(external, sdk-ts,<br>agent-sdk/0.3.220)</td><td class="hi v">claude-cli/2.1.220<br>(external, sdk-ts,<br>agent-sdk/0.3.220)</td><td class="hi v">claude-cli/2.1.220<br>(external, sdk-ts,<br>agent-sdk/0.3.220)</td><td class="vary y">✦</td></tr>
+            <tr><th class="rh">x-app</th><td>cli</td><td>cli</td><td>cli</td><td>cli</td><td>cli</td><td>cli</td><td>cli</td><td>cli</td><td class="vary n">·</td></tr>
+            <tr><th class="rh">X-Stainless-Lang</th><td>js</td><td>js</td><td>js</td><td>js</td><td>js</td><td>js</td><td>js</td><td>js</td><td class="vary n">·</td></tr>
+            <tr><th class="rh">X-Stainless-Package-Version</th><td>0.94.0</td><td>0.94.0</td><td>0.94.0</td><td>0.94.0</td><td>0.94.0</td><td>0.94.0</td><td>0.94.0</td><td>0.94.0</td><td class="vary n">·</td></tr>
+            <tr><th class="rh">X-Stainless-Timeout</th><td>600</td><td>600</td><td>600</td><td>600</td><td>600</td><td>600</td><td>600</td><td>600</td><td class="vary n">·</td></tr>
+            <tr><th class="rh">anthropic-beta · count</th><td class="hi">15</td><td class="hi">14</td><td class="hi">12</td><td class="hi">13</td><td class="hi">11</td><td class="hi">14</td><td class="hi">13</td><td class="hi">13</td><td class="vary y">✦</td></tr>
+            <tr><th class="rh">└ context-1m-2025-08-07</th><td class="plus">yes</td><td class="plus">yes</td><td class="plus">yes</td><td class="gone">absent</td><td class="gone">absent</td><td class="gone">absent</td><td class="gone">absent</td><td class="gone">absent</td><td class="vary y">✦</td></tr>
+            <tr><th class="rh">└ redact-thinking-2026-02-12</th><td class="plus">yes</td><td class="gone">absent</td><td class="gone">absent</td><td class="gone">absent</td><td class="gone">absent</td><td class="gone">absent</td><td class="gone">absent</td><td class="gone">absent</td><td class="vary y">✦</td></tr>
+            <tr><th class="rh">└ server-side-fallback-2026-06-01</th><td class="gone">absent</td><td class="gone">absent</td><td class="gone">absent</td><td class="gone">absent</td><td class="gone">absent</td><td class="plus">yes</td><td class="gone">absent</td><td class="gone">absent</td><td class="vary y">✦</td></tr>
+            <tr><th class="rh">└ advanced-tool-use + cache-diagnosis</th><td class="plus">yes</td><td class="plus">yes</td><td class="gone">both absent</td><td class="plus">yes</td><td class="gone">both absent</td><td class="plus">yes</td><td class="plus">yes</td><td class="plus">yes</td><td class="vary y">✦</td></tr>
+            <tr><th class="rh">Content-Length · bytes</th><td class="hi">104,309</td><td class="hi">85,524</td><td class="hi">130,728</td><td class="hi">74,243</td><td class="hi">115,586</td><td class="hi">74,285</td><td class="hi">85,395</td><td class="hi">84,559</td><td class="vary y">✦</td></tr>
+            <tr class="grp"><th>system[0] — billing header</th><td colspan="9"></td></tr>
+            <tr><th class="rh">cc_version <span class="dim">· version + prompt fingerprint</span></th><td>2.1.220.b89</td><td>2.1.220.b89</td><td>2.1.220.b89</td><td>2.1.220.b89</td><td>2.1.220.b89</td><td>2.1.220.b89</td><td>2.1.220.b89</td><td>2.1.220.b89</td><td class="vary n">·</td></tr>
+            <tr><th class="rh">cc_entrypoint</th><td class="hi">cli</td><td class="hi">sdk-cli</td><td class="hi">sdk-cli</td><td class="hi">sdk-ts</td><td class="hi">sdk-ts</td><td class="hi">sdk-ts</td><td class="hi">sdk-ts</td><td class="hi">sdk-ts</td><td class="vary y">✦</td></tr>
+            <tr><th class="rh">cch <span class="dim">· per-request token</span></th><td class="na">70c27</td><td class="na">ae837</td><td class="gone">ABSENT</td><td class="na">e914e</td><td class="gone">ABSENT</td><td class="na">fabf6</td><td class="na">929fc</td><td class="na">f4304</td><td class="vary y">✦</td></tr>
+            <tr><th class="rh">length · chars</th><td>81</td><td>85</td><td class="hi">74</td><td>84</td><td class="hi">73</td><td>84</td><td>84</td><td>84</td><td class="vary y">✦</td></tr>
+            <tr class="grp"><th>system[1] — identity</th><td colspan="9"></td></tr>
+            <tr><th class="rh">text</th><td class="hi v">You are Claude Code,<br>Anthropic's official CLI<br>for Claude.</td><td class="v">You are a Claude agent,<br>built on Anthropic's<br>Claude Agent SDK.</td><td class="v">You are a Claude agent,<br>built on Anthropic's<br>Claude Agent SDK.</td><td class="v">You are a Claude agent,<br>built on Anthropic's<br>Claude Agent SDK.</td><td class="v">You are a Claude agent,<br>built on Anthropic's<br>Claude Agent SDK.</td><td class="v">You are a Claude agent,<br>built on Anthropic's<br>Claude Agent SDK.</td><td class="v">You are a Claude agent,<br>built on Anthropic's<br>Claude Agent SDK.</td><td class="v">You are a Claude agent,<br>built on Anthropic's<br>Claude Agent SDK.</td><td class="vary y">✦</td></tr>
+            <tr><th class="rh">length · chars</th><td class="hi">57</td><td>62</td><td>62</td><td>62</td><td>62</td><td>62</td><td>62</td><td>62</td><td class="vary y">✦</td></tr>
+            <tr class="grp"><th>system[2] — core prompt</th><td colspan="9"></td></tr>
+            <tr><th class="rh">length · chars</th><td>1,210</td><td>1,210</td><td class="hi v">10,409 — [2]+[3]<br>merged</td><td class="gone">absent</td><td class="gone">absent</td><td class="gone">absent</td><td>1,210</td><td>1,210</td><td class="vary y">✦</td></tr>
+            <tr><th class="rh">sha256</th><td>3b27271fa44c</td><td>3b27271fa44c</td><td class="na">—</td><td class="na">—</td><td class="na">—</td><td class="na">—</td><td>3b27271fa44c</td><td>3b27271fa44c</td><td class="vary y">✦</td></tr>
+            <tr><th class="rh">cache_control</th><td class="v">ephemeral 1h<br>scope: global</td><td class="v">ephemeral 1h<br>scope: global</td><td class="hi v">ephemeral 1h<br>no global scope</td><td class="gone">absent</td><td class="gone">absent</td><td class="gone">absent</td><td class="v">ephemeral 1h<br>scope: global</td><td class="v">ephemeral 1h<br>scope: global</td><td class="vary y">✦</td></tr>
+            <tr><th class="rh"># Doing tasks section <span class="dim">· Haiku-only, see matrix 2</span></th><td class="gone">absent</td><td class="gone">absent</td><td class="gone">absent</td><td class="gone">absent</td><td class="gone">absent</td><td class="gone">absent</td><td class="gone">absent</td><td class="gone">absent</td><td class="vary n">·</td></tr>
+            <tr class="grp"><th>system[3] — environment</th><td colspan="9"></td></tr>
+            <tr><th class="rh">length · chars</th><td class="hi">10,937</td><td class="hi">9,683</td><td class="gone">merged into [2]</td><td class="gone">absent</td><td class="gone">absent</td><td class="gone">absent</td><td class="hi">9,666</td><td class="hi">5,504</td><td class="vary y">✦</td></tr>
+            <tr><th class="rh">sha256</th><td>890c4ad93b81</td><td>a68f85d1ec56</td><td class="na">—</td><td class="na">—</td><td class="na">—</td><td class="na">—</td><td>c27575d278e2</td><td class="na">—</td><td class="vary y">✦</td></tr>
+            <tr><th class="rh">cache_control</th><td>ephemeral 1h</td><td>ephemeral 1h</td><td class="gone">merged into [2]</td><td class="gone">absent</td><td class="gone">absent</td><td class="gone">absent</td><td>ephemeral 1h</td><td>ephemeral 1h</td><td class="vary y">✦</td></tr>
+            <tr><th class="rh">`! command` hint</th><td class="plus">present</td><td class="gone">absent</td><td class="gone">absent</td><td class="gone">absent</td><td class="gone">absent</td><td class="gone">absent</td><td class="gone">absent</td><td class="gone">absent</td><td class="vary y">✦</td></tr>
+            <tr><th class="rh">Scratchpad Directory</th><td class="plus">present</td><td class="gone">absent</td><td class="gone">absent</td><td class="gone">absent</td><td class="gone">absent</td><td class="gone">absent</td><td class="gone">absent</td><td class="gone">absent</td><td class="vary y">✦</td></tr>
+            <tr><th class="rh">EndConversation note</th><td class="plus">present</td><td class="gone">absent</td><td class="gone">absent</td><td class="gone">absent</td><td class="gone">absent</td><td class="gone">absent</td><td class="gone">absent</td><td class="gone">absent</td><td class="vary y">✦</td></tr>
+            <tr><th class="rh"># Memory section</th><td class="plus">present</td><td class="plus">present</td><td class="plus">present</td><td class="gone">absent</td><td class="gone">absent</td><td class="gone">absent</td><td class="plus">present</td><td class="gone">moved out</td><td class="vary y">✦</td></tr>
+            <tr><th class="rh">Environment machine lines</th><td class="plus">present</td><td class="plus">present</td><td class="plus">present</td><td class="gone">absent</td><td class="gone">absent</td><td class="gone">absent</td><td class="plus">present</td><td class="gone">moved out</td><td class="vary y">✦</td></tr>
+            <tr><th class="rh">gitStatus dump</th><td class="plus">present</td><td class="plus">present</td><td class="plus">present</td><td class="gone">absent</td><td class="gone">absent</td><td class="gone">absent</td><td class="plus">present</td><td class="gone">moved out</td><td class="vary y">✦</td></tr>
+            <tr class="grp"><th>messages[]</th><td colspan="9"></td></tr>
+            <tr><th class="rh">user turn · chars</th><td>19,312</td><td>19,312</td><td>19,312</td><td>19,312</td><td>19,312</td><td>19,312</td><td>19,312</td><td class="hi">22,649</td><td class="vary y">✦</td></tr>
+            <tr><th class="rh">role: system msg · chars</th><td class="hi">14,454</td><td class="hi">12,470</td><td class="hi">12,009</td><td class="hi">12,396</td><td class="hi">7,588</td><td class="hi">12,396</td><td class="hi">12,396</td><td class="hi">12,396</td><td class="vary y">✦</td></tr>
+            <tr><th class="rh">└ deferred-tool roster</th><td class="plus">yes</td><td class="plus">yes</td><td class="gone">absent</td><td class="plus">yes</td><td class="gone">absent</td><td class="plus">yes</td><td class="plus">yes</td><td class="plus">yes</td><td class="vary y">✦</td></tr>
+            <tr><th class="rh">system msg cache_control</th><td>ephemeral 1h</td><td>ephemeral 1h</td><td>ephemeral 1h</td><td>ephemeral 1h</td><td>ephemeral 1h</td><td>ephemeral 1h</td><td>ephemeral 1h</td><td>ephemeral 1h</td><td class="vary n">·</td></tr>
+            <tr class="grp"><th>tools[]</th><td colspan="9"></td></tr>
+            <tr><th class="rh">count</th><td class="hi">13</td><td>11</td><td class="hi">28</td><td>11</td><td class="hi">28</td><td>11</td><td>11</td><td>11</td><td class="vary y">✦</td></tr>
+            <tr><th class="rh">ToolSearch <span class="dim">· deferred loading</span></th><td class="plus">yes</td><td class="plus">yes</td><td class="gone">absent — all eager</td><td class="plus">yes</td><td class="gone">absent — all eager</td><td class="plus">yes</td><td class="plus">yes</td><td class="plus">yes</td><td class="vary y">✦</td></tr>
+            <tr><th class="rh">Artifact</th><td class="plus">yes</td><td class="gone">no</td><td class="gone">no</td><td class="gone">no</td><td class="gone">no</td><td class="gone">no</td><td class="gone">no</td><td class="gone">no</td><td class="vary y">✦</td></tr>
+            <tr><th class="rh">AskUserQuestion</th><td class="plus">yes</td><td class="gone">no</td><td class="gone">no</td><td class="gone">no</td><td class="gone">no</td><td class="gone">no</td><td class="gone">no</td><td class="gone">no</td><td class="vary y">✦</td></tr>
+            <tr><th class="rh">Bash description · chars</th><td class="hi">1,366</td><td class="hi">1,366</td><td class="hi">1,366</td><td class="hi">1,353</td><td class="hi">1,353</td><td class="hi">1,353</td><td class="hi">1,353</td><td class="hi">1,353</td><td class="vary y">✦</td></tr>
+            <tr><th class="rh">tools[] bytes</th><td class="hi">56,835</td><td class="hi">41,066</td><td class="hi">88,224</td><td class="hi">41,053</td><td class="hi">88,211</td><td class="hi">41,053</td><td class="hi">41,053</td><td class="hi">41,053</td><td class="vary y">✦</td></tr>
+            <tr class="grp"><th>Request parameters</th><td colspan="9"></td></tr>
+            <tr><th class="rh">model</th><td>claude-opus-5</td><td>claude-opus-5</td><td>claude-opus-5</td><td>claude-opus-5</td><td>claude-opus-5</td><td>claude-opus-5</td><td>claude-opus-5</td><td>claude-opus-5</td><td class="vary n">·</td></tr>
+            <tr><th class="rh">max_tokens</th><td>64000</td><td>64000</td><td>64000</td><td>64000</td><td>64000</td><td>64000</td><td>64000</td><td>64000</td><td class="vary n">·</td></tr>
+            <tr><th class="rh">thinking</th><td class="v">{type: adaptive}</td><td class="hi v">{type: adaptive,<br>display: omitted}</td><td class="hi v">{type: adaptive,<br>display: omitted}</td><td class="v">{type: adaptive}</td><td class="v">{type: adaptive}</td><td class="v">{type: adaptive}</td><td class="v">{type: adaptive}</td><td class="v">{type: adaptive}</td><td class="vary y">✦</td></tr>
+            <tr><th class="rh">fallbacks</th><td class="gone">absent</td><td class="gone">absent</td><td class="gone">absent</td><td class="gone">absent</td><td class="gone">absent</td><td class="plus v">[{model:<br>claude-opus-4-8}]</td><td class="gone">absent</td><td class="gone">absent</td><td class="vary y">✦</td></tr>
+            <tr><th class="rh">context_management</th><td class="v">clear_thinking_20251015<br>keep: all</td><td class="v">clear_thinking_20251015<br>keep: all</td><td class="v">clear_thinking_20251015<br>keep: all</td><td class="v">clear_thinking_20251015<br>keep: all</td><td class="v">clear_thinking_20251015<br>keep: all</td><td class="v">clear_thinking_20251015<br>keep: all</td><td class="v">clear_thinking_20251015<br>keep: all</td><td class="v">clear_thinking_20251015<br>keep: all</td><td class="vary n">·</td></tr>
+            <tr><th class="rh">output_config</th><td>{effort: high}</td><td>{effort: high}</td><td>{effort: high}</td><td>{effort: high}</td><td>{effort: high}</td><td>{effort: high}</td><td>{effort: high}</td><td>{effort: high}</td><td class="vary n">·</td></tr>
+            <tr><th class="rh">diagnostics</th><td class="v">{previous_message_id: null}</td><td class="v">{previous_message_id: null}</td><td class="hi">null</td><td class="v">{previous_message_id: null}</td><td class="hi">null</td><td class="v">{previous_message_id: null}</td><td class="v">{previous_message_id: null}</td><td class="v">{previous_message_id: null}</td><td class="vary y">✦</td></tr>
+            <tr><th class="rh">stream</th><td>true</td><td>true</td><td>true</td><td>true</td><td>true</td><td>true</td><td>true</td><td>true</td><td class="vary n">·</td></tr>
+            <tr class="grp"><th>Totals · prompt text characters</th><td colspan="9"></td></tr>
+            <tr><th class="rh">system[] blocks</th><td class="hi">12,285</td><td class="hi">11,040</td><td class="hi">10,545</td><td class="hi">146</td><td class="hi">135</td><td class="hi">146</td><td class="hi">11,022</td><td class="hi">6,860</td><td class="vary y">✦</td></tr>
+            <tr><th class="rh">+ role: system message</th><td class="hi">14,454</td><td class="hi">12,470</td><td class="hi">12,009</td><td class="hi">12,396</td><td class="hi">7,588</td><td class="hi">12,396</td><td class="hi">12,396</td><td class="hi">12,396</td><td class="vary y">✦</td></tr>
+            <tr><th class="rh">+ user turn</th><td>19,312</td><td>19,312</td><td>19,312</td><td>19,312</td><td>19,312</td><td>19,312</td><td>19,312</td><td class="hi">22,649</td><td class="vary y">✦</td></tr>
+            <tr><th class="rh">= prompt text total</th><td class="hi">46,051</td><td class="hi">42,822</td><td class="hi">41,866</td><td class="hi">31,854</td><td class="hi">27,035</td><td class="hi">31,854</td><td class="hi">42,730</td><td class="hi">41,905</td><td class="vary y">✦</td></tr>
+            <tr><th class="rh">Content-Length · bytes<br><span class="dim">above + tool schemas + JSON envelope</span></th><td class="hi">104,309</td><td class="hi">85,524</td><td class="hi">130,728</td><td class="hi">74,243</td><td class="hi">115,586</td><td class="hi">74,285</td><td class="hi">85,395</td><td class="hi">84,559</td><td class="vary y">✦</td></tr>
+            <tr><th class="rh">tool schemas · share of body</th><td>54.5%</td><td>48.0%</td><td class="hi">67.5%</td><td class="hi">55.3%</td><td class="hi">76.3%</td><td class="hi">55.3%</td><td>48.1%</td><td>48.5%</td><td class="vary y">✦</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+    <div class="finding">
+      <h3>What each column actually is</h3>
+      <p>
+        The three SDK columns are not three products — they are three values of one option,
+        <code>options.systemPrompt</code>, passed to the same <code>query()</code> call.
+      </p>
+      <p class="mono" style="font-size:0.78rem; line-height:1.9">
+        <strong>Interactive</strong> — <span class="dim">you type <code>claude</code> in a terminal</span><br>
+        <strong>Headless</strong> — <span class="dim"><code>claude -p "…"</code></span><br>
+        <strong>SDK default</strong> — <span class="dim"><code>query({ prompt })</code>, systemPrompt omitted</span><br>
+        <strong>SDK preset</strong> — <span class="dim"><code>systemPrompt: { type: 'preset', preset: 'claude_code' }</code></span><br>
+        <strong>SDK + excludeDynamic</strong> — <span class="dim">…the same, plus <code>excludeDynamicSections: true</code></span>
+      </p>
+      <p>
+        Every cell shows its real value — no ditto marks — so a column reads top-to-bottom on its
+        own. <strong>Varies</strong> flags rows where the five configurations disagree.
+      </p>
+      <p>
+        <strong>Two units, deliberately.</strong> Everything labelled <em>chars</em> counts the
+        characters of prompt text itself — the <code>text</code> field of each block, with no JSON
+        around it. <code>Content-Length</code> is the only figure in <em>bytes</em>, and it measures
+        the whole serialized request: that same text, plus 11–13 tool schemas, plus the JSON
+        envelope. They are not comparable, which is the point of showing both — SDK default's
+        <span class="mono">146</span> characters of system prompt still ride inside a
+        <span class="mono">74,243</span>-byte request.
+      </p>
+    </div>
+
+    <div class="grid2">
+      <div class="finding">
+        <h3>CLI vs SDK is seven differences, not one</h3>
+        <p>
+          Block 1's identity line is the most quotable, but interactive and SDK-preset also differ in
+          <code>User-Agent</code>, two beta flags, <code>cc_entrypoint</code>/<code>cch</code>,
+          block 3 (+1,271), the <code>role: system</code> message (+2,058), and two tools. Only
+          <strong>block 2 is byte-identical</strong>.
+        </p>
+      </div>
+      <div class="finding">
+        <h3>Headless is the odd one on <code>thinking</code></h3>
+        <p>
+          <code>display: "omitted"</code> appears in <code>-p</code> only. Interactive and all three
+          SDK configurations send bare <code>{type: adaptive}</code>. I earlier framed this as
+          interactive dropping the field — it is headless adding it.
+        </p>
+      </div>
+    </div>
+
+    <div class="finding warn">
+      <h3>Going off first-party disables deferred tool loading — in both clients</h3>
+      <p>
+        Columns three and five point <code>ANTHROPIC_BASE_URL</code> at a local sink instead of <code>api.anthropic.com</code> — one CLI, one SDK. The credential never left the machine; the runs 401, but the requests are fully formed by then.
+      </p>
+      <p>
+        Both proxied columns confirm it, so this is <strong>base-URL-driven, not client-driven</strong> —
+        the CLI and the SDK behave identically once off first-party:
+      </p>
+      <div class="scroll">
+        <table class="std">
+          <thead><tr><th></th><th class="num">tools</th><th class="num">tools bytes</th><th class="num">body</th><th class="num">tools % of body</th></tr></thead>
+          <tbody>
+            <tr><td class="lbl">Headless — first-party</td><td class="num">11</td><td class="num">41,066</td><td class="num">85,524</td><td class="num">48.0%</td></tr>
+            <tr class="spotlight"><td class="lbl">Headless — proxied</td><td class="num">28</td><td class="num">88,224</td><td class="num">130,728</td><td class="num">67.5%</td></tr>
+            <tr><td class="lbl">SDK default — first-party</td><td class="num">11</td><td class="num">41,053</td><td class="num">74,243</td><td class="num">55.3%</td></tr>
+            <tr class="spotlight"><td class="lbl">SDK default — proxied</td><td class="num">28</td><td class="num">88,211</td><td class="num">115,586</td><td class="num">76.3%</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>
+        The 17 tools that were deferred behind <code>ToolSearch</code> — <code>Cron*</code>,
+        <code>Task*</code>, <code>WebFetch</code>, <code>WebSearch</code>, <code>Monitor</code>,
+        <code>SendMessage</code> and the rest — all ship eagerly instead, and the two proxied tool
+        sets are identical to each other. The <code>role: system</code> message shrinks to match,
+        because the deferred-tool roster it carried has nothing left to announce.
+      </p>
+      <p>
+        Three other things go with it: the system blocks collapse (2 and 3 merge),
+        <code>scope: "global"</code> disappears so cross-session cached prefixes are
+        first-party-only, and two beta flags drop (<code>advanced-tool-use</code>,
+        <code>cache-diagnosis</code>). The irony is worth naming: <strong>SDK default proxied has
+        the smallest system prompt of any column (135 chars) and the second-largest request
+        body</strong> — 76% of it tool schemas. Turning the prompt off saves nothing next to
+        losing deferred loading.
+      </p>
+    </div>
+
+    <div class="finding warn">
+      <h3>Correction: <code>#&nbsp;Doing&nbsp;tasks</code> is not in the Opus 5 prompt at all</h3>
+      <p>
+        I had this row marked "present" across the Opus columns. It is <strong>absent from every
+        Opus 5 run</strong> — I carried the finding over from the Haiku output-style experiment
+        without rechecking. The two models get structurally different core blocks:
+      </p>
+      <p class="mono" style="font-size:0.78rem; line-height:1.9">
+        Haiku &nbsp;&nbsp;block[2] 10,676 chars — # System · <strong># Doing tasks</strong> · # Executing actions with care · # Using your tools · # Tone and style<br>
+        Opus 5 &nbsp;block[2] &nbsp;1,210 chars — identity · security policy · # Harness
+      </p>
+      <p>
+        So the custom-output-style deletion documented in matrix 2 is a <em>Haiku</em> finding. The
+        row stays in matrix 1 as a constant marked absent, rather than being dropped, because
+        "it isn't there on Opus 5" is itself worth seeing.
+      </p>
+    </div>
+
+    <div class="finding warn">
+      <h3>The credential changes the request — it enables refusal fallbacks</h3>
+      <p>
+        Column six is the same <code>query({ prompt })</code> as column three, same working
+        directory, same account. The only change is authenticating with an explicit
+        <code>CLAUDE_CODE_OAUTH_TOKEN</code> instead of the logged-in session credential. Three
+        things move:
+      </p>
+      <p class="mono" style="font-size:0.78rem; line-height:1.9">
+        <span style="color:var(--add)">+</span> beta flag &nbsp;<code>server-side-fallback-2026-06-01</code><br>
+        <span style="color:var(--add)">+</span> body field &nbsp;<code>fallbacks: [{ model: "claude-opus-4-8" }]</code>
+      </p>
+      <p>
+        Everything else is byte-identical: the same 146-character system prompt, the same 11 tools,
+        the same 12,396-character <code>role: system</code> message, the same
+        <code>account_uuid</code> and <code>device_id</code>. Only <code>session_id</code> and the
+        bearer token differ, as they would between any two runs.
+      </p>
+      <p>
+        What it buys: if Opus 5's safety classifiers decline the request, the API re-runs it on
+        Opus 4.8 server-side and returns that answer, instead of handing back a
+        <code>stop_reason: "refusal"</code> for you to handle. <strong>No other configuration in
+        either matrix sends <code>fallbacks</code></strong> — under the session credential a refusal
+        is simply a refusal. That is a meaningful behavioural difference to inherit from a choice
+        that looks purely like plumbing.
+      </p>
+      <p>
+        <strong>Replicated with a second, independently generated token</strong> to rule out
+        something specific to how the first was provisioned. Both produce byte-identical requests —
+        same 14 beta flags, same <code>fallbacks</code> array, same 74,285-byte body — differing
+        only in <code>session_id</code> and <code>cch</code>, as any two runs would. The trigger is
+        the <em>kind</em> of credential, not the individual token. The second column is therefore
+        not shown separately; it would be a duplicate.
+      </p>
+      <p>
+        <strong>Correction, and it invalidates something I said earlier:</strong> I described
+        <code>cch</code> as a config fingerprint. It is not. Three byte-identical runs — same token,
+        same directory, same everything — produced <span class="mono">652f4</span>,
+        <span class="mono">9af34</span>, <span class="mono">b5d44</span>. Across the whole capture it holds <strong>36 distinct values in 36 calls and never repeats</strong>, and it differs both between the main call and the title-generation call of one session, and between two calls of a single turn. It is a
+        per-request value carrying no configuration signal, so the fact that it changes between any
+        two columns of the matrix means nothing. Its row is greyed out and excluded from
+        <em>Differences only</em> for that reason.
+      </p>
+    </div>
+  </section>
+
+  <!-- ================= BILLING HEADER ================= -->
+  <section>
+    <p class="eyebrow">Block 0, properly this time</p>
+    <h2>The billing header has four fields, and I had two of them wrong</h2>
+    <p class="note">
+      Every capture above was a single-call turn. Forcing a turn that requires a tool call — so the
+      harness makes a second <code>/v1/messages</code> request to continue — exposes a field that
+      never appears otherwise, and settles what the other two actually mean.
+    </p>
+    <pre><span class="c">── call 1: the initial request ───────────────────────</span>
+x-anthropic-billing-header: cc_version=2.1.220.190; cc_entrypoint=sdk-cli; cch=469f4;
+                            <span class="c">response request-id: req_011CdanCmQZtcHAfWJPiQmaD</span>
+
+<span class="c">── call 2: continuing the SAME turn, after the tool ran ──</span>
+x-anthropic-billing-header: cc_version=2.1.220.190; cc_entrypoint=sdk-cli; cch=38c66; <span class="s">cc_prev_req=req_011CdanCmQZtcHAfWJPiQmaD;</span>
+                            <span class="c">↑ exactly call 1's request-id</span></pre>
+    <div class="scroll">
+      <table class="std">
+        <thead><tr><th>Field</th><th>Scope</th><th>Evidence</th></tr></thead>
+        <tbody>
+          <tr><td class="mono">cc_version</td><td class="lbl">Stable config fingerprint</td>
+            <td class="wrapcell">19 calls share <code>.b89</code>, 15 share <code>.6cb</code>. Tracks call kind (main vs title-generation) <em>and</em> tool/permission config — the <code>--allowedTools Bash</code> run got its own <code>.190</code>. This is the field that carries config signal.</td></tr>
+          <tr><td class="mono">cc_entrypoint</td><td class="lbl">Delivery surface</td>
+            <td class="wrapcell"><code>cli</code> / <code>sdk-cli</code> / <code>sdk-ts</code>. Stable and meaningful.</td></tr>
+          <tr><td class="mono">cch</td><td class="lbl">Per <em>call</em>, not per turn</td>
+            <td class="wrapcell">36 distinct values in 36 calls, never repeated — including <code>469f4</code> → <code>38c66</code> between two calls of one turn, same session id. Carries no config signal.</td></tr>
+          <tr><td class="mono">cc_prev_req</td><td class="lbl">Continuation chain</td>
+            <td class="wrapcell">Present on 1 of 36 calls — the only continuation call captured. Holds the previous response's <code>request-id</code>, linking calls within a turn.</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <h3>Where it comes from, and how to turn it off</h3>
+    <p class="note">
+      The <code>claude</code> binary is a 245 MB Bun single-file executable with its bundled
+      JavaScript embedded as plain text. Searching the raw bytes for the literal
+      <code>x-anthropic-billing-header: cc_version=</code> lands on the builder:
+    </p>
+    <pre>function RYn(e, t, r) {
+  <span class="s">if (su(process.env.CLAUDE_CODE_ATTRIBUTION_HEADER)) return "";</span>   <span class="c">← kill switch</span>
+  let n = `${VERSION}.${e}`,
+      o = process.env.CLAUDE_CODE_ENTRYPOINT ?? "unknown",
+      i = xn(),                                          <span class="c">provider</span>
+      s = i === "firstParty" &amp;&amp; Yd() || i === "vertex" ? " cch=00000;" : "",
+      l = kKn() ? ` cc_workload=${kKn()};` : "",
+      c = _de(t) &amp;&amp; !t.isMainSession ? " cc_is_subagent=true;" : "",
+      u = r &amp;&amp; i === "firstParty" &amp;&amp; Yd() ? ` cc_prev_req=${r};` : "";
+  return `x-anthropic-billing-header: cc_version=${n}; cc_entrypoint=${o};${s}${l}${c}${u}`
+}
+
+<span class="c">// Yd() — "are we talking to the real Anthropic API?"</span>
+function Yd(){ if (Z._CLAUDE_CODE_ASSUME_FIRST_PARTY_BASE_URL) return true; return d6r() }
+function d6r(){ let e = process.env.ANTHROPIC_BASE_URL; if (!e) return true; return T1e(e) }
+function T1e(e){ try { return ["api.anthropic.com"].includes(new URL(e).host) } catch { return false } }
+
+<span class="c">// su() — treats these as "disabled"</span>
+function su(e){ … return ["0","false","no","off"].includes(String(e).toLowerCase().trim()) }</pre>
+    <div class="finding">
+      <h3>Two ways to drop it, both verified on the wire</h3>
+      <p>
+        <code>CLAUDE_CODE_ATTRIBUTION_HEADER=0</code> removes the <strong>entire header</strong> —
+        <code>system[]</code> goes from <span class="mono">[84, 62]</span> to
+        <span class="mono">[62]</span>. Block 0 simply isn't emitted.
+      </p>
+      <p>
+        Pointing <code>ANTHROPIC_BASE_URL</code> anywhere other than
+        <code>api.anthropic.com</code> drops just <code>cch</code> and
+        <code>cc_prev_req</code> (both gated on <code>Yd()</code>), leaving
+        <code>cc_version</code> and <code>cc_entrypoint</code> — 84 chars becomes 74. Note
+        <strong>Vertex still sends <code>cch</code></strong>; Bedrock, Foundry, AWS, Google Cloud,
+        Mantle and gateway do not.
+      </p>
+      <p>
+        Also worth knowing: <code>cc_entrypoint</code> is literally
+        <code>process.env.CLAUDE_CODE_ENTRYPOINT ?? "unknown"</code>. The surface labels this whole
+        report keys on are an environment variable, not an intrinsic property — honest here because
+        nothing overrode it, but settable.
+      </p>
+    </div>
+    <div class="finding">
+      <h3>The documentation names both fields, and it matches the measurements</h3>
+      <p>
+        Anthropic documents this block as carrying "the client version and a prompt fingerprint",
+        and notes that before v2.1.181 it "included <strong>a per-request token</strong> on custom
+        base URLs and Microsoft Foundry connections". That maps cleanly onto what the capture shows,
+        and resolves which field is which:
+      </p>
+      <div class="scroll">
+        <table class="std">
+          <thead><tr><th>Field</th><th>Documented as</th><th>Measured behaviour</th></tr></thead>
+          <tbody>
+            <tr><td class="mono">cc_version</td><td class="lbl">client version + prompt fingerprint</td>
+              <td class="wrapcell">Suffix is stable per configuration — 19 calls share <code>.b89</code>, 15 share <code>.6cb</code>, and <code>--allowedTools</code> produced its own <code>.190</code>. ✔ a fingerprint.</td></tr>
+            <tr><td class="mono">cch</td><td class="lbl">per-request token</td>
+              <td class="wrapcell">36 distinct values in 36 calls, never repeated, changes between two calls of one turn, no config signal. ✔ per-request, not a hash.</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>
+        I had guessed <code>cch</code> was the config hash and been wrong twice before measuring it
+        properly. The fingerprint was always in the field next door.
+      </p>
+      <p>
+        Still unknown: <strong>how the per-request token's value is produced.</strong> The builder
+        emits the literal <code>" cch=00000;"</code> and no capture ever carried
+        <code>00000</code>; I searched the raw bytes for every <code>cch=</code> (3 hits), every
+        <code>x-anthropic-billing-header</code> (8 — the rest are the block-assembly code that tags
+        this line <code>cacheScope: null</code>), and for five-hex generators. No substitution site
+        in the plaintext bundle.
+      </p>
+    </div>
+
+    <div class="finding">
+      <h3>Do you need to disable it behind a gateway? On 2.1.181+, no</h3>
+      <p>
+        The documented reason to set <code>CLAUDE_CODE_ATTRIBUTION_HEADER=0</code> is a gateway that
+        <strong>caches on the request body</strong>: a token that changes every request would sit at
+        the very front of that body and miss the cache every time. That applied
+        <strong>before v2.1.181</strong>, when the per-request token was still sent on custom base
+        URLs.
+      </p>
+      <p>
+        On 2.1.220 the client already omits it off first-party — the <code>Yd()</code> gate — so
+        there is nothing volatile left to strip. Two proxied runs with identical configuration:
+      </p>
+      <pre>run 1  x-anthropic-billing-header: cc_version=2.1.220.b89; cc_entrypoint=sdk-cli;
+run 2  x-anthropic-billing-header: cc_version=2.1.220.b89; cc_entrypoint=sdk-cli;
+
+block[0] byte-identical  <span class="s">true</span>      system[] identical  <span class="s">true</span>      tools[] identical  <span class="s">true</span></pre>
+      <p>
+        A body-keyed gateway cache sees a completely stable prefix. Set it to <code>0</code> only if
+        you are on <strong>2.1.180 or earlier</strong>, connecting to <strong>Microsoft Foundry</strong>
+        directly, or you simply want the ~80 bytes and the client-version disclosure gone. And note
+        the documentation's own caveat: on a direct connection to the Anthropic API, caching is
+        unaffected either way — because this block is tagged <code>cacheScope: null</code> and never
+        enters the cached prefix at all.
+      </p>
+    </div>
+
+    <div class="finding warn">
+      <h3>Two corrections</h3>
+      <p>
+        I called <code>cch</code> a config hash and said the <code>cc_version</code> suffix "tracks
+        call type, not surface". Both were wrong, and in a way that swapped their roles:
+        <strong>the stable config fingerprint is the <code>cc_version</code> suffix</strong>, while
+        <code>cch</code> is per-call noise. And the suffix isn't only about call type — passing
+        <code>--allowedTools</code> produced a distinct value at the same tool count.
+      </p>
+      <p>
+        The reason this took four attempts to get right: every earlier capture was one call per
+        turn, so per-call and per-turn were indistinguishable, and <code>cc_prev_req</code> could
+        not appear at all. A field that only exists on continuation calls is invisible until you
+        capture a turn that has one.
+      </p>
+    </div>
+  </section>
+
+  <!-- ================= FALLBACK DETECTION ================= -->
+  <section>
+    <p class="eyebrow">Response side</p>
+    <h2>Telling whether a fallback actually fired</h2>
+    <p class="note">
+      Requesting fallbacks and <em>using</em> one are different events. The request says it is
+      willing to fall back; only the response says whether it did. Three independent signals, all
+      in the SSE stream:
+    </p>
+    <div class="scroll">
+      <table class="std">
+        <thead><tr><th>Signal</th><th>Where</th><th>Normal turn</th><th>Fallback served</th></tr></thead>
+        <tbody>
+          <tr><td class="lbl">Iteration type</td><td class="mono">message_delta →<br>usage.iterations[].type</td>
+            <td class="mono yes">"message"</td><td class="mono no">"fallback_message"</td></tr>
+          <tr><td class="lbl">Switch marker</td><td class="mono">content block</td>
+            <td class="dim">absent</td>
+            <td class="mono">{type: "fallback",<br>from: {…}, to: {…}}</td></tr>
+          <tr><td class="lbl">Serving model</td><td class="mono">message_start →<br>message.model</td>
+            <td class="mono">claude-opus-5</td><td class="mono">claude-opus-4-8</td></tr>
+          <tr><td class="lbl">Refusal reason</td><td class="mono">message_delta →<br>delta.stop_details</td>
+            <td class="mono">null</td><td class="mono">{category: "cyber" …}</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="note">
+      Prefer the <strong>iteration type</strong> as the primary check. The <code>fallback</code>
+      content block marks a switch point, but a turn routed to the fallback model by sticky routing
+      carries no block at all — <code>usage.iterations</code> still reports it.
+    </p>
+
+    <h3>What the 34 captured responses show</h3>
+    <pre><span class="c">── across every /v1/messages response in the capture ──</span>
+iterations[].type    {"message": 34}          <span class="c">← no fallback served, ever</span>
+stop_reason          {"end_turn": 34}
+stop_details         {null: 34}               <span class="c">← nothing was refused</span>
+serving model        claude-opus-5: 11, claude-haiku-4-5: 23</pre>
+    <p class="note">
+      So: the token runs <em>requested</em> fallbacks, and no request in this capture ever triggered
+      one. That is the expected result — nothing here was refusal-adjacent, and I did not try to
+      provoke a refusal to demonstrate the path.
+    </p>
+
+    <div class="finding">
+      <h3>A capture gotcha worth knowing</h3>
+      <p>
+        Responses arrive <code>Content-Encoding: gzip</code>, and a proxy addon that tees raw stream
+        chunks writes those bytes compressed. Grepping the saved streams for
+        <code>fallback</code> finds nothing whether or not a fallback occurred — you have to
+        <code>gzip.decompress</code> first. Worth checking before concluding a signal is absent.
+      </p>
+    </div>
+
+    <h3>Incidentally: the cache is working</h3>
+    <pre>usage: {"input_tokens": 2,
+        "cache_read_input_tokens": 27083,   <span class="c">← 27k of 27k served from cache</span>
+        "cache_creation_input_tokens": 0,
+        "output_tokens": 4,
+        "service_tier": "standard",
+        "inference_geo": "not_available"}</pre>
+    <p class="note">
+      On a repeat run the entire prompt prefix — system blocks, tools, the
+      <code>role: system</code> message — is a cache read, and only 2 tokens are billed at full
+      rate. This is what <code>excludeDynamicSections</code> is trying to achieve across
+      <em>different users</em> rather than across repeat runs by one user.
+    </p>
+  </section>
+
+  <!-- ================= MATRIX 2 ================= -->
+  <section>
+    <p class="eyebrow">Matrix two</p>
+    <h2>Every field, by output style</h2>
+    <p class="note">
+      Separate controlled run: <code>claude-haiku-4-5</code> throughout, headless <code>-p</code>,
+      same working directory, varying only <code>outputStyle</code>. Absolute sizes are
+      <strong>not</strong> comparable with matrix one — the prompt is heavily model-dependent.
+    </p>
+
+    <div class="mbox" data-expand>
+      <div class="mhead">
+        <span class="cap">output styles · 4 configurations <span class="count"></span></span>
+        <span class="mctl">
+          <button class="filter" type="button" aria-pressed="false">Differences only</button>
+          <button class="expand" type="button">Expand full screen</button>
+        </span>
+      </div>
+      <div class="mscroll">
+        <table class="mx">
+          <thead>
+            <tr>
+              <th class="rh">Field</th>
+              <th>No style<span>reference</span></th>
+              <th>Explanatory<span>built-in</span></th>
+              <th>Learning<span>built-in</span></th>
+              <th>Custom<span>user-authored</span></th>
+              <th>Varies</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr class="grp"><th>Transport</th><td colspan="5"></td></tr>
+            <tr><th class="rh">cc_entrypoint</th><td>sdk-cli</td><td>sdk-cli</td><td>sdk-cli</td><td>sdk-cli</td><td class="vary n">·</td></tr>
+            <tr><th class="rh">cch <span class="dim">· per-request, no config signal</span></th>
+              <td class="hi">e7239</td><td class="hi">7e65c</td><td class="hi">2885c</td><td class="hi">5ff39</td><td class="vary y">✦</td></tr>
+            <tr><th class="rh">anthropic-beta · count</th><td>10</td><td>10</td><td>10</td><td>10</td><td class="vary n">·</td></tr>
+            <tr><th class="rh">Content-Length · bytes</th>
+              <td class="hi">94,134</td><td class="hi">94,910</td><td class="hi">98,859</td><td class="hi">90,859</td><td class="vary y">✦</td></tr>
+
+            <tr class="grp"><th>system[1] — identity</th><td colspan="5"></td></tr>
+            <tr><th class="rh">text · length</th><td>62</td><td>62</td><td>62</td><td>62</td><td class="vary n">·</td></tr>
+
+            <tr class="grp"><th>system[2] — core prompt</th><td colspan="5"></td></tr>
+            <tr><th class="rh">length · chars</th>
+              <td class="hi">10,676</td><td class="hi">10,739</td><td class="hi">10,739</td><td class="hi">7,418</td><td class="vary y">✦</td></tr>
+            <tr><th class="rh">sha256</th>
+              <td class="hi">5930501c4490</td><td class="hi">2d4434471fb0</td><td class="hi">2d4434471fb0</td><td class="hi">6869f44a77a6</td><td class="vary y">✦</td></tr>
+            <tr><th class="rh">distinct states</th>
+              <td class="v" colspan="4">3 — one per {none · built-in · custom}, never keyed on the style's own text</td><td class="vary y">✦</td></tr>
+            <tr><th class="rh">opening sentence</th>
+              <td class="hi">original</td><td>rewritten</td><td>rewritten</td><td>rewritten</td><td class="vary y">✦</td></tr>
+            <tr><th class="rh"># Doing tasks section</th>
+              <td class="plus">present</td><td class="plus">present</td><td class="plus">present</td><td class="gone">deleted −3,321</td><td class="vary y">✦</td></tr>
+            <tr><th class="rh">└ prefer editing files</th><td class="plus">yes</td><td class="plus">yes</td><td class="plus">yes</td><td class="gone">gone</td><td class="vary y">✦</td></tr>
+            <tr><th class="rh">└ OWASP security warning</th><td class="plus">yes</td><td class="plus">yes</td><td class="plus">yes</td><td class="gone">gone</td><td class="vary y">✦</td></tr>
+            <tr><th class="rh">└ scope discipline</th><td class="plus">yes</td><td class="plus">yes</td><td class="plus">yes</td><td class="gone">gone</td><td class="vary y">✦</td></tr>
+            <tr><th class="rh">└ comment policy</th><td class="plus">yes</td><td class="plus">yes</td><td class="plus">yes</td><td class="gone">gone</td><td class="vary y">✦</td></tr>
+            <tr><th class="rh">└ verify UI in browser</th><td class="plus">yes</td><td class="plus">yes</td><td class="plus">yes</td><td class="gone">gone</td><td class="vary y">✦</td></tr>
+            <tr><th class="rh">└ /help + feedback URL</th><td class="plus">yes</td><td class="plus">yes</td><td class="plus">yes</td><td class="gone">gone</td><td class="vary y">✦</td></tr>
+
+            <tr class="grp"><th>system[3] — environment</th><td colspan="5"></td></tr>
+            <tr><th class="rh">length · chars</th>
+              <td class="hi">17,408</td><td class="hi">18,461</td><td class="hi">22,323</td><td class="hi">17,613</td><td class="vary y">✦</td></tr>
+            <tr><th class="rh">chars added</th>
+              <td class="na">—</td><td class="plus">+1,053</td><td class="plus">+4,915</td><td class="plus">+205</td><td class="vary y">✦</td></tr>
+            <tr><th class="rh">chars removed</th>
+              <td class="na">—</td><td>0</td><td>0</td><td>0</td><td class="vary n">·</td></tr>
+            <tr><th class="rh">insert point</th>
+              <td class="na">—</td><td>96% depth</td><td>96% depth</td><td>96% depth</td><td class="vary n">·</td></tr>
+
+            <tr class="grp"><th>messages[] and tools[]</th><td colspan="5"></td></tr>
+            <tr><th class="rh">user turn · chars</th>
+              <td>10,970</td><td>10,475</td><td>10,472</td><td>10,826</td><td class="vary y">✦</td></tr>
+            <tr><th class="rh">role: system msg</th>
+              <td class="gone">absent</td><td class="gone">absent</td><td class="gone">absent</td><td class="gone">absent</td><td class="vary n">·</td></tr>
+            <tr><th class="rh">tools · count</th><td>11</td><td>11</td><td>11</td><td>11</td><td class="vary n">·</td></tr>
+            <tr><th class="rh">tool schemas</th><td>identical</td><td>identical</td><td>identical</td><td>identical</td><td class="vary n">·</td></tr>
+
+            <tr class="grp"><th>Totals · prompt text characters</th><td colspan="5"></td></tr>
+            <tr><th class="rh">system[] blocks 0–3</th>
+              <td class="hi">28,231</td><td class="hi">29,347</td><td class="hi">33,209</td><td class="hi">25,178</td><td class="vary y">✦</td></tr>
+            <tr><th class="rh">+ role: system message</th>
+              <td class="gone">absent</td><td class="gone">absent</td><td class="gone">absent</td><td class="gone">absent</td><td class="vary n">·</td></tr>
+            <tr><th class="rh">+ user turn</th>
+              <td>10,970</td><td>10,475</td><td>10,472</td><td>10,826</td><td class="vary y">✦</td></tr>
+            <tr><th class="rh">= prompt text total</th>
+              <td class="hi">39,201</td><td class="hi">39,822</td><td class="hi">43,681</td><td class="hi">36,004</td><td class="vary y">✦</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="finding warn">
+      <h3>A custom style is the only configuration that removes anything</h3>
+      <p>
+        Built-in styles are purely additive — block 3 grows, block 2 gains one rewritten sentence,
+        nothing is deleted anywhere. A custom style does all that <em>and</em> strikes the entire
+        <code>#&nbsp;Doing&nbsp;tasks</code> section from block 2 in a single 3,321-character delete.
+        Block 2 has exactly three states and never contains your style's text, so this is not
+        something you configure — it follows from choosing "custom" at all. Restate what you need in
+        your style body, which lands in block 3 verbatim.
+      </p>
+    </div>
+  </section>
+
+  <!-- ================= ANATOMY ================= -->
+  <section>
+    <p class="eyebrow">Anatomy</p>
+    <h2>Five regions carry instructions, not four</h2>
+    <p class="note">
+      Four ordered blocks in <code>system[]</code>, plus a <code>role: "system"</code> message
+      inside <code>messages[]</code> holding hook output, the deferred-tool roster, agent types and
+      the skills catalogue.
+    </p>
+    <div class="scroll">
+      <table class="std">
+        <thead><tr><th>Region</th><th>Carries</th><th>Varies with</th><th>Cache control</th></tr></thead>
+        <tbody>
+          <tr><td class="mono">system[0]</td><td class="wrapcell">Billing header — <code>cc_version</code>, <code>cc_entrypoint</code>, <code>cch</code>, and on continuation calls <code>cc_prev_req</code></td><td>Surface, style, call position</td><td class="dim">none</td></tr>
+          <tr><td class="mono">system[1]</td><td class="wrapcell">One-line product identity</td><td>Surface</td><td class="dim">none</td></tr>
+          <tr><td class="mono">system[2]</td><td class="wrapcell">Core identity, security policy, <code>#&nbsp;Doing&nbsp;tasks</code></td><td>Style only</td><td class="mono">ephemeral 1h · scope global</td></tr>
+          <tr><td class="mono">system[3]</td><td class="wrapcell">Formatting, tone, environment, CLAUDE.md, memory, git status</td><td>Surface, style, cwd</td><td class="mono">ephemeral 1h</td></tr>
+          <tr><td class="mono">messages[1]<br><span class="dim">role: system</span></td><td class="wrapcell">Hook output, deferred tools, agent types, skills catalogue</td><td>Model, hooks, skills</td><td class="mono">ephemeral 1h</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="finding">
+      <h3>The <code>role: system</code> message is model-gated</h3>
+      <p>
+        Same working directory, same prompt, only the model changed.
+        <code>claude-opus-5</code> sends <span class="mono">user 19,312 + system 12,396</span>;
+        <code>claude-haiku-4-5</code> sends <span class="mono">user 30,277</span> and no system
+        message at all — the content folds into the user turn. That is why matrix two shows
+        <span class="mono">absent</span> in every column, and why its beta list is 10 flags rather
+        than 13: <code>mid-conversation-system</code>, <code>effort</code> and
+        <code>fallback-credit</code> are all missing on Haiku.
+      </p>
+    </div>
+  </section>
+
+  <!-- ================= WORKED EXAMPLE ================= -->
+  <section>
+    <p class="eyebrow">Worked example</p>
+    <h2>One complete request</h2>
+    <p class="note">
+      A single interactive turn — the user typed <em>"Reply with exactly: OK"</em>. Body:
+      <strong>104,309 bytes</strong>. Account, device, session and organization identifiers are
+      <code>«redacted»</code>; the bearer token was redacted at capture time.
+    </p>
+
+    <pre><span class="c">── request ───────────────────────────────────────────</span>
+POST https://api.anthropic.com/v1/messages?beta=true HTTP/1.1
+
+Authorization:      Bearer «redacted»            <span class="c">115 chars — OAuth, not x-api-key</span>
+anthropic-version:  2023-06-01
+anthropic-beta:     <span class="c">15 flags →</span> claude-code-20250219, oauth-2025-04-20,
+                    context-1m-2025-08-07, interleaved-thinking-2025-05-14,
+                    redact-thinking-2026-02-12, thinking-token-count-2026-05-13,
+                    context-management-2025-06-27, prompt-caching-scope-2026-01-05,
+                    mid-conversation-system-2026-04-07, advisor-tool-2026-03-01,
+                    advanced-tool-use-2025-11-20, effort-2025-11-24,
+                    fallback-credit-2026-06-01, extended-cache-ttl-2025-04-11,
+                    cache-diagnosis-2026-04-07
+User-Agent:         claude-cli/2.1.220 (external, cli)
+x-app:              cli
+Content-Length:     104309
+
+<span class="c">── body ──────────────────────────────────────────────</span>
+model                "claude-opus-5"
+system[0]                  81 chars   billing header
+system[1]                  57 chars   identity
+system[2]               1,210 chars   cached 1h, scope global
+system[3]              10,937 chars   cached 1h
+messages[0] user       19,312 chars   two text blocks
+messages[1] system     14,454 chars   cached 1h  <span class="c">← the region that's easy to miss</span>
+tools[]                        13     full JSON schemas — the bulk of the body
+metadata             { user_id: "{device_id, account_uuid, session_id}" } <span class="c">«redacted»</span>
+max_tokens           64000
+thinking             { "type": "adaptive" }
+context_management   { edits: [{ type: "clear_thinking_20251015", keep: "all" }] }
+output_config        { "effort": "high" }
+diagnostics          { "previous_message_id": null }
+stream               true
+
+<span class="c">── response ──────────────────────────────────────────</span>
+HTTP/1.1 <span class="s">200</span>   text/event-stream; charset=utf-8   chunked
+
+ratelimit-unified-status                 allowed
+ratelimit-unified-5h-utilization         0.14
+ratelimit-unified-7d-utilization         0.72
+ratelimit-unified-representative-claim   five_hour
+ratelimit-unified-overage-status         rejected
+ratelimit-unified-overage-disabled-reason  out_of_credits
+request-id                               req_011CdaXyfEkSm5s9GRv4G2mC</pre>
+    <p class="note">
+      Wire order is <code>tools</code> → <code>system</code> → <code>messages</code>, which is why a
+      changed tool list invalidates every cache breakpoint behind it. Both a 5-hour and a 7-day
+      rate-limit window are reported on every response.
+    </p>
+  </section>
+
+  <!-- ================= MINIMAL REQUEST ================= -->
+  <section>
+    <p class="eyebrow">Worked example · the other extreme</p>
+    <h2>The same turn, from <code>@zbc/agent</code></h2>
+    <p class="note">
+      The same prompt — <em>"Reply with exactly: OK"</em> — sent by the repo's minimal Agent SDK
+      configuration. Body: <strong>1,181 bytes</strong> against 104,309 above, and
+      <strong>124 input tokens</strong> against 23,355 on SDK defaults. Same redactions as before.
+    </p>
+
+    <pre><span class="c">── request ───────────────────────────────────────────</span>
+POST https://api.anthropic.com/v1/messages?beta=true HTTP/1.1
+
+Authorization:      Bearer «redacted»            <span class="c">115 chars — OAuth, not x-api-key</span>
+anthropic-version:  2023-06-01
+anthropic-beta:     <span class="c">9 flags →</span> oauth-2025-04-20, interleaved-thinking-2025-05-14,
+                    thinking-token-count-2026-05-13, context-management-2025-06-27,
+                    prompt-caching-scope-2026-01-05, claude-code-20250219,
+                    advisor-tool-2026-03-01, extended-cache-ttl-2025-04-11,
+                    cache-diagnosis-2026-04-07
+User-Agent:         claude-cli/2.1.220 (external, sdk-cli, agent-sdk/0.3.220)
+x-app:              cli
+Content-Length:     1181
+
+<span class="c">── body ──────────────────────────────────────────────</span>
+model                "claude-haiku-4-5"
+system[0]                    85 chars   billing header
+system[1]                    62 chars   identity, cached 1h
+messages[0] user           386 chars   2 text blocks (364 + 22)
+tools[]                   0           <span class="c">← empty array. the entire point</span>
+metadata             { user_id: "{device_id, account_uuid, session_id}" } <span class="c">«redacted»</span>
+max_tokens           32000
+thinking             {"type": "disabled"}   <span class="c">← off by default</span>
+temperature          1
+diagnostics          {"previous_message_id": null}
+stream               true
+
+<span class="c">── response ──────────────────────────────────────────</span>
+HTTP/1.1 <span class="s">200</span>   text/event-stream; charset=utf-8   chunked
+
+ratelimit-unified-status                 allowed_warning
+ratelimit-unified-5h-utilization         0.23
+ratelimit-unified-7d-utilization         0.77
+ratelimit-unified-representative-claim   seven_day
+ratelimit-unified-overage-status         rejected
+request-id                               req_011Cdb4egDNFnAqmFFuCAA9e
+
+<span class="c">── usage (from the stream) ───────────────────────────</span>
+input_tokens                124   <span class="c">vs 23,355 on SDK defaults</span>
+output_tokens                 4   <span class="c">was 100 with thinking on — 93 of them thinking</span>
+cache_read                    0   <span class="c">below the cache minimum — nothing to cache</span>
+
+7 SSE events: message_start → content_block_start → ping → content_block_delta → content_block_stop → message_delta → message_stop</pre>
+    <p class="note">
+      Four levers get it here, and they are not equally interesting.
+      <code>tools: []</code> does most of the work — schemas are 55–76% of a default body.
+      <code>settingSources: []</code> drops CLAUDE.md, skills and hooks.
+      <code>thinking: disabled</code> is the one that shows up in <em>output</em>: with it on, this
+      reply cost 100 output tokens of which 93 were spent thinking about a four-word instruction.
+      <code>autoMemoryEnabled: false</code> is not a token lever at all — without it the operator's
+      personal memory index rides along in that user turn, which is why the block is 386 chars here
+      and 2,128 before it was switched off.
+    </p>
+    <p class="note">
+      Two things this request does <em>not</em> get. There is no <code>system[2]</code> or
+      <code>system[3]</code> — the SDK ships no operating instructions, only a 62-character identity
+      line. And at 124 tokens it sits below the model's minimum cacheable prompt, so the
+      <code>cached 1h</code> marker on <code>system[1]</code> never pays off. Prompt caching only
+      starts to matter once an agent carries tools or a real system prompt.
+    </p>
+  </section>
+
+  <!-- ================= DIFFS ================= -->
+  <section>
+    <p class="eyebrow">Line by line</p>
+    <h2>The four diffs behind the matrices</h2>
+
+    <div class="diff">
+      <span class="dcap">system[1] · identity — the only two values, selected by entrypoint</span>
+      <span class="ln hunk">@@ cc_entrypoint=cli @@</span>
+      <span class="ln add">+ You are Claude Code, Anthropic's official CLI for Claude.</span>
+      <span class="ln hunk">@@ cc_entrypoint=sdk-cli · sdk-ts @@</span>
+      <span class="ln del">- You are a Claude agent, built on Anthropic's Claude Agent SDK.</span>
+    </div>
+
+    <div class="diff">
+      <span class="dcap">system[3] · headless -p → interactive · +1,254 chars, three inserts, zero deletions</span>
+      <span class="ln hunk">@@ -7,2 +7,3 @@</span>
+      <span class="ln ctx">  # Session-specific guidance</span>
+      <span class="ln add">+  - If you need the user to run a shell command themselves (e.g., an interactive login like `gcloud auth login`), suggest they type `! &lt;command&gt;` in the prompt — the `!` prefix runs the command in this session so its output lands directly in the conversation.</span>
+      <span class="ln hunk">@@ -46,2 +47,18 @@</span>
+      <span class="ln add">+ # Scratchpad Directory</span>
+      <span class="ln add">+ IMPORTANT: Always use this scratchpad directory for temporary files instead of `/tmp` …</span>
+      <span class="ln add">+ `/private/tmp/claude-501/…/7a05817e-…/scratchpad`</span>
+      <span class="ln add">+ … 12 further lines …</span>
+      <span class="ln ctx"> # Context management</span>
+      <span class="ln hunk">@@ -65,2 +82,4 @@</span>
+      <span class="ln ctx"> Do not use workflows or deep-research unless the user requested it</span>
+      <span class="ln add">+ EndConversation (deferred tool): use only for sustained user abuse directed at the assistant, or when the user explicitly asks to see it demonstrated. …</span>
+    </div>
+
+    <div class="diff">
+      <span class="dcap">system[3] · SDK preset → + excludeDynamicSections · −4,162 chars, four deletions, zero insertions</span>
+      <span class="ln hunk">@@ -6,36 +6,3 @@</span>
+      <span class="ln del">- # Session-specific guidance  … 2 lines …</span>
+      <span class="ln del">- # Memory</span>
+      <span class="ln del">- You have a persistent file-based memory at `/Users/…/memory/` …  … 20 lines: frontmatter schema, memory types, MEMORY.md index rules …</span>
+      <span class="ln ctx"> # Environment</span>
+      <span class="ln del">- You have been invoked in the following environment: </span>
+      <span class="ln del">-  - Primary working directory: /Users/uptown/Projects/zabaca/zbc</span>
+      <span class="ln del">-  - Is a git repository: true</span>
+      <span class="ln del">-  - Platform: darwin</span>
+      <span class="ln del">-  - Shell: zsh</span>
+      <span class="ln del">-  - OS Version: Darwin 25.5.0</span>
+      <span class="ln ctx">   - You are powered by the model named Opus 5. The exact model ID is claude-opus-5.</span>
+      <span class="ln hunk">@@ -44,3 +11,2 @@</span>
+      <span class="ln del">-  - Fast mode for Claude Code uses Claude Opus with faster output … toggled with /fast …</span>
+      <span class="ln hunk">@@ -65,34 +31 @@</span>
+      <span class="ln del">- gitStatus: This is the git status at the start of the conversation. …  … 32 further lines …</span>
+    </div>
+    <div class="finding warn">
+      <h3>The saving is 825 characters, not 4,162</h3>
+      <p>
+        All four sections reappear in the first user message inside a
+        <code>&lt;system-reminder&gt;</code>. Netting the move out:
+      </p>
+      <p class="mono" style="font-size:0.78rem; line-height:1.9">
+        system[] &nbsp; 11,022 → 6,860 &nbsp; <span style="color:var(--del)">−4,162</span><br>
+        user turn &nbsp; 19,312 → 22,649 &nbsp; <span style="color:var(--add)">+3,337</span><br>
+        <strong>net &nbsp;&nbsp;&nbsp;&nbsp;&nbsp; 42,730 → 41,905 &nbsp; −825</strong>
+      </p>
+      <p>
+        So <code>excludeDynamicSections</code> is not a size optimization — it removes about 2% of
+        the prompt text. Its whole value is <em>cache-prefix stability</em>: the per-user content
+        leaves the cached prefix and lands after it, so every user in a fleet shares one cacheable
+        prefix. Judge it on cache hit rate, never on payload size.
+      </p>
+    </div>
+
+    <div class="diff">
+      <span class="dcap">system[2] · both output-style changes</span>
+      <span class="ln hunk">@@ change 1 — any style · the opening sentence @@</span>
+      <span class="ln del">- You are an interactive agent that helps users with software engineering tasks. Use the instructions below and the tools available to you to assist the user.</span>
+      <span class="ln add">+ You are an interactive agent that helps users according to your "Output Style" below, which describes how you should respond to user queries. Use the instructions below and the tools available to you to assist the user.</span>
+      <span class="ln hunk">@@ change 2 — custom styles only · −3,321 / +0 @@</span>
+      <span class="ln del">- # Doing tasks</span>
+      <span class="ln del">-  - Prefer editing existing files to creating new ones.</span>
+      <span class="ln del">-  - Be careful not to introduce security vulnerabilities such as command injection, XSS, SQL injection, and other OWASP top 10 vulnerabilities. …</span>
+      <span class="ln del">-  - Don't add features, refactor, or introduce abstractions beyond what the task requires. …</span>
+      <span class="ln del">-  - Default to writing no comments. Only add one when the WHY is non-obvious …</span>
+      <span class="ln del">-  - For UI or frontend changes, start the dev server and use the feature in a browser before reporting the task as complete. …</span>
+      <span class="ln del">- … 11 further lines …</span>
+    </div>
+  </section>
+
+  <!-- ================= INVARIANTS ================= -->
+  <section>
+    <p class="eyebrow">Across everything</p>
+    <h2>What never changed — and one correction</h2>
+    <ul>
+      <li><strong>Block 2 is byte-identical across every Opus surface</strong> — <span class="mono">3b27271fa44c</span>. Entrypoint never touches the core prompt; only output style does.</li>
+      <li><strong>Output styles never touch the tool list.</strong> 11 tools, identical schemas, in all four style configurations.</li>
+      <li><strong>Block 3 is append-only for output styles</strong> — every style diff measured <span class="mono">−0</span> deleted characters.</li>
+      <li><code>model</code>, <code>max_tokens</code>, <code>context_management</code>, <code>output_config</code>, <code>diagnostics</code> and <code>stream</code> are constant across all five clients.</li>
+    </ul>
+    <div class="finding warn">
+      <h3>Correction: tool schemas do differ between CLI and SDK</h3>
+      <p>
+        I previously said tool schemas never drift. Building this matrix showed <code>Bash</code>
+        differing — 1,366 chars under the CLI against 1,353 under the SDK. The cause is cosmetic:
+        the co-author line embeds the model label, and my session's variant string
+        (<code>Claude Opus 5 (1M context)</code> vs <code>Claude Opus 5</code>) leaks into the tool
+        description. Same 13-character artifact that accounts for the SDK-preset vs headless block-3
+        delta. Input schemas are identical everywhere — five properties, same names — so the
+        substance of the claim holds, but "byte-identical" was wrong.
+      </p>
+    </div>
+  </section>
+
+  <footer>
+    <p>
+      Method: <code>HTTPS_PROXY</code> plus a combined CA bundle (certifi + mitmproxy CA) against a
+      native Mach-O <code>claude</code> binary, which honors <code>NODE_EXTRA_CA_CERTS</code>. A
+      mitmproxy addon streamed SSE responses through untouched while teeing them to disk, so the
+      client never stalled behind response buffering.
+    </p>
+    <p>
+      Sizes are characters, not tokens. Diff lines ending <span class="mono">…</span> are truncated
+      for width; counts are exact and unabridged. Matrix one used <code>claude-opus-5</code>, matrix
+      two <code>claude-haiku-4-5</code> — compare rows within a matrix, never across them. One
+      capture session against client 2.1.220; not a claim about other versions.
+    </p>
+  </footer>
+
+</div>
+
+<script>
+  (function () {
+    var boxes = document.querySelectorAll('[data-expand]');
+    function label(box) {
+      var btn = box.querySelector('.expand');
+      var open = document.fullscreenElement === box || box.classList.contains('blown');
+      btn.textContent = open ? 'Exit full screen' : 'Expand full screen';
+    }
+    // ---- differences-only filter ----
+    boxes.forEach(function (box) {
+      var table = box.querySelector('table.mx');
+      var count = box.querySelector('.count');
+      var fbtn = box.querySelector('.filter');
+      if (!table || !fbtn) return;
+
+      var rows = Array.prototype.slice.call(table.querySelectorAll('tbody tr'));
+      var total = 0, varying = 0;
+
+      rows.forEach(function (tr) {
+        if (tr.classList.contains('grp')) return;
+        total++;
+        var v = tr.querySelector('.vary');
+        if (v && v.classList.contains('y')) varying++;
+        else tr.classList.add('novary');
+      });
+
+      // A group header is hidden only when every row beneath it is constant.
+      var head = null, groupVaries = false;
+      rows.forEach(function (tr) {
+        if (tr.classList.contains('grp')) {
+          if (head && !groupVaries) head.classList.add('grpnovary');
+          head = tr;
+          groupVaries = false;
+        } else if (!tr.classList.contains('novary')) {
+          groupVaries = true;
+        }
+      });
+      if (head && !groupVaries) head.classList.add('grpnovary');
+
+      function paint() {
+        var on = table.classList.contains('varyonly');
+        fbtn.setAttribute('aria-pressed', on ? 'true' : 'false');
+        fbtn.textContent = on ? 'Show all fields' : 'Differences only';
+        count.textContent = on
+          ? '· ' + varying + ' of ' + total + ' fields differ'
+          : '· ' + total + ' fields, ' + varying + ' differ';
+      }
+
+      fbtn.addEventListener('click', function () {
+        table.classList.toggle('varyonly');
+        paint();
+      });
+      paint();
+    });
+
+    boxes.forEach(function (box) {
+      var btn = box.querySelector('.expand');
+      btn.addEventListener('click', function () {
+        if (document.fullscreenElement === box) { document.exitFullscreen(); return; }
+        if (box.classList.contains('blown')) { box.classList.remove('blown'); label(box); return; }
+        if (box.requestFullscreen) {
+          box.requestFullscreen().then(function () { label(box); }).catch(function () {
+            box.classList.add('blown'); label(box);
+          });
+        } else {
+          box.classList.add('blown'); label(box);
+        }
+      });
+    });
+    document.addEventListener('fullscreenchange', function () { boxes.forEach(label); });
+    document.addEventListener('keydown', function (e) {
+      if (e.key !== 'Escape') return;
+      boxes.forEach(function (box) {
+        if (box.classList.contains('blown')) { box.classList.remove('blown'); label(box); }
+      });
+    });
+  })();
+</script>
+
+<script>
+  (function () {
+    var root = document.documentElement;
+    var btn = document.createElement('button');
+    btn.className = 'themebtn';
+    btn.type = 'button';
+    function current() {
+      return root.dataset.theme ||
+        (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+    }
+    function paint() { btn.textContent = current() === 'dark' ? 'Light' : 'Dark'; }
+    try { if (localStorage.wireTheme) root.dataset.theme = localStorage.wireTheme; } catch (e) {}
+    btn.addEventListener('click', function () {
+      var next = current() === 'dark' ? 'light' : 'dark';
+      root.dataset.theme = next;
+      try { localStorage.wireTheme = next; } catch (e) {}
+      paint();
+    });
+    paint();
+    document.body.appendChild(btn);
+  })();
+</script>
+</body>
+</html>
