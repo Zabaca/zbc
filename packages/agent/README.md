@@ -128,6 +128,43 @@ prompt caching: `cch` changes per request but sits outside the cached prefix,
 and toggling it does not invalidate an existing cache (verified — a request with
 the header off read 23,238 tokens from a cache created with it on).
 
+## Profiles
+
+`minimalOptions()` decides what an agent *sends*. A profile decides what it
+*is* — instructions, tools, model tier — and composes through the base, so it
+cannot quietly undo a lever (there is a test for that).
+
+```ts
+import { askAs, profileOptions } from '@zbc/agent/profiles'
+
+await askAs('caveman', 'What is a bloom filter and when would you use one?')
+await askAs('caveman', 'Summarise this', { tools: ['Read'] })   // overrides win
+```
+
+The two layers optimise different budgets. The base attacks **input** tokens,
+where tool schemas dominate — at 124 tokens there is nothing left to win. A
+profile attacks **output**, where the system prompt is the only lever.
+
+### `caveman`
+
+Terse fragments; articles, filler and hedging dropped; identifiers, code,
+numbers and paths kept verbatim. Measured on `"What is a bloom filter and when
+would you use one?"`:
+
+| | Input | Output | Cost per 1M runs |
+|---|---:|---:|---:|
+| no profile | 131 | 415 | $2,206 |
+| `caveman` | 211 | **186** | **$1,141** |
+
+The prompt costs +80 input and saves 229 output — **−55% output, −48% cost**,
+because output bills 5× input on Haiku. A profile only pays for itself if the
+instruction is cheaper than the verbosity it removes, so the prompt is kept
+short and a test fails if it grows past 600 characters without re-measuring.
+
+Not for prose deliverables or anything user-facing — commit bodies, docs,
+customer-visible text. It is for machine-consumed output and operators who
+opted in.
+
 ## Development
 
 ```bash
