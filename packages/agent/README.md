@@ -47,6 +47,7 @@ instructions.
 | `thinking: { type: 'disabled' }` | Extended reasoning. Fine for classification and extraction; pass `{ type: 'adaptive' }` for anything that needs to think. |
 | `settings: { autoMemoryEnabled: false }` | Nothing you want. See below. |
 | `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1` | Auto-update checks, feature-flag lookups, and the session title. See below. |
+| `settings.disableClaudeAiConnectors` | claude.ai account connectors. Pass `claudeAiConnectors: true` to restore. |
 | `CLAUDE_CODE_ATTRIBUTION_HEADER=0` | The `system[0]` billing block. Discloses nothing new — see below. |
 
 ### Auto-memory is a correctness fix, not a token one
@@ -104,6 +105,18 @@ leave Anthropic's infrastructure entirely.
 The part that costs money is the session title — a second model call, **521
 input tokens**, 4.2× the real call's 124, to name a session no headless agent
 ever displays.
+
+`disableClaudeAiConnectors: true` removes the last one, leaving **a single
+outbound request**. `/v1/mcp_servers` fetches the MCP servers attached to the
+Anthropic *account* — claude.ai connectors — which is why `mcpServers: {}` and
+`strictMcpConfig` never suppressed it: those govern local config files, while
+this list is fetched with the operator's OAuth token. An agent with `tools: []`
+discards the result.
+
+The equivalent env var is `ENABLE_CLAUDEAI_MCP_SERVERS=0`, and note the trap:
+despite the `ENABLE_` name, the client tests it for a *falsy* string
+(`0`/`false`/`no`/`off`), so `=0` disables and `=1` does nothing. The settings
+key is clearer, which is why this package uses it.
 
 **`CLAUDE_CODE_ATTRIBUTION_HEADER=0` conceals nothing.** It removes the
 `system[0]` block carrying `cc_version` / `cc_entrypoint` / `cch`, worth ~110

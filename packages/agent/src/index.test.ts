@@ -17,8 +17,16 @@ test('defaults strip every lever that costs tokens', () => {
 test('auto-memory is off, and via inline settings rather than a file', () => {
   // `settingSources: []` does not suppress auto-memory, so this is the only
   // thing keeping the operator's memory index out of every request.
-  expect(minimalOptions().settings).toEqual({ autoMemoryEnabled: false })
-  expect(minimalOptions({ autoMemory: true }).settings).toEqual({ autoMemoryEnabled: true })
+  expect(minimalOptions().settings).toMatchObject({ autoMemoryEnabled: false })
+  expect(minimalOptions({ autoMemory: true }).settings).toMatchObject({ autoMemoryEnabled: true })
+})
+
+test('claude.ai connectors are off — the inverted name is easy to get backwards', () => {
+  // The setting is disableClaudeAiConnectors, so the option must be negated.
+  expect(minimalOptions().settings).toMatchObject({ disableClaudeAiConnectors: true })
+  expect(minimalOptions({ claudeAiConnectors: true }).settings).toMatchObject({
+    disableClaudeAiConnectors: false,
+  })
 })
 
 test('thinking can be restored for agents that reason', () => {

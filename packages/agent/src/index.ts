@@ -81,6 +81,21 @@ export type MinimalOptions = {
    * call's 124.
    */
   nonessentialTraffic?: boolean
+  /**
+   * claude.ai account connectors. Off by default — this is the last outbound
+   * request left, and it takes a run from two requests to one.
+   *
+   * These are MCP servers attached to the Anthropic account, not to any file,
+   * which is why `mcpServers: {}` and `strictMcpConfig` do not suppress them:
+   * those govern local config, and the client fetches this list from
+   * `/v1/mcp_servers` on the operator's OAuth token. For an agent with
+   * `tools: []` the result is discarded anyway.
+   *
+   * Pass `true` if an agent should reach the account's connectors — that also
+   * requires the token to carry the `user:mcp_servers` scope, and it is
+   * ignored entirely on API-key auth or a third-party provider.
+   */
+  claudeAiConnectors?: boolean
 }
 
 /**
@@ -96,6 +111,7 @@ export function minimalOptions({
   autoMemory = false,
   attribution = false,
   nonessentialTraffic = false,
+  claudeAiConnectors = false,
 }: MinimalOptions = {}): Options {
   return {
     model,
@@ -120,7 +136,10 @@ export function minimalOptions({
 
     // Inline settings, not a file — this must not depend on what is on disk,
     // which is the whole point of `settingSources: []`.
-    settings: { autoMemoryEnabled: autoMemory },
+    settings: {
+      autoMemoryEnabled: autoMemory,
+      disableClaudeAiConnectors: !claudeAiConnectors,
+    },
 
     ...(systemPrompt === undefined ? {} : { systemPrompt }),
   }

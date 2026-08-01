@@ -963,6 +963,10 @@ cache_read                    0   <span class="c">below the cache minimum — no
       generates a session title — 521 input tokens, 4.2× the real call, to name a session no
       headless agent displays. <code>CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1</code> takes that
       to two requests, and is the only one of the four disable-flags that changes anything here.
+      The last one, <code>/v1/mcp_servers</code>, is the account's claude.ai connectors — fetched
+      with the operator's OAuth token, which is why <code>mcpServers: {}</code> never suppressed it;
+      that governs local config files, not the account. <code>disableClaudeAiConnectors: true</code>
+      removes it, leaving a single outbound request for the whole run.
     </p>
     <p class="note">
       Two things this request does <em>not</em> get. There are no instruction blocks at all — the
