@@ -151,10 +151,10 @@ Terse fragments; articles, filler and hedging dropped; identifiers, code,
 numbers and paths kept verbatim. Measured on `"What is a bloom filter and when
 would you use one?"`:
 
-| | Input | Output | Cost per 1M runs |
+| | Input | Output | Cost per 1k runs |
 |---|---:|---:|---:|
-| no profile | 131 | 415 | $2,206 |
-| `caveman` | 211 | **186** | **$1,141** |
+| no profile | 131 | 415 | $2.21 |
+| `caveman` | 211 | **186** | **$1.14** |
 
 The prompt costs +80 input and saves 229 output — **−55% output, −48% cost**,
 because output bills 5× input on Haiku. A profile only pays for itself if the
