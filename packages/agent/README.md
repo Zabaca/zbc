@@ -22,7 +22,7 @@ both lands the same query at 661.
 | `tools: []` | 20,983 | 0 | 5,628 | −75.9% |
 | `settingSources: []` | 67,078 | 11 | 18,201 | −22.1% |
 | tools + settings + no MCP | 3,037 | 0 | 661 | −97.2% |
-| **`minimalOptions()`** | **1,181** | **0** | **124** | **−99.5%** |
+| **`minimalOptions()`** | **1,027** | **0** | **124** | **−99.5%** |
 
 Output tokens move too. With thinking left on, `"Reply with exactly: OK"` cost
 100 output tokens, **93 of them thinking** about a four-word instruction. With
@@ -46,6 +46,8 @@ instructions.
 | `mcpServers: {}` + `strictMcpConfig` | Every MCP server, including any a project config contributes. |
 | `thinking: { type: 'disabled' }` | Extended reasoning. Fine for classification and extraction; pass `{ type: 'adaptive' }` for anything that needs to think. |
 | `settings: { autoMemoryEnabled: false }` | Nothing you want. See below. |
+| `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1` | Auto-update checks, feature-flag lookups, and the session title. See below. |
+| `CLAUDE_CODE_ATTRIBUTION_HEADER=0` | The `system[0]` billing block. Discloses nothing new — see below. |
 
 ### Auto-memory is a correctness fix, not a token one
 
@@ -82,15 +84,36 @@ eagerly instead of 11, tool bytes go 41 KB → 88 KB, and the body reaches 115 K
 even with the smallest possible system prompt. With the default `tools: []`
 there are no schemas to expand, so a gateway costs nothing.
 
-**`CLAUDE_CODE_ATTRIBUTION_HEADER=0` is not a performance knob.** It removes the
-`cc_version` / `cc_entrypoint` / `cch` block, worth ~110 bytes and, measured,
-**0 tokens**. It has no effect on prompt caching either — `cch` changes per
-request but sits outside the cached prefix, and toggling the header does not
-invalidate an existing cache (verified: a request with the header off read
-23,238 tokens from a cache created with it on). Treat it as a disclosure
-choice. This package deliberately leaves it unset, so the decision stays with
-whoever deploys the agent; keep it on when running against a subscription OAuth
-token, where `cc_entrypoint` is what identifies the client.
+**Most of what the client sends is not your API call.** Answering one prompt
+took **ten outbound requests** on SDK defaults, of which one was the agent's:
+
+```
+api/claude_cli/bootstrap          api/claude_code_grove
+api/oauth/account/settings        api/claude_code_penguin_mode
+api/eval/<id>                     api/event_logging/v2/batch
+v1/mcp_servers                    http-intake.logs.us5.datadoghq.com/api/v2/logs
+v1/messages  <- the agent         v1/messages  <- session title generation
+```
+
+`CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1` takes that to two, and it is the
+only one of the four disable-flags that does anything measurable here
+(`DISABLE_TELEMETRY`, `DISABLE_ERROR_REPORTING` and `DISABLE_AUTOUPDATER` added
+nothing on top of it). It also stops third-party egress: those Datadog logs
+leave Anthropic's infrastructure entirely.
+
+The part that costs money is the session title — a second model call, **521
+input tokens**, 4.2× the real call's 124, to name a session no headless agent
+ever displays.
+
+**`CLAUDE_CODE_ATTRIBUTION_HEADER=0` conceals nothing.** It removes the
+`system[0]` block carrying `cc_version` / `cc_entrypoint` / `cch`, worth ~110
+bytes and **0 tokens**. The first two fields restate the `User-Agent`
+(`claude-cli/2.1.220 (external, sdk-cli, agent-sdk/0.3.220)`), and `device_id` /
+`account_uuid` / `session_id` travel in `metadata` regardless — so this is not a
+way to be anonymous, just a way to stop repeating yourself. It has no effect on
+prompt caching: `cch` changes per request but sits outside the cached prefix,
+and toggling it does not invalidate an existing cache (verified — a request with
+the header off read 23,238 tokens from a cache created with it on).
 
 ## Development
 

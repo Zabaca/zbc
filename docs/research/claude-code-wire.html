@@ -891,7 +891,7 @@ request-id                               req_011CdaXyfEkSm5s9GRv4G2mC</pre>
     <h2>The same turn, from <code>@zbc/agent</code></h2>
     <p class="note">
       The same prompt — <em>"Reply with exactly: OK"</em> — sent by the repo's minimal Agent SDK
-      configuration. Body: <strong>1,181 bytes</strong> against 104,309 above, and
+      configuration. Body: <strong>1,070 bytes</strong> against 104,309 above, and
       <strong>124 input tokens</strong> against 23,355 on SDK defaults. Same redactions as before.
     </p>
 
@@ -907,12 +907,11 @@ anthropic-beta:     <span class="c">9 flags →</span> oauth-2025-04-20, interle
                     cache-diagnosis-2026-04-07
 User-Agent:         claude-cli/2.1.220 (external, sdk-cli, agent-sdk/0.3.220)
 x-app:              cli
-Content-Length:     1181
+Content-Length:     1070
 
 <span class="c">── body ──────────────────────────────────────────────</span>
 model                "claude-haiku-4-5"
-system[0]                    85 chars   billing header
-system[1]                    62 chars   identity, cached 1h
+system[0]                    62 chars   identity, cached 1h
 messages[0] user           386 chars   2 text blocks (364 + 22)
 tools[]                   0           <span class="c">← empty array. the entire point</span>
 metadata             { user_id: "{device_id, account_uuid, session_id}" } <span class="c">«redacted»</span>
@@ -926,11 +925,11 @@ stream               true
 HTTP/1.1 <span class="s">200</span>   text/event-stream; charset=utf-8   chunked
 
 ratelimit-unified-status                 allowed_warning
-ratelimit-unified-5h-utilization         0.23
-ratelimit-unified-7d-utilization         0.77
+ratelimit-unified-5h-utilization         0.0
+ratelimit-unified-7d-utilization         0.78
 ratelimit-unified-representative-claim   seven_day
 ratelimit-unified-overage-status         rejected
-request-id                               req_011Cdb4egDNFnAqmFFuCAA9e
+request-id                               req_011Cdb5z3b8obj8TLw6s1xjD
 
 <span class="c">── usage (from the stream) ───────────────────────────</span>
 input_tokens                124   <span class="c">vs 23,355 on SDK defaults</span>
@@ -939,21 +938,37 @@ cache_read                    0   <span class="c">below the cache minimum — no
 
 7 SSE events: message_start → content_block_start → ping → content_block_delta → content_block_stop → message_delta → message_stop</pre>
     <p class="note">
-      Four levers get it here, and they are not equally interesting.
-      <code>tools: []</code> does most of the work — schemas are 55–76% of a default body.
+      One system block, no tools, and a user turn that is mostly the model's own date and the
+      operator's email. Five settings get it here, and they pull in different directions.
+      <code>tools: []</code> does the token work — schemas are 55–76% of a default body.
       <code>settingSources: []</code> drops CLAUDE.md, skills and hooks.
-      <code>thinking: disabled</code> is the one that shows up in <em>output</em>: with it on, this
-      reply cost 100 output tokens of which 93 were spent thinking about a four-word instruction.
-      <code>autoMemoryEnabled: false</code> is not a token lever at all — without it the operator's
-      personal memory index rides along in that user turn, which is why the block is 386 chars here
-      and 2,128 before it was switched off.
+      <code>thinking: disabled</code> shows up in <em>output</em> rather than input: with it on,
+      this reply cost 100 output tokens of which 93 went on thinking about a four-word instruction.
     </p>
     <p class="note">
-      Two things this request does <em>not</em> get. There is no <code>system[2]</code> or
-      <code>system[3]</code> — the SDK ships no operating instructions, only a 62-character identity
-      line. And at 124 tokens it sits below the model's minimum cacheable prompt, so the
-      <code>cached 1h</code> marker on <code>system[1]</code> never pays off. Prompt caching only
-      starts to matter once an agent carries tools or a real system prompt.
+      The last two are not about cost at all. <code>autoMemoryEnabled: false</code> keeps the
+      operator's personal memory index out of the request — <code>settingSources: []</code> does not
+      suppress it, and with it on that user turn is 2,128 chars of someone else's notes.
+      <code>CLAUDE_CODE_ATTRIBUTION_HEADER=0</code> removes the <code>system[0]</code> billing block
+      entirely, which is why the identity line is <code>system[0]</code> here and
+      <code>system[1]</code> everywhere else. It conceals nothing: <code>cc_version</code> and
+      <code>cc_entrypoint</code> restate the User-Agent, and the device, account and session IDs
+      still travel in <code>metadata</code>. It is worth 110 bytes and, measured, zero tokens.
+    </p>
+    <p class="note">
+      One more thing the defaults were spending. Answering this prompt took <strong>ten</strong>
+      outbound requests, only one of which was the agent's: a bootstrap call, an account-settings
+      call, two feature-flag endpoints, an eval endpoint, Anthropic's event-logging batch, logs to
+      <code>http-intake.logs.us5.datadoghq.com</code>, and a second <code>/v1/messages</code> that
+      generates a session title — 521 input tokens, 4.2× the real call, to name a session no
+      headless agent displays. <code>CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1</code> takes that
+      to two requests, and is the only one of the four disable-flags that changes anything here.
+    </p>
+    <p class="note">
+      Two things this request does <em>not</em> get. There are no instruction blocks at all — the
+      SDK ships a 62-character identity line and nothing else. And at 124 tokens it sits below the
+      model's minimum cacheable prompt, so the <code>cached 1h</code> marker never pays off. Prompt
+      caching only starts to matter once an agent carries tools or a real system prompt.
     </p>
   </section>
 

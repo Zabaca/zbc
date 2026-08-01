@@ -54,6 +54,33 @@ export type MinimalOptions = {
    * agent, and it makes the same prompt behave differently per machine.
    */
   autoMemory?: boolean
+  /**
+   * The `x-anthropic-billing-header` block — `cc_version`, `cc_entrypoint`,
+   * `cch` — sent as `system[0]`. Off by default: send the minimum that does
+   * the job.
+   *
+   * Nothing is concealed by this. The first two fields restate what the
+   * `User-Agent` already carries (`claude-cli/2.1.220 (external, sdk-cli,
+   * agent-sdk/0.3.220)`), and `device_id` / `account_uuid` / `session_id` go up
+   * in `metadata` either way. `cch` is the only field uniquely dropped; it is a
+   * per-request token whose purpose is undocumented, and removing it has no
+   * observable effect — including on prompt caching, since `system[0]` sits
+   * outside the cached prefix.
+   */
+  attribution?: boolean
+  /**
+   * Everything the client sends that is not the agent's own API call. Off by
+   * default, and it is the largest single reduction here — a default run makes
+   * **ten** outbound requests to answer one prompt; with this off it makes two.
+   *
+   * What stops: logs to a third-party collector (`http-intake.logs.us5
+   * .datadoghq.com`), `api/event_logging/v2/batch`, `api/claude_cli/bootstrap`,
+   * `api/oauth/account/settings`, and two feature-flag endpoints. It also stops
+   * the session-title model call, which is the part that costs money: 521 input
+   * tokens to title a session no headless agent ever displays — 4.2× the real
+   * call's 124.
+   */
+  nonessentialTraffic?: boolean
 }
 
 /**
@@ -67,12 +94,23 @@ export function minimalOptions({
   settingSources = [],
   thinking = { type: 'disabled' },
   autoMemory = false,
+  attribution = false,
+  nonessentialTraffic = false,
 }: MinimalOptions = {}): Options {
   return {
     model,
     tools,
     settingSources,
     thinking,
+
+    // The spread is load-bearing: `env` REPLACES the subprocess environment
+    // rather than merging into it, so dropping it would take PATH and HOME
+    // with it and the subprocess would not start.
+    env: {
+      ...process.env,
+      ...(attribution ? {} : { CLAUDE_CODE_ATTRIBUTION_HEADER: '0' }),
+      ...(nonessentialTraffic ? {} : { CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1' }),
+    },
 
     // No MCP servers, and ignore any a project config tries to contribute.
     // Without `strictMcpConfig` a stray `.mcp.json` silently reintroduces the

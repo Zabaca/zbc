@@ -25,6 +25,24 @@ test('thinking can be restored for agents that reason', () => {
   expect(minimalOptions({ thinking: { type: 'adaptive' } }).thinking).toEqual({ type: 'adaptive' })
 })
 
+test('attribution block is off, without clobbering the subprocess environment', () => {
+  // `env` replaces rather than merges, so losing PATH here means the
+  // subprocess never starts — a failure that would not look like a token bug.
+  const env = minimalOptions().env
+  expect(env?.CLAUDE_CODE_ATTRIBUTION_HEADER).toBe('0')
+  expect(env?.PATH).toBe(process.env.PATH)
+
+  const on = minimalOptions({ attribution: true }).env
+  expect('CLAUDE_CODE_ATTRIBUTION_HEADER' in (on ?? {})).toBe(false)
+  expect(on?.PATH).toBe(process.env.PATH)
+})
+
+test('non-essential traffic is off — ten outbound requests become two', () => {
+  expect(minimalOptions().env?.CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC).toBe('1')
+  const on = minimalOptions({ nonessentialTraffic: true }).env
+  expect('CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC' in (on ?? {})).toBe(false)
+})
+
 test('no systemPrompt key unless asked for, so the SDK sends its own', () => {
   // Passing `systemPrompt: undefined` explicitly would still create the key and
   // is not the same thing to the SDK as omitting it.
