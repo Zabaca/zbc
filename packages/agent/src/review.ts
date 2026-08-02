@@ -101,6 +101,10 @@ export function reviewerOptions(workspace: Workspace, options: ReviewOptions = {
  * There is no `collect()` step: the agent cannot write, so the review in `text`
  * is the whole product. The workspace still comes back open, and disposing it is
  * the caller's.
+ *
+ * Follow-up questions continue the session rather than starting a new review —
+ * pass the result's `workspace` and `sessionId` back in, and the reviewer keeps
+ * everything it already read.
  */
 export function review(target: string, options: ReviewOptions = {}): Promise<ReviewResult> {
   return runSandboxed(reviewer, target, options)

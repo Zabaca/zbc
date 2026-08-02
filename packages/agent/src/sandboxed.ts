@@ -26,6 +26,22 @@ export type SandboxedProfile = MinimalOptions & {
 }
 
 export type RunOptions = SandboxOptions & {
+  /**
+   * Workspace to run in. Omitted, a fresh one is created and handed back.
+   *
+   * Pass one to keep working in the same clone across calls — the agent sees the
+   * files it already changed, and `collect()` still runs once at the end. A
+   * workspace the caller supplied is the caller's: failure will not dispose it.
+   */
+  workspace?: Workspace
+  /**
+   * Session to continue, from a previous `RunResult.sessionId`.
+   *
+   * Requires `workspace`, and the same one: the CLI keeps session transcripts
+   * under `CLAUDE_CONFIG_DIR`, which points inside the workspace, so a fresh
+   * workspace has no history to resume and would silently start over.
+   */
+  resume?: string
   /** Repository to work on. Defaults to the current working directory. */
   repo?: string
   /** Branch checked out in the workspace. Defaults to a unique `agent/<id>`. */
@@ -41,6 +57,8 @@ export type RunOptions = SandboxOptions & {
 export type RunResult = {
   /** Kept open deliberately: the caller owns `collect()` and `dispose()`. */
   workspace: Workspace
+  /** Pass back as `resume`, with this same workspace, to continue the session. */
+  sessionId: string
   /** The agent's prose. What it *did* is in the workspace, not here. */
   text: string
   turns: number
@@ -93,6 +111,7 @@ export function sandboxedOptions(
     allowDangerouslySkipPermissions: true,
 
     ...(options.maxTurns === undefined ? {} : { maxTurns: options.maxTurns }),
+    ...(options.resume === undefined ? {} : { resume: options.resume }),
   }
 }
 
@@ -108,12 +127,25 @@ export async function runSandboxed(
   input: string,
   options: RunOptions = {},
 ): Promise<RunResult> {
-  const workspace = await createWorkspace({
-    ...(options.repo === undefined ? {} : { repo: options.repo }),
-    ...(options.branch === undefined ? {} : { branch: options.branch }),
-    ...(options.allowRead === undefined ? {} : { allowRead: options.allowRead }),
-    ...(options.allowedDomains === undefined ? {} : { allowedDomains: options.allowedDomains }),
-  })
+  if (options.resume !== undefined && options.workspace === undefined) {
+    throw new Error(
+      'resume needs the workspace the session ran in. Session transcripts live ' +
+        'under CLAUDE_CONFIG_DIR, which points inside the workspace, so a fresh ' +
+        'one has no history and the agent would silently start over.',
+    )
+  }
+
+  // A caller-supplied workspace is the caller's to dispose, including on failure
+  // — the point of passing one is that it outlives the call.
+  const owned = options.workspace === undefined
+  const workspace =
+    options.workspace ??
+    (await createWorkspace({
+      ...(options.repo === undefined ? {} : { repo: options.repo }),
+      ...(options.branch === undefined ? {} : { branch: options.branch }),
+      ...(options.allowRead === undefined ? {} : { allowRead: options.allowRead }),
+      ...(options.allowedDomains === undefined ? {} : { allowedDomains: options.allowedDomains }),
+    }))
 
   try {
     let text = ''
@@ -121,6 +153,7 @@ export async function runSandboxed(
     let stopReason = 'unknown'
     let usage: Record<string, unknown> = {}
     let totalCostUsd = 0
+    let sessionId = ''
 
     for await (const message of query({
       prompt: profile.prompt ? profile.prompt(input) : input,
@@ -136,13 +169,15 @@ export async function runSandboxed(
         stopReason = message.subtype ?? 'unknown'
         usage = (message.usage ?? {}) as Record<string, unknown>
         totalCostUsd = message.total_cost_usd ?? 0
+        sessionId = message.session_id
       }
     }
 
-    return { workspace, text: text.trim(), turns, stopReason, usage, totalCostUsd }
+    return { workspace, sessionId, text: text.trim(), turns, stopReason, usage, totalCostUsd }
   } catch (error) {
-    // Only on failure — a successful run leaves the workspace for the caller.
-    await workspace.dispose()
+    // Only when we created it. A successful run always leaves the workspace for
+    // the caller, and a borrowed one is never ours to throw away.
+    if (owned) await workspace.dispose()
     throw error
   }
 }

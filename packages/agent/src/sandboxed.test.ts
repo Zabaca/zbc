@@ -4,6 +4,7 @@
 // a third sandboxed profile got full coverage only if someone remembered to copy
 // eleven tests. Now it gets them by appearing in the table below.
 import { execFile as execFileCb } from 'node:child_process'
+import { existsSync } from 'node:fs'
 import { mkdtemp, writeFile } from 'node:fs/promises'
 import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -12,7 +13,7 @@ import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import { coding } from './coding'
 import { ESSENTIAL_ENV } from './index'
 import { reviewer } from './review'
-import { type SandboxedProfile, sandboxedOptions } from './sandboxed'
+import { type SandboxedProfile, runSandboxed, sandboxedOptions } from './sandboxed'
 import { type Workspace, createWorkspace } from './workspace'
 
 const execFile = promisify(execFileCb)
@@ -48,6 +49,31 @@ const PROFILES: Array<[string, SandboxedProfile]> = [
   ['coding', coding],
   ['review', reviewer],
 ]
+
+test('resuming without the original workspace is refused, not silently restarted', async () => {
+  // Session transcripts live under CLAUDE_CONFIG_DIR, which points inside the
+  // workspace. A fresh workspace has no history, so the agent would start over
+  // and the caller would see a plausible answer to the wrong conversation.
+  await expect(runSandboxed(coding, 'anything', { resume: 'some-session-id' })).rejects.toThrow(
+    /resume needs the workspace/,
+  )
+})
+
+test('a borrowed workspace survives a failed run', async () => {
+  // The caller passed it in because it outlives the call; disposing it on error
+  // would throw away work from earlier runs in the same session.
+  const borrowed = await createWorkspace({ repo: origin })
+  await expect(
+    runSandboxed(coding, 'anything', {
+      workspace: borrowed,
+      // No credential reaches the wire: an impossible model fails at the CLI.
+      overrides: { model: 'no-such-model-zbc-test' },
+      maxTurns: 1,
+    }),
+  ).rejects.toThrow()
+  expect(existsSync(borrowed.dir)).toBe(true)
+  await borrowed.dispose()
+})
 
 for (const [name, profile] of PROFILES) {
   describe(name, () => {
@@ -164,6 +190,11 @@ for (const [name, profile] of PROFILES) {
     test('maxTurns is omitted unless asked for', () => {
       expect('maxTurns' in sandboxedOptions(profile, ws)).toBe(false)
       expect(sandboxedOptions(profile, ws, { maxTurns: 9 }).maxTurns).toBe(9)
+    })
+
+    test('resume is omitted unless asked for', () => {
+      expect('resume' in sandboxedOptions(profile, ws)).toBe(false)
+      expect(sandboxedOptions(profile, ws, { resume: 'abc' }).resume).toBe('abc')
     })
   })
 }

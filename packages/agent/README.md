@@ -215,6 +215,28 @@ curl example.com        → CONNECT tunnel failed, response 403
 author                  → zbc agent <agent@zbc.local>
 ```
 
+### Continuing a run
+
+A result carries its `sessionId`, and the workspace is still on disk — so a run
+can be picked up rather than restarted:
+
+```ts
+const first = await code('Add a --json flag to the CLI', { traits: [committing] })
+
+const next = await code('It should suppress the banner too.', {
+  workspace: first.workspace, // same clone: it sees what it already changed
+  resume: first.sessionId, // same session: it remembers why
+  traits: [committing],
+})
+
+await collect(next.workspace)
+```
+
+`resume` without `workspace` throws. Session transcripts live under
+`CLAUDE_CONFIG_DIR`, which points inside the workspace, so a fresh one has no
+history — the agent would silently start over and answer confidently from
+nothing. A workspace you pass in is yours: a failed run will not dispose it.
+
 `review` is the read-only sibling: `Read, Grep, Glob, Bash`, no `Write`/`Edit`,
 Opus 5 at **high** effort — the inverse of `coding`'s low, because a review is a
 few turns whose whole value is catching what a cheaper pass misses.

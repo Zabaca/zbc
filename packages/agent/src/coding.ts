@@ -79,11 +79,25 @@ export function codingOptions(workspace: Workspace, options: CodeOptions = {}): 
 }
 
 /**
- * Run a coding task against a fresh workspace.
+ * Run a coding task.
  *
  * The agent commits nothing unless told to. Pass the `committing` trait, or say
  * so in the task, or `collect()` will report `commits: []` and the work will die
  * with the workspace.
+ *
+ * To iterate on what it produced, pass the result's `workspace` and `sessionId`
+ * back in — the agent then sees both its own history and the files it already
+ * changed:
+ *
+ * ```ts
+ * const first = await code('Add a --json flag to the CLI', { traits: [committing] })
+ * const next = await code('The flag should also suppress the banner.', {
+ *   workspace: first.workspace,
+ *   resume: first.sessionId,
+ *   traits: [committing],
+ * })
+ * await collect(next.workspace)
+ * ```
  */
 export function code(task: string, options: CodeOptions = {}): Promise<CodeResult> {
   return runSandboxed(coding, task, options)
