@@ -5,9 +5,15 @@
 // that can edit the code under review is not a reviewer, it is a second author
 // — and it runs at high effort rather than low, because a review is a handful
 // of turns whose entire value is catching what a cheaper pass would miss.
-import { type Options, query } from '@anthropic-ai/claude-agent-sdk'
-import { type MinimalOptions, minimalOptions } from './index'
-import { type SandboxOptions, type Workspace, createWorkspace, workspaceEnv } from './workspace'
+import type { Options } from '@anthropic-ai/claude-agent-sdk'
+import {
+  type RunOptions,
+  type RunResult,
+  type SandboxedProfile,
+  runSandboxed,
+  sandboxedOptions,
+} from './sandboxed'
+import type { Workspace } from './workspace'
 
 export const REVIEW_MODEL = 'claude-opus-5'
 
@@ -78,132 +84,32 @@ export const reviewer = {
   settingSources: ['project'],
   thinking: { type: 'adaptive' },
   systemPrompt: REVIEW_PROMPT,
-} as const satisfies MinimalOptions & { description: string }
+  prompt: reviewPrompt,
+} as const satisfies SandboxedProfile
 
-export type ReviewOptions = SandboxOptions & {
-  /** Repository to review. Defaults to the current working directory. */
-  repo?: string
-  /** Branch checked out in the workspace. Defaults to a unique `agent/<id>`. */
-  branch?: string
-  /** Cap on agent turns. Left unset, the SDK decides. */
-  maxTurns?: number
-  /** Overrides applied over the profile — tools, model, effort, and so on. */
-  overrides?: MinimalOptions
-}
+export type ReviewOptions = RunOptions
+export type ReviewResult = RunResult
 
-export type ReviewResult = {
-  /** Kept open deliberately: the caller owns `dispose()`. */
-  workspace: Workspace
-  /** The review. A reviewer leaves no commits, so this is the whole product. */
-  text: string
-  turns: number
-  stopReason: string
-  usage: Record<string, unknown>
-  totalCostUsd: number
-}
-
-/**
- * Options for a reviewer confined to a workspace.
- *
- * Split out from `review()` so the composition is inspectable without running
- * anything — the sandbox is the security boundary, and a test should be able to
- * assert its shape.
- */
+/** Options for a reviewer confined to `workspace`. */
 export function reviewerOptions(workspace: Workspace, options: ReviewOptions = {}): Options {
-  const { description: _description, ...profile } = reviewer
-
-  return {
-    ...minimalOptions({
-      ...profile,
-      ...options.overrides,
-      env: { ...workspaceEnv(workspace), ...options.overrides?.env },
-      // After the overrides, so it cannot be switched back on by accident. A
-      // reviewer cannot write, but it can still run `env` and put a credential
-      // into the review text.
-      inheritEnv: false,
-    }),
-
-    cwd: workspace.dir,
-
-    // The containment. The SDK spawns this instead of the CLI; it runs the real
-    // binary inside sandbox-runtime, so every tool lands in the boundary rather
-    // than only the ones that shell out.
-    //
-    // The SDK's own `sandbox` option is deliberately absent: it cannot be
-    // combined with this one. The kernel refuses `sandbox_apply` inside an
-    // existing sandbox, so enabling it kills every Bash command with exit 71.
-    pathToClaudeCodeExecutable: workspace.shim,
-
-    // The kernel is the boundary, not the permission prompt — and a headless
-    // run has nobody to answer one. Everything this bypasses is already denied
-    // by the profile, which is what makes it safe to bypass.
-    permissionMode: 'bypassPermissions',
-    allowDangerouslySkipPermissions: true,
-
-    ...(options.maxTurns === undefined ? {} : { maxTurns: options.maxTurns }),
-  }
+  return sandboxedOptions(reviewer, workspace, options)
 }
 
 /**
- * Review `target` — a git ref range like `main..feature`, or a path — against a
- * fresh workspace.
+ * Review `target` — a git ref range like `main..feature`, or a path.
  *
- * Returns with the workspace still on disk so the caller can follow up in it,
- * and owns `dispose()`. There is no `collect()` step here: the agent cannot
- * write, so the review in `text` is the only thing produced.
+ * There is no `collect()` step: the agent cannot write, so the review in `text`
+ * is the whole product. The workspace still comes back open, and disposing it is
+ * the caller's.
  */
-export async function review(target: string, options: ReviewOptions = {}): Promise<ReviewResult> {
-  const workspace = await createWorkspace({
-    ...(options.repo === undefined ? {} : { repo: options.repo }),
-    ...(options.branch === undefined ? {} : { branch: options.branch }),
-    ...(options.allowRead === undefined ? {} : { allowRead: options.allowRead }),
-    ...(options.allowedDomains === undefined ? {} : { allowedDomains: options.allowedDomains }),
-  })
-
-  try {
-    let text = ''
-    let turns = 0
-    let stopReason = 'unknown'
-    let usage: Record<string, unknown> = {}
-    let totalCostUsd = 0
-
-    for await (const message of query({
-      prompt: reviewPrompt(target),
-      options: reviewerOptions(workspace, options),
-    })) {
-      if (message.type === 'assistant') {
-        for (const block of message.message?.content ?? []) {
-          if (block.type === 'text') text += block.text
-        }
-      }
-      if (message.type === 'result') {
-        turns = message.num_turns ?? 0
-        stopReason = message.subtype ?? 'unknown'
-        usage = (message.usage ?? {}) as Record<string, unknown>
-        totalCostUsd = message.total_cost_usd ?? 0
-      }
-    }
-
-    return {
-      workspace,
-      text: text.trim(),
-      turns,
-      stopReason,
-      usage,
-      totalCostUsd,
-    }
-  } catch (error) {
-    // Unlike `code()`, nothing is left behind worth keeping on failure either —
-    // but the successful path still hands the workspace back to the caller.
-    await workspace.dispose()
-    throw error
-  }
+export function review(target: string, options: ReviewOptions = {}): Promise<ReviewResult> {
+  return runSandboxed(reviewer, target, options)
 }
 
 /**
- * The user turn. `target` is passed through verbatim rather than interpreted:
- * a ref range and a path read the same way to git, and guessing which one this
- * is would only be wrong occasionally, which is the worst frequency.
+ * The user turn. `target` is passed through verbatim rather than interpreted: a
+ * ref range and a path read the same way to git, and guessing which one this is
+ * would only be wrong occasionally, which is the worst frequency.
  */
 export function reviewPrompt(target: string): string {
   return `Review: ${target}\n\nThis is either a git ref range or a path in this repository. Work out which, examine it, and report your findings.`

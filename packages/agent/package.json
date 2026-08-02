@@ -6,9 +6,12 @@
   "exports": {
     ".": "./src/index.ts",
     "./profiles": "./src/profiles.ts",
+    "./traits": "./src/traits.ts",
+    "./sandboxed": "./src/sandboxed.ts",
     "./coding": "./src/coding.ts",
     "./review": "./src/review.ts",
-    "./workspace": "./src/workspace.ts"
+    "./workspace": "./src/workspace.ts",
+    "./sandbox": "./src/sandbox.ts"
   },
   "scripts": {
     "dev": "bun run src/cli.ts",

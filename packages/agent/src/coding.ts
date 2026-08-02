@@ -5,9 +5,15 @@
 // 124, and the Claude Code preset adds ~3,148 more. Both sit in the cached
 // prefix, so the recurring cost is a cache read; there is nothing to win by
 // trimming them and a working agent to lose.
-import { type Options, query } from '@anthropic-ai/claude-agent-sdk'
-import { type MinimalOptions, minimalOptions } from './index'
-import { type SandboxOptions, type Workspace, createWorkspace, workspaceEnv } from './workspace'
+import type { Options } from '@anthropic-ai/claude-agent-sdk'
+import {
+  type RunOptions,
+  type RunResult,
+  type SandboxedProfile,
+  runSandboxed,
+  sandboxedOptions,
+} from './sandboxed'
+import type { Workspace } from './workspace'
 
 export const CODING_MODEL = 'claude-opus-5'
 
@@ -62,124 +68,23 @@ export const coding = {
     preset: 'claude_code',
     excludeDynamicSections: true,
   },
-} as const satisfies MinimalOptions & { description: string }
+} as const satisfies SandboxedProfile
 
-export type CodeOptions = SandboxOptions & {
-  /** Repository to work on. Defaults to the current working directory. */
-  repo?: string
-  /** Branch for the agent's work. Defaults to a unique `agent/<id>`. */
-  branch?: string
-  /** Cap on agent turns. Left unset, the SDK decides. */
-  maxTurns?: number
-  /** Overrides applied over the profile — tools, model, effort, and so on. */
-  overrides?: MinimalOptions
-}
+export type CodeOptions = RunOptions
+export type CodeResult = RunResult
 
-export type CodeResult = {
-  /** Kept open deliberately: the caller owns `collect()` and `dispose()`. */
-  workspace: Workspace
-  branch: string
-  /** The agent's prose. What it *did* is in the workspace, not here. */
-  text: string
-  turns: number
-  stopReason: string
-  usage: Record<string, unknown>
-  totalCostUsd: number
-}
-
-/**
- * Options for an agent confined to a workspace.
- *
- * Split out from `code()` so the composition is inspectable without running
- * anything — the sandbox is the security boundary, and a test should be able to
- * assert its shape.
- */
+/** Options for a coding agent confined to `workspace`. */
 export function codingOptions(workspace: Workspace, options: CodeOptions = {}): Options {
-  const { description: _description, ...profile } = coding
-
-  return {
-    ...minimalOptions({
-      ...profile,
-      ...options.overrides,
-      env: { ...workspaceEnv(workspace), ...options.overrides?.env },
-      // After the overrides, so it cannot be switched back on by accident. An
-      // agent with Bash can run `env`; denyRead protects credential files, not
-      // credential values. Name what this agent needs in `overrides.env`.
-      inheritEnv: false,
-    }),
-
-    cwd: workspace.dir,
-
-    // The containment. The SDK spawns this instead of the CLI; it runs the real
-    // binary inside sandbox-runtime, so every tool lands in the boundary rather
-    // than only the ones that shell out.
-    //
-    // The SDK's own `sandbox` option is deliberately absent: it cannot be
-    // combined with this one. The kernel refuses `sandbox_apply` inside an
-    // existing sandbox, so enabling it kills every Bash command with exit 71.
-    pathToClaudeCodeExecutable: workspace.shim,
-
-    // The kernel is the boundary, not the permission prompt — and a headless
-    // run has nobody to answer one. Everything this bypasses is already denied
-    // by the profile, which is what makes it safe to bypass.
-    permissionMode: 'bypassPermissions',
-    allowDangerouslySkipPermissions: true,
-
-    ...(options.maxTurns === undefined ? {} : { maxTurns: options.maxTurns }),
-  }
+  return sandboxedOptions(coding, workspace, options)
 }
 
 /**
  * Run a coding task against a fresh workspace.
  *
- * Returns with the workspace still on disk. That is the point: `collect()` is a
- * separate, host-initiated step so a human decides what enters the real
- * repository, and uncommitted work stays recoverable until `dispose()`.
+ * The agent commits nothing unless told to. Pass the `committing` trait, or say
+ * so in the task, or `collect()` will report `commits: []` and the work will die
+ * with the workspace.
  */
-export async function code(task: string, options: CodeOptions = {}): Promise<CodeResult> {
-  const workspace = await createWorkspace({
-    ...(options.repo === undefined ? {} : { repo: options.repo }),
-    ...(options.branch === undefined ? {} : { branch: options.branch }),
-    ...(options.allowRead === undefined ? {} : { allowRead: options.allowRead }),
-    ...(options.allowedDomains === undefined ? {} : { allowedDomains: options.allowedDomains }),
-  })
-
-  try {
-    let text = ''
-    let turns = 0
-    let stopReason = 'unknown'
-    let usage: Record<string, unknown> = {}
-    let totalCostUsd = 0
-
-    for await (const message of query({
-      prompt: task,
-      options: codingOptions(workspace, options),
-    })) {
-      if (message.type === 'assistant') {
-        for (const block of message.message?.content ?? []) {
-          if (block.type === 'text') text += block.text
-        }
-      }
-      if (message.type === 'result') {
-        turns = message.num_turns ?? 0
-        stopReason = message.subtype ?? 'unknown'
-        usage = (message.usage ?? {}) as Record<string, unknown>
-        totalCostUsd = message.total_cost_usd ?? 0
-      }
-    }
-
-    return {
-      workspace,
-      branch: workspace.branch,
-      text: text.trim(),
-      turns,
-      stopReason,
-      usage,
-      totalCostUsd,
-    }
-  } catch (error) {
-    // Only on failure — a successful run leaves the workspace for `collect()`.
-    await workspace.dispose()
-    throw error
-  }
+export function code(task: string, options: CodeOptions = {}): Promise<CodeResult> {
+  return runSandboxed(coding, task, options)
 }

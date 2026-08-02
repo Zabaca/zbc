@@ -2,7 +2,7 @@
 
 Runs Claude Agent SDK agents with a known token cost and a known blast radius.
 The base configuration decides what an agent _sends_; a Profile decides what it
-_is_; a Workspace decides where it can act.
+_is_; a Trait layers on what it is told; a Workspace decides where it can act.
 
 ## Language
 
@@ -29,6 +29,13 @@ restricts shelled-out commands only, so it never reached `Read`, `Grep` or
 _Avoid_: seatbelt (the macOS backend, not the concept — sandbox-runtime also has
 bubblewrap and WFP backends), permissions (those are the SDK's prompt layer,
 which we bypass precisely because the kernel is enforcing instead)
+
+**Trait**:
+An instruction layer that composes onto any Profile. Carries a system prompt and
+nothing else, so no combination of Traits can widen what an agent is able to do —
+only what it is told. That is what makes them safe to stack, and why the
+containment tests hold per Profile rather than per combination.
+_Avoid_: mixin (implies behaviour, not text), modifier, flag
 
 **Collect**:
 The host-side step that fetches an agent's branch out of a Workspace into the

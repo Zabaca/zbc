@@ -9,33 +9,13 @@
 // to win there, so a profile that earns its keep does so on what comes back.
 import type { Options } from '@anthropic-ai/claude-agent-sdk'
 import { type MinimalOptions, ask, minimalOptions } from './index'
+import { caveman } from './traits'
+
+export { caveman } from './traits'
 
 export type Profile = MinimalOptions & {
   /** What this agent is for. Not sent — this is for whoever picks a profile. */
   description: string
-}
-
-/**
- * Terse output. Drops articles, filler and pleasantries; keeps technical terms,
- * identifiers and code verbatim.
- *
- * The prompt is the entire cost of a profile, so it is worth keeping short: at
- * these volumes an instruction paid once per request has to save more than it
- * costs. This one is ~330 characters and reliably halves the response.
- *
- * Do not use where the output is read by people who did not ask for it, or
- * where prose is the deliverable — commit bodies, docs, anything user-facing.
- * It is for machine-consumed text and for operators who opted in.
- */
-export const caveman: Profile = {
-  description: 'Terse output. Cuts response tokens roughly in half.',
-  systemPrompt: [
-    'Answer in terse fragments. Drop articles, filler, hedging, pleasantries.',
-    'No preamble, no restating the question, no summary at the end.',
-    'Keep exact: identifiers, code, numbers, units, file paths, error strings.',
-    'Never abbreviate a technical term or invent shorthand for one.',
-    'If the answer is one word, reply with one word.',
-  ].join(' '),
 }
 
 /**

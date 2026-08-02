@@ -105,7 +105,7 @@ denying the root and allowing back only the toolchain protects what they did not
   scheme: inject a placeholder, swap it for the real value at the proxy. Until
   that exists, give agents a scoped, rotatable token rather than a personal one.
 - **Token refresh is unverified.** Denying `/usr/bin/security` removes the path
-  the CLI uses to *persist* a credential as well as read one. If a token expires
+  the CLI uses to _persist_ a credential as well as read one. If a token expires
   mid-session and the CLI tries to mint and store a replacement, that is
   `security add-generic-password`, and it will fail as an `EPERM` that says
   nothing about tokens. Runs so far are short enough not to have hit it. The fix,
