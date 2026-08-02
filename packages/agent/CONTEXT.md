@@ -2,7 +2,8 @@
 
 Runs Claude Agent SDK agents with a known token cost and a known blast radius.
 The base configuration decides what an agent _sends_; a Profile decides what it
-_is_; a Trait layers on what it is told; a Workspace decides where it can act.
+_is_; a Trait layers on what it is told; a Workspace decides where it can act; a
+Tier decides where that Workspace lives.
 
 ## Language
 
@@ -36,6 +37,16 @@ nothing else, so no combination of Traits can widen what an agent is able to do 
 only what it is told. That is what makes them safe to stack, and why the
 containment tests hold per Profile rather than per combination.
 _Avoid_: mixin (implies behaviour, not text), modifier, flag
+
+**Tier**:
+Where a run executes, and therefore what confines it. `local` is a clone under a
+temp root with sandbox-runtime around the CLI; `cloudflare` is a container that
+is itself the boundary. A Profile, its Traits and the option composition are
+identical on both — only the placement and the containment differ. Not a
+capability an agent can ask for: "containment off" is true of a tier, never of a
+caller. See ADR 0003.
+_Avoid_: environment (already means an infra environment in this repo), backend,
+target
 
 **Collect**:
 The host-side step that fetches an agent's branch out of a Workspace into the

@@ -258,6 +258,36 @@ environment variables are load-bearing in which direction, and the one thing the
 boundary still does not cover: the agent can read the credential it is using.
 Read `0002` before widening anything.
 
+## Running somewhere else
+
+A second tier — the agent in a Cloudflare container rather than a clone on your
+laptop — is designed and measured but **not built**. The container is the
+boundary there, so `sandbox-runtime` drops away; profiles, traits and the option
+composition are unchanged.
+
+Four spikes established that it works and what it costs: 2.7 s cold boot, 0.3 s
+to restore a session, 885 KB to ship this repo up and 488 bytes to bring one
+turn's commits back. A session turns out to be a single relocatable file, which
+is what makes renting a container per turn viable at all.
+
+Three findings are worth reading before building on it, because each was learned
+by something breaking:
+[`docs/adr/0003`](./docs/adr/0003-a-run-can-happen-in-a-container-instead-of-a-clone.md).
+
+## Console
+
+```bash
+bun run ui        # http://127.0.0.1:4319
+```
+
+A local page for watching a run and answering it: pick a profile and traits,
+watch tool calls stream in, then send a follow-up that continues the same session
+in the same workspace. Collect and Dispose are buttons.
+
+It binds to `127.0.0.1` only, and that is not cosmetic — the process holds the
+credential and will run an agent against any repository it is pointed at. One
+machine, one operator, not a service.
+
 ## Development
 
 ```bash
