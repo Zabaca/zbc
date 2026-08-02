@@ -8,7 +8,7 @@
 //
 // A profile now says what an agent *is*. This says where it runs and what it
 // cannot reach, once.
-import { type Options, query } from '@anthropic-ai/claude-agent-sdk'
+import { type Options, type SDKMessage, query } from '@anthropic-ai/claude-agent-sdk'
 import { type MinimalOptions, minimalOptions } from './index'
 import type { SandboxOptions } from './sandbox'
 import { type Trait, withTraits } from './traits'
@@ -52,6 +52,14 @@ export type RunOptions = SandboxOptions & {
   traits?: Trait[]
   /** Overrides applied over the profile — tools, model, effort, and so on. */
   overrides?: MinimalOptions
+  /**
+   * Called for every SDK message as it arrives.
+   *
+   * `runSandboxed` returns only the final text, which is the right shape for a
+   * script and useless for a UI — a run is minutes of tool calls with nothing to
+   * show. This is the seam for watching one happen. It cannot influence the run.
+   */
+  onMessage?: (message: SDKMessage) => void
 }
 
 export type RunResult = {
@@ -159,6 +167,8 @@ export async function runSandboxed(
       prompt: profile.prompt ? profile.prompt(input) : input,
       options: sandboxedOptions(profile, workspace, options),
     })) {
+      options.onMessage?.(message)
+
       if (message.type === 'assistant') {
         for (const block of message.message?.content ?? []) {
           if (block.type === 'text') text += block.text

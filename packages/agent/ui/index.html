@@ -1,0 +1,401 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>zbc agent</title>
+    <style>
+      :root {
+        --bg: #0e0f12;
+        --panel: #16181d;
+        --line: #24272e;
+        --ink: #dfe3ea;
+        --dim: #838b98;
+        --accent: #7fd1b9;
+        --warn: #e0a458;
+        --bad: #d9736a;
+        --mono: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, monospace;
+      }
+      @media (prefers-color-scheme: light) {
+        :root {
+          --bg: #f7f7f5;
+          --panel: #fff;
+          --line: #e2e2dd;
+          --ink: #1c1e22;
+          --dim: #6c7280;
+          --accent: #17795f;
+        }
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--ink);
+        font: 14px/1.55 var(--mono);
+      }
+      header {
+        display: flex;
+        align-items: baseline;
+        gap: 0.75rem;
+        padding: 0.8rem 1rem;
+        border-bottom: 1px solid var(--line);
+      }
+      header h1 {
+        font-size: 13px;
+        margin: 0;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--dim);
+        font-weight: 600;
+      }
+      #state {
+        color: var(--accent);
+        font-size: 12px;
+      }
+      main {
+        display: grid;
+        grid-template-columns: 340px 1fr;
+        gap: 1px;
+        background: var(--line);
+        height: calc(100vh - 49px);
+      }
+      @media (max-width: 860px) {
+        main {
+          grid-template-columns: 1fr;
+          height: auto;
+        }
+      }
+      section {
+        background: var(--bg);
+        padding: 1rem;
+        overflow-y: auto;
+      }
+      label {
+        display: block;
+        font-size: 11px;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        color: var(--dim);
+        margin: 1rem 0 0.35rem;
+      }
+      label:first-of-type {
+        margin-top: 0;
+      }
+      input,
+      select,
+      textarea,
+      button {
+        font: inherit;
+        font-family: var(--mono);
+        width: 100%;
+        background: var(--panel);
+        color: var(--ink);
+        border: 1px solid var(--line);
+        border-radius: 5px;
+        padding: 0.5rem 0.6rem;
+      }
+      textarea {
+        min-height: 7rem;
+        resize: vertical;
+      }
+      button {
+        cursor: pointer;
+        margin-top: 0.9rem;
+        border-color: var(--accent);
+        color: var(--accent);
+        background: transparent;
+      }
+      button:hover:not(:disabled) {
+        background: var(--accent);
+        color: var(--bg);
+      }
+      button:disabled {
+        opacity: 0.4;
+        cursor: not-allowed;
+        border-color: var(--line);
+        color: var(--dim);
+      }
+      button.secondary {
+        border-color: var(--line);
+        color: var(--dim);
+      }
+      button.secondary:hover:not(:disabled) {
+        background: var(--line);
+        color: var(--ink);
+      }
+      .traits {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.4rem;
+      }
+      .traits label {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.3rem;
+        margin: 0;
+        text-transform: none;
+        letter-spacing: 0;
+        font-size: 12px;
+        color: var(--ink);
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 999px;
+        padding: 0.2rem 0.6rem;
+        cursor: pointer;
+      }
+      .traits input {
+        width: auto;
+      }
+      #log {
+        display: flex;
+        flex-direction: column;
+        gap: 0.45rem;
+      }
+      .row {
+        display: flex;
+        gap: 0.6rem;
+        align-items: baseline;
+        padding: 0.35rem 0.55rem;
+        border-left: 2px solid transparent;
+      }
+      .row .tag {
+        color: var(--dim);
+        font-size: 11px;
+        min-width: 4.5rem;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+      }
+      .row .body {
+        white-space: pre-wrap;
+        word-break: break-word;
+        flex: 1;
+      }
+      .tool {
+        border-left-color: var(--line);
+        background: var(--panel);
+      }
+      .tool .name {
+        color: var(--accent);
+      }
+      .tool .detail {
+        color: var(--dim);
+      }
+      .done {
+        border-left-color: var(--accent);
+        background: var(--panel);
+      }
+      .failed {
+        border-left-color: var(--bad);
+        background: var(--panel);
+        color: var(--bad);
+      }
+      .meta {
+        border-left-color: var(--warn);
+        background: var(--panel);
+        color: var(--warn);
+      }
+      .empty {
+        color: var(--dim);
+      }
+      code {
+        color: var(--accent);
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>zbc agent</h1>
+      <span id="state">idle</span>
+    </header>
+
+    <main>
+      <section>
+        <label for="profile">Profile</label>
+        <select id="profile">
+          <option value="coding">coding — edits code, Opus 5 low effort</option>
+          <option value="review">review — read-only, Opus 5 high effort</option>
+        </select>
+
+        <label for="repo">Repository</label>
+        <input id="repo" placeholder="defaults to the server's cwd" />
+
+        <label>Traits</label>
+        <div class="traits">
+          <label><input type="checkbox" value="focused" checked /> focused</label>
+          <label><input type="checkbox" value="evidence" checked /> evidence</label>
+          <label><input type="checkbox" value="committing" /> committing</label>
+          <label><input type="checkbox" value="caveman" /> caveman</label>
+        </div>
+
+        <label for="prompt">Task</label>
+        <textarea id="prompt" placeholder="Fix the failing test in src/parser.ts"></textarea>
+
+        <button id="run">Run</button>
+        <button id="collect" class="secondary" disabled>Collect branch</button>
+        <button id="dispose" class="secondary" disabled>Dispose workspace</button>
+      </section>
+
+      <section id="log">
+        <div class="row empty"><div class="body">Nothing yet.</div></div>
+      </section>
+    </main>
+
+    <script type="module">
+      const $ = (id) => document.getElementById(id)
+      const log = $('log')
+      let session = null
+      let running = false
+
+      const add = (cls, tag, body) => {
+        if (log.querySelector('.empty')) log.textContent = ''
+        const row = document.createElement('div')
+        row.className = `row ${cls}`
+        const t = document.createElement('div')
+        t.className = 'tag'
+        t.textContent = tag
+        const b = document.createElement('div')
+        b.className = 'body'
+        if (body instanceof Node) b.append(body)
+        else b.textContent = body
+        row.append(t, b)
+        log.append(row)
+        row.scrollIntoView({ block: 'end' })
+      }
+
+      const setState = (text) => {
+        $('state').textContent = text
+      }
+
+      const setRunning = (on) => {
+        running = on
+        $('run').disabled = on
+        $('run').textContent = on ? 'Running…' : session ? 'Send follow-up' : 'Run'
+        $('collect').disabled = on || !session?.collectable
+        $('dispose').disabled = on || !session
+        $('profile').disabled = !!session
+        $('repo').disabled = !!session
+      }
+
+      const socket = new WebSocket(`ws://${location.host}/ws`)
+      socket.onopen = () => setState('connected')
+      socket.onclose = () => setState('disconnected — restart the server')
+
+      socket.onmessage = (event) => {
+        const msg = JSON.parse(event.data)
+
+        if (msg.type === 'started') {
+          setRunning(true)
+          setState(msg.resumed ? 'continuing' : 'running')
+          add('meta', msg.resumed ? 'follow-up' : 'task', msg.prompt)
+          return
+        }
+
+        if (msg.type === 'parts') {
+          for (const part of msg.parts) {
+            if (part.kind === 'text') add('', 'agent', part.text)
+            else {
+              const frag = document.createDocumentFragment()
+              const name = document.createElement('span')
+              name.className = 'name'
+              name.textContent = part.name
+              frag.append(name)
+              if (part.detail) {
+                const d = document.createElement('span')
+                d.className = 'detail'
+                d.textContent = `  ${part.detail}`
+                frag.append(d)
+              }
+              add('tool', 'tool', frag)
+            }
+          }
+          return
+        }
+
+        if (msg.type === 'done') {
+          add(
+            'done',
+            'finished',
+            `${msg.turns} turns · $${(msg.cost ?? 0).toFixed(4)} · ${msg.stop}`,
+          )
+          return
+        }
+
+        if (msg.type === 'ready') {
+          session = msg
+          add('done', 'workspace', `${msg.branch}\n${msg.workspace}`)
+          setRunning(false)
+          setState('waiting')
+          $('prompt').value = ''
+          $('prompt').placeholder =
+            'Ask for a change — it keeps the workspace and the conversation.'
+          $('prompt').focus()
+          return
+        }
+
+        if (msg.type === 'failed') {
+          add('failed', 'error', msg.error)
+          setRunning(false)
+          setState('failed')
+        }
+      }
+
+      const post = async (path, body) => {
+        const res = await fetch(path, { method: 'POST', body: JSON.stringify(body) })
+        const data = await res.json()
+        if (data.error) throw new Error(data.error)
+        return data
+      }
+
+      $('run').onclick = async () => {
+        const prompt = $('prompt').value.trim()
+        if (!prompt || running) return
+        const chosen = [...document.querySelectorAll('.traits input:checked')].map((i) => i.value)
+        try {
+          await post('/run', {
+            profile: $('profile').value,
+            repo: $('repo').value,
+            prompt,
+            traits: chosen,
+            ...(session ? { resumeFrom: session.sessionId } : {}),
+          })
+        } catch (error) {
+          add('failed', 'error', error.message)
+        }
+      }
+
+      $('collect').onclick = async () => {
+        try {
+          const { branch, commits } = await post('/collect', { sessionId: session.sessionId })
+          add(
+            'done',
+            'collected',
+            commits.length
+              ? `${branch}\n${commits.join('\n')}`
+              : `${branch} — the agent committed nothing. Add the "committing" trait.`,
+          )
+        } catch (error) {
+          add('failed', 'error', error.message)
+        }
+      }
+
+      $('dispose').onclick = async () => {
+        try {
+          await post('/dispose', { sessionId: session.sessionId })
+          add('meta', 'disposed', 'Workspace removed. Anything uncollected is gone.')
+          session = null
+          setRunning(false)
+          setState('idle')
+          $('prompt').placeholder = 'Fix the failing test in src/parser.ts'
+        } catch (error) {
+          add('failed', 'error', error.message)
+        }
+      }
+
+      $('prompt').addEventListener('keydown', (e) => {
+        if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') $('run').click()
+      })
+    </script>
+  </body>
+</html>
