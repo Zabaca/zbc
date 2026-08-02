@@ -104,6 +104,15 @@ denying the root and allowing back only the toolchain protects what they did not
   `network.filterRequest` callback, which is the seam for a sentinel-substitution
   scheme: inject a placeholder, swap it for the real value at the proxy. Until
   that exists, give agents a scoped, rotatable token rather than a personal one.
+- **Token refresh is unverified.** Denying `/usr/bin/security` removes the path
+  the CLI uses to *persist* a credential as well as read one. If a token expires
+  mid-session and the CLI tries to mint and store a replacement, that is
+  `security add-generic-password`, and it will fail as an `EPERM` that says
+  nothing about tokens. Runs so far are short enough not to have hit it. The fix,
+  if it appears, is a `security` stub first on `PATH` serving only Claude's own
+  service and exiting 44 for everything else — the real binary stays denied by
+  absolute path, so the stub is the only one reachable. Deliberately not built in
+  advance: a fake credential store is surface that earns its own bugs.
 - **`srt` is a research preview** at `0.0.67`, Apache-2.0. Its settings schema is
   strict — it refused ours for omitting `deniedDomains` and `denyWrite`, and
   refuses to fall back to defaults on an invalid file, which is the behaviour we
