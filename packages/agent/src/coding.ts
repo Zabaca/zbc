@@ -7,13 +7,7 @@
 // trimming them and a working agent to lose.
 import { type Options, query } from '@anthropic-ai/claude-agent-sdk'
 import { type MinimalOptions, minimalOptions } from './index'
-import {
-  type SandboxOptions,
-  type Workspace,
-  createWorkspace,
-  sandboxFor,
-  workspaceEnv,
-} from './workspace'
+import { type SandboxOptions, type Workspace, createWorkspace, workspaceEnv } from './workspace'
 
 export const CODING_MODEL = 'claude-opus-5'
 
@@ -115,14 +109,19 @@ export function codingOptions(workspace: Workspace, options: CodeOptions = {}): 
     }),
 
     cwd: workspace.dir,
-    sandbox: sandboxFor(workspace, {
-      allowRead: options.allowRead,
-      allowedDomains: options.allowedDomains,
-    }),
 
-    // The sandbox is the boundary, not the permission prompt — and a headless
+    // The containment. The SDK spawns this instead of the CLI; it runs the real
+    // binary inside sandbox-runtime, so every tool lands in the boundary rather
+    // than only the ones that shell out.
+    //
+    // The SDK's own `sandbox` option is deliberately absent: it cannot be
+    // combined with this one. The kernel refuses `sandbox_apply` inside an
+    // existing sandbox, so enabling it kills every Bash command with exit 71.
+    pathToClaudeCodeExecutable: workspace.shim,
+
+    // The kernel is the boundary, not the permission prompt — and a headless
     // run has nobody to answer one. Everything this bypasses is already denied
-    // at the kernel by `sandboxFor`.
+    // by the profile, which is what makes it safe to bypass.
     permissionMode: 'bypassPermissions',
     allowDangerouslySkipPermissions: true,
 
@@ -141,6 +140,8 @@ export async function code(task: string, options: CodeOptions = {}): Promise<Cod
   const workspace = await createWorkspace({
     ...(options.repo === undefined ? {} : { repo: options.repo }),
     ...(options.branch === undefined ? {} : { branch: options.branch }),
+    ...(options.allowRead === undefined ? {} : { allowRead: options.allowRead }),
+    ...(options.allowedDomains === undefined ? {} : { allowedDomains: options.allowedDomains }),
   })
 
   try {

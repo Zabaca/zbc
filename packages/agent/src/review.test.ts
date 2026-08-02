@@ -25,6 +25,12 @@ const git = async (args: string[]) => (await execFile('git', args)).stdout.trim(
 let ws: Workspace
 let origin: string
 
+// A credential must be present before a workspace will build one — the sandbox
+// denies the Keychain, so there is nothing to fall back to. These tests never
+// reach the network, so a placeholder is enough.
+const HAD_CREDENTIAL = process.env.CLAUDE_CODE_OAUTH_TOKEN !== undefined
+if (!HAD_CREDENTIAL) process.env.CLAUDE_CODE_OAUTH_TOKEN = 'test-placeholder'
+
 beforeAll(async () => {
   origin = await mkdtemp(join(tmpdir(), 'zbc-origin-'))
   await git(['init', '--quiet', '-b', 'main', origin])
@@ -120,38 +126,42 @@ test('git config is redirected into the workspace, not allow-listed out of $HOME
   expect(o.env?.XDG_CONFIG_HOME).toBe(join(ws.home, 'xdg'))
 })
 
-test('neither HOME nor CLAUDE_CONFIG_DIR is set — both break authentication', () => {
+test('HOME is never redirected; CLAUDE_CONFIG_DIR always is', () => {
   const o = reviewerOptions(ws)
+  // Redirecting HOME hides the login Keychain and raises a system dialog.
   expect(o.env?.HOME).toBe(process.env.HOME)
-  expect(o.env?.CLAUDE_CONFIG_DIR).toBe(process.env.CLAUDE_CONFIG_DIR)
+  // CLAUDE_CONFIG_DIR is the opposite: the CLI creates session-env/<uuid> under
+  // it before running any Bash command, and $HOME/.claude is denied — so
+  // leaving it alone breaks every Bash call, not just the config.
+  expect(o.env?.CLAUDE_CONFIG_DIR).toBe(join(ws.home, 'claude'))
 })
 
-test('the sandbox is attached, and permissions are bypassed only behind it', () => {
+test('the CLI is spawned through the workspace shim, and the SDK sandbox is off', () => {
   const o = reviewerOptions(ws)
-  expect(o.sandbox?.enabled).toBe(true)
-  expect(o.sandbox?.failIfUnavailable).toBe(true)
-  // Without this, an agent that hits `Operation not permitted` simply retries
-  // with Bash's dangerouslyDisableSandbox parameter and succeeds.
-  expect(o.sandbox?.allowUnsandboxedCommands).toBe(false)
-  expect(o.sandbox?.filesystem?.denyRead).toEqual([homedir()])
-  expect(o.sandbox?.network?.strictAllowlist).toBe(true)
-  expect(o.sandbox?.network?.allowedDomains).toEqual(['api.anthropic.com'])
+  // The shim runs the real binary inside sandbox-runtime, so
+  // the in-process tools a reviewer lives on — Read, Grep, Glob — are contained
+  // too. Under the SDK's sandbox they were not: only Bash ever reached the
+  // kernel, and `denyRead` did nothing to a `Read` call.
+  expect(o.pathToClaudeCodeExecutable).toBe(ws.shim)
+  // Must stay absent. The kernel refuses sandbox_apply inside a sandbox, so
+  // enabling it kills every Bash command with exit 71.
+  expect(o.sandbox).toBeUndefined()
   // Bypassing prompts is safe only because the kernel is enforcing instead.
   expect(o.permissionMode).toBe('bypassPermissions')
   expect(o.allowDangerouslySkipPermissions).toBe(true)
 })
 
-test('overrides win, without weakening the sandbox', () => {
+test('overrides win, without reaching the containment', () => {
   const o = reviewerOptions(ws, {
     overrides: { model: 'claude-haiku-4-5', tools: ['Read'], effort: 'low' },
   })
   expect(o.model).toBe('claude-haiku-4-5')
   expect(o.tools).toEqual(['Read'])
   expect(o.effort).toBe('low')
-  expect(o.sandbox?.allowUnsandboxedCommands).toBe(false)
-  expect(o.sandbox?.failIfUnavailable).toBe(true)
-  expect(o.sandbox?.filesystem?.denyRead).toEqual([homedir()])
-  expect(o.sandbox?.network?.strictAllowlist).toBe(true)
+  // Overrides are spread into minimalOptions, which has no way to express the
+  // boundary — so there is no override that can weaken it.
+  expect(o.pathToClaudeCodeExecutable).toBe(ws.shim)
+  expect(o.sandbox).toBeUndefined()
 })
 
 test('an override env bag cannot re-enable attribution or extra traffic', () => {

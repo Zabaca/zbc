@@ -1,5 +1,6 @@
 // A Workspace is a disposable clone of a target repository, created outside
-// $HOME so an agent's reads can be confined by denying the real one.
+// $HOME so the sandbox can deny the whole filesystem and allow back only the
+// toolchain, leaving the agent a place to work that is not the operator's.
 //
 // The shape is a security invariant, not a convenience, which is why this
 // module owns it rather than taking a directory from the caller. Three ways to
@@ -9,8 +10,8 @@
 //     `.git/worktrees/` — every git command then reaches into the denied path
 //   - a `--shared` / `--reference` clone, whose `objects/info/alternates`
 //     points at the origin for the same effect
-//   - a clone under $HOME, where `denyRead` cannot be applied without also
-//     denying the workspace
+//   - a clone under $HOME, which a deny-default profile cannot re-allow without
+//     re-allowing the surrounding home directory
 //
 // See docs/adr/0001-coding-agents-work-in-a-disposable-clone.md.
 import { execFile as execFileCb } from 'node:child_process'
@@ -18,7 +19,9 @@ import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promi
 import { homedir, tmpdir } from 'node:os'
 import { join, resolve, sep } from 'node:path'
 import { promisify } from 'node:util'
-import type { Options } from '@anthropic-ai/claude-agent-sdk'
+import { type SandboxOptions, writeSandboxShim } from './sandbox'
+
+export type { SandboxOptions } from './sandbox'
 
 const execFile = promisify(execFileCb)
 
@@ -46,18 +49,24 @@ export type Workspace = {
   base: string
   /** Workspace-local config root that `GIT_CONFIG_GLOBAL`/`XDG_CONFIG_HOME` point at. */
   home: string
+  /**
+   * Executable to hand the SDK as `pathToClaudeCodeExecutable`. It runs the real
+   * CLI inside sandbox-runtime with this workspace's settings, so every tool —
+   * including the in-process ones — runs inside the boundary.
+   */
+  shim: string
   /** Remove the whole tree. Safe to call more than once. */
   dispose(): Promise<void>
 }
 
-export type CreateWorkspaceOptions = {
+export type CreateWorkspaceOptions = SandboxOptions & {
   /** Repository to clone. Defaults to the current working directory. */
   repo?: string
   /** Branch name for the agent's work. Defaults to a unique `agent/<id>`. */
   branch?: string
   /**
    * Where the workspace tree is created. Defaults to the system temp dir.
-   * Must not be inside `$HOME` — that is what makes `denyRead` possible.
+   * Must not be inside `$HOME` — that is what lets the sandbox deny it.
    */
   root?: string
 }
@@ -84,6 +93,7 @@ export async function createWorkspace({
   repo = process.cwd(),
   branch,
   root = tmpdir(),
+  ...sandbox
 }: CreateWorkspaceOptions = {}): Promise<Workspace> {
   const repoPath = resolve(repo)
   // Resolved through symlinks before the guard, or the guard is decorative: a
@@ -94,8 +104,9 @@ export async function createWorkspace({
 
   if (isInside(rootPath, homedir())) {
     throw new Error(
-      `Workspace root ${rootPath} is inside $HOME. The sandbox denies reads under ` +
-        `$HOME, so a workspace there would be unreadable by the agent working in it. ` +
+      `Workspace root ${rootPath} is inside $HOME. The sandbox denies reads ` +
+        `everywhere and allows back only the toolchain, so a workspace under ` +
+        `$HOME would be unreadable by the agent working in it. ` +
         `Pass a root outside $HOME (the default, ${tmpdir()}, already is).`,
     )
   }
@@ -132,15 +143,23 @@ export async function createWorkspace({
   const base = await git(['-C', dir, 'rev-parse', 'HEAD'])
   await git(['-C', dir, 'checkout', '--quiet', '-b', branchName])
 
-  // Git config goes in the workspace, not in an `allowRead` hole punched into
+  // Git config goes in the workspace rather than being allow-listed out of
   // $HOME. Every tool that reads a dotfile should get this treatment: redirect
-  // it inward rather than widening the sandbox outward.
+  // it inward rather than widening the profile outward.
   await mkdir(join(home, 'xdg', 'git'), { recursive: true })
   await writeFile(
     join(home, 'gitconfig'),
     `[user]\n\tname = ${AGENT_IDENTITY.name}\n\temail = ${AGENT_IDENTITY.email}\n[init]\n\tdefaultBranch = main\n`,
   )
   await writeFile(join(home, 'xdg', 'git', 'ignore'), '')
+
+  // The sandbox is created here rather than by the caller so a workspace cannot
+  // exist without one. Every earlier version made it a separate call, and the
+  // failure mode of forgetting it is an agent that works perfectly.
+  const shim = await writeSandboxShim({ dir, home }, sandbox).catch(async (error) => {
+    await rm(workspaceRoot, { recursive: true, force: true })
+    throw error
+  })
 
   return {
     root: workspaceRoot,
@@ -149,6 +168,7 @@ export async function createWorkspace({
     branch: branchName,
     base,
     home,
+    shim,
     dispose: () => rm(workspaceRoot, { recursive: true, force: true }),
   }
 }
@@ -157,74 +177,23 @@ export async function createWorkspace({
  * Environment that points the toolchain's config at the workspace.
  *
  * `HOME` is conspicuously absent and must stay that way: redirecting it hides
- * the login Keychain, which 401s the CLI and raises a system dialog.
+ * the login Keychain, which 401s the CLI and raises a system dialog. The
+ * sandbox denies the Keychain outright; credentials come from the environment.
+ *
+ * `CLAUDE_CONFIG_DIR` is here despite once being on the same never-set list. It
+ * used to break authentication, and the reason turned out to be Keychain
+ * coupling: setting it switched the CLI to file-based credentials that did not
+ * exist. Now that the credential arrives in the environment, it is inert — and
+ * load-bearing, because the CLI creates `<config>/session-env/<uuid>` before it
+ * will run a single Bash command. Left unset that lands in `$HOME/.claude`,
+ * which the sandbox denies, and *every* Bash call fails with
+ * `EPERM: operation not permitted, mkdir` rather than anything about Bash.
  */
 export function workspaceEnv(workspace: Workspace): Record<string, string> {
   return {
     GIT_CONFIG_GLOBAL: join(workspace.home, 'gitconfig'),
     XDG_CONFIG_HOME: join(workspace.home, 'xdg'),
-  }
-}
-
-export type SandboxOptions = {
-  /**
-   * Extra paths re-allowed inside the denied `$HOME`. Only executables should
-   * need this — config belongs in the workspace via `workspaceEnv`.
-   */
-  allowRead?: string[]
-  /** Hosts the agent may reach. `api.anthropic.com` is always included. */
-  allowedDomains?: string[]
-}
-
-/**
- * Toolchain paths under `$HOME` that must stay readable for anything to run.
- * Only executables and runtime data — deliberately not config.
- */
-function toolchainPaths(): string[] {
-  const home = homedir()
-  return [
-    process.execPath, // the bun/node binary running this
-    join(home, '.bun'),
-    join(home, '.local', 'share', 'claude'), // the Claude Code CLI itself
-    join(home, '.nvm'),
-  ]
-}
-
-/**
- * Sandbox policy for a workspace.
- *
- * Every field here was load-bearing under test. In particular
- * `allowUnsandboxedCommands: false`: with it left at the default, an agent that
- * hits `Operation not permitted` will simply retry with Bash's
- * `dangerouslyDisableSandbox` parameter and succeed.
- */
-export function sandboxFor(
-  _workspace: Workspace,
-  { allowRead = [], allowedDomains = [] }: SandboxOptions = {},
-): NonNullable<Options['sandbox']> {
-  return {
-    enabled: true,
-    // Never `false`. Silent degradation means an unsandboxed agent and no signal.
-    failIfUnavailable: true,
-    // The OS boundary is doing the work, so there is nothing for a prompt to add
-    // — and a headless run has no one to answer it.
-    autoAllowBashIfSandboxed: true,
-    allowUnsandboxedCommands: false,
-
-    filesystem: {
-      // Deny the whole of $HOME and re-allow the toolchain. `allowRead` only
-      // re-allows *within* a `denyRead` region — on its own it does nothing,
-      // which is why the deny has to be this broad to be an allowlist at all.
-      denyRead: [homedir()],
-      allowRead: [...toolchainPaths(), ...allowRead],
-    },
-
-    // Reads being open would not matter much without egress; together they are
-    // how a read becomes a leak.
-    network: {
-      allowedDomains: ['api.anthropic.com', ...allowedDomains],
-      strictAllowlist: true,
-    },
+    CLAUDE_CONFIG_DIR: join(workspace.home, 'claude'),
   }
 }
 
@@ -239,8 +208,8 @@ export type Collected = {
  *
  * This is the only moment work crosses the containment boundary, and it is
  * always host-initiated — the workspace's `origin` points into denied territory,
- * so the agent cannot push even if told to. Nothing is merged: the branch lands
- * as a ref for a human to review.
+ * so the agent cannot push even if told to — the sandbox grants no read there
+ * at all. Nothing is merged: the branch lands as a ref for a human to review.
  */
 export async function collect(workspace: Workspace): Promise<Collected> {
   const commits = (
