@@ -270,9 +270,17 @@ to restore a session, 885 KB to ship this repo up and 488 bytes to bring one
 turn's commits back. A session turns out to be a single relocatable file, which
 is what makes renting a container per turn viable at all.
 
-Three findings are worth reading before building on it, because each was learned
-by something breaking:
-[`docs/adr/0003`](./docs/adr/0003-a-run-can-happen-in-a-container-instead-of-a-clone.md).
+A session there is a container that stays warm across turns and snapshots itself
+on the way to sleep — measured end to end: 1.3 s to snapshot, 3.1 s to restore,
+and a resumed agent that recalled what it had written without reading a file, and
+found its uncommitted change still waiting to be committed.
+
+The findings are in two ADRs, and each was learned by something breaking:
+[`0003`](./docs/adr/0003-a-run-can-happen-in-a-container-instead-of-a-clone.md)
+for what runs in a container at all, and
+[`0004`](./docs/adr/0004-a-cloud-session-is-a-container-that-sleeps.md) for how a
+session survives one — including the nine-line guard whose absence destroys a
+session's work silently.
 
 ## Console
 

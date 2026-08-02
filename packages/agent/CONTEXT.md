@@ -48,6 +48,15 @@ caller. See ADR 0003.
 _Avoid_: environment (already means an infra environment in this repo), backend,
 target
 
+**Snapshot**:
+The archive of a Workspace taken when its container goes idle, and restored when
+it wakes. Carries what a git branch cannot: uncommitted work and the session
+transcript. Never taken by a container that did not itself restore — a successful
+snapshot of an empty workspace destroys the good one, and that is not hypothetical.
+See ADR 0004.
+_Avoid_: backup (implies a copy you keep alongside the original; this replaces the
+container's disk entirely), checkpoint
+
 **Collect**:
 The host-side step that fetches an agent's branch out of a Workspace into the
 real repository. The only moment an agent's work crosses the containment

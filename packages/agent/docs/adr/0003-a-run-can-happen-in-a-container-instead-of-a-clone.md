@@ -1,5 +1,12 @@
 # A run can happen in a container instead of a clone
 
+> **The tier decision here is superseded by
+> [ADR 0004](./0004-a-cloud-session-is-a-container-that-sleeps.md).** A container
+> per turn with a git bundle between them cannot carry uncommitted work and pays
+> `bun install` on every turn — neither was visible in these spikes, because the
+> fixture was a two-file repository with no dependencies. The measurements below
+> stand; the conclusion drawn from them does not.
+
 ADR 0002 put the agent inside `sandbox-runtime` on the operator's laptop. That
 containment exists because the agent shares a machine with a SOPS age key, SSH
 credentials and thirty other repositories. In a Cloudflare container none of that
@@ -72,7 +79,7 @@ for checkpointing anyway (see below). It has no remaining argument.
   extraction."_ A per-turn design would work exactly once. (`localBucket: true`
   takes a different path — the container runs `unsquashfs`, a real extraction with
   no FUSE — and nothing in the code gates it to local development; the docstring
-  states when it is *required*, not when it is *permitted*. So the mount is
+  states when it is _required_, not when it is _permitted_. So the mount is
   avoidable. What is not avoidable is the second count.) The second: `cedarpad`
   did exactly this and lost data
   on 2026-07-29. Their ADR-0022 states the principle — _"The tar is not the bug.
