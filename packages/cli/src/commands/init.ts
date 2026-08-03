@@ -113,15 +113,14 @@ export const initCommand = defineCommand({
     //    which subtree mode deliberately doesn't copy — the engine lives at
     //    vendor/zbc/src instead.
     const configPath = path.join(cwd, 'zbc.config.ts')
-    const configWritten = await copyTemplateFile(path.join(tplRoot, 'zbc.config.ts'), configPath, {
-      vars,
-    })
-    if (args.subtree && configWritten) {
+    await copyTemplateFile(path.join(tplRoot, 'zbc.config.ts'), configPath, { vars })
+    if (args.subtree) {
+      // Rewrite whether we just wrote the file or it pre-existed (brownfield
+      // migration): any '@<name>/infra' engine import must become the vendor
+      // path, since subtree mode doesn't provide packages/infra/src.
       const body = await Bun.file(configPath).text()
-      await Bun.write(
-        configPath,
-        body.replace(`'@${projectName}/infra'`, `'./${VENDOR_PREFIX}/src/index'`),
-      )
+      const rewritten = body.replace(/'@[^']+\/infra'/g, `'./${VENDOR_PREFIX}/src/index'`)
+      if (rewritten !== body) await Bun.write(configPath, rewritten)
     }
 
     // 3. .sops.yaml (unless --no-sops)
@@ -138,6 +137,20 @@ export const initCommand = defineCommand({
       vars,
       exclude: ['modules', 'README.md', ...(args.subtree ? ['src'] : [])],
     })
+
+    // 4b. Subtree mode: the infra package.json ships exports "." → ./src/index.ts,
+    //     which is unresolvable when src/ lives in vendor/zbc instead. Strip the
+    //     exports whenever the engine src is absent (fresh subtree init, or a
+    //     brownfield repo migrating after deleting its copied src).
+    if (args.subtree && !(await Bun.file(path.join(infraDest, 'src/index.ts')).exists())) {
+      const pkgPath = path.join(infraDest, 'package.json')
+      const pkgBody = JSON.parse(await Bun.file(pkgPath).text()) as Record<string, unknown>
+      if (pkgBody.exports !== undefined) {
+        delete pkgBody.exports
+        await Bun.write(pkgPath, `${JSON.stringify(pkgBody, null, 2)}\n`)
+        console.log('  strip packages/infra/package.json exports (engine lives in vendor/zbc)')
+      }
+    }
 
     // 5. environments/ dirs with .gitkeep
     for (const env of ['production', 'preview']) {

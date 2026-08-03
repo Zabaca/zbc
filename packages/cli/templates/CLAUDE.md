@@ -6,7 +6,8 @@ This project uses [zbc](https://github.com/Zabaca/zbc) for infrastructure scaffo
 
 - `packages/infra/` — infrastructure code (zbc modules)
 - `packages/infra/environments/` — per-environment config (`production`, `preview`)
-- `packages/infra/modules/` — vendored infra modules (do not edit by hand)
+- `packages/infra/modules/` — copy-mode: vendored infra modules (re-vendor with `zbc add`, don't edit); subtree-mode: your own modules (edit freely)
+- `vendor/zbc/` — subtree-mode only: the zbc engine + built-in modules as a git subtree of Zabaca/zbc-core. Update with `bunx @zabaca/zbc update`; never mix `vendor/zbc/` and other paths in one commit
 - `zbc.config.ts` — project-level zbc config
 - `.sops.yaml` — SOPS encryption rules for secrets
 

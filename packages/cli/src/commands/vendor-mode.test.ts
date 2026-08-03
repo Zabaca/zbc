@@ -96,6 +96,31 @@ describe('zbc init --subtree', () => {
     expect(sh(consumer, 'git log --format=%B')).toContain('git-subtree-dir: vendor/zbc')
   })
 
+  test('fresh subtree init leaves no dangling engine exports in packages/infra', () => {
+    const consumer = initSubtree(makeCore())
+    const pkg = JSON.parse(
+      fs.readFileSync(path.join(consumer, 'packages/infra/package.json'), 'utf8'),
+    ) as Record<string, unknown>
+    // exports "." → ./src/index.ts would be unresolvable — src/ isn't copied.
+    expect(pkg.exports).toBeUndefined()
+  })
+
+  test('brownfield repo with an existing copy-mode zbc.config.ts gets its import rewritten', () => {
+    const core = makeCore()
+    const consumer = tmpdir('consumer-')
+    makeRepo(consumer)
+    fs.writeFileSync(
+      path.join(consumer, 'zbc.config.ts'),
+      "import { defineConfig } from '@oldname/infra'\nexport default defineConfig({ project: 'oldname', environments: ['production'] })\n",
+    )
+    sh(consumer, 'git add . && git commit -qm existing-config')
+    const res = zbc(consumer, ['init', '--subtree', '--core-url', core, '--core-ref', 'main'])
+    expect(res.status).toBe(0)
+    const config = fs.readFileSync(path.join(consumer, 'zbc.config.ts'), 'utf8')
+    expect(config).toContain("from './vendor/zbc/src/index'")
+    expect(config).not.toContain('/infra')
+  })
+
   test('dirty tree → nonzero exit naming uncommitted changes, no vendor dir', () => {
     const core = makeCore()
     const consumer = tmpdir('consumer-')
@@ -116,7 +141,10 @@ describe('zbc add in vendor mode', () => {
     // Nothing vendored into packages/infra/modules — the module lives in vendor/zbc.
     expect(fs.existsSync(path.join(consumer, 'packages/infra/modules/faketool'))).toBe(false)
     expect(res.out).toContain('faketool post-install text')
-    expect(res.out).toContain('vendor/zbc/modules/faketool')
+    // Full relative path from packages/infra/environments/<env>/ — four .. to
+    // the repo root. (A bare substring match would be satisfied by the
+    // "already vendored at vendor/zbc/..." log line and miss an off-by-one.)
+    expect(res.out).toContain('../../../../vendor/zbc/modules/faketool')
   })
 
   test('unknown module still errors clearly', () => {

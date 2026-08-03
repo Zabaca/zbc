@@ -314,8 +314,9 @@ export const addCommand = defineCommand({
     const installed = await installModule(name, projectRoot, infraDir)
     if (installed) {
       printPostInstall(installed)
+      // From packages/infra/environments/<env>/: four .. to the repo root.
       const importPath = source.vendored
-        ? `../../../${VENDOR_PREFIX}/modules/${name}`
+        ? `../../../../${VENDOR_PREFIX}/modules/${name}`
         : `../../modules/${name}`
       console.log('')
       console.log(
