@@ -64,7 +64,7 @@ async function resolveModuleSource(projectRoot: string, name: string): Promise<R
     if (await Bun.file(registry).exists()) return { dir, vendored: false }
   }
   throw new Error(
-    `"${name}" not found in built-in registry. Available: cloudflare, cloudflare-email, cloudflare-token, r2, turso, inbox, secret-relay, warehouse.`,
+    `"${name}" not found in built-in registry. Available: cloudflare, cloudflare-email, cloudflare-token, r2, turso, systemd-unit, host-file, docker-compose-stack, inbox, secret-relay, warehouse.`,
   )
 }
 
