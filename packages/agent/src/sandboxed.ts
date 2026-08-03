@@ -10,6 +10,7 @@
 // cannot reach, once.
 import { type Options, type SDKMessage, query } from '@anthropic-ai/claude-agent-sdk'
 import { type MinimalOptions, minimalOptions } from './index'
+import { type InitResult, type InitStep, initialize } from './initialize'
 import type { SandboxOptions } from './sandbox'
 import { type Trait, withTraits } from './traits'
 import { type Workspace, createWorkspace, workspaceEnv } from './workspace'
@@ -53,6 +54,14 @@ export type RunOptions = SandboxOptions & {
   /** Overrides applied over the profile — tools, model, effort, and so on. */
   overrides?: MinimalOptions
   /**
+   * Steps run inside the sandbox before the agent, on every invocation.
+   *
+   * Defaults to detecting a lockfile and installing. Pass `[]` to skip — which
+   * is right for a reviewer on a repository it only reads, and wrong for anything
+   * that has to build.
+   */
+  setup?: InitStep[]
+  /**
    * Called for every SDK message as it arrives.
    *
    * `runSandboxed` returns only the final text, which is the right shape for a
@@ -69,6 +78,8 @@ export type RunResult = {
   sessionId: string
   /** The agent's prose. What it *did* is in the workspace, not here. */
   text: string
+  /** What init did before the agent started. */
+  init: InitResult
   turns: number
   stopReason: string
   usage: Record<string, unknown>
@@ -156,6 +167,11 @@ export async function runSandboxed(
     }))
 
   try {
+    // Before the agent, every time. A restore returns state, not a running
+    // system, and a fresh clone has no dependencies either — so this is the step
+    // that makes a workspace something an agent can actually work in.
+    const init = await initialize(workspace, options.setup)
+
     let text = ''
     let turns = 0
     let stopReason = 'unknown'
@@ -183,7 +199,7 @@ export async function runSandboxed(
       }
     }
 
-    return { workspace, sessionId, text: text.trim(), turns, stopReason, usage, totalCostUsd }
+    return { workspace, sessionId, init, text: text.trim(), turns, stopReason, usage, totalCostUsd }
   } catch (error) {
     // Only when we created it. A successful run always leaves the workspace for
     // the caller, and a borrowed one is never ours to throw away.

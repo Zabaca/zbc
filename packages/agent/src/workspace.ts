@@ -36,6 +36,9 @@ const git = async (args: string[], cwd?: string): Promise<string> => {
 /** Identity the agent's commits are authored with, so its work is attributable. */
 export const AGENT_IDENTITY = { name: 'zbc agent', email: 'agent@zbc.local' } as const
 
+/** The two directories every redirect and grant is expressed against. */
+export type WorkspacePaths = { dir: string; home: string }
+
 export type Workspace = {
   /** Root of the disposable tree. Everything below is thrown away together. */
   root: string
@@ -147,6 +150,9 @@ export async function createWorkspace({
   // $HOME. Every tool that reads a dotfile should get this treatment: redirect
   // it inward rather than widening the profile outward.
   await mkdir(join(home, 'xdg', 'git'), { recursive: true })
+  // Scratch space for package managers, redirected here by `sandboxScratchEnv`
+  // rather than granted outside the workspace. Dies with the workspace.
+  await mkdir(join(home, 'tmp'), { recursive: true })
   await writeFile(
     join(home, 'gitconfig'),
     `[user]\n\tname = ${AGENT_IDENTITY.name}\n\temail = ${AGENT_IDENTITY.email}\n[init]\n\tdefaultBranch = main\n`,
@@ -194,6 +200,34 @@ export function workspaceEnv(workspace: Workspace): Record<string, string> {
     GIT_CONFIG_GLOBAL: join(workspace.home, 'gitconfig'),
     XDG_CONFIG_HOME: join(workspace.home, 'xdg'),
     CLAUDE_CONFIG_DIR: join(workspace.home, 'claude'),
+    ...workspaceScratchEnv(workspace),
+  }
+}
+
+/**
+ * Scratch space, redirected into the workspace.
+ *
+ * Package managers need somewhere to write besides the project: a temp dir and
+ * a download cache. Both defaults sit outside the sandbox's writable region —
+ * `TMPDIR` is a per-user `/var/folders` path, and bun's cache lives in `~/.bun`,
+ * which is readable so the toolchain runs but deliberately not writable.
+ *
+ * Without this an agent that runs `bun` gets
+ * `bun is unable to write files to tempdir: PermissionDenied`, which says
+ * nothing about sandboxes — and then goes looking for a way around it.
+ *
+ * Redirecting inward rather than widening `allowWrite` keeps the grant list
+ * unchanged and makes the cache die with the workspace instead of accumulating
+ * in the operator's home. Same rule as the git config above.
+ */
+export function workspaceScratchEnv(workspace: WorkspacePaths): Record<string, string> {
+  return {
+    TMPDIR: join(workspace.home, 'tmp'),
+    TMP: join(workspace.home, 'tmp'),
+    TEMP: join(workspace.home, 'tmp'),
+    BUN_INSTALL_CACHE_DIR: join(workspace.home, 'bun-cache'),
+    npm_config_cache: join(workspace.home, 'npm-cache'),
+    XDG_CACHE_HOME: join(workspace.home, 'cache'),
   }
 }
 

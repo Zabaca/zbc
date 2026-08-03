@@ -8,7 +8,7 @@ import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
 import { afterAll, beforeAll, expect, test } from 'bun:test'
-import { DENIED_BINARIES, srtExecutable, srtSettings } from './sandbox'
+import { ALLOWED_DOMAINS, DENIED_BINARIES, srtExecutable, srtSettings } from './sandbox'
 import { AGENT_IDENTITY, collect, createWorkspace, workspaceEnv } from './workspace'
 
 const execFile = promisify(execFileCb)
@@ -195,12 +195,15 @@ test('escape binaries are denied by making them unreadable', async () => {
   }
 })
 
-test('egress is allow-listed, and extra domains never displace the API', async () => {
+test('egress is allow-listed, and extra domains never displace the defaults', async () => {
   const ws = await workspace()
-  expect(srtSettings(ws).network.allowedDomains).toEqual(['api.anthropic.com'])
-  expect(
-    srtSettings(ws, { allowedDomains: ['registry.npmjs.org'] }).network.allowedDomains,
-  ).toEqual(['api.anthropic.com', 'registry.npmjs.org'])
+  // The registry is a default because init installs dependencies inside the
+  // sandbox, and an agent asked to add one needs it too.
+  expect(srtSettings(ws).network.allowedDomains).toEqual([...ALLOWED_DOMAINS])
+  expect(srtSettings(ws, { allowedDomains: ['example.test'] }).network.allowedDomains).toEqual([
+    ...ALLOWED_DOMAINS,
+    'example.test',
+  ])
 })
 
 test("the shim runs the CLI through srt with this workspace's settings", async () => {

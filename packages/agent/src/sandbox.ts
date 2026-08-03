@@ -56,6 +56,20 @@ export const CREDENTIAL_ENV = [
   'ANTHROPIC_AUTH_TOKEN',
 ] as const
 
+/** Filename of the generated settings, inside a workspace's config root. */
+export const SETTINGS_FILE = 'srt-settings.json'
+
+/**
+ * Hosts every sandboxed run may reach.
+ *
+ * The registry is here so a repository's dependencies can be installed and an
+ * agent can add one. It is a real widening — a request path to an allowed host
+ * can carry data out — and a deliberate one, since an agent that cannot install
+ * a dependency cannot work on most repositories. Splitting it into an
+ * install-only phase is strictly tighter and stays available; see ADR 0004.
+ */
+export const ALLOWED_DOMAINS = ['api.anthropic.com', 'registry.npmjs.org'] as const
+
 export type SandboxOptions = {
   /**
    * Extra paths the agent may read outside its workspace. Prefer redirecting a
@@ -143,7 +157,7 @@ export function srtSettings(
     network: {
       // Seatbelt alone could never express this — it filters by socket, not by
       // hostname. `srt` runs a host-side proxy, so the allowlist is real.
-      allowedDomains: ['api.anthropic.com', ...allowedDomains],
+      allowedDomains: [...ALLOWED_DOMAINS, ...allowedDomains],
       deniedDomains: [],
     },
     filesystem: {
@@ -195,7 +209,7 @@ export async function writeSandboxShim(
 ): Promise<string> {
   requireCredentials()
 
-  const settingsPath = join(targets.home, 'srt-settings.json')
+  const settingsPath = join(targets.home, SETTINGS_FILE)
   const shimPath = join(targets.home, 'claude-sandboxed')
 
   await writeFile(settingsPath, `${JSON.stringify(srtSettings(targets, options), null, 2)}\n`)
@@ -225,6 +239,34 @@ export async function writeSandboxShim(
   )
 
   return shimPath
+}
+
+/**
+ * Run a command inside a workspace's sandbox.
+ *
+ * This exists because setup is not a safe thing to run on the host. `bun install`
+ * executes postinstall scripts from the target repository's dependency tree —
+ * arbitrary code, from the same untrusted input the sandbox exists to contain.
+ * Running it host-side to save a hop would reopen the hole ADR 0002 closed, by a
+ * different door.
+ */
+export async function runInSandbox(
+  targets: SandboxTargets,
+  argv: string[],
+  options: { cwd?: string; env?: Record<string, string> } = {},
+): Promise<{ stdout: string; stderr: string }> {
+  const [command, ...rest] = argv
+  if (!command) throw new Error('runInSandbox needs a command')
+
+  return execFile(
+    process.execPath,
+    [srtExecutable(), '-s', join(targets.home, SETTINGS_FILE), '--', command, ...rest],
+    {
+      cwd: options.cwd ?? targets.dir,
+      maxBuffer: 32 * 1024 * 1024,
+      env: { ...process.env, ...options.env },
+    },
+  )
 }
 
 function shellQuote(value: string): string {

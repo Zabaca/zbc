@@ -11,7 +11,8 @@
     "./coding": "./src/coding.ts",
     "./review": "./src/review.ts",
     "./workspace": "./src/workspace.ts",
-    "./sandbox": "./src/sandbox.ts"
+    "./sandbox": "./src/sandbox.ts",
+    "./initialize": "./src/initialize.ts"
   },
   "scripts": {
     "dev": "bun run src/cli.ts",

@@ -14,7 +14,7 @@ import { coding } from './coding'
 import { ESSENTIAL_ENV } from './index'
 import { reviewer } from './review'
 import { type SandboxedProfile, runSandboxed, sandboxedOptions } from './sandboxed'
-import { type Workspace, createWorkspace } from './workspace'
+import { type Workspace, createWorkspace, workspaceScratchEnv } from './workspace'
 
 const execFile = promisify(execFileCb)
 const git = async (args: string[]) => (await execFile('git', args)).stdout.trim()
@@ -120,8 +120,16 @@ for (const [name, profile] of PROFILES) {
       try {
         const env = sandboxedOptions(profile, ws).env ?? {}
         expect(env.ZBC_FAKE_SECRET).toBeUndefined()
+
+        // Passed through, except where a value is deliberately redirected into
+        // the workspace — see workspaceScratchEnv.
+        const redirected = new Set(Object.keys(workspaceScratchEnv(ws)))
         for (const key of ESSENTIAL_ENV) {
+          if (redirected.has(key)) continue
           if (process.env[key] !== undefined) expect(env[key]).toBe(process.env[key])
+        }
+        for (const key of redirected) {
+          expect(env[key]).toStartWith(ws.home)
         }
       } finally {
         delete process.env.ZBC_FAKE_SECRET
