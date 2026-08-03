@@ -1,0 +1,46 @@
+# Publishes packages/cli/templates/infra/ as the Zabaca/zbc-core repo — the
+# subtree consumers vendor. Deterministic `git subtree split`, so pushes are
+# fast-forward as long as zbc's main history isn't rewritten. Tags mirror the
+# CLI version (zbc-core-v<x.y.z>) so consumers pin upgrades.
+name: publish-core
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'packages/cli/templates/infra/**'
+      - 'packages/cli/package.json'
+      - '.github/workflows/publish-core.yml'
+
+concurrency: publish-core
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # subtree split walks full history
+
+      - name: Set up deploy key
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s\n' "${{ secrets.ZBC_CORE_DEPLOY_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan github.com >> ~/.ssh/known_hosts
+
+      - name: Split and push main
+        run: |
+          git subtree split --prefix=packages/cli/templates/infra -b core-main
+          git push git@github.com:Zabaca/zbc-core.git core-main:refs/heads/main
+
+      - name: Tag with the CLI version (once per version)
+        run: |
+          VERSION=$(jq -r .version packages/cli/package.json)
+          TAG="zbc-core-v${VERSION}"
+          if git ls-remote --exit-code --tags git@github.com:Zabaca/zbc-core.git "refs/tags/${TAG}" >/dev/null 2>&1; then
+            echo "${TAG} already published — skipping"
+          else
+            git tag "${TAG}" core-main
+            git push git@github.com:Zabaca/zbc-core.git "refs/tags/${TAG}"
+          fi
