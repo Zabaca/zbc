@@ -108,10 +108,21 @@ export const initCommand = defineCommand({
       await copyTemplateFile(path.join(tplRoot, 'gitignore'), path.join(cwd, '.gitignore'))
     }
 
-    // 2. zbc.config.ts (both modes)
-    await copyTemplateFile(path.join(tplRoot, 'zbc.config.ts'), path.join(cwd, 'zbc.config.ts'), {
+    // 2. zbc.config.ts (both modes). Subtree mode rewrites the engine import:
+    //    the '@<project>/infra' package's exports point at packages/infra/src,
+    //    which subtree mode deliberately doesn't copy — the engine lives at
+    //    vendor/zbc/src instead.
+    const configPath = path.join(cwd, 'zbc.config.ts')
+    const configWritten = await copyTemplateFile(path.join(tplRoot, 'zbc.config.ts'), configPath, {
       vars,
     })
+    if (args.subtree && configWritten) {
+      const body = await Bun.file(configPath).text()
+      await Bun.write(
+        configPath,
+        body.replace(`'@${projectName}/infra'`, `'./${VENDOR_PREFIX}/src/index'`),
+      )
+    }
 
     // 3. .sops.yaml (unless --no-sops)
     if (!args['no-sops']) {

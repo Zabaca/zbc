@@ -87,6 +87,11 @@ describe('zbc init --subtree', () => {
     // Rest of the scaffold still lands.
     expect(fs.existsSync(path.join(consumer, 'zbc.config.ts'))).toBe(true)
     expect(fs.existsSync(path.join(consumer, 'packages/infra/package.json'))).toBe(true)
+    // zbc.config.ts must import the engine from the vendor tree — the copied
+    // '@<project>/infra' package points at a src/ that subtree mode skips.
+    const config = fs.readFileSync(path.join(consumer, 'zbc.config.ts'), 'utf8')
+    expect(config).toContain("from './vendor/zbc/src/index'")
+    expect(config).not.toContain('@testproj/infra')
     // Subtree bookkeeping recorded.
     expect(sh(consumer, 'git log --format=%B')).toContain('git-subtree-dir: vendor/zbc')
   })
