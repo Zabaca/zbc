@@ -10,6 +10,7 @@ import {
   copyTemplateDir,
   copyTemplateFile,
 } from '../utils/copy-template'
+import { isVendorMode, VENDOR_PREFIX } from '../utils/subtree'
 
 interface RegistryFile {
   path: string
@@ -41,14 +42,29 @@ interface RegistryManifest {
   instanceTemplate?: string
 }
 
-async function resolveBundledDir(name: string): Promise<string> {
+interface ResolvedModule {
+  dir: string
+  /** true → the module lives in this project's vendor/zbc subtree (no copy). */
+  vendored: boolean
+}
+
+/** Vendor-mode projects resolve modules from vendor/zbc first — the vendored
+ *  copy is version-matched to the project. Apps stay CLI-bundled either way
+ *  (the core split carries only the infra engine + modules). */
+async function resolveModuleSource(projectRoot: string, name: string): Promise<ResolvedModule> {
+  if (await isVendorMode(projectRoot)) {
+    const dir = path.join(projectRoot, VENDOR_PREFIX, 'modules', name)
+    if (await Bun.file(path.join(dir, 'registry.json')).exists()) {
+      return { dir, vendored: true }
+    }
+  }
   for (const candidate of [...bundledModulesCandidates(), ...bundledAppsCandidates()]) {
     const dir = path.join(candidate, name)
     const registry = path.join(dir, 'registry.json')
-    if (await Bun.file(registry).exists()) return dir
+    if (await Bun.file(registry).exists()) return { dir, vendored: false }
   }
   throw new Error(
-    `"${name}" not found in built-in registry. Available: cloudflare, cloudflare-email, r2, turso, inbox, secret-relay, warehouse.`,
+    `"${name}" not found in built-in registry. Available: cloudflare, cloudflare-email, cloudflare-token, r2, turso, inbox, secret-relay, warehouse.`,
   )
 }
 
@@ -93,13 +109,37 @@ function printPostInstall(registry: RegistryManifest): void {
   }
 }
 
-/** Vendor a module into packages/infra/modules/<name>. Skips if installed. */
+/** Make a module usable: vendor-mode modules already live in vendor/zbc (only
+ *  their dependencies install); copy mode vendors into packages/infra/modules/
+ *  as before. Skips if already copied. */
 async function installModule(
   moduleName: string,
+  projectRoot: string,
   infraDir: string,
   opts: { quietSkip?: boolean } = {},
 ): Promise<RegistryManifest | null> {
-  const sourceDir = await resolveBundledDir(moduleName)
+  const source = await resolveModuleSource(projectRoot, moduleName)
+
+  const registry = (await Bun.file(
+    path.join(source.dir, 'registry.json'),
+  ).json()) as RegistryManifest
+
+  if (registry.kind === 'app') {
+    throw new Error(`"${moduleName}" is an app template, not an infra module`)
+  }
+
+  if (source.vendored) {
+    console.log(
+      `zbc add: ${moduleName} (already vendored at ${VENDOR_PREFIX}/modules/${moduleName}/ — installing dependencies only)`,
+    )
+    if (registry.dependencies) await bunAdd(infraDir, registry.dependencies)
+    if (registry.devDependencies) await bunAdd(infraDir, registry.devDependencies, '--dev')
+    if (registry.optionalDependencies) {
+      await bunAdd(infraDir, registry.optionalDependencies, '--optional')
+    }
+    return registry
+  }
+
   const destDir = path.join(infraDir, 'modules', moduleName)
 
   if (await Bun.file(path.join(destDir, 'registry.json')).exists()) {
@@ -111,22 +151,14 @@ async function installModule(
     return null
   }
 
-  const registry = (await Bun.file(
-    path.join(sourceDir, 'registry.json'),
-  ).json()) as RegistryManifest
-
-  if (registry.kind === 'app') {
-    throw new Error(`"${moduleName}" is an app template, not an infra module`)
-  }
-
   console.log(`zbc add: ${moduleName}`)
 
   await fs.mkdir(destDir, { recursive: true })
   for (const f of registry.files ?? []) {
-    await copyTemplateFile(path.join(sourceDir, f.path), path.join(destDir, f.path))
+    await copyTemplateFile(path.join(source.dir, f.path), path.join(destDir, f.path))
   }
   // Always copy registry.json (used as install marker + future upgrade ref)
-  await copyTemplateFile(path.join(sourceDir, 'registry.json'), path.join(destDir, 'registry.json'))
+  await copyTemplateFile(path.join(source.dir, 'registry.json'), path.join(destDir, 'registry.json'))
 
   if (registry.dependencies) await bunAdd(infraDir, registry.dependencies)
   if (registry.devDependencies) await bunAdd(infraDir, registry.devDependencies, '--dev')
@@ -158,7 +190,7 @@ async function installApp(
 
   // 1. Auto-vendor the infra modules this app depends on.
   for (const dep of registry.modules ?? []) {
-    const depRegistry = await installModule(dep, infraDir, { quietSkip: true })
+    const depRegistry = await installModule(dep, projectRoot, infraDir, { quietSkip: true })
     if (depRegistry) {
       console.log(`  ↳ vendored dependency module: ${dep}`)
       printPostInstall(depRegistry)
@@ -264,13 +296,13 @@ export const addCommand = defineCommand({
       process.exit(1)
     }
 
-    const sourceDir = await resolveBundledDir(name)
+    const source = await resolveModuleSource(projectRoot, name)
     const registry = (await Bun.file(
-      path.join(sourceDir, 'registry.json'),
+      path.join(source.dir, 'registry.json'),
     ).json()) as RegistryManifest
 
     if (registry.kind === 'app') {
-      await installApp(registry, sourceDir, projectRoot, infraDir)
+      await installApp(registry, source.dir, projectRoot, infraDir)
       await generateInstanceFile(registry, projectRoot, {
         accountId: args['account-id'],
         env: args.env,
@@ -279,12 +311,15 @@ export const addCommand = defineCommand({
       return
     }
 
-    const installed = await installModule(name, infraDir)
+    const installed = await installModule(name, projectRoot, infraDir)
     if (installed) {
       printPostInstall(installed)
+      const importPath = source.vendored
+        ? `../../../${VENDOR_PREFIX}/modules/${name}`
+        : `../../modules/${name}`
       console.log('')
       console.log(
-        `Next: create an instance file under packages/infra/environments/<env>/ that imports from ../../modules/${name}.`,
+        `Next: create an instance file under packages/infra/environments/<env>/ that imports from ${importPath}.`,
       )
     }
     await collectDeclaredSecrets(registry, projectRoot, args.env, args.prompt)
