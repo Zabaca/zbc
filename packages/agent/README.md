@@ -260,10 +260,39 @@ Read `0002` before widening anything.
 
 ## Running somewhere else
 
-A second tier — the agent in a Cloudflare container rather than a clone on your
-laptop — is designed and measured but **not built**. The container is the
-boundary there, so `sandbox-runtime` drops away; profiles, traits and the option
-composition are unchanged.
+A second tier — the agent in a container on another machine rather than a
+clone on your laptop — exists in two designs. The Cloudflare shape (ADR 0003/
+0004) is designed and measured but not built. A reference implementation runs
+on foundry's ryzen-9 (**agent-host**): sessions are incus containers, sleep is
+`incus stop`, and the snapshot/restore machinery ADR 0004 needed does not
+exist there — the disk never goes anywhere. Measured against the ADR numbers:
+create+first-turn 8.9s (28.0s cold there), wake+resume 3.1s including the
+model's answer (3.1s restore + 12.1s turn there).
+
+`remote.ts` is the client for that tier:
+
+```ts
+import { runRemote, continueRemote, collectRemote, destroyRemote } from '@zbc/agent/remote'
+
+const config = { host: 'http://100.67.134.53:8794', token: process.env.AGENT_HOST_TOKEN! }
+const run = await runRemote('coding', 'Fix the failing test', config, {
+  repo: 'https://github.com/Zabaca/zbc.git',
+  claudeToken: process.env.CLAUDE_CODE_OAUTH_TOKEN!,
+})
+const next = await continueRemote(run, 'Also update the docs', config, {
+  claudeToken: process.env.CLAUDE_CODE_OAUTH_TOKEN!,
+})
+const { branch, bundle } = await collectRemote(run, config)
+// git fetch <bundle> <branch>:<branch>, review, then:
+await destroyRemote(run, config)
+```
+
+The container is the boundary on this tier, so `sandbox-runtime` drops away;
+`repo` is a clone URL rather than a local path, and credentials are
+per-request inputs the host never persists — token rotation is "send the new
+token on the next turn" (verified; issue #25). Egress from a session is an
+allowlisted proxy: api.anthropic.com, github, registry.npmjs.org, nothing
+else. Profiles, traits and the option composition are unchanged.
 
 Four spikes established that it works and what it costs: 2.7 s cold boot, 0.3 s
 to restore a session, 885 KB to ship this repo up and 488 bytes to bring one
