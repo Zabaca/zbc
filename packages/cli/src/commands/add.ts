@@ -64,8 +64,33 @@ async function resolveModuleSource(projectRoot: string, name: string): Promise<R
     if (await Bun.file(registry).exists()) return { dir, vendored: false }
   }
   throw new Error(
-    `"${name}" not found in built-in registry. Available: cloudflare, cloudflare-email, cloudflare-token, r2, turso, systemd-unit, host-file, docker-compose-stack, inbox, secret-relay, warehouse.`,
+    `"${name}" not found in built-in registry. Available: ${bundledRegistryNames().join(', ')}.`,
   )
+}
+
+/**
+ * Every name `resolveModuleSource` can resolve out of the bundled templates.
+ *
+ * Computed, because the hand-written literal this replaced went stale the first
+ * time the modules directory grew: the four host primitives contributed from
+ * foundry on 2026-08-18 resolved fine and were advertised nowhere, so a caller
+ * who did not already know they existed had no way to find them. Every other
+ * "Available:" in this CLI joins a live array (`apply.ts`, `destroy.ts`,
+ * `engine/resolve.ts`); this is now the same shape. `add-registry.test.ts`
+ * compares the sentence against an independent walk of the same directories.
+ *
+ * The glob matches `resolveModuleSource`'s own test — a directory is offerable
+ * exactly when it holds a `registry.json` — and mirrors the scan `secret.ts`
+ * runs over the same directory for the same reason.
+ */
+export function bundledRegistryNames(): string[] {
+  const names = new Set<string>()
+  for (const candidate of [...bundledModulesCandidates(), ...bundledAppsCandidates()]) {
+    for (const hit of new Bun.Glob('*/registry.json').scanSync({ cwd: candidate })) {
+      names.add(path.dirname(hit))
+    }
+  }
+  return [...names].toSorted()
 }
 
 function run(cwd: string, cmd: string, args: string[]): Promise<void> {
@@ -158,7 +183,10 @@ async function installModule(
     await copyTemplateFile(path.join(source.dir, f.path), path.join(destDir, f.path))
   }
   // Always copy registry.json (used as install marker + future upgrade ref)
-  await copyTemplateFile(path.join(source.dir, 'registry.json'), path.join(destDir, 'registry.json'))
+  await copyTemplateFile(
+    path.join(source.dir, 'registry.json'),
+    path.join(destDir, 'registry.json'),
+  )
 
   if (registry.dependencies) await bunAdd(infraDir, registry.dependencies)
   if (registry.devDependencies) await bunAdd(infraDir, registry.devDependencies, '--dev')
