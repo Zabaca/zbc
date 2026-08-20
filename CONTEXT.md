@@ -12,8 +12,8 @@ zbc is open source; consumers fork the repo or install just the CLI. Either way,
 **Scaffold freely, deploy only through the graph**:
 CLI commands may automate as much as they like (vendor modules, copy templates, even generate instance files) — but everything they do must land as committed declarative files, and real-world convergence happens only via `zbc apply`. A fresh clone plus `zbc apply` must reproduce the world.
 
-**An app earns a template when most software companies would want it**:
-`inbox` and `warehouse` are here because mail and a data warehouse are near-universal needs, not because Zabaca happened to need them. Anything specific to one project belongs in that project, consuming zbc. This is the test to apply before adding a new `kind: "app"` template — the **App Template** entry below says what one *is*, not what earns one.
+**An app earns a template when most software companies would want it — or when the zbc workflow itself requires it**:
+`inbox` and `warehouse` are here because mail and a data warehouse are near-universal needs, not because Zabaca happened to need them. `secret-relay` is the second case: no company wants a relay for its own sake, but every zbc consumer needs one for `zbc secret request` to work at all ([ADR-0003](./docs/adr/0003-secret-request-relay.md)). Anything specific to one project belongs in that project, consuming zbc. This is the test to apply before adding a new `kind: "app"` template — the **App Template** entry below says what one *is*, not what earns one.
 
 ## Language
 

@@ -4,7 +4,7 @@ Zabaca's open-source stack bootstrap. It holds the `zbc` CLI, the infrastructure
 
 **Who it's for:** zbc is open source, and its consumers are other software companies, not just Zabaca. A consumer forks this repo or installs just the CLI, then vendors the engine and built-in modules as a git subtree at `vendor/zbc` ([ADR-0005](./docs/adr/0005-subtree-distribution-zbc-core.md)). Nothing is Zabaca-hosted — every consumer runs their own copy of everything, including any supporting service.
 
-**Two kinds of thing ship here.** A *module* provisions or deploys one resource (`turso`, `cloudflare`, `r2`, …). An *app template* is a whole application scaffolded into the consumer's repo — it earns its place by being something most software companies would want; anything specific to one project belongs in that project, consuming zbc.
+**Two kinds of thing ship to consumers.** A *module* provisions or deploys one resource (`turso`, `cloudflare`, `r2`, …). An *app template* is a whole application scaffolded into the consumer's repo — it earns its place by being something most software companies would want, or by being required for the zbc workflow itself (`secret-relay`); anything specific to one project belongs in that project, consuming zbc.
 
 Domain vocabulary and principles live in [`CONTEXT.md`](./CONTEXT.md); the map of contexts is [`CONTEXT-MAP.md`](./CONTEXT-MAP.md).
 
