@@ -1,0 +1,54 @@
+# The suites that ship to consumers, run on every change to them.
+#
+# `packages/cli/templates/infra/` is what `publish-core.yml` splits into
+# Zabaca/zbc-core and what every consumer vendors at a `zbc-core-v*` tag. Until
+# 2026-08-19 nothing in CI ran `bun test` at all — lefthook runs oxlint and
+# oxfmt only — so those modules were tested wherever they happened to be
+# authored and nowhere after that. The contributing repo found what that costs:
+# a fix to `cloudflare-token`'s permission-group resolution lived in its
+# vendored copy for four days without reaching here, and every other consumer
+# had the defect with no way to see it.
+#
+# **Scoped to templates/infra deliberately, and the narrowing is stated rather
+# than left to be discovered.** `bun test packages/cli` is red today on six
+# warehouse auth tests that predate this workflow, and a gate that is red on
+# arrival is a gate people learn to ignore (RULES.md in the contributing repo
+# puts it plainly: a guard with false positives gets switched off). Widening
+# this is a matter of fixing those six, not of editing the path here.
+name: core-tests
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'packages/cli/templates/infra/**'
+      - '.github/workflows/core-tests.yml'
+  pull_request:
+    paths:
+      - 'packages/cli/templates/infra/**'
+      - '.github/workflows/core-tests.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: core-tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - run: bun install
+
+      # The modules a consumer vendors, and nothing else. Every one of these
+      # converges a real machine somewhere, so a red here is a defect shipping
+      # under a tag rather than a broken build.
+      - name: Test the modules consumers vendor
+        run: bun test packages/cli/templates/infra
