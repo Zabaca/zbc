@@ -1,6 +1,12 @@
 # zbc
 
-Zabaca's stack bootstrap. Holds the `zbc` CLI and the infrastructure modules used to provision and deploy Zabaca projects.
+Zabaca's open-source stack bootstrap. It holds the `zbc` CLI, the infrastructure modules that make deploying an application easy, and a small set of applications most software companies want (`inbox`, `warehouse`, …) as app templates.
+
+**Who it's for:** zbc is open source, and its consumers are other software companies, not just Zabaca. A consumer forks this repo or installs just the CLI, then vendors the engine and built-in modules as a git subtree at `vendor/zbc` ([ADR-0005](./docs/adr/0005-subtree-distribution-zbc-core.md)). Nothing is Zabaca-hosted — every consumer runs their own copy of everything, including any supporting service.
+
+**Two kinds of thing ship to consumers.** A *module* provisions or deploys one resource (`turso`, `cloudflare`, `r2`, …). An *app template* is a whole application scaffolded into the consumer's repo — it earns its place by being something most software companies would want, or by being required for the zbc workflow itself (`secret-relay`); anything specific to one project belongs in that project, consuming zbc.
+
+Domain vocabulary and principles live in [`CONTEXT.md`](./CONTEXT.md); the map of contexts is [`CONTEXT-MAP.md`](./CONTEXT-MAP.md).
 
 Projects live here under `packages/<project>/`; per-environment module instances live under `packages/infra/environments/<env>/`. Applying an environment is one command — `zbc apply <env>` — which discovers every instance in the environment directory, resolves the dependency graph from imports, decrypts secrets, and converges each service to the desired state.
 
@@ -259,4 +265,4 @@ Issues live in **Fredrin** as tickets, managed via the `fredrin` CLI — not Git
 
 ### Domain docs
 
-Multi-context: `CONTEXT-MAP.md` at the root lists them. **Infrastructure** keeps its glossary at the root (`CONTEXT.md` + `docs/adr/`) because it spans `packages/cli/` and `packages/infra/`; **Agent** keeps its own under `packages/agent/`. See `docs/agents/domain.md`.
+Linked at the top of this file. **Infrastructure** keeps its glossary at the root (`CONTEXT.md` + `docs/adr/`) because it spans `packages/cli/` and `packages/infra/`; **Agent** keeps its own under `packages/agent/`. See `docs/agents/domain.md` for how to maintain them.
