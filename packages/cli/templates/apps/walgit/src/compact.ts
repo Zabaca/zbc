@@ -99,6 +99,10 @@ interface Lease {
   expires: string
 }
 
+function leaseBody(lease: Lease): Uint8Array {
+  return new TextEncoder().encode(`${JSON.stringify(lease, null, 2)}\n`)
+}
+
 export type LeaseResult =
   | { ok: true; release: () => Promise<void> }
   /** Another node is compacting this repository. Not an error — decline. */
@@ -122,7 +126,6 @@ export async function acquireLease(
   const now = opts.now ?? new Date()
   const ttl = opts.ttlMs ?? DEFAULT_LEASE_MS
   const key = leaseKey(repoId)
-  const body = (lease: Lease) => new TextEncoder().encode(`${JSON.stringify(lease, null, 2)}\n`)
   const lease: Lease = {
     holder: opts.holder,
     acquired: now.toISOString(),
@@ -145,7 +148,7 @@ export async function acquireLease(
   }
 
   if (!current) {
-    const put = await store.put(key, body(lease), { ifAbsent: true })
+    const put = await store.put(key, leaseBody(lease), { ifAbsent: true })
     return put.ok ? { ok: true, release } : { ok: false, reason: 'held', holder: 'unknown' }
   }
 
@@ -161,7 +164,7 @@ export async function acquireLease(
     return { ok: false, reason: 'held', holder: existing.holder }
   }
 
-  const put = await store.put(key, body(lease), { ifMatch: current.etag })
+  const put = await store.put(key, leaseBody(lease), { ifMatch: current.etag })
   return put.ok
     ? { ok: true, release }
     : { ok: false, reason: 'held', holder: existing?.holder ?? 'unknown' }

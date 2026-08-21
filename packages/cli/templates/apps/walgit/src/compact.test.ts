@@ -49,9 +49,9 @@ describe('when compaction is due', () => {
   })
 })
 
-describe('the compaction lease', () => {
-  const at = (iso: string) => new Date(iso)
+const at = (iso: string) => new Date(iso)
 
+describe('the compaction lease', () => {
   test('one node takes it and the other is told who holds it', async () => {
     const store = new MemoryStore()
     const first = await acquireLease(store, 'r', {
