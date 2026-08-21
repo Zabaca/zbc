@@ -3,10 +3,14 @@
   "version": "0.0.1",
   "private": true,
   "type": "module",
+  "bin": {
+    "walgit": "./src/cli.ts"
+  },
   "scripts": {
     "test": "bun test src",
     "typecheck": "tsc --noEmit",
-    "bench:materialize": "bun run src/materialize.bench.ts"
+    "bench:materialize": "bun run src/materialize.bench.ts",
+    "walgit": "bun run src/cli.ts"
   },
   "dependencies": {
     "aws4fetch": "^1.0.20"

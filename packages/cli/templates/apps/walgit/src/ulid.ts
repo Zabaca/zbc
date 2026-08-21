@@ -24,3 +24,23 @@ export function ulid(now: number = Date.now()): string {
   for (let i = 0; i < 16; i += 1) rand += CROCKFORD[random[i]! % 32]!
   return time + rand
 }
+
+/**
+ * The millisecond timestamp a ULID was minted at, or `null` if it is not one.
+ *
+ * This is how an object's age is known without asking the store for metadata.
+ * It matters for orphan collection: a pack uploaded seconds ago may belong to a
+ * push still racing for the compare-and-swap, and deleting it would fail a push
+ * that was about to succeed. A `LIST` returns keys and nothing else, so the
+ * timestamp the key already carries is the only age available in one round trip.
+ */
+export function ulidTime(id: string): number | null {
+  if (id.length < 10) return null
+  let ms = 0
+  for (let i = 0; i < 10; i += 1) {
+    const value = CROCKFORD.indexOf(id[i]!)
+    if (value < 0) return null
+    ms = ms * 32 + value
+  }
+  return ms
+}
