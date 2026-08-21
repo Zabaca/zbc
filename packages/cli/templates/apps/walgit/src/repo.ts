@@ -44,8 +44,12 @@ export function resolveRepo(reposDir: string, requested: string): ResolvedRepo {
  *
  * Auto-creation on first contact is deliberate: a walgit repository has no
  * lifecycle of its own on this machine — the disk is a cache, and a push to a
- * name nobody has used yet is how a repo comes into existence. Milestone 3
- * replaces "create empty" with "materialize from the log"; the seam is here.
+ * name nobody has used yet is how a repo comes into existence.
+ *
+ * "Empty" is the right starting point even for a repo the log already knows
+ * about: `syncRepo` runs on every access, and an empty repo is one whose refs
+ * are all missing, which is precisely the signal that materializes it. Creating
+ * and restoring are therefore the same code path with different amounts of log.
  */
 export function ensureBareRepo(repo: ResolvedRepo): ResolvedRepo {
   if (!fs.existsSync(path.join(repo.dir, 'HEAD'))) {
