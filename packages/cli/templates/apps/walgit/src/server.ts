@@ -10,6 +10,8 @@
 import { ensureBareRepo } from './repo'
 import { createHttpHandler } from './http'
 import { runGitHttpBackend } from './git-backend'
+import { storeFromEnv } from './store-env'
+import { syncRepo } from './sync'
 
 const reposDir = process.env.WALGIT_REPOS_DIR ?? '/srv/walgit/repos'
 const port = Number(process.env.PORT ?? 8080)
@@ -29,10 +31,18 @@ if (tokens.length === 0) {
   process.exit(1)
 }
 
+const store = storeFromEnv()
+if (!store) {
+  // Warned, not fatal: reads still work off the local cache, and a push is
+  // refused by the hooks themselves rather than by guessing here.
+  console.error('walgit: no object store configured — pushes will be REFUSED (see src/store-env.ts)')
+}
+
 const handler = createHttpHandler({
   reposDir,
   tokens,
   ensureRepo: ensureBareRepo,
+  syncRepo: (repo) => syncRepo(store, repo),
   runBackend: runGitHttpBackend,
 })
 

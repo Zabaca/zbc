@@ -40,6 +40,14 @@ export async function runGitHttpBackend(req: BackendRequest): Promise<Response> 
     GIT_PROTOCOL: request.headers.get('git-protocol') ?? '',
   }
 
+  // Every WALGIT_* variable is forwarded because the push hooks are spawned by
+  // git, three processes down, and this explicit env map is the only place the
+  // chain can be broken. A hook that cannot see the store configuration
+  // refuses the push — correct, but a confusing way to discover a typo here.
+  for (const [key, value] of Object.entries(process.env)) {
+    if (key.startsWith('WALGIT_') && value !== undefined) env[key] = value
+  }
+
   const child = Bun.spawn(['git', 'http-backend'], {
     env,
     stdin: request.body ?? 'ignore',

@@ -12,6 +12,8 @@ import { spawnSync } from 'node:child_process'
 import * as fs from 'node:fs'
 import * as path from 'node:path'
 
+import { installHooks } from './hooks'
+
 export type ResolvedRepo = { repoId: string; dir: string }
 
 /**
@@ -53,9 +55,14 @@ export function ensureBareRepo(repo: ResolvedRepo): ResolvedRepo {
     // and leaves an empty working tree, which reads as data loss.
     run('git', ['init', '--bare', '--quiet', '--initial-branch=main', repo.dir])
   }
-  // Re-applied on every call, not just at creation: a repo materialized from
-  // the log by some other path must still hold the packs the WAL expects.
+  // Re-applied on every call, not just at creation: `receive.unpackLimit=0`
+  // is what makes a small push arrive as a packfile rather than exploding into
+  // loose objects, and there is no packfile to upload if it does.
   run('git', ['--git-dir', repo.dir, 'config', 'receive.unpackLimit', '0'])
+  // The hooks ARE the push path. Re-installed on every access for the same
+  // reason as the config above: a repo that arrived here by any other route
+  // would otherwise accept pushes that never reach the write-ahead log.
+  installHooks(repo.dir, repo.repoId)
   return repo
 }
 

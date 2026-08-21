@@ -16,6 +16,7 @@ import * as path from 'node:path'
 let scratch: string
 let reposDir: string
 let fakeSsh: string
+let storeDir: string
 
 const git = async (cwd: string, ...args: string[]) => {
   const child = Bun.spawn(['git', ...args], {
@@ -42,11 +43,15 @@ beforeAll(() => {
   scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'walgit-ssh-'))
   reposDir = path.join(scratch, 'repos')
   fs.mkdirSync(reposDir)
+  // A store, because a push that cannot reach the write-ahead log is refused
+  // by the hooks — which is the point of the milestone, not a test artefact.
+  storeDir = path.join(scratch, 'store')
+  fs.mkdirSync(storeDir)
   fakeSsh = path.join(scratch, 'fake-ssh')
   const shell = path.join(import.meta.dir, 'ssh-shell.ts')
   fs.writeFileSync(
     fakeSsh,
-    `#!/bin/sh\nexport WALGIT_REPOS_DIR='${reposDir}'\nexport SSH_ORIGINAL_COMMAND="$2"\nexec bun '${shell}'\n`,
+    `#!/bin/sh\nexport WALGIT_REPOS_DIR='${reposDir}'\nexport WALGIT_STORE_DIR='${storeDir}'\nexport SSH_ORIGINAL_COMMAND="$2"\nexec bun '${shell}'\n`,
     { mode: 0o755 },
   )
 })

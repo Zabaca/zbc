@@ -12,11 +12,14 @@ import * as path from 'node:path'
 import { createHttpHandler } from './http'
 import { ensureBareRepo } from './repo'
 import { runGitHttpBackend } from './git-backend'
+import { FileStore } from './store'
+import { syncRepo } from './sync'
 
 const TOKEN = 's3cret'
 let server: ReturnType<typeof Bun.serve>
 let reposDir: string
 let scratch: string
+let storeDir: string
 let origin: string
 
 /**
@@ -52,6 +55,10 @@ const git = async (cwd: string, ...args: string[]) => {
 beforeAll(() => {
   reposDir = fs.mkdtempSync(path.join(os.tmpdir(), 'walgit-repos-'))
   scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'walgit-work-'))
+  // A push that cannot reach the write-ahead log is refused by the hooks, so
+  // even a transport test needs somewhere for the log to live.
+  storeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'walgit-store-'))
+  process.env.WALGIT_STORE_DIR = storeDir
   server = Bun.serve({
     port: 0,
     idleTimeout: 0,
@@ -59,13 +66,18 @@ beforeAll(() => {
       reposDir,
       tokens: [TOKEN],
       ensureRepo: ensureBareRepo,
+      syncRepo: (repo) => syncRepo(new FileStore(storeDir), repo),
       runBackend: runGitHttpBackend,
     }),
   })
   origin = `http://walgit:${TOKEN}@127.0.0.1:${server.port}/alpha.git`
 })
 
-afterAll(() => server.stop(true))
+afterAll(() => {
+  server.stop(true)
+  delete process.env.WALGIT_STORE_DIR
+  fs.rmSync(storeDir, { recursive: true, force: true })
+})
 
 describe('smart-HTTP', () => {
   test('clone, push, and fetch the pushed commit from a second clone', async () => {

@@ -25,6 +25,12 @@ export type HttpHandlerDeps = {
   /** Accepted credentials. A request must present one of these. */
   tokens: string[]
   ensureRepo: (repo: ResolvedRepo) => ResolvedRepo
+  /**
+   * Bring the local cache in line with the log before serving. Optional only so
+   * the routing can be tested without a store; a deployment without it serves
+   * whatever this node's disk happens to hold.
+   */
+  syncRepo?: (repo: ResolvedRepo) => Promise<unknown>
   runBackend: (req: BackendRequest) => Promise<Response>
 }
 
@@ -65,6 +71,17 @@ export function createHttpHandler(deps: HttpHandlerDeps): (req: Request) => Prom
     } catch {
       // A bad repo name is indistinguishable from a missing one, deliberately.
       return NOT_FOUND()
+    }
+
+    if (deps.syncRepo) {
+      try {
+        await deps.syncRepo(repo)
+      } catch (err) {
+        // Serving a repo we could not verify against the log would hand out
+        // refs that may already have been superseded, which for a fetch is
+        // indistinguishable from data loss. Refuse instead.
+        return new Response(`walgit: ${(err as Error).message}\n`, { status: 503 })
+      }
     }
 
     return deps.runBackend({ repo, pathInfo: url.pathname, request })
