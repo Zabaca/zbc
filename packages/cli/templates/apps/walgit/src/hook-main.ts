@@ -13,10 +13,13 @@
  *     here is fatal rather than logged.
  */
 
+import { spawn } from 'node:child_process'
 import * as path from 'node:path'
 
+import { configuredThreshold, isCompactionDue } from './compact'
 import { clearPending, parseRefChanges, preReceive, publishPush, readPending } from './push'
-import { requireStore } from './store-env'
+import { requireStore, storeFromEnv } from './store-env'
+import { loadIndex } from './wal-index'
 
 const hook = process.argv[2]
 const phase = process.argv[3]
@@ -84,6 +87,30 @@ async function main(): Promise<number> {
       return 1
     }
     fault('after-cas')
+    return 0
+  }
+
+  if (hook === 'post-receive') {
+    // Everything below is best-effort by construction: the push is already
+    // acknowledged, so a failure here must be invisible to the client.
+    try {
+      const store = storeFromEnv()
+      if (!store) return 0
+      const { index } = await loadIndex(store, repoId)
+      if (!isCompactionDue(index, configuredThreshold())) return 0
+      // Detached and disowned: `post-receive` holds the client's connection
+      // open until it exits, so this hook must exit now, not when the repack
+      // finishes. The lease in `compact.ts` is what keeps two of these from
+      // repacking the same repository at once.
+      const child = spawn(
+        process.execPath,
+        [path.join(import.meta.dir, 'compact-main.ts'), gitDir, repoId],
+        { detached: true, stdio: 'ignore' },
+      )
+      child.unref()
+    } catch (err) {
+      process.stderr.write(`walgit: compaction not scheduled: ${(err as Error).message}\n`)
+    }
     return 0
   }
 

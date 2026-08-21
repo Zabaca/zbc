@@ -24,12 +24,20 @@ import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
 
+import { compact } from './compact'
 import { materialize } from './materialize'
 import { sha256 } from './push'
 import { resolveRepo } from './repo'
 import { FileStore } from './store'
 import { ulid } from './ulid'
-import { commitIndex, emptyIndex, walKey, type WalEntry, type WalIndex } from './wal-index'
+import {
+  commitIndex,
+  emptyIndex,
+  loadIndex,
+  walKey,
+  type WalEntry,
+  type WalIndex,
+} from './wal-index'
 
 interface Sample {
   entries: number
@@ -134,16 +142,13 @@ function percentile(values: number[], p: number): number {
   return sorted[Math.min(Math.max(rank, 0), sorted.length - 1)]!
 }
 
-const results: unknown[] = []
-for (const count of sizes) {
-  const repoId = `bench-${count}`
-  const index = await buildLog(repoId, count)
+/** `runs` cold restores from one index, each into a directory of its own. */
+async function measure(repoId: string, index: WalIndex, tag: string): Promise<Sample[]> {
   const samples: Sample[] = []
-
   for (let run = 0; run < runs; run += 1) {
     // A fresh directory every run: measuring a warm disk would measure a
     // `readdir`, which is not the operation anyone is waiting on.
-    const repo = resolveRepo(reposDir, `${repoId}-${run}`)
+    const repo = resolveRepo(reposDir, `${repoId}-${tag}-${run}`)
     const { stats } = await materialize(store, repo, { ...index, repo_id: repo.repoId })
     samples.push({
       entries: stats.fetched,
@@ -155,19 +160,70 @@ for (const count of sizes) {
     })
     fs.rmSync(repo.dir, { recursive: true, force: true })
   }
+  return samples
+}
+
+const results: unknown[] = []
+for (const count of sizes) {
+  const repoId = `bench-${count}`
+  const index = await buildLog(repoId, count)
+  const samples = await measure(repoId, index, 'raw')
+
+  // The same repository after compaction. This pair is the whole claim of the
+  // compaction milestone: the left number grows with push count and the right
+  // one does not, because a restore replays one entry either way.
+  const primary = resolveRepo(reposDir, repoId)
+  const compaction = await compact(store, primary, { force: true, graceMs: 0 })
+  const compactedIndex = (await loadIndex(store, repoId)).index
+  const compactedSamples = await measure(repoId, compactedIndex, 'compacted')
+  fs.rmSync(primary.dir, { recursive: true, force: true })
 
   const total = samples.map((s) => s.totalMs)
+  const compactedTotal = compactedSamples.map((s) => s.totalMs)
   results.push({
     walEntries: count,
+    compacted: {
+      status: compaction.status,
+      entriesToReplay: compactedSamples[0]!.entries,
+      bytes: compactedSamples[0]!.bytes,
+      totalMs: {
+        p50: round(percentile(compactedTotal, 50)),
+        p99: round(percentile(compactedTotal, 99)),
+      },
+    },
     bytes: samples[0]!.bytes,
     runs,
     totalMs: { p50: round(percentile(total, 50)), p99: round(percentile(total, 99)) },
     fetchMs: {
-      p50: round(percentile(samples.map((s) => s.fetchMs), 50)),
-      p99: round(percentile(samples.map((s) => s.fetchMs), 99)),
+      p50: round(
+        percentile(
+          samples.map((s) => s.fetchMs),
+          50,
+        ),
+      ),
+      p99: round(
+        percentile(
+          samples.map((s) => s.fetchMs),
+          99,
+        ),
+      ),
     },
-    refsMs: { p50: round(percentile(samples.map((s) => s.refsMs), 50)) },
-    initMs: { p50: round(percentile(samples.map((s) => s.initMs), 50)) },
+    refsMs: {
+      p50: round(
+        percentile(
+          samples.map((s) => s.refsMs),
+          50,
+        ),
+      ),
+    },
+    initMs: {
+      p50: round(
+        percentile(
+          samples.map((s) => s.initMs),
+          50,
+        ),
+      ),
+    },
   })
 }
 
@@ -180,7 +236,10 @@ fs.rmSync(root, { recursive: true, force: true })
 console.log(
   JSON.stringify(
     {
-      what: 'walgit cold materialize — the WAL replay half only, excluding machine wake',
+      what:
+        'walgit cold materialize — the WAL replay half only, excluding machine wake. ' +
+        'Each size is measured twice: over the raw log, and over the same repository ' +
+        'after compaction. The second column is the one that must stay flat.',
       note:
         'On Fly, a client also pays machine wake (~1350ms, milestone-0 spike). ' +
         'These numbers are a control loop on the compaction threshold, not a pass/fail gate.',

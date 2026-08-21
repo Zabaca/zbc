@@ -1,6 +1,6 @@
 # walgit: object storage holds the write-ahead log, and the git repo on disk is a cache
 
-**Status:** accepted (2026-08-20) — design settled, implementation at Milestone 1
+**Status:** accepted (2026-08-20) — design settled, implementation through Milestone 4 (compaction and orphan collection)
 
 `walgit` is an app template: a git host where **object storage holds the
 write-ahead log and is the source of truth, and the bare repo on local disk is a
@@ -65,8 +65,10 @@ Measurements: [`docs/research/walgit-m0-spike/`](../research/walgit-m0-spike/).
   `reference-transaction` does *not* roll back git's object migration — the
   quarantine is merged as soon as `pre-receive` passes, and only the ref aborts.
   So a pack uploaded for a push that then loses CAS stays in object storage,
-  correctly unpublished but real. It needs a GC path alongside compaction's.
-  The source design does not mention this.
+  correctly unpublished but real. It needs a GC path alongside compaction's,
+  and it shares that path's one safety mechanism: an object is deleted only
+  after it has been provably unreferenced for longer than the slowest restore
+  could take. The source design does not mention this.
 - **Restore latency is two numbers, not one.** "Cold materialize under 2 s" was
   written for an always-on NVMe node. With `min_machines_running = 0`, machine
   wake spends ~1.35 s before materialize starts. Gate wake and materialize
