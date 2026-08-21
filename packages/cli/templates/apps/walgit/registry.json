@@ -1,0 +1,14 @@
+{
+  "name": "walgit",
+  "kind": "app",
+  "targetDir": "packages/walgit",
+  "description": "walgit: a git host where object storage holds the write-ahead log and is the source of truth, and the bare repo on local disk is a disposable cache rebuildable from the log (ADR-0007 in the zbc repository, docs/adr/)",
+  "modules": ["fly", "r2"],
+  "dependencies": {
+    "aws4fetch": "^1.0.20"
+  },
+  "secrets": ["FLY_API_TOKEN", "WALGIT_R2_ACCESS_KEY_ID", "WALGIT_R2_SECRET_ACCESS_KEY"],
+  "signupUrl": "https://fly.io/app/sign-up",
+  "tokenUrl": "https://fly.io/user/personal_access_tokens",
+  "instructions": "STATUS: Milestone 1 — the object-store adapter and the index.json compare-and-swap are implemented and tested; the push path (M2), materialize (M3) and compaction (M5) are not. Not yet deployable. walgit runs on Fly rather than Cloudflare because it serves git over SSH and no Cloudflare product delivers raw inbound TCP to a Worker or Container (see docs/adr/0006 in the zbc repository). Requires: FLY_API_TOKEN (a personal access token, not a deploy token) and R2 S3-API credentials in the environment's secrets.yaml, plus an r2 module instance for the WAL bucket. The fly instance MUST set ipv4: \"dedicated\" — SSH is on port 22 and shared IPv4 covers 80/443 only."
+}

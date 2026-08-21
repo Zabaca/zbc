@@ -44,7 +44,7 @@
     },
     "packages/cli": {
       "name": "@zabaca/zbc",
-      "version": "0.8.0",
+      "version": "0.10.6",
       "bin": {
         "zbc": "./bin/zbc.js",
       },
@@ -78,6 +78,17 @@
       "devDependencies": {
         "@cloudflare/workers-types": "^4.20250620.0",
         "wrangler": "^4.0.0",
+      },
+    },
+    "packages/cli/templates/apps/walgit": {
+      "name": "@zbc/walgit",
+      "version": "0.0.1",
+      "dependencies": {
+        "aws4fetch": "^1.0.20",
+      },
+      "devDependencies": {
+        "@types/bun": "^1.3.14",
+        "typescript": "^5.7.0",
       },
     },
     "packages/cli/templates/apps/warehouse": {
@@ -689,6 +700,8 @@
     "@zbc/landing": ["@zbc/landing@workspace:packages/landing"],
 
     "@zbc/nats-server": ["@zbc/nats-server@workspace:packages/nats-server"],
+
+    "@zbc/walgit": ["@zbc/walgit@workspace:packages/cli/templates/apps/walgit"],
 
     "@zbc/warehouse": ["@zbc/warehouse@workspace:packages/cli/templates/apps/warehouse"],
 

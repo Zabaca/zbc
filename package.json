@@ -7,9 +7,11 @@
     "!packages/inbox",
     "!packages/secret-relay",
     "!packages/warehouse",
+    "!packages/walgit",
     "packages/cli/templates/apps/inbox",
     "packages/cli/templates/apps/secret-relay",
-    "packages/cli/templates/apps/warehouse"
+    "packages/cli/templates/apps/warehouse",
+    "packages/cli/templates/apps/walgit"
   ],
   "scripts": {
     "build": "turbo run build",
