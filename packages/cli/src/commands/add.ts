@@ -73,7 +73,7 @@ async function resolveModuleSource(projectRoot: string, name: string): Promise<R
  *
  * Computed, because the hand-written literal this replaced went stale the first
  * time the modules directory grew: the four host primitives contributed from
- * foundry on 2026-08-18 resolved fine and were advertised nowhere, so a caller
+ * the contributing repository resolved fine and were advertised nowhere, so a caller
  * who did not already know they existed had no way to find them. Every other
  * "Available:" in this CLI joins a live array (`apply.ts`, `destroy.ts`,
  * `engine/resolve.ts`); this is now the same shape. `add-registry.test.ts`

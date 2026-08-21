@@ -10,7 +10,7 @@ import * as path from 'node:path'
  *
  * It was a hand-written literal, and it went stale the first time modules were
  * added to `templates/infra/modules/` — the four host primitives contributed
- * from foundry on 2026-08-18 resolved perfectly well and were named nowhere, so
+ * contributed later resolved perfectly well and were named nowhere, so
  * the only way to discover them was to already know they existed. Every other
  * "Available:" in this CLI computes its list (`apply.ts`, `destroy.ts`,
  * `engine/resolve.ts` all join a live array); this one is now the same shape,
