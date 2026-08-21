@@ -6,7 +6,8 @@
   "scripts": {
     "test": "bun test src",
     "typecheck": "tsc --noEmit",
-    "bench:materialize": "bun run src/materialize.bench.ts"
+    "bench:materialize": "bun run src/materialize.bench.ts",
+    "e2e": "bun run e2e/suite.ts"
   },
   "dependencies": {
     "aws4fetch": "^1.0.20"
