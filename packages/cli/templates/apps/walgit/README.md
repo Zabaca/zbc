@@ -18,10 +18,10 @@ The **front door**, the **storage layer**, and the **push path** that joins them
 | `src/push.ts`, `src/hooks.ts`, `src/hook-main.ts` | the push path: upload at `pre-receive`, publish under CAS at `reference-transaction` |
 | `src/reconcile.ts`, `src/sync.ts` | force the local cache to match the log, on every access |
 | `src/orphans.ts` | the packs a rejected push leaves behind, found by diffing the log |
+| `src/materialize.ts` | rebuild a repo from the log alone, on a disk that holds nothing |
 
-Restoring a repo whose disk is gone is the next milestone: today a node serves
-what it has, reconciled against the log, and reports a ref whose objects it
-lacks rather than pretending to hold it.
+Compaction — reclaiming the entries a restore no longer needs — is the next
+milestone.
 
 ## The push path
 
@@ -51,6 +51,62 @@ no write on the push path. Reclaiming them is the compaction milestone's job.
 
 **A push is refused outright when no object store is configured.** Accepting one
 that cannot reach the log is the single failure this design exists to prevent.
+
+## Cold materialize
+
+Given a `repo_id` and an empty disk, the log is sufficient. `src/materialize.ts`
+runs `git init --bare`, downloads every WAL entry above `compaction_frontier` in
+seq order, drops each `.pack`/`.idx` pair straight into `objects/pack/`, and
+writes `packed-refs` from `index.json.refs` in one shot.
+
+**It is not disaster recovery — it is the normal path.** The machine runs
+`min_machines_running = 0`, so an idle repo loses its disk routinely and the
+next access rebuilds it. The restore path is therefore exercised continuously
+rather than only in a crisis.
+
+`src/sync.ts` decides which of the two repairs an access needs, and a warm disk
+pays for neither:
+
+- refs disagree but the objects are present → **reconcile**, one `packed-refs`
+  write;
+- an object is absent → **materialize**. `reconcile` reporting a ref it will not
+  write is exactly the signal that the WAL has to be replayed. A cold disk is
+  only the extreme of this case.
+
+Three things are load-bearing. Entries at or below `compaction_frontier` are
+never requested — they are superseded, and fetching them is latency spent on
+bytes the repo already has. The `.idx` uploaded beside each pack is placed as
+it is, never rebuilt, because `git index-pack` over every entry is the dominant
+cost of a naive restore. And `git fsck` does not run on this path: the pack's
+own sha256 is checked against the log instead, which catches a truncated
+download at a cost proportional to bytes already transferred.
+
+A materialize takes a `mkdir` lock, so two fetches arriving at a cold repo
+rebuild it once rather than twice; and it leaves a `walgit-materializing`
+marker for its duration, so an interrupted restore is detectable rather than
+reading as a valid-but-truncated repo.
+
+### What it costs
+
+Measured with `bun run bench:materialize` (macOS arm64, `FileStore` on local
+disk, 15 runs per size). Replay only — **machine wake is not in these numbers**:
+
+| WAL entries | total p50 | total p99 | of which download |
+| ---: | ---: | ---: | ---: |
+| 1 | 36 ms | 41 ms | 0.6 ms |
+| 10 | 40 ms | 43 ms | 4 ms |
+| 50 | 57 ms | 65 ms | 21 ms |
+| 200 | 125 ms | 134 ms | 85 ms |
+
+Deliberately **two numbers, not one**. The design's "cold materialize under two
+seconds" was written for an always-on NVMe node; on Fly a client also pays
+machine wake, measured at ~1.35 s in the milestone-0 spike. Gate them
+separately or a regression cannot be attributed to either half.
+
+The materialize number is a **control loop, not a pass/fail gate**: it is linear
+in entry count, so exceeding the target means the WAL is replaying too many
+entries and the knob is the compaction threshold — not this code. A real bucket
+adds one round trip per entry on top, which moves the knob but not the shape.
 
 ## How a client reaches it
 
@@ -108,7 +164,10 @@ bun test src
 
 Includes end-to-end clone/push/fetch over both transports against a real `git`
 client — smart-HTTP through a real server, SSH through the real forced command
-with a stand-in for `ssh` itself — and a fault-injection suite that kills the
+with a stand-in for `ssh` itself — a cold-materialize suite that builds a repo
+with 100 pushes across 5 branches and 3 tags, deletes its disk, and asserts the
+rebuilt repo matches a reference clone on refs, reachable history and `git
+fsck`, and a fault-injection suite that kills the
 push path at each of its steps (`WALGIT_FAULT`, test-only) and asserts the
 invariant every time: either the client saw a rejection, or the commit is
 durably in the log. Never neither.
