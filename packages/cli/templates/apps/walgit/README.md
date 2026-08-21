@@ -238,3 +238,21 @@ fault-injection suite that kills the
 push path at each of its steps (`WALGIT_FAULT`, test-only) and asserts the
 invariant every time: either the client saw a rejection, or the commit is
 durably in the log. Never neither.
+
+### The seven-scenario verification suite
+
+```bash
+bun run e2e
+```
+
+The unit and integration suites above check each guarantee where it is
+implemented. `e2e/` checks all seven of the design's acceptance scenarios in one
+place, against a walgit node running as a **separate process** — so `kill -9`
+is a real `SIGKILL` to a real process group rather than an unawaited promise,
+and "a fresh node" is a server with an empty disk rather than a cleared
+variable. It runs against a local `FileStore` by default and against a real
+bucket when `WALGIT_S3_*` is set, with no other change.
+
+It runs per-PR in `.github/workflows/walgit-e2e.yml`, and nightly against a
+bucket. Scenario 7 gates cold-restore latency against a committed baseline and
+fails the build on a breach. See [`e2e/README.md`](./e2e/README.md).
