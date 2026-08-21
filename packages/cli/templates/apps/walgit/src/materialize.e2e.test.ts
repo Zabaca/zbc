@@ -98,6 +98,10 @@ beforeAll(async () => {
   store = new FileStore(storeDir)
   process.env.WALGIT_STORE_DIR = storeDir
   process.env.WALGIT_QUIET = '1'
+  // Pinned out of reach: this fixture exists to replay a HUNDRED WAL entries,
+  // and the default threshold would compact them into one partway through —
+  // correct behaviour, but it would leave nothing here to measure.
+  process.env.WALGIT_COMPACTION_THRESHOLD = '1000000'
 
   server = Bun.serve({
     port: 0,
@@ -151,6 +155,7 @@ async function pushTag(client: string, name: string): Promise<void> {
 
 afterAll(() => {
   server?.stop(true)
+  delete process.env.WALGIT_COMPACTION_THRESHOLD
   for (const dir of [reposDir, storeDir, scratch]) fs.rmSync(dir, { recursive: true, force: true })
 })
 

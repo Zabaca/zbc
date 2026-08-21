@@ -24,3 +24,25 @@ export function ulid(now: number = Date.now()): string {
   for (let i = 0; i < 16; i += 1) rand += CROCKFORD[random[i]! % 32]!
   return time + rand
 }
+
+/**
+ * The millisecond timestamp encoded in a ULID's first ten characters.
+ *
+ * This is what makes "how old is this object?" answerable from the key alone,
+ * with no store metadata call and no per-object bookkeeping — which orphan
+ * collection needs, because the one thing it must never do is delete a pack
+ * belonging to a push that is still in flight.
+ *
+ * Returns null for anything that is not a ULID. A caller that cannot date an
+ * object must treat it as too young to touch, never as ancient.
+ */
+export function ulidTime(id: string): number | null {
+  if (id.length < 10) return null
+  let t = 0
+  for (let i = 0; i < 10; i += 1) {
+    const digit = CROCKFORD.indexOf(id[i]!)
+    if (digit < 0) return null
+    t = t * 32 + digit
+  }
+  return t
+}
