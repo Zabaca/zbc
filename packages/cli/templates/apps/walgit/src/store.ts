@@ -13,6 +13,9 @@
  * told to try again.
  */
 
+import * as fs from 'node:fs'
+import * as nodePath from 'node:path'
+
 /** A conditional precondition on a write. */
 export type PutCondition =
   /** Write only if the object's current ETag matches (compare-and-swap). */
@@ -204,6 +207,128 @@ export class S3Store implements ObjectStore {
       for (const m of xml.matchAll(/<Key>([^<]+)<\/Key>/g)) keys.push(m[1]!)
       token = xml.match(/<NextContinuationToken>([^<]+)<\/NextContinuationToken>/)?.[1]
     } while (token)
+    return keys.sort()
+  }
+}
+
+// ── Filesystem implementation ───────────────────────────────────────────────
+
+/**
+ * A store backed by a local directory.
+ *
+ * It exists so the push path can be exercised end to end — real `git push`,
+ * real hooks, real hook subprocesses — without a network or a bucket. The
+ * in-memory store cannot do that job: hooks run in their own processes and
+ * share nothing with the test but the filesystem.
+ *
+ * Its compare-and-swap is real, not a pretence: the ETag lives in a sidecar
+ * file and every conditional write takes an exclusive lock, acquired with
+ * `mkdir`, which is atomic on POSIX. That is enough for concurrent hook
+ * processes on one machine, which is precisely the concurrency a single walgit
+ * node has. It is NOT a substitute for a real bucket across machines — there
+ * is no shared lock there, only the store's own conditional write.
+ */
+export class FileStore implements ObjectStore {
+  constructor(private readonly root: string) {}
+
+  private path(key: string): string {
+    return `${this.root}/${key}`
+  }
+
+  private etagPath(key: string): string {
+    return `${this.root}/${key}.walgit-etag`
+  }
+
+  async get(key: string): Promise<GetResult> {
+    if (!fs.existsSync(this.path(key))) return null
+    return {
+      body: new Uint8Array(fs.readFileSync(this.path(key))),
+      etag: fs.readFileSync(this.etagPath(key), 'utf8'),
+    }
+  }
+
+  async getIfNoneMatch(key: string, etag: string): Promise<ConditionalGetResult> {
+    const found = await this.get(key)
+    if (!found) return { status: 'absent' }
+    if (found.etag === etag) return { status: 'not-modified' }
+    return { status: 'ok', body: found.body, etag: found.etag }
+  }
+
+  async put(key: string, body: Uint8Array, condition?: PutCondition): Promise<PutResult> {
+    fs.mkdirSync(nodePath.dirname(this.path(key)), { recursive: true })
+    const release = condition ? await this.lock(key) : () => {}
+    try {
+      if (condition) {
+        const current = fs.existsSync(this.path(key))
+          ? fs.readFileSync(this.etagPath(key), 'utf8')
+          : null
+        if ('ifAbsent' in condition && current !== null) {
+          return { ok: false, reason: 'precondition-failed' }
+        }
+        if ('ifMatch' in condition && current !== condition.ifMatch) {
+          return { ok: false, reason: 'precondition-failed' }
+        }
+      }
+      const etag = `"${crypto.randomUUID()}"`
+      // The body lands first and the ETag second: a reader that catches the
+      // window sees the old ETag with new bytes, which fails its next CAS —
+      // whereas the reverse order would hand out an ETag for bytes not yet on
+      // disk and let that CAS succeed.
+      fs.writeFileSync(this.path(key), body)
+      fs.writeFileSync(this.etagPath(key), etag)
+      return { ok: true, etag }
+    } finally {
+      release()
+    }
+  }
+
+  private async lock(key: string): Promise<() => void> {
+    const dir = `${this.root}/.walgit-locks`
+    fs.mkdirSync(dir, { recursive: true })
+    const lockPath = `${dir}/${key.replace(/[^A-Za-z0-9]/g, '_')}.lock`
+    for (let i = 0; ; i += 1) {
+      try {
+        fs.mkdirSync(lockPath)
+        return () => {
+          try {
+            fs.rmdirSync(lockPath)
+          } catch {
+            /* already released */
+          }
+        }
+      } catch {
+        // A holder that died mid-write would otherwise wedge every later push,
+        // so the wait is bounded and then broken.
+        if (i > 200) {
+          try {
+            fs.rmdirSync(lockPath)
+          } catch {
+            /* someone else broke it first */
+          }
+        }
+        await new Promise((r) => setTimeout(r, 5))
+      }
+    }
+  }
+
+  async delete(key: string): Promise<void> {
+    fs.rmSync(this.path(key), { force: true })
+    fs.rmSync(this.etagPath(key), { force: true })
+  }
+
+  async list(prefix: string): Promise<string[]> {
+    const keys: string[] = []
+    const walk = (rel: string) => {
+      const abs = rel ? `${this.root}/${rel}` : this.root
+      if (!fs.existsSync(abs)) return
+      for (const entry of fs.readdirSync(abs, { withFileTypes: true })) {
+        if (entry.name === '.walgit-locks') continue
+        const child = rel ? `${rel}/${entry.name}` : entry.name
+        if (entry.isDirectory()) walk(child)
+        else if (!child.endsWith('.walgit-etag') && child.startsWith(prefix)) keys.push(child)
+      }
+    }
+    walk('')
     return keys.sort()
   }
 }

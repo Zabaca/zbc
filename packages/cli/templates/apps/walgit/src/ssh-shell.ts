@@ -14,13 +14,20 @@
 
 import { spawnSync } from 'node:child_process'
 import { ensureBareRepo, parseSshCommand, resolveRepo } from './repo'
+import { storeFromEnv } from './store-env'
+import { syncRepo } from './sync'
 
 const reposDir = process.env.WALGIT_REPOS_DIR ?? '/srv/walgit/repos'
 
 try {
   const { service, requested } = parseSshCommand(process.env.SSH_ORIGINAL_COMMAND)
-  const { dir } = ensureBareRepo(resolveRepo(reposDir, requested))
-  const res = spawnSync(service, [dir], { stdio: 'inherit' })
+  const repo = ensureBareRepo(resolveRepo(reposDir, requested))
+  // Before a byte of the pack protocol is exchanged: an upload-pack that
+  // advertises stale refs sends the client a repository that no longer exists,
+  // and a receive-pack negotiating against them computes its ref updates from
+  // a state the log has already moved past.
+  await syncRepo(storeFromEnv(), repo)
+  const res = spawnSync(service, [repo.dir], { stdio: 'inherit' })
   process.exit(res.status ?? 1)
 } catch (err) {
   // Goes back over the SSH channel to the client, which prints it verbatim.
