@@ -1,0 +1,52 @@
+# walgit on Fly. The topology lives here, not in the zbc `fly` module — the
+# module only runs `fly deploy` against this file.
+#
+# The app name is a per-project identity, so an instance in a consumer's
+# environment overrides it with `appName`. This default is what `fly deploy`
+# uses if nothing does.
+app = "walgit"
+primary_region = "sjc"
+
+[build]
+
+# SSH: RAW TCP PASS-THROUGH. The absence of `handlers` is what makes it raw —
+# adding one would make Fly Proxy try to speak HTTP or TLS to a git client and
+# every connection would fail. Verified against real Fly in the walgit M0 spike
+# (docs/research/walgit-m0-spike/ in the zbc repository).
+#
+# A dedicated IPv4 is REQUIRED for this to be reachable at all: shared IPv4
+# covers ports 80/443 only, and nothing reports the difference. The instance
+# sets `ipv4: "dedicated"`.
+[[services]]
+  protocol = "tcp"
+  internal_port = 22
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 0
+
+  [[services.ports]]
+    port = 22
+
+# smart-HTTP. Same autostop policy, so both front doors wake the same machine;
+# the M0 spike measured a raw-TCP cold start at ~1.35 s, which a git client
+# spends waiting and never notices.
+[[services]]
+  protocol = "tcp"
+  internal_port = 8080
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 0
+
+  [[services.ports]]
+    port = 80
+    handlers = ["http"]
+    force_https = true
+
+  [[services.ports]]
+    port = 443
+    handlers = ["tls", "http"]
+
+# No [[mounts]]. Deliberate: see the Dockerfile — the repo on disk is a cache.
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"

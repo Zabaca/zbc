@@ -3,12 +3,22 @@
   "kind": "app",
   "targetDir": "packages/walgit",
   "description": "walgit: a git host where object storage holds the write-ahead log and is the source of truth, and the bare repo on local disk is a disposable cache rebuildable from the log (ADR-0007 in the zbc repository, docs/adr/)",
-  "modules": ["fly", "r2"],
+  "modules": [
+    "fly",
+    "r2"
+  ],
   "dependencies": {
     "aws4fetch": "^1.0.20"
   },
-  "secrets": ["FLY_API_TOKEN", "WALGIT_R2_ACCESS_KEY_ID", "WALGIT_R2_SECRET_ACCESS_KEY"],
+  "secrets": [
+    "FLY_API_TOKEN",
+    "WALGIT_SSH_HOST_KEY",
+    "WALGIT_SSH_AUTHORIZED_KEYS",
+    "WALGIT_HTTP_TOKENS",
+    "WALGIT_R2_ACCESS_KEY_ID",
+    "WALGIT_R2_SECRET_ACCESS_KEY"
+  ],
   "signupUrl": "https://fly.io/app/sign-up",
   "tokenUrl": "https://fly.io/user/personal_access_tokens",
-  "instructions": "STATUS: Milestone 1 — the object-store adapter and the index.json compare-and-swap are implemented and tested; the push path (M2), materialize (M3) and compaction (M5) are not. Not yet deployable. walgit runs on Fly rather than Cloudflare because it serves git over SSH and no Cloudflare product delivers raw inbound TCP to a Worker or Container (see docs/adr/0006 in the zbc repository). Requires: FLY_API_TOKEN (a personal access token, not a deploy token) and R2 S3-API credentials in the environment's secrets.yaml, plus an r2 module instance for the WAL bucket. The fly instance MUST set ipv4: \"dedicated\" — SSH is on port 22 and shared IPv4 covers 80/443 only."
+  "instructions": "STATUS: the front door is deployable — a Fly machine serving git over SSH (:22, raw TCP) and smart-HTTP (:443), with bare repos on the machine's disposable filesystem. The WAL integration is NOT wired yet: pushes land on disk only, so a machine that is destroyed loses them (push path, materialize and compaction are the next milestones). walgit runs on Fly rather than Cloudflare because it serves git over SSH and no Cloudflare product delivers raw inbound TCP to a Worker or Container (see docs/adr/0006 in the zbc repository). Requires FLY_API_TOKEN (a personal access token, not a deploy token), plus: WALGIT_SSH_HOST_KEY (an ed25519 private key — `ssh-keygen -t ed25519 -f walgit_host -N ''`; it must be a secret because the container filesystem does not survive a machine stop and a regenerated host key trips every client's man-in-the-middle warning), WALGIT_SSH_AUTHORIZED_KEYS (newline-separated public keys; each is pinned to a forced command server-side) and WALGIT_HTTP_TOKENS (comma-separated bearer tokens; git sends them as the Basic-auth password). The fly instance MUST set ipv4: \"dedicated\" — SSH is on port 22 and shared IPv4 covers 80/443 only, a difference `fly deploy` does not report. Add the r2 module instance and its S3-API credentials when the push path lands."
 }
