@@ -1,0 +1,95 @@
+# Publishes @zabaca/zbc to npm when the version field changes.
+#
+# The other half of a release. `publish-core.yml` splits the vendored subtree and
+# tags `zbc-core-v<version>`; this ships the CLI that the same version names.
+# Both are driven by `packages/cli/package.json`, and until 2026-08-22 only the
+# first was automated — so npm sat at 0.10.2 while the repo reached 0.10.7, and
+# the published package carried NINE of the twenty-three modules the tree
+# actually ships. Anyone installing from npm got a CLI that could not `zbc add
+# vm`. Nothing reported it, because nothing was failing.
+#
+# Triggered on the version file alone, not on the templates, so a module change
+# without a release does not attempt a publish it would only skip.
+name: publish-npm
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'packages/cli/package.json'
+  # 0.10.7 was released before this workflow existed; dispatch is how it, or any
+  # other already-tagged version, gets shipped without a further bump.
+  workflow_dispatch:
+
+concurrency: publish-npm
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - run: bun install
+
+      # What ships is what these cover. A version-only bump does not touch
+      # `templates/infra`, so core-tests.yml does not fire on a release commit —
+      # publishing without running them would put an untested tree on npm under
+      # a version number consumers pin.
+      - name: Test the modules that ship
+        run: bun test packages/cli/templates/infra
+
+      - name: Is this version already on npm?
+        id: state
+        run: |
+          VERSION=$(jq -r .version packages/cli/package.json)
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          if npm view "@zabaca/zbc@${VERSION}" version >/dev/null 2>&1; then
+            echo "published=yes" >> "$GITHUB_OUTPUT"
+            echo "@zabaca/zbc@${VERSION} is already on npm — nothing to do"
+          else
+            echo "published=no" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Publish
+        if: steps.state.outputs.published == 'no'
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+        working-directory: packages/cli
+        run: |
+          # Checked here rather than in an `if:`, because a step's own `env` is
+          # not in scope for that step's own condition — written that way first,
+          # the guard fired on every run including the ones with a credential.
+          #
+          # And loudly, not silently: a missing credential that skipped quietly
+          # is the exact shape of the gap this workflow exists to close.
+          # publish-core.yml's tag step printed "already published — skipping"
+          # for two releases and nobody saw it.
+          if [ -z "${NPM_TOKEN}" ]; then
+            echo "::error::NPM_TOKEN is not set on this repository, so @zabaca/zbc@${{ steps.state.outputs.version }} cannot be published."
+            exit 1
+          fi
+          printf '//registry.npmjs.org/:_authToken=%s\n' "${NPM_TOKEN}" > ~/.npmrc
+          bun publish --access public
+          rm -f ~/.npmrc
+
+      - name: Confirm it landed
+        if: steps.state.outputs.published == 'no'
+        run: |
+          VERSION="${{ steps.state.outputs.version }}"
+          # The publish command's exit code is not the same as the registry
+          # holding the version; check the thing consumers will actually resolve.
+          for i in 1 2 3 4 5; do
+            if npm view "@zabaca/zbc@${VERSION}" version >/dev/null 2>&1; then
+              echo "@zabaca/zbc@${VERSION} is live"
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "::error::publish reported success but @zabaca/zbc@${VERSION} does not resolve"
+          exit 1

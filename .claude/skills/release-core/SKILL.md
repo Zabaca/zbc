@@ -79,12 +79,30 @@ consumer already tracking `main` therefore has nothing to re-pull — the tag ju
 gives them a name for the commit they have. Verified on `v0.10.7`, which landed
 on `10cdfd5`, the head `main` already had.
 
-## Two things this does not do
+## npm ships from the same bump
 
-**It does not publish to npm.** No workflow runs `npm publish`; the CLI package
-has a `publish:npm` script that a person runs. npm's latest `@zabaca/zbc` has
-been behind the repo's version field for several bumps, so the field names the
-`zbc-core` tag reliably and the published CLI only incidentally.
+`publish-npm.yml` fires on the same file — `packages/cli/package.json` — and
+publishes `@zabaca/zbc` at that version. So one version bump now produces both
+halves of a release: the `zbc-core` tag consumers vendor, and the CLI they
+install.
+
+It was not always both, and the gap is worth knowing because it was invisible.
+Until 2026-08-22 nothing ran `npm publish`; the CLI package had a `publish:npm`
+script a person ran, and nobody had. npm sat at **0.10.2** while the repo
+reached 0.10.7 — and 0.10.2 ships **nine** of the twenty-three modules the tree
+carries, so anyone installing from npm got a CLI that could not `zbc add vm`.
+Five versions were missing and nothing was failing.
+
+The workflow skips a version already on npm, refuses loudly when `NPM_TOKEN` is
+absent rather than skipping quietly, runs `bun test packages/cli/templates/infra`
+before publishing (a version-only bump does not fire `core-tests.yml`, so
+nothing else would), and re-queries the registry afterwards — a publish command's
+exit code is not the same as the registry holding the version.
+
+`workflow_dispatch` is there for a version that was tagged before this existed,
+or any release that needs shipping without a further bump.
+
+## What it does not do
 
 **It does not tell consumers what changed.** A behaviour change under the prefix
 — a renamed path, a dropped default, a required field — needs saying in the
