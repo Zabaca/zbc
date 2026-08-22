@@ -2,7 +2,13 @@
 # on each authorized key is the real gate, and this file removes every other way
 # in.
 
-Port 22
+# 2222, not 22. Fly's own `hallpass` — the agent behind `fly ssh console` —
+# binds port 22 on the machine's private 6PN address, and sshd listening on
+# every address takes it first. hallpass then fails to bind in a loop and Fly's
+# init brings the machine down with it, which presents as a kernel panic
+# ("Attempted to kill init") one second after boot with nothing in the log to
+# say why. The public port stays 22: fly.toml maps it to this one.
+Port 2222
 AddressFamily any
 HostKey /etc/ssh/ssh_host_ed25519_key
 
