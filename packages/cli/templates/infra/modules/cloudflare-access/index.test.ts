@@ -1234,6 +1234,47 @@ describe('identity providers, converged against a live organisation', () => {
   })
 })
 
+/**
+ * THE ONE THING THIS MODULE MUST NEVER DO, guarded statically as well as
+ * behaviourally.
+ *
+ * Identity providers are ORGANISATION-level. An instance declaring one for a
+ * new application is pointed at the provider set every other Access application
+ * in the account already depends on, so a DELETE here does not affect this
+ * application — it removes a way to sign in from all of them, including the
+ * `cloudflare` provider that is how the operator running the apply gets back in.
+ *
+ * The test above covers the path a fake account exercises. This one covers the
+ * paths it does not: a delete added behind a new flag, in a branch no fixture
+ * reaches, or in a cleanup limb. A source scan is a blunt instrument and is
+ * worth it here because the failure is account-wide and silent — and because
+ * this property could NOT be confirmed against the live Zabaca organisation:
+ * the only Cloudflare credential at rest holds "Account API Tokens Write" and
+ * nothing else, and a list endpoint answers a scopeless token with `[]` rather
+ * than a 403, so a read there proves nothing.
+ */
+describe('identity providers are never deleted, on any path', () => {
+  test('the module contains no DELETE against identity_providers', async () => {
+    const source = await Bun.file(new URL('./index.ts', import.meta.url)).text()
+    const deletes = source
+      .split('\n')
+      .filter((line) => line.includes("'DELETE'") || line.includes('"DELETE"'))
+    // There IS one delete in this module — an undeclared POLICY, behind
+    // allowDelete — so an assertion of "no DELETE at all" would be wrong as
+    // well as brittle. What must hold is that none of them names a provider.
+    expect(deletes.length).toBeGreaterThan(0)
+    for (const line of deletes) {
+      expect(line, line.trim()).not.toContain('identity_providers')
+    }
+    // And the endpoint is reached only by GET and POST.
+    const providerCalls = source.split('\n').filter((line) => line.includes('identity_providers'))
+    expect(providerCalls.length).toBeGreaterThan(0)
+    for (const line of providerCalls) {
+      expect(line, line.trim()).not.toContain('DELETE')
+    }
+  })
+})
+
 describe('the measured 403, the whole way through apply', () => {
   test('creating the application is refused, and the apply says 1010 auth.forbidden', async () => {
     // The module reads the API through `../cloudflare-api`, so this is what
