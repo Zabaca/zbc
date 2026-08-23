@@ -1314,6 +1314,67 @@ describe('what the apply says about signing in', () => {
   })
 })
 
+describe('the summary line an apply actually prints', () => {
+  // Exporting a correct helper and not calling it would leave every apply as
+  // wrong as it was, so this drives the REAL apply and reads what it printed.
+  // The module's own history has this failure in it twice over — `announce`
+  // and `describeCfErrors` both needed a test at the call site rather than at
+  // the function — and a mutation that reverts the call site is otherwise
+  // invisible.
+  const printed: string[] = []
+  const realLog = console.log
+  afterEach(() => {
+    console.log = realLog
+    printed.length = 0
+  })
+  const capture = () => {
+    console.log = (...args: unknown[]) => void printed.push(args.join(' '))
+  }
+
+  test('names the providers the organisation offers, declared or not', async () => {
+    const world = emptyWorld({
+      providers: [
+        { id: 'idp-otp', type: 'onetimepin', name: '' },
+        { id: 'idp-cf', type: 'cloudflare', name: '' },
+      ],
+    })
+    installFetch(world)
+    capture()
+    await apply({ emails: ['james@zabaca.com'] })
+    console.log = realLog
+
+    const line = printed.find((l) => l.includes('sign in with'))
+    expect(line).toBeDefined()
+    expect(line).toContain('onetimepin')
+    expect(line).toContain('cloudflare')
+    expect(line).not.toContain('nobody can sign in')
+  })
+
+  test('an organisation offering nothing is still reported as offering nothing', async () => {
+    const world = emptyWorld({ providers: [] })
+    installFetch(world)
+    capture()
+    await apply({ emails: ['james@zabaca.com'] })
+    console.log = realLog
+
+    expect(printed.find((l) => l.includes('sign in with'))).toContain('nobody can sign in')
+  })
+
+  test('the apply names the fields it changed, rather than a bare "changed"', async () => {
+    const world = emptyWorld()
+    installFetch(world)
+    await apply({ emails: ['james@zabaca.com'], appLauncherVisible: true })
+    capture()
+    const out = await apply({ emails: ['james@zabaca.com'], appLauncherVisible: false })
+    console.log = realLog
+
+    expect(out.changed).toBe(true)
+    expect(printed.find((l) => l.includes('Converged Access application'))).toContain(
+      'app_launcher_visible',
+    )
+  })
+})
+
 describe('what the apply reports as changed about the application', () => {
   const live = {
     name: 'app',
