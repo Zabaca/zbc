@@ -22,6 +22,64 @@ the **garbage collection** that keeps the log from growing without bound:
 | `src/materialize.ts` | rebuild a repo from the log alone, on a disk that holds nothing |
 | `src/compact.ts` | collapse the log to one entry, under a per-repo lease |
 | `src/gc.ts` | delete superseded and orphaned objects, a grace period later |
+| `src/verify.ts`, `src/cli.ts` | the operator CLI: inspect, rebuild, verify, reclaim |
+
+## The operator CLI
+
+```bash
+walgit serve                          # run the git front end (smart-HTTP)
+walgit materialize <repo_id> [path]   # rebuild a repo from the write-ahead log
+walgit verify <repo_id> [path]        # check local state against index.json
+walgit gc <repo_id...>                # reclaim superseded and orphaned objects (dry run)
+walgit compact <repo_id> [path]       # repack the log into one entry, now
+```
+
+It runs where the app's environment is — inside the container:
+
+```bash
+fly ssh console -C "bun /app/src/cli.ts verify myrepo"
+```
+
+**Credentials come from `src/store-env.ts`**, the same reader the server, the SSH
+forced command and both hook processes use. There is deliberately no
+`~/.walgit/config`: a second configuration path is a second thing to be wrong
+about, and it would drift from the one the app actually reads.
+
+**Every command is a thin front over the functions the server calls** —
+`materialize`, `reconcile`, `findOrphans`. That is what makes `verify`
+trustworthy: a command-line reimplementation of "is this disk current?" would
+answer for itself rather than for the server.
+
+Exit codes are meant to be branched on: `0` success, `1` a divergence the
+command was asked to detect, `2` misuse (unknown command, bad argument, missing
+configuration).
+
+`verify` is read-only, which is the whole point — `sync.ts` answers the same
+question on every access and immediately repairs what it finds, so by the time
+an operator asks, the evidence is gone. It reports four independent
+disagreements, because they have different repairs: diverged refs (reconcile),
+refs whose object this repo does not have (replay the WAL), WAL entries above
+the frontier whose pack is absent, and a `walgit-materializing` marker — a
+restore that died partway can leave refs that look perfect on a truncated repo.
+
+`gc` reclaims both kinds of garbage — entries a compaction superseded, and the
+packs rejected pushes leave behind. It **only reports unless given `--yes`**,
+and it never collects an object younger than `--min-age` (default 60 minutes,
+`WALGIT_GC_GRACE_MS`): the push path uploads a pack *before* it publishes it, so
+inside that window a perfectly good pack is indistinguishable from a rejected
+one, and deleting it would fail a push that was about to succeed. The age comes
+from the ULID in the key, so it costs no extra round trip — and an object whose
+age cannot be read is left alone. There is no collect-everything mode: a `LIST`
+of the whole bucket would name repos this node never served, and the blast
+radius of a wrong guess is objects deleted from the source of truth.
+
+`compact` forces a compaction rather than waiting for
+`WALGIT_COMPACTION_THRESHOLD` pushes to trigger one — for the repo whose restore
+is already slow because its log is already long. It takes the same per-repo
+lease the automatic path does, so forcing one while a node is mid-compaction
+reports the holder instead of racing it. `--force=false` inverts it into a
+question: it respects the threshold and says how far off the repo is, without
+causing anything.
 
 ## The push path
 

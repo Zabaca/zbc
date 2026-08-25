@@ -23,7 +23,13 @@ export type ResolvedRepo = { repoId: string; dir: string }
  */
 const REPO_ID = /^[A-Za-z0-9][A-Za-z0-9._-]*$/
 
-export function resolveRepo(reposDir: string, requested: string): ResolvedRepo {
+/**
+ * The repo id a request names, validated. Split out from `resolveRepo` because
+ * the operator CLI materializes into a path the operator chose rather than into
+ * `reposDir` — the id still has to pass the same gate, and there must not be a
+ * second copy of it to drift.
+ */
+export function normalizeRepoId(requested: string): string {
   // Strip the address forms a client can send: ssh://host/alpha.git yields a
   // leading slash, and OpenSSH passes `~/alpha.git` through unexpanded.
   const repoId = requested
@@ -36,6 +42,11 @@ export function resolveRepo(reposDir: string, requested: string): ResolvedRepo {
   if (/[\r\n]/.test(repoId) || !REPO_ID.test(repoId)) {
     throw new Error(`invalid repository name: ${JSON.stringify(requested)}`)
   }
+  return repoId
+}
+
+export function resolveRepo(reposDir: string, requested: string): ResolvedRepo {
+  const repoId = normalizeRepoId(requested)
   return { repoId, dir: path.join(reposDir, `${repoId}.git`) }
 }
 
