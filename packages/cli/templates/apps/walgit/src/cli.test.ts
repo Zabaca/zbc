@@ -13,10 +13,9 @@ import * as os from 'node:os'
 import * as path from 'node:path'
 
 import { main, parseArgs } from './cli'
-import { orphanAgeMs } from './gc'
 import { sha256 } from './push'
 import { FileStore } from './store'
-import { ulid, ulidTime } from './ulid'
+import { ulid } from './ulid'
 import { verifyRepo } from './verify'
 import { commitIndex, emptyIndex, walKey, type WalEntry, type WalIndex } from './wal-index'
 
@@ -255,28 +254,11 @@ describe('walgit gc', () => {
 
     expect(await main(['gc', repoId, '--yes'], env)).toBe(0)
     expect(await store.get(fresh)).not.toBeNull()
-    expect(out.join('\n')).toContain('kept (too-young)')
+    expect(out.join('\n')).toContain('kept (too young or undatable)')
   })
 
   test('gc with no repo id is misuse — there is no collect-everything mode', async () => {
     expect(await main(['gc'], env)).toBe(2)
-  })
-})
-
-describe('object age from the key', () => {
-  test('a ULID round-trips its timestamp', () => {
-    const now = 1_760_000_000_000
-    expect(ulidTime(ulid(now))).toBe(now)
-  })
-
-  test('a WAL key yields the age of its object', () => {
-    const now = 1_760_000_000_000
-    const key = walKey('alpha', 7, ulid(now - 90_000), 'pack')
-    expect(orphanAgeMs(key, now)).toBe(90_000)
-  })
-
-  test('a key that does not carry a ULID has no age, so gc will not touch it', () => {
-    expect(orphanAgeMs('repos/alpha/wal/hand-written.pack', Date.now())).toBeNull()
   })
 })
 
@@ -290,10 +272,16 @@ describe('the command surface', () => {
     expect(await main(['--help'], env)).toBe(0)
   })
 
-  test('compact reports the log it would compact and that it cannot yet', async () => {
+  test('compact forces a compaction, and --force=false asks without doing', async () => {
     const { repoId } = await published()
-    expect(await main(['compact', repoId], env)).toBe(2)
-    expect(out.join('\n')).toContain('not implemented yet')
+    // One entry is far below the threshold, so the un-forced form declines and
+    // says how far off it is — the "would this happen on its own yet?" query.
+    expect(await main(['compact', repoId, '--force=false'], env)).toBe(0)
+    expect(out.join('\n')).toContain('not due')
+
+    out.length = 0
+    expect(await main(['compact', repoId], env)).toBe(0)
+    expect(out.join('\n')).toMatch(/compacted into seq|nothing to compact/)
   })
 
   test('an unconfigured store fails with an explanation rather than a stack', async () => {

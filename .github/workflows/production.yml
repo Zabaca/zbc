@@ -22,6 +22,14 @@ jobs:
 
       - run: bun install
 
+      # The production environment carries a fly:walgit resource, and the fly
+      # module shells out to flyctl — which ubuntu-latest does not ship.
+      # Preview has no fly resource, so preview.yml needs no equivalent step.
+      - name: Install flyctl
+        run: |
+          curl -L https://fly.io/install.sh | sh
+          echo "$HOME/.fly/bin" >> "$GITHUB_PATH"
+
       - name: Decrypt secrets & deploy
         env:
           SOPS_AGE_KEY: ${{ secrets.SOPS_AGE_KEY }}

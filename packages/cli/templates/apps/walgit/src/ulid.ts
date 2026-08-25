@@ -26,21 +26,23 @@ export function ulid(now: number = Date.now()): string {
 }
 
 /**
- * The millisecond timestamp a ULID was minted at, or `null` if it is not one.
+ * The millisecond timestamp encoded in a ULID's first ten characters.
  *
- * This is how an object's age is known without asking the store for metadata.
- * It matters for orphan collection: a pack uploaded seconds ago may belong to a
- * push still racing for the compare-and-swap, and deleting it would fail a push
- * that was about to succeed. A `LIST` returns keys and nothing else, so the
- * timestamp the key already carries is the only age available in one round trip.
+ * This is what makes "how old is this object?" answerable from the key alone,
+ * with no store metadata call and no per-object bookkeeping — which orphan
+ * collection needs, because the one thing it must never do is delete a pack
+ * belonging to a push that is still in flight.
+ *
+ * Returns null for anything that is not a ULID. A caller that cannot date an
+ * object must treat it as too young to touch, never as ancient.
  */
 export function ulidTime(id: string): number | null {
   if (id.length < 10) return null
-  let ms = 0
+  let t = 0
   for (let i = 0; i < 10; i += 1) {
-    const value = CROCKFORD.indexOf(id[i]!)
-    if (value < 0) return null
-    ms = ms * 32 + value
+    const digit = CROCKFORD.indexOf(id[i]!)
+    if (digit < 0) return null
+    t = t * 32 + digit
   }
-  return ms
+  return t
 }

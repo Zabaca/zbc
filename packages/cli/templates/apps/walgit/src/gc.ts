@@ -1,97 +1,138 @@
 /**
- * Reclaim the WAL objects nothing references.
+ * Deleting from the write-ahead log — the only place walgit destroys anything.
  *
- * `orphans.ts` finds them by diffing the WAL prefix against `index.json`; this
- * is the half that deletes, and it is separated from the finding because
- * deletion from the source of truth deserves its own guards:
+ * Two kinds of garbage accumulate, and they are collected together because
+ * they share the one mechanism that makes deletion safe: nothing is removed
+ * until it has been provably unreferenced for longer than the slowest restore
+ * could possibly take.
  *
- *   - **Dry run is the default.** The caller has to say `collect: true`. An
- *     operator reaching for `gc` on a bad day should be able to look before
- *     anything is gone.
- *   - **An orphan younger than `minAgeMs` is never collected.** The push path
- *     uploads a pack BEFORE it publishes it — that ordering is the whole design
- *     — so between the upload and the compare-and-swap a perfectly good pack is
- *     indistinguishable from a rejected one. Deleting inside that window fails a
- *     push that was about to succeed. The age comes from the ULID in the key
- *     (see `ulidTime`), so it costs no extra round trip.
- *   - **An orphan whose age cannot be read is never collected.** A key that does
- *     not parse is a key this code does not understand, and the safe thing to do
- *     with an object you do not understand in the source of truth is leave it.
+ *   - **Superseded entries.** Compaction advanced the frontier past them and
+ *     tombstoned their keys. A restore that read `index.json` a moment before
+ *     that compare-and-swap is still downloading them.
+ *   - **Orphans.** A push uploads its pack in `pre-receive` and can still lose
+ *     the compare-and-swap at `reference-transaction`; the upload is not
+ *     unwound, so the WAL prefix holds objects `index.json` never named. See
+ *     `orphans.ts` for why they are discovered rather than recorded.
  *
- * What is NOT here: reclaiming entries below `compaction_frontier`. Those are
- * superseded rather than orphaned, and they only become superseded because a
- * compaction wrote a replacement — so they belong with compaction, which owns
- * both halves of that trade.
+ * The asymmetry to hold on to: over-retaining costs storage, and
+ * under-retaining loses data with no error anywhere. Every judgement call in
+ * this file therefore resolves toward keeping the object. An orphan whose age
+ * cannot be determined is never collected.
  */
 
+import { configuredGraceMs } from './compact'
 import { findOrphans } from './orphans'
 import type { ObjectStore } from './store'
 import { ulidTime } from './ulid'
+import { loadIndex, updateIndex, type WalIndex } from './wal-index'
 
-/** One hour: far wider than any push, far narrower than "never reclaimed". */
-export const DEFAULT_MIN_AGE_MS = 60 * 60 * 1000
-
-export interface CollectOptions {
-  /** Delete. Without it nothing is removed and the result is a preview. */
-  collect?: boolean
-  minAgeMs?: number
-  now?: number
+export interface GcResult {
+  /** Superseded keys whose grace period elapsed, now deleted. */
+  collected: string[]
+  /** Tombstoned keys still inside their grace period. */
+  retained: string[]
+  /** Unreferenced uploads older than the grace period, now deleted. */
+  orphansCollected: string[]
+  /** Unreferenced uploads too young, or too unreadable, to collect yet. */
+  orphansHeld: string[]
 }
 
-export interface CollectResult {
-  repoId: string
-  /** Orphans old enough to reclaim — deleted when `collect`, listed otherwise. */
-  collectable: string[]
-  /** Orphans held back, with why: too young, or an age that could not be read. */
-  retained: { key: string; reason: 'too-young' | 'age-unknown' }[]
-  deleted: number
-  dryRun: boolean
+export interface GcOptions {
+  now?: () => Date
+  graceMs?: number
+  /** Report what would be deleted without deleting anything. */
+  dryRun?: boolean
+}
+
+/** The `.idx` uploaded beside a pack. Deleted with it, never separately. */
+function siblingIdx(key: string): string {
+  return key.replace(/\.pack$/, '.idx')
 }
 
 /**
- * The age of a WAL object, from the ULID in its key.
- *
- * Keys are `repos/{id}/wal/{seq:012d}-{ulid}.{ext}` — see `walKey`.
+ * The upload time encoded in a WAL key's ULID, or null when the key does not
+ * carry one. Null is the "leave it alone" answer, not the "it is ancient" one.
  */
-export function orphanAgeMs(key: string, now: number): number | null {
+export function keyAgeMs(key: string, now: number): number | null {
   const stem =
     key
       .split('/')
       .pop()
       ?.replace(/\.(pack|idx)$/, '') ?? ''
-  const ulid = stem.slice(stem.indexOf('-') + 1)
-  const minted = ulidTime(ulid)
-  if (minted === null) return null
-  return now - minted
+  const id = stem.includes('-') ? stem.slice(stem.indexOf('-') + 1) : ''
+  const time = id ? ulidTime(id) : null
+  return time === null ? null : now - time
 }
 
-export async function collectOrphans(
+/**
+ * Delete what is safely deletable for one repository.
+ *
+ * Tombstones are cleared before orphans are scanned, and in that order for a
+ * reason: a tombstoned key is removed from `index.json` first and deleted from
+ * the store second, so a crash between the two leaves an ORPHAN — which the
+ * second half of this same function reclaims on its next run. The reverse
+ * order would leave `index.json` naming an object that is gone, which is a
+ * broken repository rather than a recoverable one.
+ */
+export async function collectGarbage(
   store: ObjectStore,
   repoId: string,
-  options: CollectOptions = {},
-): Promise<CollectResult> {
-  const { collect = false, minAgeMs = DEFAULT_MIN_AGE_MS, now = Date.now() } = options
+  opts: GcOptions = {},
+): Promise<GcResult> {
+  const now = (opts.now ?? (() => new Date()))()
+  const graceMs = opts.graceMs ?? configuredGraceMs()
 
-  const orphans = await findOrphans(store, repoId)
-  const collectable: string[] = []
-  const retained: CollectResult['retained'] = []
-  for (const key of orphans) {
-    const age = orphanAgeMs(key, now)
-    if (age === null) retained.push({ key, reason: 'age-unknown' })
-    else if (age < minAgeMs) retained.push({ key, reason: 'too-young' })
-    else collectable.push(key)
-  }
+  const { index } = await loadIndex(store, repoId)
+  const tombstones = index.tombstones ?? []
+  const due = tombstones.filter((t) => Date.parse(t.collect_after) <= now.getTime())
+  const retained = tombstones.filter((t) => Date.parse(t.collect_after) > now.getTime())
 
-  let deleted = 0
-  if (collect) {
-    // Serially, not in parallel: this runs against the store that also carries
-    // every live push, and a burst of deletes is not worth the seconds it saves
-    // on an operation nobody is waiting on.
-    for (const key of collectable) {
-      await store.delete(key)
-      deleted += 1
+  const collected: string[] = []
+  if (due.length > 0 && !opts.dryRun) {
+    const dueKeys = new Set(due.map((t) => t.key))
+    // Re-derived inside `mutate` rather than captured, because `updateIndex`
+    // re-runs it against a freshly read index on every attempt — a push may
+    // have landed since, and its entry must survive.
+    const committed = await updateIndex(store, repoId, (current): WalIndex => {
+      const stillDue = (current.tombstones ?? []).filter((t) => dueKeys.has(t.key))
+      const keys = new Set(stillDue.map((t) => t.key))
+      return {
+        ...current,
+        entries: current.entries.filter(
+          (entry) => !(keys.has(entry.key) && entry.seq <= current.compaction_frontier),
+        ),
+        tombstones: (current.tombstones ?? []).filter((t) => !keys.has(t.key)),
+      }
+    })
+    if (!committed.ok) {
+      throw new Error(`walgit: gc for ${repoId} could not update the index; nothing was deleted`)
+    }
+    for (const t of due) {
+      await store.delete(t.key)
+      await store.delete(siblingIdx(t.key))
+      collected.push(t.key)
     }
   }
 
-  return { repoId, collectable, retained, deleted, dryRun: !collect }
+  const orphansCollected: string[] = []
+  const orphansHeld: string[] = []
+  for (const key of await findOrphans(store, repoId)) {
+    const age = keyAgeMs(key, now.getTime())
+    // An object uploaded seconds ago may belong to a push still in flight —
+    // its `pre-receive` has run and its compare-and-swap has not. Collecting
+    // it would corrupt a push that is about to succeed.
+    if (age === null || age < graceMs) {
+      orphansHeld.push(key)
+      continue
+    }
+    if (!opts.dryRun) await store.delete(key)
+    orphansCollected.push(key)
+  }
+
+  return {
+    collected: opts.dryRun ? due.map((t) => t.key) : collected,
+    retained: retained.map((t) => t.key),
+    orphansCollected,
+    orphansHeld,
+  }
 }

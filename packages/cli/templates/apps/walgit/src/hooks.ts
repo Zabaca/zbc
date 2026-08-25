@@ -20,7 +20,13 @@ import * as path from 'node:path'
 const BUN = process.execPath
 const HOOK_MAIN = path.join(import.meta.dir, 'hook-main.ts')
 
-const HOOKS = ['pre-receive', 'reference-transaction'] as const
+/**
+ * `post-receive` is here for compaction and nothing else. It runs after the
+ * refs have moved and after the push is durable, which makes it the only hook
+ * where doing work cannot cost correctness — and it hands that work to a
+ * detached process so it does not cost latency either.
+ */
+const HOOKS = ['pre-receive', 'reference-transaction', 'post-receive'] as const
 
 function script(hook: string, repoId: string, hookMain: string, bun: string): string {
   return [

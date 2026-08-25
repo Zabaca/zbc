@@ -25,6 +25,25 @@ export interface WalEntry {
   supersedes_through?: number
 }
 
+/**
+ * A superseded WAL object, scheduled for deletion but not yet deleted.
+ *
+ * The delay is the whole point. A compaction's compare-and-swap advances the
+ * frontier instantly, but a restore that read `index.json` a moment earlier is
+ * still downloading the entries that CAS just superseded — and deleting them
+ * out from under it fails the restore with a missing object, which is ranked
+ * risk #2 in docs/adr/0007 precisely because nothing shouts. So the CAS records
+ * an intent to delete, and collection happens later, out of band.
+ */
+export interface Tombstone {
+  /** The object key. Its sibling `.idx` is collected with it. */
+  key: string
+  /** The compaction entry whose pack now contains these objects. */
+  superseded_by: number
+  /** ISO instant before which this key must not be deleted. */
+  collect_after: string
+}
+
 export interface WalIndex {
   version: 1
   repo_id: string
@@ -35,6 +54,11 @@ export interface WalIndex {
   refs: Record<string, string>
   /** Entries below this are not needed to restore. */
   compaction_frontier: number
+  /**
+   * Superseded keys awaiting collection. Optional because an index written
+   * before compaction existed does not have the field; absent reads as empty.
+   */
+  tombstones?: Tombstone[]
 }
 
 /** A ref change as `reference-transaction` reports it on stdin. */
@@ -52,7 +76,15 @@ export function indexKey(repoId: string): string {
 }
 
 export function emptyIndex(repoId: string): WalIndex {
-  return { version: 1, repo_id: repoId, seq: 0, entries: [], refs: {}, compaction_frontier: 0 }
+  return {
+    version: 1,
+    repo_id: repoId,
+    seq: 0,
+    entries: [],
+    refs: {},
+    compaction_frontier: 0,
+    tombstones: [],
+  }
 }
 
 /** Zero-padded to 12 digits so lexicographic key order is numeric order. */

@@ -7,7 +7,8 @@ deleted at any time and rebuilt from the log. See
 
 ## What works today
 
-The **front door**, the **storage layer**, and the **push path** that joins them:
+The **front door**, the **storage layer**, the **push path** that joins them, and
+the **garbage collection** that keeps the log from growing without bound:
 
 | | |
 | --- | --- |
@@ -19,10 +20,9 @@ The **front door**, the **storage layer**, and the **push path** that joins them
 | `src/reconcile.ts`, `src/sync.ts` | force the local cache to match the log, on every access |
 | `src/orphans.ts` | the packs a rejected push leaves behind, found by diffing the log |
 | `src/materialize.ts` | rebuild a repo from the log alone, on a disk that holds nothing |
-| `src/verify.ts`, `src/gc.ts`, `src/cli.ts` | the operator CLI: inspect, rebuild, verify, reclaim |
-
-Compaction — reclaiming the entries a restore no longer needs — is the next
-milestone.
+| `src/compact.ts` | collapse the log to one entry, under a per-repo lease |
+| `src/gc.ts` | delete superseded and orphaned objects, a grace period later |
+| `src/verify.ts`, `src/cli.ts` | the operator CLI: inspect, rebuild, verify, reclaim |
 
 ## The operator CLI
 
@@ -30,8 +30,8 @@ milestone.
 walgit serve                          # run the git front end (smart-HTTP)
 walgit materialize <repo_id> [path]   # rebuild a repo from the write-ahead log
 walgit verify <repo_id> [path]        # check local state against index.json
-walgit gc <repo_id...>                # reclaim orphaned WAL objects (dry run)
-walgit compact <repo_id>              # force a compaction
+walgit gc <repo_id...>                # reclaim superseded and orphaned objects (dry run)
+walgit compact <repo_id> [path]       # repack the log into one entry, now
 ```
 
 It runs where the app's environment is — inside the container:
@@ -62,9 +62,10 @@ refs whose object this repo does not have (replay the WAL), WAL entries above
 the frontier whose pack is absent, and a `walgit-materializing` marker — a
 restore that died partway can leave refs that look perfect on a truncated repo.
 
-`gc` reclaims the packs rejected pushes leave behind. It **only reports unless
-given `--yes`**, and it never collects an orphan younger than `--min-age`
-(default 60 minutes): the push path uploads a pack *before* it publishes it, so
+`gc` reclaims both kinds of garbage — entries a compaction superseded, and the
+packs rejected pushes leave behind. It **only reports unless given `--yes`**,
+and it never collects an object younger than `--min-age` (default 60 minutes,
+`WALGIT_GC_GRACE_MS`): the push path uploads a pack *before* it publishes it, so
 inside that window a perfectly good pack is indistinguishable from a rejected
 one, and deleting it would fail a push that was about to succeed. The age comes
 from the ULID in the key, so it costs no extra round trip — and an object whose
@@ -72,10 +73,13 @@ age cannot be read is left alone. There is no collect-everything mode: a `LIST`
 of the whole bucket would name repos this node never served, and the blast
 radius of a wrong guess is objects deleted from the source of truth.
 
-`compact` is registered but not implemented — it reports the log it would
-compact and says so. The command surface is settled ahead of the compaction
-milestone so an operator learns what the system can do today instead of finding
-an unknown command.
+`compact` forces a compaction rather than waiting for
+`WALGIT_COMPACTION_THRESHOLD` pushes to trigger one — for the repo whose restore
+is already slow because its log is already long. It takes the same per-repo
+lease the automatic path does, so forcing one while a node is mid-compaction
+reports the holder instead of racing it. `--force=false` inverts it into a
+question: it respects the threshold and says how far off the repo is, without
+causing anything.
 
 ## The push path
 
@@ -101,7 +105,8 @@ failure — which is why retry cannot be left to the client.
 Every rejected push leaves an uploaded pack behind. That is the correct trade
 (the alternative is publishing before persisting) and it is not lost:
 `findOrphans` recovers them by diffing the WAL prefix against `index.json`, with
-no write on the push path. Reclaiming them is the compaction milestone's job.
+no write on the push path, and `collectGarbage` reclaims them once they are old
+enough to be certainly dead.
 
 **A push is refused outright when no object store is configured.** Accepting one
 that cannot reach the log is the single failure this design exists to prevent.
@@ -143,14 +148,20 @@ reading as a valid-but-truncated repo.
 ### What it costs
 
 Measured with `bun run bench:materialize` (macOS arm64, `FileStore` on local
-disk, 15 runs per size). Replay only — **machine wake is not in these numbers**:
+disk, 15 runs per size). Replay only — **machine wake is not in these numbers**.
+Each size is measured twice: over the raw log, and over the same repository
+after compaction.
 
-| WAL entries | total p50 | total p99 | of which download |
-| ---: | ---: | ---: | ---: |
-| 1 | 36 ms | 41 ms | 0.6 ms |
-| 10 | 40 ms | 43 ms | 4 ms |
-| 50 | 57 ms | 65 ms | 21 ms |
-| 200 | 125 ms | 134 ms | 85 ms |
+| WAL entries | raw p50 | raw p99 | compacted p50 | entries replayed |
+| ---: | ---: | ---: | ---: | ---: |
+| 1 | 36 ms | 41 ms | 36 ms | 1 |
+| 10 | 40 ms | 43 ms | 35 ms | 1 |
+| 50 | 57 ms | 65 ms | 36 ms | 1 |
+| 200 | 125 ms | 134 ms | 36 ms | 1 |
+
+The right-hand column is the point: raw restore is linear in push count, and a
+compacted restore at 200 pushes is indistinguishable from one at 20, because it
+replays one entry either way.
 
 Deliberately **two numbers, not one**. The design's "cold materialize under two
 seconds" was written for an always-on NVMe node; on Fly a client also pays
@@ -161,6 +172,63 @@ The materialize number is a **control loop, not a pass/fail gate**: it is linear
 in entry count, so exceeding the target means the WAL is replaying too many
 entries and the knob is the compaction threshold — not this code. A real bucket
 adds one round trip per entry on top, which moves the knob but not the shape.
+
+## Compaction
+
+Restore replays every entry above `compaction_frontier`, so without compaction
+restore latency grows linearly with the number of pushes a repository has ever
+taken — and a cache you cannot cheaply rebuild is a disk you cannot afford to
+lose. `src/compact.ts` runs `git repack -adf`, uploads the single resulting pack
+as one WAL entry with `kind: "compaction"` and `supersedes_through`, and CASes
+the frontier forward.
+
+It is a **repack, never a rewrite**. The pack contains exactly what is reachable
+from the refs `index.json` already publishes, so `refs` is carried through
+untouched and a restore from an index snapshotted before the compaction, and one
+from the index after it, produce byte-identical history.
+
+Three things make it safe:
+
+- **A lease, not optimism.** `repos/{id}/compaction.lease` is taken under a
+  compare-and-swap and expires, so a machine Fly stops mid-repack cannot wedge
+  compaction for that repository forever. Two nodes repacking at once would both
+  upload a full copy and the loser's CAS would tombstone entries the winner's
+  pack does not contain.
+- **The repo is materialized first.** `repack` packs what is on disk; repacking
+  a partially restored cache would publish a pack missing objects the log says
+  exist, and the frontier advance would make that loss permanent.
+- **Superseded entries are tombstoned, never deleted.** See below.
+
+Triggered from `post-receive` — after the refs have moved and the push is
+durable, so it cannot cost correctness — and handed to a **detached process**,
+so it cannot cost latency either. `WALGIT_COMPACTION_THRESHOLD` (default 50) is
+how many un-superseded entries a repository may accumulate first.
+
+## Collecting garbage
+
+`src/gc.ts` is the only place walgit deletes anything, and both kinds of garbage
+go through the same guard: **nothing is removed until it has been provably
+unreferenced for longer than the slowest restore could take.**
+
+A compaction's compare-and-swap is instantaneous; a restore that read
+`index.json` a moment earlier is not, and is still downloading the entries that
+CAS just superseded. So the CAS records a **tombstone** — the key, the entry
+that superseded it, and a `collect_after` instant — and deletion happens later,
+out of band. `WALGIT_GC_GRACE_MS` (default one hour) is that delay.
+
+Orphans are dated from the **ULID in their own key**, which needs no store
+metadata call and no per-object bookkeeping: an object uploaded seconds ago may
+belong to a push whose `pre-receive` has run and whose CAS has not, and
+collecting it would corrupt a push that is about to succeed. A key whose age
+cannot be read is held forever rather than guessed at.
+
+Tombstones are cleared from `index.json` **before** the objects are deleted, so
+a crash between the two leaves an orphan — which the same function reclaims on
+its next run. The reverse order would leave `index.json` naming an object that
+is gone, which is a broken repository rather than a recoverable one.
+
+The asymmetry throughout: over-retaining costs storage, under-retaining loses
+data with no error anywhere.
 
 ## How a client reaches it
 
@@ -221,7 +289,28 @@ client — smart-HTTP through a real server, SSH through the real forced command
 with a stand-in for `ssh` itself — a cold-materialize suite that builds a repo
 with 100 pushes across 5 branches and 3 tags, deletes its disk, and asserts the
 rebuilt repo matches a reference clone on refs, reachable history and `git
-fsck`, and a fault-injection suite that kills the
+fsck`, a compaction suite that repacks a 40-push log and asserts history is
+identical restored from before, during and after — that the grace period, and
+nothing else, is what lets a pre-compaction restore still succeed — and a
+fault-injection suite that kills the
 push path at each of its steps (`WALGIT_FAULT`, test-only) and asserts the
 invariant every time: either the client saw a rejection, or the commit is
 durably in the log. Never neither.
+
+### The seven-scenario verification suite
+
+```bash
+bun run e2e
+```
+
+The unit and integration suites above check each guarantee where it is
+implemented. `e2e/` checks all seven of the design's acceptance scenarios in one
+place, against a walgit node running as a **separate process** — so `kill -9`
+is a real `SIGKILL` to a real process group rather than an unawaited promise,
+and "a fresh node" is a server with an empty disk rather than a cleared
+variable. It runs against a local `FileStore` by default and against a real
+bucket when `WALGIT_S3_*` is set, with no other change.
+
+It runs per-PR in `.github/workflows/walgit-e2e.yml`, and nightly against a
+bucket. Scenario 7 gates cold-restore latency against a committed baseline and
+fails the build on a breach. See [`e2e/README.md`](./e2e/README.md).

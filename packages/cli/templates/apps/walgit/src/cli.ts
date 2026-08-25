@@ -24,12 +24,12 @@
 
 import * as path from 'node:path'
 
-import { collectOrphans, DEFAULT_MIN_AGE_MS } from './gc'
+import { compact, configuredGraceMs, type CompactResult } from './compact'
+import { collectGarbage } from './gc'
 import { materialize, round } from './materialize'
 import { normalizeRepoId, resolveRepo } from './repo'
 import { requireStore } from './store-env'
 import { formatVerify, verifyRepo } from './verify'
-import { loadIndex } from './wal-index'
 
 const OK = 0
 const DIVERGED = 1
@@ -79,13 +79,14 @@ const USAGE = `walgit — operator CLI for a WAL-backed git host
   walgit materialize <repo_id> [path]   rebuild a repo from the write-ahead log
   walgit verify <repo_id> [path]        check local state against index.json
   walgit gc <repo_id...>                reclaim orphaned WAL objects (dry run)
-  walgit compact <repo_id>              force a compaction
+  walgit compact <repo_id> [path]       repack the log into one entry, now
 
 Options
   --repos-dir <dir>   where bare repos live (default: $WALGIT_REPOS_DIR)
   --json              machine-readable output
   --yes               gc: actually delete (without it, gc only reports)
-  --min-age <minutes> gc: never collect an orphan younger than this (default 60)
+  --force=false       compact: respect the entry-count threshold instead of forcing
+  --min-age <minutes> gc: never collect an object younger than this (default 60)
 
 The object store is read from the environment the app itself uses:
 WALGIT_S3_ENDPOINT / _BUCKET / _ACCESS_KEY_ID / _SECRET_ACCESS_KEY, or
@@ -178,57 +179,84 @@ async function gcCommand(args: ParsedArgs, env: NodeJS.ProcessEnv): Promise<numb
   }
   const store = requireStore(env)
   const minAgeFlag = args.flags['min-age']
-  const minAgeMs = typeof minAgeFlag === 'string' ? Number(minAgeFlag) * 60_000 : DEFAULT_MIN_AGE_MS
-  if (!Number.isFinite(minAgeMs) || minAgeMs < 0) {
+  const graceMs = typeof minAgeFlag === 'string' ? Number(minAgeFlag) * 60_000 : configuredGraceMs(env)
+  if (!Number.isFinite(graceMs) || graceMs < 0) {
     console.error(`walgit gc: --min-age must be a number of minutes, got ${String(minAgeFlag)}`)
     return MISUSE
   }
 
-  const collect = args.flags.yes === true
+  // Dry run is the default. An operator reaching for `gc` on a bad day should
+  // be able to look before anything is gone, so deleting takes an extra word.
+  const dryRun = args.flags.yes !== true
   const results = []
   for (const requested of args.positional) {
-    results.push(await collectOrphans(store, normalizeRepoId(requested), { collect, minAgeMs }))
+    const repoId = normalizeRepoId(requested)
+    results.push({ repoId, ...(await collectGarbage(store, repoId, { graceMs, dryRun })) })
   }
 
   const lines: string[] = []
+  let total = 0
   for (const result of results) {
-    const verb = result.dryRun ? 'would collect' : 'collected'
-    lines.push(`${result.repoId}: ${verb} ${result.collectable.length} orphaned objects`)
-    for (const key of result.collectable) lines.push(`  ${result.dryRun ? '-' : 'deleted'} ${key}`)
-    for (const held of result.retained) lines.push(`  kept (${held.reason}) ${held.key}`)
+    const reclaimable = [...result.collected, ...result.orphansCollected]
+    total += reclaimable.length
+    const verb = dryRun ? 'would collect' : 'collected'
+    lines.push(`${result.repoId}: ${verb} ${reclaimable.length} objects`)
+    for (const key of result.collected) lines.push(`  ${dryRun ? '-' : 'deleted'} ${key} (superseded)`)
+    for (const key of result.orphansCollected) lines.push(`  ${dryRun ? '-' : 'deleted'} ${key} (orphan)`)
+    // Held objects are named rather than counted: "why is this still here" is
+    // the question an operator actually arrives with.
+    for (const key of result.retained) lines.push(`  kept (in grace) ${key}`)
+    for (const key of result.orphansHeld) lines.push(`  kept (too young or undatable) ${key}`)
   }
-  if (results.every((r) => r.collectable.length === 0 && r.retained.length === 0)) {
-    lines.push('no orphaned objects')
+  if (results.every((r) => r.collected.length + r.orphansCollected.length + r.retained.length + r.orphansHeld.length === 0)) {
+    lines.push('nothing to collect')
   }
-  if (collect === false && results.some((r) => r.collectable.length > 0)) {
-    lines.push('nothing was deleted — re-run with --yes')
-  }
+  if (dryRun && total > 0) lines.push('nothing was deleted — re-run with --yes')
   emit(args, results, lines.join('\n'))
   return OK
 }
 
 /**
- * Compaction is the next milestone's, and this command exists so the surface is
- * settled before it lands: it is one function call away from working, and an
- * operator who reaches for it learns what the system can actually do today
- * rather than finding an unknown command and guessing.
+ * Force a compaction, bypassing the entry-count threshold.
+ *
+ * The threshold exists so compaction happens on its own after enough pushes;
+ * this command is for the case that has already gone wrong — a repo whose
+ * restore is slow because its log is long, and an operator who wants it short
+ * now rather than after the next N pushes.
  */
 async function compactCommand(args: ParsedArgs, env: NodeJS.ProcessEnv): Promise<number> {
   const [requested] = args.positional
   if (!requested) {
-    console.error('walgit compact: usage: walgit compact <repo_id>')
+    console.error('walgit compact: usage: walgit compact <repo_id> [path] [--force]')
     return MISUSE
   }
   const store = requireStore(env)
-  const repoId = normalizeRepoId(requested)
-  const { index } = await loadIndex(store, repoId)
-  console.error(
-    `walgit compact: not implemented yet — ${repoId} has ${index.entries.length} WAL entries ` +
-      `at frontier ${index.compaction_frontier} (seq ${index.seq}).\n` +
-      'Compaction rewrites the log into one entry and advances the frontier; it lands with the\n' +
-      'compaction milestone. `walgit gc` already reclaims the packs rejected pushes leave behind.',
-  )
-  return MISUSE
+  const repo = repoAt(args, env, requested)
+  // Forcing is the default here and nowhere else: someone typing `compact` has
+  // already decided, whereas the automatic path must respect the threshold.
+  // `--force=false` opts back into it, which is how an operator asks "would
+  // this compact on its own yet?" without making it happen.
+  const result = await compact(store, repo, { force: args.flags.force !== 'false' })
+
+  const lines: Record<CompactResult['status'], () => string> = {
+    compacted: () => {
+      const r = result as Extract<CompactResult, { status: 'compacted' }>
+      return (
+        `${repo.repoId}: compacted into seq ${r.seq}, superseding through ` +
+        `${r.supersedes_through} (${r.tombstoned.length} objects tombstoned, ` +
+        `${(r.bytes / 1024).toFixed(0)} KiB, ${r.ms.toFixed(0)}ms)\n` +
+        'Tombstoned objects are deleted by `walgit gc` once their grace period elapses.'
+      )
+    },
+    'not-due': () =>
+      `${repo.repoId}: not due — ${(result as { pending: number }).pending} entries pending`,
+    held: () =>
+      `${repo.repoId}: another node holds the compaction lease (${(result as { holder: string }).holder})`,
+    empty: () => `${repo.repoId}: nothing to compact`,
+  }
+  emit(args, result, lines[result.status]())
+  // `held` is not a failure: the work is being done, just not by this process.
+  return OK
 }
 
 // ── Entry point ─────────────────────────────────────────────────────────────

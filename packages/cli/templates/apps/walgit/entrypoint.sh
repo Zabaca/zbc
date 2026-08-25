@@ -21,6 +21,28 @@ else
   ssh-keygen -q -t ed25519 -N '' -f /etc/ssh/ssh_host_ed25519_key
 fi
 
+# The store configuration has to survive into SSH sessions, and sshd will not
+# carry it: a session's environment is built fresh, so PID 1's WALGIT_* would
+# be invisible to `pre-receive` and every push would refuse itself for want of
+# a log it was actually given. The forced command sources this file.
+#
+# The SSH identity secrets are deliberately NOT written here — they are this
+# process's business, not a git hook's.
+ENV_FILE=/srv/walgit/env.sh
+: > "$ENV_FILE"
+chmod 600 "$ENV_FILE"
+chown git:git "$ENV_FILE"
+for name in $(env | sed -n 's/^\(WALGIT_[A-Za-z0-9_]*\)=.*/\1/p'); do
+  case "$name" in
+    WALGIT_SSH_HOST_KEY|WALGIT_SSH_AUTHORIZED_KEYS) continue ;;
+  esac
+  eval "value=\$$name"
+  # Single-quoted, with embedded quotes escaped, so a credential containing
+  # shell metacharacters is data rather than code when this is sourced.
+  escaped=$(printf '%s' "$value" | sed "s/'/'\\\\''/g")
+  printf "export %s='%s'\n" "$name" "$escaped" >> "$ENV_FILE"
+done
+
 # Every authorized key is pinned to the forced command. The client's own command
 # line is then never executed — it arrives as SSH_ORIGINAL_COMMAND and is parsed
 # by src/repo.ts, which allows exactly two git verbs and one repository name.
@@ -31,7 +53,7 @@ if [ -n "${WALGIT_SSH_AUTHORIZED_KEYS:-}" ]; then
     case "$key" in
       ''|\#*) continue ;;
     esac
-    printf 'command="bun /app/src/ssh-shell.ts",no-port-forwarding,no-agent-forwarding,no-X11-forwarding,no-pty %s\n' "$key" >> "$AUTH_KEYS"
+    printf 'command="/app/ssh-entry.sh",no-port-forwarding,no-agent-forwarding,no-X11-forwarding,no-pty %s\n' "$key" >> "$AUTH_KEYS"
   done
 fi
 chown git:git "$AUTH_KEYS"
@@ -44,7 +66,12 @@ fi
 # stop rather than keep serving half a git host, so each kills the other.
 /usr/sbin/sshd -D -e &
 SSHD=$!
-bun /app/src/server.ts &
+# The HTTP server drops to `git` because the SSH side already runs as `git`:
+# both front doors write the same bare repos, and git refuses a repository
+# whose owner is not the current user ("detected dubious ownership"). Two
+# users would mean either that refusal or a `safe.directory` escape hatch
+# papering over files written under two ownerships.
+su-exec git bun /app/src/server.ts &
 HTTP=$!
 
 term() { kill "$SSHD" "$HTTP" 2>/dev/null || true; }
