@@ -1,4 +1,5 @@
 import { flyModule } from '../../modules/fly'
+import walgitWal from './walgit-wal'
 
 // walgit — a git host served over SSH (:22) and smart-HTTP (:443) from a Fly
 // machine that stops when idle and autostarts on the next connection (~1.35 s,
@@ -19,13 +20,35 @@ import { flyModule } from '../../modules/fly'
 //   WALGIT_SSH_AUTHORIZED_KEYS  newline-separated PUBLIC keys allowed to push.
 //   WALGIT_HTTP_TOKENS          comma-separated bearer tokens for smart-HTTP
 //                               (git sends them as the Basic-auth password).
+//
+// The log's own credentials are NOT walgit-specific and deliberately so.
+// Cloudflare derives exactly one S3 credential per API token (access key id =
+// the token's id, secret = sha256 of its value), and R2's permission group is
+// account-scoped — there is no per-bucket API token to mint. A second token
+// would therefore reach every bucket this one does while adding a credential to
+// rotate, so walgit reads the account's existing pair under its own names.
 export default flyModule.instance({
   name: 'walgit',
+  imports: [walgitWal],
   config: {
     workdir: 'packages/walgit',
     appName: 'zbc-walgit',
     org: 'personal',
     ipv4: 'dedicated',
-    flySecrets: ['WALGIT_SSH_HOST_KEY', 'WALGIT_SSH_AUTHORIZED_KEYS', 'WALGIT_HTTP_TOKENS'],
+    flySecrets: [
+      'WALGIT_SSH_HOST_KEY',
+      'WALGIT_SSH_AUTHORIZED_KEYS',
+      'WALGIT_HTTP_TOKENS',
+      // Without these four the host serves reads off its local cache and
+      // REFUSES every push — `requireStore()` throws in `pre-receive` rather
+      // than acknowledge something it cannot persist.
+      { name: 'WALGIT_S3_BUCKET', from: 'walgit-wal', output: 'bucketName' },
+      {
+        name: 'WALGIT_S3_ENDPOINT',
+        value: 'https://99a19e584439be0568f33aad0477372b.r2.cloudflarestorage.com',
+      },
+      { name: 'WALGIT_S3_ACCESS_KEY_ID', secret: 'WAREHOUSE_R2_ACCESS_KEY_ID' },
+      { name: 'WALGIT_S3_SECRET_ACCESS_KEY', secret: 'WAREHOUSE_R2_SECRET_ACCESS_KEY' },
+    ],
   },
 })
