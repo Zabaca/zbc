@@ -13,6 +13,7 @@ import * as fs from 'node:fs'
 import * as path from 'node:path'
 
 import { installHooks } from './hooks'
+import { sweepPending } from './push'
 
 export type ResolvedRepo = { repoId: string; dir: string }
 
@@ -78,6 +79,10 @@ export function ensureBareRepo(repo: ResolvedRepo): ResolvedRepo {
   // reason as the config above: a repo that arrived here by any other route
   // would otherwise accept pushes that never reach the write-ahead log.
   installHooks(repo.dir, repo.repoId)
+  // A `git-receive-pack` killed between its hooks leaves a hand-off record
+  // behind. Keyed by pid, it is unreadable by any other push — but it should
+  // not accumulate either, and a recycled pid must never resurrect it.
+  sweepPending(repo.dir)
   return repo
 }
 

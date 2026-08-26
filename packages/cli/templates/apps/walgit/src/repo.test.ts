@@ -3,6 +3,7 @@ import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
 import { spawnSync } from 'node:child_process'
+import { readPending, writePending } from './push'
 import { ensureBareRepo, parseSshCommand, resolveRepo } from './repo'
 
 describe('resolveRepo', () => {
@@ -62,6 +63,19 @@ describe('ensureBareRepo', () => {
     const second = ensureBareRepo(resolveRepo(root, 'alpha'))
     expect(second.dir).toBe(first.dir)
     expect(fs.readFileSync(path.join(second.dir, 'description'), 'utf8')).toBe('mine')
+  })
+
+  test('sweeps the hand-off record a killed receive-pack left behind', async () => {
+    const root = scratch()
+    const repo = ensureBareRepo(resolveRepo(root, 'alpha'))
+    const child = Bun.spawn(['true'])
+    const dead = child.pid
+    await child.exited
+    writePending(repo.dir, { entry: null }, dead)
+
+    ensureBareRepo(resolveRepo(root, 'alpha'))
+
+    expect(readPending(repo.dir, dead)).toBeNull()
   })
 })
 

@@ -17,7 +17,16 @@ import { spawn } from 'node:child_process'
 import * as path from 'node:path'
 
 import { configuredThreshold, isCompactionDue } from './compact'
-import { clearPending, parseRefChanges, preReceive, publishPush, readPending } from './push'
+import {
+  clearPending,
+  invocationId,
+  markConsumed,
+  parseRefChanges,
+  preReceive,
+  publishPush,
+  readPending,
+  sweepPending,
+} from './push'
 import { requireStore, storeFromEnv } from './store-env'
 import { loadIndex } from './wal-index'
 
@@ -38,6 +47,18 @@ function fault(point: string): void {
   }
 }
 
+/**
+ * Test-only widening of the window between `pre-receive` finishing and
+ * `reference-transaction` running, off unless `WALGIT_STALL_MS` is set. The
+ * hand-off race between two `git-receive-pack` invocations is a real race with
+ * a window measured in milliseconds; a test that waits for it to happen by luck
+ * is a test that passes for the wrong reason.
+ */
+async function stall(): Promise<void> {
+  const ms = Number(process.env.WALGIT_STALL_MS ?? '')
+  if (Number.isFinite(ms) && ms > 0) await Bun.sleep(ms)
+}
+
 async function main(): Promise<number> {
   const stdin = await Bun.stdin.text()
 
@@ -50,23 +71,33 @@ async function main(): Promise<number> {
       quarantineDir: process.env.GIT_QUARANTINE_PATH || process.env.GIT_OBJECT_DIRECTORY,
     })
     fault('after-upload')
+    await stall()
     return 0
   }
 
   if (hook === 'reference-transaction') {
-    const pending = readPending(gitDir)
-    // No pending upload means this ref update did not come from a push — an
-    // administrative edit on this node. It has nothing to publish, and
-    // publishing it would let a stale cache overwrite the index.
+    const invocation = invocationId()
+    const pending = readPending(gitDir, invocation)
+    // No pending record for THIS `git-receive-pack` means this ref update did
+    // not come from a push — an administrative edit on this node. It has
+    // nothing to publish, and publishing it would let a stale cache overwrite
+    // the index. A concurrent push's record is invisible here by construction,
+    // which is the whole point of keying the record by invocation.
     if (!pending) return 0
 
-    if (phase === 'committed' || phase === 'aborted') {
-      if (phase === 'aborted' && pending.entry) {
+    if (phase === 'committed') return 0
+    if (phase === 'aborted') {
+      if (pending.entry && !pending.consumed) {
         // The uploaded pack is now unreferenced. It is not lost: `findOrphans`
         // recovers it by diffing the WAL prefix against index.json.
         process.stderr.write(`walgit: push rejected; orphaned WAL object ${pending.entry.key}\n`)
+        markConsumed(gitDir, invocation)
       }
-      clearPending(gitDir)
+      // The record is deliberately NOT deleted here: a push whose refs arrive
+      // in several transactions still has transactions to come, and a deleted
+      // record would make the next one look like an administrative edit — the
+      // silent acknowledgement this path exists to prevent. `post-receive` and
+      // the sweep clean up.
       return 0
     }
     if (phase !== 'prepared') return 0
@@ -76,7 +107,10 @@ async function main(): Promise<number> {
 
     fault('before-cas')
     const store = requireStore()
-    const result = await publishPush(store, repoId, pending, changes)
+    // The pack belongs to the first transaction that publishes; later ones in
+    // the same push carry ref changes only.
+    const toPublish = pending.consumed ? { entry: null } : pending
+    const result = await publishPush(store, repoId, toPublish, changes)
     if (!result.ok) {
       process.stderr.write(
         result.reason === 'ref-conflict'
@@ -86,6 +120,7 @@ async function main(): Promise<number> {
       )
       return 1
     }
+    if (toPublish.entry) markConsumed(gitDir, invocation)
     fault('after-cas')
     return 0
   }
@@ -93,6 +128,8 @@ async function main(): Promise<number> {
   if (hook === 'post-receive') {
     // Everything below is best-effort by construction: the push is already
     // acknowledged, so a failure here must be invisible to the client.
+    clearPending(gitDir, invocationId())
+    sweepPending(gitDir)
     try {
       const store = storeFromEnv()
       if (!store) return 0
