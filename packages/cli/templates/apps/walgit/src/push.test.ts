@@ -26,6 +26,14 @@ const pending = (key = 'repos/r/wal/000000000001-X.pack'): PendingPush => ({
 
 const change = (ref: string, oldOid: string, newOid: string): RefChange => ({ ref, oldOid, newOid })
 
+/** A pid that is certainly gone: one we waited on. */
+async function deadPid(): Promise<number> {
+  const child = Bun.spawn(['true'])
+  const pid = child.pid
+  await child.exited
+  return pid
+}
+
 const jitter = () => new Promise<void>((r) => setTimeout(r, Math.floor(Math.random() * 3)))
 
 describe('parseRefChanges', () => {
@@ -179,14 +187,6 @@ describe('preReceive', () => {
 
 describe('the pending hand-off is private to one receive-pack', () => {
   const scratchDir = () => fs.mkdtempSync(path.join(os.tmpdir(), 'walgit-pending-'))
-
-  /** A pid that is certainly gone: one we waited on. */
-  async function deadPid(): Promise<number> {
-    const child = Bun.spawn(['true'])
-    const pid = child.pid
-    await child.exited
-    return pid
-  }
 
   test('one invocation cannot read another invocation record', async () => {
     const dir = scratchDir()
