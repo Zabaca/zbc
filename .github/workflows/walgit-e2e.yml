@@ -1,4 +1,4 @@
-# The seven guarantees walgit claims, checked rather than asserted.
+# walgit's own tests: the unit suite, then the seven guarantees it claims.
 #
 # `packages/cli/templates/apps/walgit/e2e/suite.ts` is one command that runs all
 # seven scenarios from ADR-0007's acceptance tests against a REAL walgit node —
@@ -34,9 +34,40 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # The branches, before the scenarios. `bun test src` covers CAS linearization,
+  # the push path, reconcile, materialize, the compaction lease and the GC grace
+  # periods — the places where being wrong loses data — and until now it ran
+  # only wherever someone happened to run it. It is ~70 s and self-contained, so
+  # it goes first and the e2e job `needs:` it: a broken assertion should not wait
+  # behind a run that spins up a real node.
+  unit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: packages/cli/templates/apps/walgit
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - run: bun install
+        working-directory: .
+
+      # The suite shells out to real `git` and writes to the OS temp directory;
+      # ubuntu-latest has git preinstalled. Scoped to `src` rather than the
+      # package root so it stays the unit suite — `e2e/` is the job below.
+      - name: Unit suite
+        run: bun test src
+
   # The full seven, against a FileStore on the runner's disk. Self-contained:
   # no credentials, no provider, nothing to leak or pay for.
   suite:
+    needs: unit
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
