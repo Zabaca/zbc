@@ -21,6 +21,7 @@ import { FileStore } from './store'
 import { findOrphans } from './orphans'
 import { localRefs } from './reconcile'
 import { syncRepo } from './sync'
+import { materialize } from './materialize'
 import { loadIndex } from './wal-index'
 
 const TOKEN = 's3cret'
@@ -100,6 +101,7 @@ beforeEach(() => {
   repoId = `alpha${repoCounter}`
   origin = `http://walgit:${TOKEN}@127.0.0.1:${server.port}/${repoId}.git`
   delete process.env.WALGIT_FAULT
+  delete process.env.WALGIT_STALL_MS
 })
 
 afterAll(() => {
@@ -237,6 +239,58 @@ describe('contention', () => {
     expect(rejected.status).not.toBe(0)
 
     const { index } = await loadIndex(store, repoId)
-    expect(index.refs['refs/heads/main']).toBe((await git(seed.dir, 'rev-parse', 'HEAD')).out.trim())
+    expect(index.refs['refs/heads/main']).toBe(
+      (await git(seed.dir, 'rev-parse', 'HEAD')).out.trim(),
+    )
+  })
+})
+
+describe('concurrent pushes on one node', () => {
+  test('every push git acknowledged survives a rebuild from the log alone', async () => {
+    const seed = await clientWithCommit('seed', 'seed\n')
+    await git(seed.dir, 'push', 'origin', 'HEAD:refs/heads/main')
+
+    // Distinct refs, so none of these is a legitimate ref conflict: every one
+    // of them is allowed to succeed, and every one git acknowledges must be in
+    // the log. Several at once because the failure is a race between two
+    // `git-receive-pack` invocations sharing one hand-off file.
+    const clients = await Promise.all(
+      ['a', 'b', 'c', 'd'].map((name) => clientWithCommit(name, `${name}\n`)),
+    )
+    // Hold every `pre-receive` open past the others', so the invocations really
+    // do overlap rather than overlapping by luck.
+    process.env.WALGIT_STALL_MS = '400'
+    const results = await Promise.all(
+      clients.map((c, i) => git(c.dir, 'push', 'origin', `HEAD:refs/heads/topic-${i}`)),
+    )
+    delete process.env.WALGIT_STALL_MS
+
+    const acknowledged = clients
+      .map((c, i) => ({ ref: `refs/heads/topic-${i}`, oid: c.oid, ok: results[i]!.status === 0 }))
+      .filter((c) => c.ok)
+    expect(acknowledged.length).toBeGreaterThan(1)
+
+    const { index } = await loadIndex(store, repoId)
+    // One acknowledged push, one entry: a push that published another push's
+    // upload shows up here as a key claimed twice.
+    expect(new Set(index.entries.map((e) => e.key)).size).toBe(index.entries.length)
+    expect(index.entries).toHaveLength(1 + acknowledged.length)
+
+    // The claim under test, made the only way that cannot be self-confirming:
+    // throw the disk away and rebuild from the log. Every acknowledged commit
+    // has to be there, objects and all.
+    const coldDir = fs.mkdtempSync(path.join(os.tmpdir(), 'walgit-e2e-cold-'))
+    const cold = resolveRepo(coldDir, repoId)
+    await materialize(store, cold)
+    for (const { ref, oid } of acknowledged) {
+      expect({ ref, oid: localRefs(cold.dir)[ref] }).toEqual({ ref, oid })
+      expect(
+        (await git(cold.dir, '--git-dir', cold.dir, 'cat-file', '-e', `${oid}^{commit}`)).status,
+      ).toBe(0)
+    }
+    fs.rmSync(coldDir, { recursive: true, force: true })
+
+    // Nothing an acknowledged push uploaded was left unreferenced.
+    expect(await findOrphans(store, repoId)).toEqual([])
   })
 })

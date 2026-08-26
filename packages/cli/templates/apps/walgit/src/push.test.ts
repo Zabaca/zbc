@@ -4,7 +4,16 @@ import * as os from 'node:os'
 import * as path from 'node:path'
 
 import { MemoryStore } from './store'
-import { parseRefChanges, preReceive, publishPush, readPending, type PendingPush } from './push'
+import {
+  PENDING_MAX_AGE_MS,
+  parseRefChanges,
+  preReceive,
+  publishPush,
+  readPending,
+  sweepPending,
+  writePending,
+  type PendingPush,
+} from './push'
 import { ZERO_OID, loadIndex, type RefChange } from './wal-index'
 
 const OID_A = 'a'.repeat(40)
@@ -163,7 +172,59 @@ describe('preReceive', () => {
     const store = new MemoryStore()
     await preReceive({ store, repoId: 'r', gitDir: dir, quarantineDir: undefined })
 
-    expect(readPending(dir)).toEqual({ entry: null })
+    expect(readPending(dir)!.entry).toBeNull()
     expect(await store.list('repos/r/wal/')).toEqual([])
+  })
+})
+
+describe('the pending hand-off is private to one receive-pack', () => {
+  const scratchDir = () => fs.mkdtempSync(path.join(os.tmpdir(), 'walgit-pending-'))
+
+  /** A pid that is certainly gone: one we waited on. */
+  async function deadPid(): Promise<number> {
+    const child = Bun.spawn(['true'])
+    const pid = child.pid
+    await child.exited
+    return pid
+  }
+
+  test('one invocation cannot read another invocation record', async () => {
+    const dir = scratchDir()
+    const other = 424242
+    const store = new MemoryStore()
+    await preReceive({ store, repoId: 'r', gitDir: dir, quarantineDir: undefined })
+
+    // The other push's record exists and is intact...
+    writePending(dir, { entry: null }, other)
+    expect(readPending(dir, other)).not.toBeNull()
+    // ...and is nothing this invocation can see, in either direction.
+    expect(readPending(dir)!.pid).toBe(process.ppid)
+  })
+
+  test('a record left by a dead receive-pack is swept and never read', async () => {
+    const dir = scratchDir()
+    const dead = await deadPid()
+    writePending(dir, { entry: null }, dead)
+
+    expect(sweepPending(dir)).toHaveLength(1)
+    expect(readPending(dir, dead)).toBeNull()
+  })
+
+  test('a live push in flight is left alone by the sweep', () => {
+    const dir = scratchDir()
+    writePending(dir, { entry: null }, process.pid)
+
+    expect(sweepPending(dir)).toEqual([])
+    expect(readPending(dir, process.pid)).not.toBeNull()
+  })
+
+  test('a record older than the cutoff is swept even if its pid is alive again', () => {
+    const dir = scratchDir()
+    writePending(dir, { entry: null }, process.pid)
+
+    // A container restart recycles pids; age is what catches the record whose
+    // pid now belongs to someone else entirely.
+    expect(sweepPending(dir, Date.now() + PENDING_MAX_AGE_MS + 1)).toHaveLength(1)
+    expect(readPending(dir, process.pid)).toBeNull()
   })
 })
