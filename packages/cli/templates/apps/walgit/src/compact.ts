@@ -242,7 +242,15 @@ export async function compact(
     const packDir = path.join(repo.dir, 'objects', 'pack')
     run('git', ['--git-dir', repo.dir, 'repack', '-adfq'])
 
-    const packs = fs.readdirSync(packDir).filter((f) => f.endsWith('.pack'))
+    const onDisk = fs.readdirSync(packDir)
+    // A cruft pack is not a second copy of the repository — it is git's
+    // holding pen for UNREACHABLE objects, marked by a sibling `.mtimes`, and
+    // `git repack -adf` never writes one (it drops unreachable objects
+    // instead). One can still be lying here from a `git gc` that ran before
+    // this repo learned to refuse them, and counting it as a kept-back pack
+    // would make compaction refuse this repository forever.
+    const isCruft = (pack: string) => onDisk.includes(`${pack.replace(/\.pack$/, '')}.mtimes`)
+    const packs = onDisk.filter((f) => f.endsWith('.pack') && !isCruft(f))
     if (packs.length === 0) return { status: 'empty' }
     // `-a -d` collapses to exactly one pack. More than one means something on
     // this disk kept a pack back (a `.keep`), and uploading only part of the
