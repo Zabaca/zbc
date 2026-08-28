@@ -1,5 +1,6 @@
 import { flyModule } from '../../modules/fly'
 import walgitWal from './walgit-wal'
+import zabacaZone from './zabaca-zone'
 
 // walgit — a git host served over SSH (:22) and smart-HTTP (:443) from a Fly
 // machine that stops when idle and autostarts on the next connection (~1.35 s,
@@ -27,14 +28,27 @@ import walgitWal from './walgit-wal'
 // account-scoped — there is no per-bucket API token to mint. A second token
 // would therefore reach every bucket this one does while adding a credential to
 // rotate, so walgit reads the account's existing pair under its own names.
+// `git.zabaca.com` is the public name for both transports:
+//
+//   git clone git@git.zabaca.com:myrepo.git                  # SSH, port 22
+//   git clone https://walgit:$TOKEN@git.zabaca.com/myrepo.git # smart-HTTP
+//
+// The A/AAAA records live in `zabaca-zone`, unproxied — Cloudflare's proxy
+// carries only HTTP(S) ports, so a proxied record would break SSH while
+// leaving smart-HTTP working, which is the confusing half of that failure.
+// `zabaca-zone` is imported for ORDER, not for a value: Fly validates a
+// certificate against DNS that already resolves to this app, so the record has
+// to exist before `certs add` runs. The import is what makes one `zbc apply`
+// do them in that order.
 export default flyModule.instance({
   name: 'walgit',
-  imports: [walgitWal],
+  imports: [walgitWal, zabacaZone],
   config: {
     workdir: 'packages/walgit',
     appName: 'zbc-walgit',
     org: 'personal',
     ipv4: 'dedicated',
+    certs: ['git.zabaca.com'],
     flySecrets: [
       'WALGIT_SSH_HOST_KEY',
       'WALGIT_SSH_AUTHORIZED_KEYS',
