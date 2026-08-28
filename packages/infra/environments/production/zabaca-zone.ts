@@ -55,9 +55,28 @@ export default cloudflareZoneModule.instance({
     zone: 'zabaca.com',
     apiToken: { from: 'zabaca-dns-token', output: 'tokenValue' },
     records: [
-      // walgit — the only new record in this file.
+      // walgit — the only new records in this file.
       { type: 'A', name: 'git.zabaca.com', content: '37.16.14.20', proxied: false },
       { type: 'AAAA', name: 'git.zabaca.com', content: '2a09:8280:1::179:baa8:0', proxied: false },
+      // Fly's ACME DNS challenge, and it is REQUIRED here rather than optional.
+      //
+      // Fly's documented default is HTTP-01: it serves the challenge at
+      // `/.well-known/acme-challenge/…` on port 80 once A/AAAA point at the
+      // app, which they do above. But walgit's fly.toml sets
+      // `force_https = true` on port 80, so that path answers `301 ->
+      // https://…` — including for the challenge. Validation then needs the
+      // certificate that validation is trying to issue, and the certificate
+      // sits at "Not verified" forever with nothing failing loudly.
+      //
+      // The DNS challenge has no such dependency: it proves control of the name
+      // through this zone rather than through the app, which also means it does
+      // not care that the machine stops whenever it is idle.
+      {
+        type: 'CNAME',
+        name: '_acme-challenge.git.zabaca.com',
+        content: 'git.zabaca.com.nwy3m9d.flydns.net',
+        proxied: false,
+      },
 
       // Worker-served hostnames. `100::` is Cloudflare's documented placeholder
       // origin for a name served entirely at the edge — the RFC 6666 discard
