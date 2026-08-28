@@ -1,4 +1,7 @@
 import { describe, expect, test } from 'bun:test'
+import * as fs from 'node:fs'
+import * as os from 'node:os'
+import * as path from 'node:path'
 
 import {
   acquireLease,
@@ -128,5 +131,34 @@ describe('ulidTime', () => {
     expect(ulidTime('short')).toBeNull()
     expect(ulidTime('UUUUUUUUUU!')).toBeNull()
     expect(ulidTime('0123456U89ZZZZZZZZZZZZZZZZ')).toBeNull()
+  })
+})
+
+describe('the pack-count guard and cruft', () => {
+  /**
+   * A cruft pack is git's holding pen for unreachable objects, not a second
+   * copy of the repository. `git repack -adf` never writes one, but `git gc`
+   * does — and a repo carrying one from before walgit disabled gc would
+   * otherwise be refused compaction forever, which is the failure mode with no
+   * way out.
+   */
+  test('a cruft pack beside the repack output is not a kept-back pack', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'walgit-cruft-'))
+    for (const name of [
+      'pack-real.pack',
+      'pack-real.idx',
+      'pack-cruft.pack',
+      'pack-cruft.idx',
+      'pack-cruft.mtimes',
+    ]) {
+      fs.writeFileSync(path.join(dir, name), '')
+    }
+
+    const onDisk = fs.readdirSync(dir)
+    const isCruft = (pack: string) => onDisk.includes(`${pack.replace(/\.pack$/, '')}.mtimes`)
+    const packs = onDisk.filter((f) => f.endsWith('.pack') && !isCruft(f))
+
+    expect(packs).toEqual(['pack-real.pack'])
+    fs.rmSync(dir, { recursive: true, force: true })
   })
 })

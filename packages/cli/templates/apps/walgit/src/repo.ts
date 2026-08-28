@@ -75,6 +75,24 @@ export function ensureBareRepo(repo: ResolvedRepo): ResolvedRepo {
   // is what makes a small push arrive as a packfile rather than exploding into
   // loose objects, and there is no packfile to upload if it does.
   run('git', ['--git-dir', repo.dir, 'config', 'receive.unpackLimit', '0'])
+  // git's own housekeeping is turned OFF, and that is not a performance
+  // choice. `receive.autogc` runs `git gc --auto` after a push, which on a repo
+  // holding one pack per WAL entry fires almost immediately (gc.autoPackLimit
+  // is 50) and does two things walgit cannot allow:
+  //
+  //   - It repacks concurrently with `compact`, whose `git repack -adf` expects
+  //     to be the only writer. gc leaves a main pack AND a cruft pack for the
+  //     unreachable objects, so compaction finds two and refuses to publish
+  //     rather than risk a partial one.
+  //   - It renames what it repacks. `materialize` decides "do I already have
+  //     this entry?" from the pack's filename, derived from the WAL key, so a
+  //     repo gc has touched re-downloads the entire log on next access.
+  //
+  // Packing on this disk belongs to compaction, which publishes the result to
+  // the log. A cache that repacks itself behind the log's back is a cache that
+  // disagrees with it.
+  run('git', ['--git-dir', repo.dir, 'config', 'receive.autogc', 'false'])
+  run('git', ['--git-dir', repo.dir, 'config', 'gc.auto', '0'])
   // The hooks ARE the push path. Re-installed on every access for the same
   // reason as the config above: a repo that arrived here by any other route
   // would otherwise accept pushes that never reach the write-ahead log.

@@ -113,3 +113,25 @@ describe('parseSshCommand', () => {
     }
   })
 })
+
+describe("git's own housekeeping is off", () => {
+  /**
+   * The failure this closes did not look like a gc problem. Compaction refused
+   * with "repack left 2 packs" on CI and nowhere else, because `git gc --auto`
+   * had run behind it after a push and left a cruft pack beside walgit's own.
+   * A repo holding one pack per WAL entry passes gc.autoPackLimit (50) almost
+   * immediately, so this is the normal case, not a corner.
+   */
+  test('a bare repo refuses to gc itself after a push', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'walgit-autogc-'))
+    const repo = ensureBareRepo(resolveRepo(dir, 'gctest'))
+    const cfg = (key: string) =>
+      spawnSync('git', ['--git-dir', repo.dir, 'config', '--get', key], {
+        encoding: 'utf8',
+      }).stdout.trim()
+
+    expect(cfg('receive.autogc')).toBe('false')
+    expect(cfg('gc.auto')).toBe('0')
+    fs.rmSync(dir, { recursive: true, force: true })
+  })
+})
