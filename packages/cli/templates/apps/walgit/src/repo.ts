@@ -63,6 +63,45 @@ export function resolveRepo(reposDir: string, requested: string): ResolvedRepo {
  * are all missing, which is precisely the signal that materializes it. Creating
  * and restoring are therefore the same code path with different amounts of log.
  */
+/**
+ * Set one git config key, but only when it does not already hold that value.
+ *
+ * The read is not an optimisation. `git config <key> <value>` takes an
+ * exclusive `config.lock`, and git does NOT retry when it cannot: it prints
+ * `could not lock config file …: File exists` and exits non-zero. Two
+ * processes calling `ensureBareRepo` at the same moment is not exotic here —
+ * it is the normal case, because compaction materializes (materialize.ts calls
+ * ensureBareRepo) in a detached process while the front door is still serving
+ * pushes into the same repository. The loser's throw reaches
+ * `createHttpHandler`, which cannot tell a repo that failed to open from one
+ * that does not exist and answers `404 not found`, so a healthy push dies with
+ * `fatal: repository '…' not found`.
+ *
+ * Reading first makes the steady state lock-free: after the first call these
+ * three keys already hold their values and nothing is written at all. When a
+ * write is genuinely needed and loses the race, the value the winner wrote is
+ * the value this call wanted — identical arguments from identical code — so a
+ * re-read that finds it is success, not a papered-over error. Anything else
+ * still throws.
+ */
+function ensureConfig(gitDir: string, key: string, value: string): void {
+  if (readConfig(gitDir, key) === value) return
+  const res = spawnSync('git', ['--git-dir', gitDir, 'config', key, value], {
+    stdio: ['ignore', 'ignore', 'pipe'],
+  })
+  if (res.status === 0) return
+  if (readConfig(gitDir, key) === value) return
+  throw new Error(`git config ${key} ${value} failed: ${res.stderr?.toString().trim()}`)
+}
+
+/** The configured value, or undefined when the key is unset. */
+function readConfig(gitDir: string, key: string): string | undefined {
+  const res = spawnSync('git', ['--git-dir', gitDir, 'config', '--get', key], {
+    stdio: ['ignore', 'pipe', 'ignore'],
+  })
+  return res.status === 0 ? res.stdout.toString().trim() : undefined
+}
+
 export function ensureBareRepo(repo: ResolvedRepo): ResolvedRepo {
   if (!fs.existsSync(path.join(repo.dir, 'HEAD'))) {
     fs.mkdirSync(repo.dir, { recursive: true })
@@ -74,7 +113,7 @@ export function ensureBareRepo(repo: ResolvedRepo): ResolvedRepo {
   // Re-applied on every call, not just at creation: `receive.unpackLimit=0`
   // is what makes a small push arrive as a packfile rather than exploding into
   // loose objects, and there is no packfile to upload if it does.
-  run('git', ['--git-dir', repo.dir, 'config', 'receive.unpackLimit', '0'])
+  ensureConfig(repo.dir, 'receive.unpackLimit', '0')
   // git's own housekeeping is turned OFF, and that is not a performance
   // choice. `receive.autogc` runs `git gc --auto` after a push, which on a repo
   // holding one pack per WAL entry fires almost immediately (gc.autoPackLimit
@@ -91,8 +130,8 @@ export function ensureBareRepo(repo: ResolvedRepo): ResolvedRepo {
   // Packing on this disk belongs to compaction, which publishes the result to
   // the log. A cache that repacks itself behind the log's back is a cache that
   // disagrees with it.
-  run('git', ['--git-dir', repo.dir, 'config', 'receive.autogc', 'false'])
-  run('git', ['--git-dir', repo.dir, 'config', 'gc.auto', '0'])
+  ensureConfig(repo.dir, 'receive.autogc', 'false')
+  ensureConfig(repo.dir, 'gc.auto', '0')
   // The hooks ARE the push path. Re-installed on every access for the same
   // reason as the config above: a repo that arrived here by any other route
   // would otherwise accept pushes that never reach the write-ahead log.

@@ -135,3 +135,32 @@ describe("git's own housekeeping is off", () => {
     fs.rmSync(dir, { recursive: true, force: true })
   })
 })
+
+describe('ensureBareRepo under a concurrent writer', () => {
+  /**
+   * `git config <key> <value>` takes an exclusive `config.lock` and does NOT
+   * retry when it cannot get it — it exits non-zero with "could not lock config
+   * file". Two processes reach `ensureBareRepo` on one repository routinely:
+   * compaction materializes in a detached process (materialize.ts calls it)
+   * while the front door is still serving pushes. The loser's throw becomes a
+   * `404 not found` in `createHttpHandler`, which cannot tell a repo that
+   * failed to open from one that is not there — so the client sees
+   * `fatal: repository '…' not found` and a healthy push dies.
+   *
+   * A held lock is exactly what the loser of that race encounters, so this
+   * holds one. The second call must still succeed: the values are already set,
+   * so there is nothing to write and no lock to take.
+   */
+  test('a held config.lock does not fail a repo whose config is already set', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'walgit-configlock-'))
+    const repo = ensureBareRepo(resolveRepo(dir, 'locked'))
+
+    // What a concurrent `git config` looks like from here, mid-write.
+    const lock = path.join(repo.dir, 'config.lock')
+    fs.writeFileSync(lock, '')
+
+    expect(() => ensureBareRepo(resolveRepo(dir, 'locked'))).not.toThrow()
+
+    fs.rmSync(dir, { recursive: true, force: true })
+  })
+})
