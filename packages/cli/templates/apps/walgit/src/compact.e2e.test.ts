@@ -300,7 +300,13 @@ test('post-receive schedules compaction without the client waiting for it', asyn
     await git(client, 'add', '-A')
     await git(client, 'commit', '--quiet', '-m', `trigger ${i}`)
     const pushed = await git(client, 'push', '--quiet', 'origin', 'main')
-    expect(pushed.status).toBe(0)
+    // Git's own words, not just its exit code. A bare `expect(status).toBe(0)`
+    // reports "Expected 0, received 128" and nothing else, which does not say
+    // whether the client, the pre-receive hook, or the log refused the push —
+    // and this failure reproduces only on CI, where nobody can attach a shell.
+    if (pushed.status !== 0) {
+      throw new Error(`push ${i} exited ${pushed.status}:\n${pushed.all}`)
+    }
   }
 
   // The hook spawns and disowns, so the push returns before the repack does.
