@@ -42,12 +42,32 @@ export type HttpHandlerDeps = {
   instructions?: InstructionsPolicy
 }
 
+/**
+ * Headers that make a response countable in front of this process.
+ *
+ * The Worker proxying to this container counts refusals BY KIND, and it cannot
+ * derive the kind from a status code several refusals share. So whichever layer
+ * refuses names the kind here, and every response this handler produces carries
+ * the `served` stamp — its absence is precisely what lets the Worker see that
+ * something in FRONT of walgit refused a request walgit should have refused
+ * itself. Both are stripped before the response reaches the client
+ * (`worker/telemetry.ts` owns the vocabulary and the stripping).
+ */
+export const SERVED_HEADER = 'x-walgit-served'
+export const REJECT_HEADER = 'x-walgit-reject'
+
+/** Every kind of refusal this process distinguishes, as the Worker names them. */
+export type RejectKind = 'unauthorized' | 'not-found' | 'unavailable' | 'size-cap' | 'collision'
+
 const UNAUTHORIZED = () =>
   new Response('unauthorized\n', {
     status: 401,
-    // git prompts for a credential only when challenged in this scheme, so the
-    // header is what makes `git clone https://…` work interactively at all.
-    headers: { 'www-authenticate': 'Basic realm="walgit"' },
+    headers: {
+      // git prompts for a credential only when challenged in this scheme, so the
+      // header is what makes `git clone https://…` work interactively at all.
+      'www-authenticate': 'Basic realm="walgit"',
+      [REJECT_HEADER]: 'unauthorized',
+    },
   })
 
 /**
@@ -58,9 +78,26 @@ const UNAUTHORIZED = () =>
  */
 const SMART_HTTP = /^\/([^/]+)\.git\/(?:info\/refs|git-upload-pack|git-receive-pack)$/
 
-const NOT_FOUND = () => new Response('not found\n', { status: 404 })
+const NOT_FOUND = () =>
+  new Response('not found\n', { status: 404, headers: { [REJECT_HEADER]: 'not-found' } })
+
+/**
+ * Stamp a response as walgit's own. Rebuilt rather than mutated because a
+ * Response's headers are immutable once constructed — the body is passed
+ * through by reference, so a streamed clone is not buffered to do this.
+ */
+export function stamp(response: Response): Response {
+  const stamped = new Response(response.body, response)
+  stamped.headers.set(SERVED_HEADER, '1')
+  return stamped
+}
 
 export function createHttpHandler(deps: HttpHandlerDeps): (req: Request) => Promise<Response> {
+  const route = createRouter(deps)
+  return async (request) => stamp(await route(request))
+}
+
+function createRouter(deps: HttpHandlerDeps): (req: Request) => Promise<Response> {
   return async (request) => {
     const url = new URL(request.url)
 
@@ -98,7 +135,10 @@ export function createHttpHandler(deps: HttpHandlerDeps): (req: Request) => Prom
         // Serving a repo we could not verify against the log would hand out
         // refs that may already have been superseded, which for a fetch is
         // indistinguishable from data loss. Refuse instead.
-        return new Response(`walgit: ${(err as Error).message}\n`, { status: 503 })
+        return new Response(`walgit: ${(err as Error).message}\n`, {
+          status: 503,
+          headers: { [REJECT_HEADER]: 'unavailable' },
+        })
       }
     }
 

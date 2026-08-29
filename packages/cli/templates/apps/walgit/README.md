@@ -52,6 +52,51 @@ repairs things would be dangerous. It reports **pushes and storage only** — a
 clone leaves no trace in the log at all, and an approximation invented here
 would read as a measurement.
 
+### The other half: what the log cannot see
+
+`usage` answers everything the log records. The gap is structural — a clone
+writes nothing to it — so the Worker in front of the container counts the rest
+and writes one Analytics Engine datapoint per request to the `walgit_requests`
+dataset (`worker/telemetry.ts`, bound as `WALGIT_METRICS` in `wrangler.jsonc`).
+Nothing is duplicated across the two: storage, repository count and push volume
+come from the log only, because two records of one fact disagree the first time
+a write fails between them.
+
+Each datapoint carries, as blobs: `kind` (`clone-advertise`, `clone`,
+`push-advertise`, `push`, `instructions`, `health`, `other`), `outcome`
+(`ok`/`reject`), `reject`, `repo`, `temperature` (`cold`/`warm`), `answered`
+(`container`/`edge`); and as doubles: `status`, `ttfb_ms`, `total_ms`,
+`bytes_served`, `bytes_received`, `cold`. The index is `kind`, so refusals — the
+rare thing an operator is hunting — are sampled independently of clones, the
+loud thing.
+
+Refusals are counted **by kind**, never as an error rate, because the kinds mean
+different things: `size-cap` (abuse or a misconfigured client), `collision` (a
+product signal about naming), `unauthorized`, `not-found`, `unavailable`, and
+`edge`. `edge` is a **bug signal**: walgit refusing things itself, with an
+explanation an agent can act on, is the product, so a refusal made in front of
+it should be zero. It is detectable because the container stamps every response
+it produces (`x-walgit-served`) and names its own refusals (`x-walgit-reject`);
+both headers are stripped before the response reaches the client.
+
+What is deliberately **not** recorded: no IP, no user agent, no credential, no
+request or repository content. Repository names are recorded — every repository
+on a public walgit is world-readable by construction, and without the name a
+traffic spike cannot be told apart from a hundred quiet repositories.
+
+The measurement is off the serving path: bytes and total time are counted in a
+pass-through transform that forwards each chunk as it measures it, and the
+datapoint is written under `waitUntil` after the client already has its
+response. A deployment without the binding records nothing and serves exactly
+as before.
+
+Query it with the [Analytics Engine SQL API](https://developers.cloudflare.com/analytics/analytics-engine/sql-api/):
+
+```sql
+SELECT blob1 AS kind, blob3 AS reject, count() AS n, sum(double4) AS bytes_served
+FROM walgit_requests WHERE timestamp > now() - INTERVAL '24' HOUR GROUP BY kind, reject
+```
+
 It runs where the app's environment is — inside the container, or anywhere the
 same `WALGIT_*` variables are set:
 
