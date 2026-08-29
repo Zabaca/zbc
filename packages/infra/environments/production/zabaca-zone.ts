@@ -7,18 +7,18 @@ import zabacaDnsToken from './zabaca-dns-token'
 // nameserver; this instance converges the records inside it. It does not create
 // or move the zone, and the module has no `destroy` that could remove it.
 //
-// The reason it exists now is walgit's front door. Everything else here is what
-// Cloudflare was already serving on the day the zone was adopted, transcribed so
-// the next change to this domain is a diff rather than a dashboard visit.
+// It was adopted for `git.zabaca.com` — walgit's front door on Fly. That name
+// is retired: walgit dropped SSH and moved onto a Cloudflare Container
+// (docs/adr/0008), which removed the raw-TCP requirement that needed an
+// unproxied record pointing at a dedicated Fly IP. The A, AAAA and
+// ACME-challenge records were deleted from the zone along with the Fly app that
+// owned the address. What remains here is what Cloudflare was already serving
+// on the day the zone was adopted, transcribed so the next change to this
+// domain is a diff rather than a dashboard visit.
 //
 // ── walgit.zabaca.com ─────────────────────────────────────────────────────
 //
-// walgit's front door, and the reason this file exists at all — it replaces
-// `git.zabaca.com`, which was retired when walgit dropped SSH and moved onto a
-// Cloudflare Container (docs/adr/0008). Those records, and the Fly ACME
-// challenge CNAME beside them, were deleted from the zone by hand before their
-// declarations were dropped here: `allowDelete` below is false, so a
-// declaration removed on its own would leave the record live and undeclared.
+// The Container deployment's hostname, and the successor to the name above.
 //
 // `proxied: true` where `git.zabaca.com` had to be grey-clouded. That record
 // was unproxied for exactly one reason — Cloudflare's proxy carries only its
@@ -67,12 +67,13 @@ export default cloudflareZoneModule.instance({
       // whatever answers at a real address. Proxying is what makes these usable
       // at all: Cloudflare answers with its own anycast A and AAAA regardless of
       // the origin's address family, so v4 visitors are unaffected.
+      //
       // walgit — the public git host (docs/adr/0008), route on `walgit-public`.
       { type: 'AAAA', name: 'walgit.zabaca.com', content: '100::', proxied: true },
       { type: 'AAAA', name: 'zabaca.com', content: '100::', proxied: true },
       { type: 'AAAA', name: 'www.zabaca.com', content: '100::', proxied: true },
-      // zbc's own site. The route itself is declared on the `landing`
-      // instance, not here and not in wrangler.jsonc.
+      // zbc's own site. The route itself is declared on the `landing` instance,
+      // not here and not in wrangler.jsonc.
       { type: 'AAAA', name: 'zbc.zabaca.com', content: '100::', proxied: true },
       { type: 'AAAA', name: 'ceo.zabaca.com', content: '100::', proxied: true },
       { type: 'AAAA', name: 'crux.zabaca.com', content: '100::', proxied: true },

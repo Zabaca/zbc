@@ -15,8 +15,8 @@
  *     the pack for a push that was never going to land, leaving an orphan for
  *     `findOrphans` to reclaim.
  *
- * Off unless the instance turns it on. `git.zabaca.com` keeps force-push; this
- * is instance configuration, not a template default.
+ * Off unless the instance turns it on. A private instance may want force-push;
+ * this is instance configuration, not a template default.
  */
 
 import * as crypto from 'node:crypto'
