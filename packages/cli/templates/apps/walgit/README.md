@@ -26,6 +26,7 @@ the **garbage collection** that keeps the log from growing without bound:
 | `src/gc.ts` | delete superseded and orphaned objects, a grace period later |
 | `src/delete-repo.ts` | remove a whole repository: tombstone, wait, then index-first deletion |
 | `src/expire.ts` | decide WHICH repositories go: idle since their last push, past the window |
+| `src/limits.ts` | the push-size and repository-total caps, refused in `pre-receive` before anything is uploaded |
 | `src/verify.ts`, `src/cli.ts` | the operator CLI: inspect, rebuild, verify, reclaim |
 | `src/git.ts`, `src/mkdir-lock.ts` | the two shared primitives: running a git plumbing command, and locking with `mkdir` |
 
@@ -51,6 +52,51 @@ which matters because it is run at exactly the moment a command that also
 repairs things would be dangerous. It reports **pushes and storage only** — a
 clone leaves no trace in the log at all, and an approximation invented here
 would read as a measurement.
+
+### The other half: what the log cannot see
+
+`usage` answers everything the log records. The gap is structural — a clone
+writes nothing to it — so the Worker in front of the container counts the rest
+and writes one Analytics Engine datapoint per request to the `walgit_requests`
+dataset (`worker/telemetry.ts`, bound as `WALGIT_METRICS` in `wrangler.jsonc`).
+Nothing is duplicated across the two: storage, repository count and push volume
+come from the log only, because two records of one fact disagree the first time
+a write fails between them.
+
+Each datapoint carries, as blobs: `kind` (`clone-advertise`, `clone`,
+`push-advertise`, `push`, `instructions`, `health`, `other`), `outcome`
+(`ok`/`reject`), `reject`, `repo`, `temperature` (`cold`/`warm`), `answered`
+(`container`/`edge`); and as doubles: `status`, `ttfb_ms`, `total_ms`,
+`bytes_served`, `bytes_received`, `cold`. The index is `kind`, so refusals — the
+rare thing an operator is hunting — are sampled independently of clones, the
+loud thing.
+
+Refusals are counted **by kind**, never as an error rate, because the kinds mean
+different things: `size-cap` (abuse or a misconfigured client), `collision` (a
+product signal about naming), `unauthorized`, `not-found`, `unavailable`, and
+`edge`. `edge` is a **bug signal**: walgit refusing things itself, with an
+explanation an agent can act on, is the product, so a refusal made in front of
+it should be zero. It is detectable because the container stamps every response
+it produces (`x-walgit-served`) and names its own refusals (`x-walgit-reject`);
+both headers are stripped before the response reaches the client.
+
+What is deliberately **not** recorded: no IP, no user agent, no credential, no
+request or repository content. Repository names are recorded — every repository
+on a public walgit is world-readable by construction, and without the name a
+traffic spike cannot be told apart from a hundred quiet repositories.
+
+The measurement is off the serving path: bytes and total time are counted in a
+pass-through transform that forwards each chunk as it measures it, and the
+datapoint is written under `waitUntil` after the client already has its
+response. A deployment without the binding records nothing and serves exactly
+as before.
+
+Query it with the [Analytics Engine SQL API](https://developers.cloudflare.com/analytics/analytics-engine/sql-api/):
+
+```sql
+SELECT blob1 AS kind, blob3 AS reject, count() AS n, sum(double4) AS bytes_served
+FROM walgit_requests WHERE timestamp > now() - INTERVAL '24' HOUR GROUP BY kind, reject
+```
 
 It runs where the app's environment is — inside the container, or anywhere the
 same `WALGIT_*` variables are set:
@@ -351,6 +397,11 @@ cloudflare instance's `workerSecrets`):
   its local cache and **refuses every push**. `WALGIT_STORE_DIR` substitutes a
   local directory for the bucket, which is for development and tests only.
 
+Optional instance configuration (plain env, not secrets): `WALGIT_APPEND_ONLY`,
+`WALGIT_MAX_PUSH_BYTES`, `WALGIT_MAX_REPO_BYTES`, `WALGIT_RETENTION_HOURS`,
+`WALGIT_PUBLIC` — each unset means the behaviour is off and `GET /` does not
+claim it.
+
 The container sleeps when idle and the next request wakes it — one regime,
 median 1.77 s, spread 0.93–6.45 s, and a ten-minute idle measures the same. Its
 10.67 GiB disk is **wiped completely on every restart**, which is exactly the
@@ -384,6 +435,48 @@ commit the branch holds today. The message names the repository, states the
 rule, and offers a free name (`<repo>-<8 hex>`) to push to instead — a wave of
 agents on near-identical prompts all reach for `test`, and this message is the
 first thing walgit ever says to most of them.
+
+## Size limits
+
+`WALGIT_MAX_PUSH_BYTES` caps a single push; `WALGIT_MAX_REPO_BYTES` caps what
+one repository holds in total. Both are **unset by default** — an instance opts
+in, and an instance that does not set them enforces nothing and claims nothing.
+`GET /` states each cap it enforces, rendered through the same
+`limitsFromEnv` the hook enforces with, so the page cannot promise a limit the
+push path does not hold.
+
+The refusal happens in `pre-receive` (`src/limits.ts`), where the pack is
+sitting in the quarantine at a known size and nothing has been written to the
+object store. That earliness is the whole feature. `http.postBuffer` defaults to
+1 MiB, so every real push is chunked, and a chunked body is uploaded IN FULL
+before a proxy can answer: measured against Fly, 99 MiB passes and 100 MiB is
+refused only after all 104,879,625 bytes have gone up — 37 s of upload to be
+told `RPC failed; HTTP 413` and `unexpected disconnect`, which reads like a
+dropped network and gets retried. A documented cap must therefore sit under the
+**chunked** cutoff, not the `Content-Length` one (which 413s at 101 MiB after
+~2 MB): ~99 MiB is the safe ceiling for the public instance, with a repository
+total of ~250 MB.
+
+The repository total needs no new state. Every WAL entry carries its `size`, so
+the total is a sum over the entries above the compaction frontier — the live
+ones. Superseded entries are excluded on purpose: `gc.ts` deletes them, and
+counting them would charge a repository twice for history it holds once, so a
+repository that compacted itself would appear to have grown.
+
+The two refusals say different things, because they are different problems. Too
+big a push is one client sending too much at once and can be split; a full
+repository is many small pushes that were each fine, and splitting will not help
+— that one names a fresh repository instead. Both state the cap and the actual
+size in bytes as well as units, and both say the push was not a network failure,
+because the message they replace is one an agent retries.
+
+`receive.maxInputSize` is set as a backstop, at **twice** the cap rather than at
+it. git hands that value to `index-pack`, which fails while the pack is still
+being read — before `pre-receive` runs — so a backstop set to the cap would win
+every race and every client would read `fatal: pack exceeds maximum allowed
+size` instead of walgit's message. At twice the cap the hook owns every refusal
+a real client can provoke, and git still bounds a pack far enough past the cap
+that a bug in the hook is the likelier explanation.
 
 ## Authorization, today
 

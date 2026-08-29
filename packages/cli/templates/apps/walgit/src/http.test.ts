@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { createHttpHandler } from './http'
+import { REJECT_HEADER, SERVED_HEADER, createHttpHandler } from './http'
 
 const handler = () =>
   createHttpHandler({
@@ -114,6 +114,48 @@ describe('createHttpHandler', () => {
   test('reports health without a credential, so the platform can probe it', async () => {
     const res = await handler()(new Request('https://walgit.test/_walgit/health'))
     expect(res.status).toBe(200)
+  })
+
+  test('stamps every response as its own, so an edge refusal is detectable', async () => {
+    for (const request of [
+      new Request('https://walgit.test/'),
+      new Request('https://walgit.test/_walgit/health'),
+      new Request('https://walgit.test/alpha.git/git-upload-pack', {
+        method: 'POST',
+        headers: { authorization: 'Bearer s3cret' },
+      }),
+    ]) {
+      expect((await handler()(request)).headers.get(SERVED_HEADER)).toBe('1')
+    }
+  })
+
+  test('names the kind of each refusal it makes, for counting by kind', async () => {
+    const unauthorized = await handler()(new Request('https://walgit.test/alpha.git/git-upload-pack'))
+    expect(unauthorized.headers.get(REJECT_HEADER)).toBe('unauthorized')
+
+    const notFound = await handler()(
+      new Request('https://walgit.test/alpha.git/objects/info/packs', {
+        headers: { authorization: 'Bearer s3cret' },
+      }),
+    )
+    expect(notFound.headers.get(REJECT_HEADER)).toBe('not-found')
+
+    const unavailable = await createHttpHandler({
+      reposDir: '/srv/repos',
+      tokens: ['s3cret'],
+      ensureRepo: (repo) => repo,
+      syncRepo: async () => {
+        throw new Error('log unreachable')
+      },
+      runBackend: async () => new Response('backend ran'),
+    })(
+      new Request('https://walgit.test/alpha.git/git-upload-pack', {
+        method: 'POST',
+        headers: { authorization: 'Bearer s3cret' },
+      }),
+    )
+    expect(unavailable.status).toBe(503)
+    expect(unavailable.headers.get(REJECT_HEADER)).toBe('unavailable')
   })
 })
 

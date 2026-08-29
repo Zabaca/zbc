@@ -13,6 +13,8 @@
  * policy rather than written once as a constant.
  */
 
+import { describeBytes } from './limits'
+
 export type InstructionsPolicy = {
   /** Reads and writes need no credential. */
   publicAccess?: boolean
@@ -110,19 +112,6 @@ function describeHours(hours: number): string {
   return `${hours} hour${hours === 1 ? '' : 's'}`
 }
 
-/**
- * Both a unit and the raw byte count: an agent comparing its own pack size
- * against this number should never have to guess our rounding.
- */
-function describeBytes(bytes: number): string {
-  const gib = bytes / 1024 ** 3
-  const mib = bytes / 1024 ** 2
-  if (gib >= 1) return `${round(gib)} GiB (${bytes} bytes)`
-  if (mib >= 1) return `${round(mib)} MiB (${bytes} bytes)`
-  return `${bytes} bytes`
-}
-
-const round = (n: number) => String(Math.round(n * 100) / 100)
 
 /** Hard-wrapped, so the text reads the same in a terminal as in a context window. */
 function wrap(text: string, width = 78): string[] {
