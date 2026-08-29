@@ -1,5 +1,5 @@
 /**
- * The machinery the seven scenarios share: a real walgit node they can kill, a
+ * The machinery the scenarios share: a real walgit node they can kill, a
  * real git client, and a real object store with a prefix nobody else is using.
  *
  * The one design rule here is that nothing in this file is a double. The
@@ -18,9 +18,26 @@ import * as net from 'node:net'
 import * as os from 'node:os'
 import * as path from 'node:path'
 
+import { INTERNAL_HEADER } from '../src/http'
 import type { ObjectStore } from '../src/store'
 import { storeFromEnv } from '../src/store-env'
 import { ulid } from '../src/ulid'
+import {
+  ANNOUNCE_PATH,
+  EVENTS_PATH,
+  type Handshake,
+  type RefEvent,
+  type WatchEntry,
+  authorizeAnnounce,
+  authorizeSubscribe,
+  encode,
+  handshake,
+  parseAnnounce,
+  parseWatch,
+  watchCovers,
+  watchedRepos,
+} from '../worker/events'
+import { Outbox } from '../worker/outbox'
 
 export const APP_ROOT = path.resolve(import.meta.dir, '..')
 
@@ -297,4 +314,255 @@ export async function commit(dir: string, body: string): Promise<string> {
   await gitOk(dir, 'add', 'README')
   await gitOk(dir, 'commit', '--quiet', '-m', body.trim() || 'commit')
   return (await gitOk(dir, 'rev-parse', 'HEAD')).trim()
+}
+
+// ── The events endpoint ─────────────────────────────────────────────────────
+
+interface SocketData {
+  watch: WatchEntry[] | null
+  outbox: Outbox | null
+}
+
+/**
+ * The other end of the ref-event stream, for the scenarios that need one.
+ *
+ * In production this is a Worker holding a Durable Object; here it is a Bun
+ * server holding the sockets in memory. That substitution is the one place in
+ * this file where something is not the production article, and it is bounded on
+ * purpose: everything that DECIDES anything — whether the announce credential
+ * is good, what a `watch` message means, which sockets an announcement reaches,
+ * what goes on the wire, and what happens to a subscriber that stops draining —
+ * is imported from `worker/events.ts` and `worker/outbox.ts`, the same modules
+ * the Worker calls. What stands in for the Durable Object is accept, remember,
+ * send, forget, which is what `worker/events-do.ts` says it is and no more.
+ *
+ * The alternative would be a Workers runtime inside the suite, which the
+ * scenarios do not need: the wiring they prove — a hook that fires, an
+ * announcement that authenticates, a socket that receives — is all on the
+ * container's side of that boundary, and every part of it here is real.
+ */
+export class EventsEndpoint {
+  /** The secret the container's push path presents (`WALGIT_EVENTS_TOKEN`). */
+  readonly token = 'walgit-e2e-events'
+  port = 0
+  /** Every announcement the push path published, in arrival order. */
+  readonly announced: RefEvent[] = []
+  private server: ReturnType<typeof Bun.serve> | null = null
+  private refsNode: WalgitNode | null = null
+  private readonly subscribers = new Set<Subscriber>()
+  // Bun has no `getWebSockets()`; tracking them is the one piece of bookkeeping
+  // the Durable Object gets from its runtime and this does not.
+  private readonly live = new Set<Bun.ServerWebSocket<SocketData>>()
+
+  async start(): Promise<void> {
+    this.port = await freePort()
+    // Arrow handlers throughout: they close over `this`, which is what lets the
+    // decisions stay methods on this class rather than free functions holding a
+    // reference to it.
+    this.server = Bun.serve<SocketData, Record<string, never>>({
+      port: this.port,
+      hostname: '127.0.0.1',
+      idleTimeout: 0,
+      fetch: async (request, server) => {
+        const url = new URL(request.url)
+
+        if (url.pathname === ANNOUNCE_PATH) {
+          if (request.method !== 'POST')
+            return new Response('method not allowed\n', { status: 405 })
+          if (!authorizeAnnounce(request.headers.get('authorization'), this.token)) {
+            return new Response('unauthorized\n', { status: 401 })
+          }
+          const parsed = parseAnnounce(await request.json().catch(() => null))
+          if (!parsed.ok) return new Response(`${parsed.error}\n`, { status: 400 })
+          this.announced.push(...parsed.value)
+          return Response.json({ ok: true, delivered: this.broadcast(parsed.value) })
+        }
+
+        if (url.pathname !== EVENTS_PATH) return new Response('not found\n', { status: 404 })
+        // Exactly the credential a read of the repository needs, checked with
+        // the function the Worker checks it with.
+        const allowed = authorizeSubscribe({
+          authorization: request.headers.get('authorization'),
+          tokens: [TOKEN],
+          isPublic: false,
+        })
+        if (!allowed) return new Response('unauthorized\n', { status: 401 })
+        if (server.upgrade(request, { data: { watch: null, outbox: null } })) return undefined
+        return new Response('expected a websocket upgrade\n', { status: 426 })
+      },
+      websocket: {
+        open: (ws) => {
+          this.live.add(ws)
+        },
+        message: async (ws, raw) => {
+          const parsed = parseWatch(typeof raw === 'string' ? raw : new TextDecoder().decode(raw))
+          if (!parsed.ok) {
+            ws.send(encode({ error: parsed.error }))
+            return
+          }
+          let refsByRepo: Record<string, Record<string, string>>
+          try {
+            refsByRepo = await this.currentRefs(watchedRepos(parsed.value))
+          } catch (err) {
+            ws.send(encode({ error: `could not read current refs: ${(err as Error).message}` }))
+            return
+          }
+          // Read, record, answer — the order `events-do.ts` keeps, so a push
+          // landing mid-handshake cannot fall between the two.
+          ws.data.watch = parsed.value
+          ws.send(encode(handshake(parsed.value, refsByRepo)))
+        },
+        close: (ws) => {
+          this.live.delete(ws)
+          ws.data.watch = null
+          ws.data.outbox = null
+        },
+      },
+    })
+  }
+
+  /** Where the container announces to (`WALGIT_EVENTS_URL`). */
+  get url(): string {
+    return `http://127.0.0.1:${this.port}`
+  }
+
+  /**
+   * The node whose Index answers a handshake.
+   *
+   * Set after the node starts, because the node needs this endpoint's URL at
+   * boot — the same circularity the deployment has, resolved the same way: the
+   * container is told where to announce, and the socket layer asks the
+   * container for refs when a subscriber arrives.
+   */
+  refsFrom(node: WalgitNode): void {
+    this.refsNode = node
+  }
+
+  /** Connect a subscriber and complete its handshake. */
+  async subscribe(watch: WatchEntry[]): Promise<Subscriber> {
+    const subscriber = new Subscriber(`ws://127.0.0.1:${this.port}${EVENTS_PATH}`)
+    this.subscribers.add(subscriber)
+    await subscriber.open(watch)
+    return subscriber
+  }
+
+  stop(): void {
+    for (const subscriber of this.subscribers) subscriber.close()
+    this.subscribers.clear()
+    this.server?.stop(true)
+    this.server = null
+  }
+
+  /** Fan one announcement out, through the real `Outbox`. */
+  private broadcast(events: readonly RefEvent[]): number {
+    let delivered = 0
+    for (const ws of this.live) {
+      const watch = ws.data.watch
+      if (!watch) continue
+      const wanted = events.filter((event) => watchCovers(watch, event))
+      if (wanted.length === 0) continue
+      ws.data.outbox ??= new Outbox({
+        // Bun exposes the buffer as a method and the policy is written against
+        // a property, so the adapter is here and the policy stays untouched.
+        get bufferedAmount() {
+          return ws.getBufferedAmount()
+        },
+        send: (data) => {
+          ws.send(data)
+        },
+        close: (code, reason) => {
+          ws.close(code, reason)
+        },
+      })
+      delivered += ws.data.outbox.offer(wanted).sent
+    }
+    return delivered
+  }
+
+  /**
+   * Ref state from the node's Index, over the container's internal endpoint —
+   * the same request `events-do.ts` makes, header and all.
+   */
+  private async currentRefs(repos: string[]): Promise<Record<string, Record<string, string>>> {
+    const node = this.refsNode
+    if (!node) throw new Error('e2e: the events endpoint has no node to read refs from')
+    const byRepo: Record<string, Record<string, string>> = {}
+    for (const repo of repos) {
+      const response = await fetch(
+        `http://127.0.0.1:${node.port}/_walgit/refs?repo=${encodeURIComponent(repo)}`,
+        { headers: { [INTERNAL_HEADER]: '1' } },
+      )
+      if (!response.ok) throw new Error(`refs lookup for ${repo}: ${response.status}`)
+      const body = (await response.json()) as { refs?: Record<string, string> }
+      byRepo[repo] = body.refs ?? {}
+    }
+    return byRepo
+  }
+}
+
+/**
+ * A client on the stream.
+ *
+ * A real WebSocket to a real port, so a scenario asserting that a sha arrived
+ * is asserting that it crossed a socket — the wiring failure this exists to
+ * catch is precisely one a direct call to the fan-out would not see.
+ */
+export class Subscriber {
+  /** Every event message received after the handshake, in arrival order. */
+  readonly events: RefEvent[] = []
+  handshake: Handshake | null = null
+  private socket: WebSocket | null = null
+
+  constructor(private readonly url: string) {}
+
+  async open(watch: WatchEntry[]): Promise<void> {
+    const socket = new WebSocket(this.url, {
+      headers: { authorization: `Bearer ${TOKEN}` },
+    } as never)
+    this.socket = socket
+    await new Promise<void>((resolve, reject) => {
+      socket.addEventListener('open', () => resolve(), { once: true })
+      socket.addEventListener('error', () => reject(new Error('subscriber could not connect')), {
+        once: true,
+      })
+    })
+    const handshaken = new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error('no handshake within 10s')), 10_000)
+      socket.addEventListener('message', (event: MessageEvent) => {
+        const message = JSON.parse(String(event.data)) as Handshake | RefEvent | { error: string }
+        if ('error' in message) {
+          clearTimeout(timer)
+          reject(new Error(`subscriber refused: ${message.error}`))
+          return
+        }
+        if ('ok' in message) {
+          clearTimeout(timer)
+          this.handshake = message
+          resolve()
+          return
+        }
+        this.events.push(message)
+      })
+    })
+    socket.send(JSON.stringify({ watch }))
+    await handshaken
+  }
+
+  /** Wait for an event matching `match`, or fail after `timeoutMs`. */
+  async next(match: (event: RefEvent) => boolean, timeoutMs = 10_000): Promise<RefEvent> {
+    const deadline = Date.now() + timeoutMs
+    while (Date.now() < deadline) {
+      const found = this.events.find(match)
+      if (found) return found
+      await sleep(25)
+    }
+    throw new Error(
+      `no matching ref event within ${timeoutMs}ms; saw ${JSON.stringify(this.events)}`,
+    )
+  }
+
+  close(): void {
+    this.socket?.close()
+    this.socket = null
+  }
 }
