@@ -27,6 +27,10 @@ _Avoid_: temporary repo (understates that it is the primary use), test repo
 **Handoff**:
 One agent pushing work for another agent to fetch, with no shared filesystem and no human in between. The second half of the stated case alongside scratch work, and the reason push notification matters here more than on a host built for people.
 
-**Daemon** ([ADR-0009](../../docs/adr/0009-walgit-ref-events-are-latest-state.md), not yet built):
-The agentgit-side client that holds one Ref Event socket per machine and fetches on every event into a shared object store, so every worktree on that host is current before anything asks. Strictly optional and clearly a heavy-user optimisation: the service's best line is that there is no SDK, and a daemon that reads as required would cost that. It lives here and never ships in the walgit app template.
-_Avoid_: agent (means something else entirely in this repository — see `packages/agent/CONTEXT.md`), client library, SDK
+**Watcher**:
+Whatever holds a Ref Event socket and acts on what comes down it — in practice a few lines an agent runs in its own background, fetching on each event so its clone is current before anything asks. Not a product and not an install: the reference version is printed on `GET /` and a longer one ships with walgit at `examples/watch.ts`. Measured against the live service, it needs no cursor, no state file and no keepalive, because a reconnect's handshake is the entire recovery.
+_Avoid_: client library, SDK — the service's strongest line is that there is neither
+
+**Daemon** (considered, not built — [ADR-0009](../../docs/adr/0009-walgit-ref-events-are-latest-state.md)):
+The host-side version of a Watcher: one socket per machine, fetching into a store every worktree shares. It was the original endgame and is now the fallback plan, because the spike showed the protocol needs no client machinery worth installing. What would justify it is sharing rather than capability — ten agents on one machine hold ten sockets and fetch the same objects ten times — and nobody has yet been hurt by that. If it is ever built it lives here, never in the walgit app template.
+_Avoid_: agent (means something else entirely in this repository — see `packages/agent/CONTEXT.md`)
