@@ -73,11 +73,12 @@ export class WalgitEvents extends DurableObject<EventsEnv> {
   /**
    * One outbound queue per live socket.
    *
-   * In memory, and not serialized onto the socket: a queue only exists while a
-   * reader is behind, and a reader that is behind is not an idle subscription,
-   * so hibernation cannot strike mid-backlog. If it somehow did, losing the
-   * queue costs nothing — the client's next handshake is current state, which
-   * is what the queue was converging to anyway.
+   * In memory, and not serialized onto the socket: an entry only exists inside
+   * a ref's coalesce window, which is a few hundred milliseconds after an
+   * announcement — activity, not the idleness hibernation waits for. If the
+   * object were evicted mid-window anyway the queued event would go with it,
+   * and the cost is one notification the client's next handshake corrects.
+   * Serializing it would trade that for storage writes on every push.
    */
   private readonly outboxes = new WeakMap<WebSocket, Outbox>()
 
@@ -180,11 +181,16 @@ export class WalgitEvents extends DurableObject<EventsEnv> {
       if (!watch) continue
       const wanted = events.filter((event) => watchCovers(watch, event))
       if (wanted.length === 0) continue
-      // Through the outbox rather than straight to the socket: it decides what
-      // a backed-up reader gets (the newest sha per ref, once) and when a
-      // reader that will not drain is closed instead of buffered. A socket that
-      // has gone away mid-fan-out must not stop the ones behind it, which is
-      // why the outbox never throws.
+      // Through the outbox rather than straight to the socket: it holds each
+      // socket to at most one message per ref per window, so a ref that moves
+      // in a burst costs one message carrying the newest sha rather than one
+      // per push. A socket that has gone away mid-fan-out must not stop the
+      // ones behind it, which is why the outbox never throws.
+      //
+      // `sent` counts what went out on THIS call. An event held for its window
+      // leaves on the outbox's own timer and is not counted here — the number
+      // is a fan-out receipt, not a delivery guarantee, and the announcer only
+      // logs it.
       delivered += this.outbox(ws).offer(wanted).sent
     }
     return delivered

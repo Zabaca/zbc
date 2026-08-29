@@ -68,3 +68,7 @@ _Avoid_: the hub, the broker
 
 **Announce**:
 The container telling the Fan-out that refs moved, over `/_walgit/announce`, from `post-receive` — after the compare-and-swap has won and the push is durable, never from `reference-transaction`, which would announce a push that then loses. Authenticated, off the push's latency path, and never able to fail a push.
+
+**Coalesce Window**:
+The 250 ms in which one socket gets at most one message for a given repository and ref. A second move inside it REPLACES the queued message rather than joining it, so what a subscriber receives when the window elapses is the newest sha, once. It is a rate bound and not a reaction to a slow reader: the Workers runtime reports no backlog for a socket (no `bufferedAmount`), so there is nothing to react to. Sound only because a Ref Event is latest-state.
+_Avoid_: backpressure, throttling, debounce (each implies a reader being watched, or a message being dropped rather than superseded)
