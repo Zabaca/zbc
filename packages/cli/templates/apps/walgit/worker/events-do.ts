@@ -20,7 +20,7 @@
  * be connected and permanently deaf.
  */
 
-import { getContainer } from '@cloudflare/containers'
+import { Container, getContainer } from '@cloudflare/containers'
 import { DurableObject } from 'cloudflare:workers'
 
 import {
@@ -39,9 +39,12 @@ import { RefCache } from '../shared/ref-cache'
 
 /** Only the bindings this object touches — the Worker's Env is a superset. */
 export interface EventsEnv {
-  // biome-ignore lint/suspicious/noExplicitAny: the container class is defined
-  // in index.ts, which imports this file; naming it here would be a cycle.
-  WALGIT_CONTAINER: DurableObjectNamespace<any>
+  // The BASE class, not `WalgitContainer`: that one is defined in index.ts,
+  // which imports this file, so naming it here would be a cycle. `any` was the
+  // first way around that and cost a typecheck — `DurableObjectStub<any>` sends
+  // the RPC type machinery infinitely deep (TS2589). The base is enough: all
+  // this object ever does with the binding is `fetch`.
+  WALGIT_CONTAINER: DurableObjectNamespace<Container>
 }
 
 /** The Worker's internal call to fan an announcement out. Never client-reachable. */

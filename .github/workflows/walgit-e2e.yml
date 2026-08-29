@@ -58,6 +58,24 @@ jobs:
       - run: bun install
         working-directory: .
 
+      # Both TypeScript programs, because walgit is two of them: `src/` +
+      # `shared/` against bun's ambient types, `worker/` + `shared/` against the
+      # Workers runtime's. That overlap is the whole point of the shared kernel
+      # (docs/adr/0010) — "this module imports no runtime" is a claim only a
+      # typecheck of both can hold to.
+      #
+      # Nothing ran this before, and four errors had accumulated by the time
+      # anyone looked, one of them real: the backpressure policy read a
+      # `bufferedAmount` the Workers `WebSocket` type does not declare.
+      #
+      # Scoped to this package rather than the repository, for the reason
+      # core-tests.yml gives about itself: `packages/infra` has seven errors of
+      # its own today, and a gate that is red on arrival is a gate people learn
+      # to ignore. Widening this is a matter of fixing those, not of editing
+      # this line.
+      - name: Typecheck
+        run: bun run typecheck
+
       # The suite shells out to real `git` and writes to the OS temp directory;
       # ubuntu-latest has git preinstalled. Scoped to `src` rather than the
       # package root so it stays the unit suite — `e2e/` is the job below.
