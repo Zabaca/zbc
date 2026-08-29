@@ -25,6 +25,7 @@ the **garbage collection** that keeps the log from growing without bound:
 | `src/compact.ts` | collapse the log to one entry, under a per-repo lease |
 | `src/gc.ts` | delete superseded and orphaned objects, a grace period later |
 | `src/delete-repo.ts` | remove a whole repository: tombstone, wait, then index-first deletion |
+| `src/expire.ts` | decide WHICH repositories go: idle since their last push, past the window |
 | `src/verify.ts`, `src/cli.ts` | the operator CLI: inspect, rebuild, verify, reclaim |
 | `src/git.ts`, `src/mkdir-lock.ts` | the two shared primitives: running a git plumbing command, and locking with `mkdir` |
 
@@ -38,6 +39,7 @@ walgit gc <repo_id...>                # reclaim superseded and orphaned objects 
 walgit compact <repo_id> [path]       # repack the log into one entry, now
 walgit delete <repo_id...>            # remove repositories entirely (dry run)
 walgit usage [--since 24h] [--top 10] # what the log says this service holds
+walgit expire [repo_id...]            # collect repos idle past the window (dry run)
 ```
 
 `usage` is the one command that needs nothing but bucket credentials — no repos
@@ -275,6 +277,37 @@ left behind is reclaimable and a half-deleted log is not.
 
 Deciding *which* repositories go — expiry — is not this file's business. It
 takes a repo id.
+
+## Expiring idle repositories
+
+`src/expire.ts` is that decision, and on a free, world-writable instance it is
+the **only** removal path — the reason refs can be append-only without storage
+growing without bound. Nothing inside the window can be destroyed; everything
+leaves at the end of it.
+
+Idle means the time of the **last push**, never the last access:
+
+- It is free. The newest WAL entry's `ts` is already in `index.json`, so the
+  signal costs no write and no instrumentation.
+- It cannot be gamed. A last-access would mean a write on every clone, through
+  an endpoint deliberately left unauthenticated — a daily `git clone` from a
+  cron job could pin any repository alive forever.
+
+The window is `WALGIT_RETENTION_HOURS`, **the same variable `GET /` renders its
+retention promise from**, so the page cannot claim a window the sweeper does not
+enforce. Unset means expiry is off entirely, and `walgit expire` then says so and
+does nothing — not even a `LIST`.
+
+`decideExpiry` is pure and every branch it cannot prove resolves toward RETAIN:
+an index with no entries is not "infinitely old", a timestamp that will not parse
+is not "long ago", and one in the future is clock skew rather than staleness.
+Over-retaining costs storage; under-retaining deletes somebody's work with no
+error anywhere.
+
+Collection is delegated to `delete-repo.ts`, so an expired repository is
+tombstoned and collected a grace period later exactly like one deleted by hand.
+Dry run is the default; `--yes` acts. What runs it on a timer is the
+deployment's business, not this file's.
 
 ## How a client reaches it
 
