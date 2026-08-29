@@ -33,6 +33,7 @@ import {
   watchCovers,
   watchedRepos,
 } from './events'
+import { RefCache } from './ref-cache'
 import { INTERNAL_REQUEST_HEADER } from './telemetry'
 
 /** Only the bindings this object touches — the Worker's Env is a superset. */
@@ -55,12 +56,26 @@ export const BROADCAST_PATH = '/broadcast'
 export const EVENTS_OBJECT_NAME = 'events'
 
 export class WalgitEvents extends DurableObject<EventsEnv> {
+  /**
+   * What this object remembers about refs, so a connect for a repository it has
+   * already seen does not wake the container to be told what it just announced.
+   *
+   * In memory, never in storage (worker/ref-cache.ts): hibernation drops it,
+   * and the cost of that is one container round-trip on the next connect. The
+   * Index stays the source of truth.
+   */
+  private readonly refs = new RefCache()
+
   async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url)
 
     if (url.pathname === BROADCAST_PATH) {
       const parsed = parseAnnounce(await request.json().catch(() => null))
       if (!parsed.ok) return new Response(`${parsed.error}\n`, { status: 400 })
+      // Fold into the cache first: an announcement is the Index's own report of
+      // a ref that has already been made durable, which is exactly what a later
+      // handshake would go and read.
+      this.refs.apply(parsed.value)
       const delivered = this.broadcast(parsed.value)
       return Response.json({ ok: true, delivered })
     }
@@ -82,9 +97,10 @@ export class WalgitEvents extends DurableObject<EventsEnv> {
   /**
    * A client naming what it watches.
    *
-   * The answer is current state, read from the Index through the container —
-   * the source of truth for refs (docs/adr/0007) — so a subscriber's first
-   * message tells it where it stands and it never has to fetch to find out.
+   * The answer is current state — from this object's own copy where it has one,
+   * and otherwise from the Index through the container, which is the source of
+   * truth for refs (docs/adr/0007). Either way a subscriber's first message
+   * tells it where it stands and it never has to fetch to find out.
    * Sending it before the subscription is recorded would open a window in which
    * a push is in neither the handshake nor the stream, so the order here is:
    * read, record, answer.
@@ -145,25 +161,35 @@ export class WalgitEvents extends DurableObject<EventsEnv> {
   }
 
   /**
-   * The Index's ref state for each repository, via the container.
+   * The Index's ref state for each repository — from memory where possible.
    *
-   * Asked of the container rather than read here because the object store's
-   * credentials are the container's, not the Worker's (worker/container-env.ts)
-   * — and because `index.json` is the only place refs are authoritative.
+   * A repository this object already knows is answered here and the container
+   * is never touched, which is the point: a fan-out that has been announcing
+   * pushes for a repository all day already holds its ref state, and waking a
+   * sleeping container to re-read it would be paying for an answer twice.
+   *
+   * A miss goes to the container rather than to the object store directly,
+   * because the store's credentials are the container's, not the Worker's
+   * (worker/container-env.ts) — and because `index.json` is the only place refs
+   * are authoritative.
    */
   private async currentRefs(repos: string[]): Promise<Record<string, Record<string, string>>> {
-    const byRepo: Record<string, Record<string, string>> = {}
-    for (const repo of repos) {
-      const request = new Request(
-        `https://walgit.internal/_walgit/refs?repo=${encodeURIComponent(repo)}`,
-        { headers: { [INTERNAL_REQUEST_HEADER]: '1' } },
-      )
-      const response = await getContainer(this.env.WALGIT_CONTAINER).fetch(request)
-      if (!response.ok) throw new Error(`refs lookup for ${repo}: ${response.status}`)
-      const body = (await response.json()) as { refs?: Record<string, string> }
-      byRepo[repo] = body.refs ?? {}
+    for (const repo of this.refs.missing(repos)) {
+      this.refs.fill(repo, await this.fetchRefs(repo))
     }
-    return byRepo
+    return this.refs.read(repos)
+  }
+
+  /** One repository's ref state, read from the Index through the container. */
+  private async fetchRefs(repo: string): Promise<Record<string, string>> {
+    const request = new Request(
+      `https://walgit.internal/_walgit/refs?repo=${encodeURIComponent(repo)}`,
+      { headers: { [INTERNAL_REQUEST_HEADER]: '1' } },
+    )
+    const response = await getContainer(this.env.WALGIT_CONTAINER).fetch(request)
+    if (!response.ok) throw new Error(`refs lookup for ${repo}: ${response.status}`)
+    const body = (await response.json()) as { refs?: Record<string, string> }
+    return body.refs ?? {}
   }
 }
 
