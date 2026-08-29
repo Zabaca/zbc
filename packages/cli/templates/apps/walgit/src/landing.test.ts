@@ -97,3 +97,27 @@ describe('the ref-event stream on the page', () => {
     expect(page).not.toContain('{{')
   })
 })
+
+/**
+ * The client on the page.
+ *
+ * `GET /` is the whole API surface, and the answer to "how do I use this" has
+ * to be on it: an agent that cannot find the client from here will poll, which
+ * is the cost the stream exists to remove.
+ */
+describe('the events section carries a runnable client', () => {
+  test('with events on, the page shows a client that fetches', () => {
+    const html = renderLanding({ ...FACTS, events: true })
+    expect(html).toContain('new WebSocket("wss://agentgit.zabaca.com/_walgit/events")')
+    expect(html).toContain('git","fetch"')
+    // Escaped, because the page is HTML and an unescaped arrow would close the
+    // <pre> in the middle of the one thing a reader is meant to copy.
+    expect(html).not.toContain('=>w.send')
+  })
+
+  test('with events off, no client is shown', () => {
+    const html = renderLanding({ ...FACTS, events: false })
+    expect(html).not.toContain('_walgit/events')
+    expect(html).not.toContain('git","fetch"')
+  })
+})

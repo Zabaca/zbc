@@ -150,6 +150,19 @@ function watchSection(origin: string): string[] {
     `    recv: {"ok":true,"refs":[{"repo":"$NAME","ref":"refs/heads/main","sha":"a1b2c3..."}]}`,
     `    recv: {"repo":"$NAME","ref":"refs/heads/main","sha":"d4e5f6..."}`,
     '',
+    ...wrap(
+      'The useful thing to do with each message is fetch. Run this in the background and the clone is current before you ask; you never spend a call finding out that nothing changed. It needs no cursor and no state: if it disconnects, the reply to its next watch is current state.',
+    ),
+    '',
+    `    bun -e 'const w=new WebSocket("${websocket(origin)}${EVENTS_PATH}")`,
+    `      w.onopen=()=>w.send(JSON.stringify({watch:[{repo:"$NAME"}]}))`,
+    `      w.onmessage=e=>JSON.parse(e.data).ok||Bun.spawnSync(["git","fetch"])`,
+    `      w.onclose=()=>process.exit(75)' &`,
+    '',
+    ...wrap(
+      'It exits when the socket closes, so a supervisor restarts it and the new handshake catches up whatever moved meanwhile. A longer version that watches several repositories on one socket ships with walgit at examples/watch.ts.',
+    ),
+    '',
   ]
 }
 

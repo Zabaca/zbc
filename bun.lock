@@ -4,9 +4,6 @@
   "workspaces": {
     "": {
       "name": "zbc",
-      "dependencies": {
-        "react-dom": "^19.2.8",
-      },
       "devDependencies": {
         "@tursodatabase/api": "^2.0.0",
         "lefthook": "^2.1.6",
