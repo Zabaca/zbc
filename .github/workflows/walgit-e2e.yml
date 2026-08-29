@@ -68,11 +68,12 @@ jobs:
       # anyone looked, one of them real: the backpressure policy read a
       # `bufferedAmount` the Workers `WebSocket` type does not declare.
       #
-      # Scoped to this package rather than the repository, for the reason
-      # core-tests.yml gives about itself: `packages/infra` has seven errors of
-      # its own today, and a gate that is red on arrival is a gate people learn
-      # to ignore. Widening this is a matter of fixing those, not of editing
-      # this line.
+      # Scoped to this package rather than the repository, because each program
+      # that ships is gated where it ships: `packages/infra`'s seven errors were
+      # the reason this line stayed narrow, and now that they are fixed
+      # core-tests.yml typechecks the modules consumers vendor under its own
+      # path filter. Neither gate widens to `tsc` over the repository — the
+      # packages with no gate yet get one where their tests already run.
       - name: Typecheck
         run: bun run typecheck
 

@@ -22,11 +22,19 @@ on:
     branches: [main]
     paths:
       - 'packages/cli/templates/infra/**'
+      # The typecheck below compiles the templates through `packages/infra`,
+      # whose `modules/` and `src/` are symlinks into them — so its tsconfig,
+      # its manifest and the root tsconfig it extends are all inputs to this
+      # workflow's result, and a change to one has to be able to fail it.
+      - 'packages/infra/**'
+      - 'tsconfig.json'
       - 'scripts/**'
       - '.github/workflows/core-tests.yml'
   pull_request:
     paths:
       - 'packages/cli/templates/infra/**'
+      - 'packages/infra/**'
+      - 'tsconfig.json'
       - 'scripts/**'
       - '.github/workflows/core-tests.yml'
   workflow_dispatch:
@@ -62,3 +70,22 @@ jobs:
       # subject: what consumers receive, and under what name.
       - name: Test the release tooling
         run: bun test scripts
+
+      # The same modules, compiled. `bun test` runs the functions a suite calls
+      # and never sees the rest, so until now a module could ship an
+      # unresolvable import to every consumer and stay green here: three of the
+      # seven errors this step was added to fix were exactly that, in `turso`.
+      #
+      # It runs in `packages/infra` rather than in `templates/infra` because
+      # that is the program a consumer actually compiles — `modules/` and `src/`
+      # there are symlinks into the template, and the tsconfig is the one
+      # `zbc init` scaffolds. Typechecking the template directory directly would
+      # need its `@{{PROJECT_NAME}}/infra` manifest installed as a workspace, and
+      # would compile it against a tsconfig no consumer has.
+      #
+      # This is the gate `walgit-e2e.yml` says it was waiting on. Keep it green:
+      # a red arriving here is a module that does not compile in every repository
+      # that vendored it.
+      - name: Typecheck the modules consumers vendor
+        run: bun run typecheck
+        working-directory: packages/infra
