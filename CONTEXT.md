@@ -70,9 +70,9 @@ The zod-defined shape (name, description, typed+described columns, `generatedAt`
 One `dlt` extract + `dbt run` pass inside the warehouse container, triggered by the Worker's own Cloudflare Cron Trigger. No daemon, no Dagster, no external scheduler.
 _Disambiguate_: walgit uses the same word for rebuilding a git Cache from its Write-Ahead Log — see **Materialize** under walgit below. The two are unrelated, and a bare "materialize" is ambiguous across the repo: say which subsystem, or name the file (`packages/warehouse/` vs `packages/walgit/src/materialize.ts`).
 
-## walgit (ADR-0007)
+## walgit (ADR-0007, [ADR-0008](./docs/adr/0008-walgit-runs-on-a-cloudflare-container-without-ssh.md))
 
-`walgit` is a git host where object storage holds the write-ahead log and is the source of truth, and the bare repo on local disk is a disposable cache ([ADR-0007](./docs/adr/0007-walgit-object-storage-holds-the-log.md)). Every term below is a consequence of that sentence, and each names a file under `packages/walgit/src/`.
+`walgit` is a git host where object storage holds the write-ahead log and is the source of truth, and the bare repo on local disk is a disposable cache ([ADR-0007](./docs/adr/0007-walgit-object-storage-holds-the-log.md)). Every term below is a consequence of that sentence, and each names a file under `packages/walgit/src/`. It serves git smart-HTTP — the only transport — from a Cloudflare Container behind a thin Worker ([ADR-0008](./docs/adr/0008-walgit-runs-on-a-cloudflare-container-without-ssh.md)).
 
 **Write-Ahead Log** (the WAL):
 The ordered sequence of packfiles under `repos/<repo_id>/wal/`, and the source of truth for a repository. A push is not acknowledged until its entry is published to it. Object storage, not a filesystem and not a database — swappable through one adapter (`store.ts`).
@@ -93,7 +93,7 @@ _Avoid_: the repo (ambiguous with the repository the log describes), the replica
 Force the Cache's refs to match the Index. Always one-directional — whatever the disk believes is discarded — and written as a single `packed-refs` file. A ref whose object is absent is reported rather than written: a stale clone is survivable, a broken one is not.
 
 **Materialize** (walgit sense):
-Rebuild a Cache from the Write-Ahead Log: download every WAL Entry above the Compaction Frontier, place its pack, then Reconcile. On Fly with `min_machines_running = 0` this is the normal path on ordinary first access after an idle pause, not disaster recovery.
+Rebuild a Cache from the Write-Ahead Log: download every WAL Entry above the Compaction Frontier, place its pack, then Reconcile. The container sleeps when idle and its disk is wiped on restart, so this is the normal path on ordinary first access after an idle pause, not disaster recovery.
 _Disambiguate_: unrelated to the warehouse's **Materialize** above. See that entry.
 
 **Compaction**:
@@ -103,7 +103,7 @@ Repack a repository into a single WAL Entry that supersedes everything at or bel
 The sequence number at or below which entries are superseded and no longer needed to restore. Materialize downloads from it forward; it only ever advances.
 
 **Lease**:
-The per-repository claim a node takes before compacting, so two nodes cannot both repack and both advance the frontier. It expires, because its holder is a process on a machine Fly may stop at any moment — a lease only a graceful release could clear would wedge compaction for a repository permanently.
+The per-repository claim a node takes before compacting, so two nodes cannot both repack and both advance the frontier. It expires, because its holder is a process in a container the platform may stop at any moment — a lease only a graceful release could clear would wedge compaction for a repository permanently.
 
 **Tombstone**:
 A superseded WAL object recorded in the Index as scheduled for deletion, with the instant before which it must not be deleted. The delay is the whole mechanism: a compaction's compare-and-swap is instantaneous and a restore that read the Index a moment earlier is not.

@@ -5,9 +5,9 @@
  * auth, routing, and delegation to `git http-backend` — is observable without a
  * socket or a git process. The backend runner is injected for the same reason.
  *
- * Smart-HTTP exists alongside SSH because not every client can hold a key: CI
- * jobs, ephemeral agent sandboxes and `git clone` inside a container all have a
- * token long before they have an SSH identity.
+ * Smart-HTTP is the only transport walgit serves. It is also the one every
+ * client already has: CI jobs, ephemeral agent sandboxes and `git clone` inside
+ * a container hold a token long before they hold an identity of any other kind.
  */
 
 import type { InstructionsPolicy } from './instructions'
@@ -64,8 +64,8 @@ export function createHttpHandler(deps: HttpHandlerDeps): (req: Request) => Prom
   return async (request) => {
     const url = new URL(request.url)
 
-    // Unauthenticated on purpose: Fly's health check has no credential, and it
-    // reveals nothing but that a machine is up.
+    // Unauthenticated on purpose: an external health check carries no
+    // credential, and this reveals nothing but that the container is up.
     if (url.pathname === '/_walgit/health') return new Response('ok\n')
 
     // The instructions are the API surface, so they come BEFORE the credential

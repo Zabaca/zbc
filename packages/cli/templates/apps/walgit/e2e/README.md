@@ -64,8 +64,8 @@ A breach fails the build, and the failure says what to do about it. The knob is
 different machine — a bucket run should have its own, since a network round trip
 per entry is not a regression.
 
-Machine wake is deliberately excluded: on Fly a client pays wake (~1.35 s, from
-the milestone-0 spike) **plus** replay, and blending the two makes a regression
+Cold start is deliberately excluded: a client pays it (median 1.77 s, from
+the Containers spike) **plus** replay, and blending the two makes a regression
 unattributable. The suite reports `fetch` and `init+refs` separately for the
 same reason.
 

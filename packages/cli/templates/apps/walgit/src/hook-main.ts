@@ -18,13 +18,7 @@ import * as path from 'node:path'
 
 import { appendOnlyEnabled, checkAppendOnly } from './append-only'
 import { configuredThreshold, isCompactionDue } from './compact'
-import {
-  clearPending,
-  invocationId,
-  markConsumed,
-  readPending,
-  sweepPending,
-} from './pending'
+import { clearPending, invocationId, markConsumed, readPending, sweepPending } from './pending'
 import { parseRefChanges, preReceive, publishPush } from './push'
 import { requireStore, storeFromEnv } from './store-env'
 import { loadIndex } from './wal-index'

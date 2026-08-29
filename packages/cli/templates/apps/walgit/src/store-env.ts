@@ -1,10 +1,11 @@
 /**
  * Build the object store from the environment.
  *
- * Every entry point needs the same store — the smart-HTTP server, the SSH
- * forced command, and both hook processes — and the hooks are spawned by git,
- * not by us, so configuration can only travel as environment. One reader keeps
- * the four in agreement.
+ * Every entry point needs the same store — the smart-HTTP server, the operator
+ * CLI, and both hook processes — and the hooks are spawned by git, not by us,
+ * so configuration can only travel as environment. One reader keeps them in
+ * agreement. The container gets that environment from the Worker, which
+ * forwards it in worker/index.ts.
  *
  * Returning `null` for "not configured" is deliberate: the push path treats
  * that as fatal (there is nowhere to persist to, so nothing may be

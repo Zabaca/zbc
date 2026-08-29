@@ -9,7 +9,7 @@
  * whose comments each pointed at the other.
  *
  * **Breaking the lock is the subtle part, and it is why one copy is not
- * enough.** A holder that is killed mid-write releases nothing, and on Fly a
+ * enough.** A holder that is killed mid-write releases nothing, and in a container a
  * machine is stopped whenever it is idle, so a lock that only a graceful
  * release could clear would wedge a repository permanently — a failure that
  * presents as everything quietly hanging. So the wait is bounded and then the

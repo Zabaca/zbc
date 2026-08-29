@@ -3,7 +3,7 @@
  *
  * Nothing here is a double. The log is written by the real hooks git spawns on
  * a real `git push`; the repo is then deleted from disk exactly as a stopped
- * Fly machine deletes it, and rebuilt from that log alone. The claim under test
+ * container restart wipes it, and rebuilt from that log alone. The claim under test
  * is the one the whole design rests on — that the disk is disposable — and it
  * is only true if a rebuilt repo is indistinguishable from the original to the
  * three things git uses to tell repos apart: its refs, its reachable history,

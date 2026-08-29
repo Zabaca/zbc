@@ -78,10 +78,12 @@ Measurements: [`docs/research/walgit-m0-spike/`](../research/walgit-m0-spike/).
 
 ## Consequences
 
-- **SSH is the human transport, smart-HTTP the machine one.** Both hang off the
-  same hooks, so serving both costs nothing structurally. SSH has no SNI, so one
-  front door serves every repo with the repository named in the command — which
-  also means one dedicated IPv4 for the whole service, not one per repo.
+- **SSH is the human transport, smart-HTTP the machine one.** ~~Both hang off
+  the same hooks, so serving both costs nothing structurally.~~ **Reversed by
+  [ADR-0008](./0008-walgit-runs-on-a-cloudflare-container-without-ssh.md)**:
+  smart-HTTP is the only transport, and walgit runs on a Cloudflare Container
+  with no dedicated IPv4 and no SSH. The CAS decision above is unaffected — it
+  was verified on R2 and does not depend on where compute runs.
 - **A CAS loss is not a clean rejection.** The client sees exit 128 with
   `fatal: ref updates aborted by hook` followed by an abrupt disconnect,
   indistinguishable from a network failure. Retry-on-contention must therefore

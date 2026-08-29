@@ -1,10 +1,14 @@
 #!/usr/bin/env bun
 /**
- * The smart-HTTP process.
+ * The smart-HTTP process — the only front door, and the container's only
+ * process.
  *
- * One of the two front doors; the other is sshd running the forced command in
- * src/ssh-shell.ts. Both serve the same bare repos out of WALGIT_REPOS_DIR, and
- * both go through src/repo.ts to decide which repo a request means.
+ * It serves the bare repos under WALGIT_REPOS_DIR and goes through src/repo.ts
+ * to decide which repo a request means. There used to be a second door (sshd
+ * running a forced command), which is what put walgit on a Fly machine with a
+ * dedicated IPv4: SSH needs raw inbound TCP. Dropping it is what let the app
+ * move onto a Cloudflare Container, where the Worker in worker/index.ts proxies
+ * straight to this port.
  */
 
 import { ensureBareRepo } from './cache'

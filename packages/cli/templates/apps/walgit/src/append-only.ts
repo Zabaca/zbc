@@ -55,7 +55,14 @@ export type RefVerdict =
 export function judgeRefChange(gitDir: string, change: RefChange): RefVerdict {
   if (change.oldOid === ZERO_OID) return { allowed: true }
   if (change.newOid === ZERO_OID) return { allowed: false, kind: 'delete', ref: change.ref }
-  const res = git(['--git-dir', gitDir, 'merge-base', '--is-ancestor', change.oldOid, change.newOid])
+  const res = git([
+    '--git-dir',
+    gitDir,
+    'merge-base',
+    '--is-ancestor',
+    change.oldOid,
+    change.newOid,
+  ])
   if (res.status === 0) return { allowed: true }
   return { allowed: false, kind: 'rewrite', ref: change.ref }
 }

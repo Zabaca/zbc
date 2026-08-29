@@ -406,7 +406,9 @@ describe('append-only refs', () => {
       expect((await git(seed.dir, 'push', 'origin', 'HEAD:refs/heads/main')).status).toBe(0)
 
       const { index } = await loadIndex(store, repoId)
-      expect(index.refs['refs/heads/main']).toBe((await git(seed.dir, 'rev-parse', 'HEAD')).out.trim())
+      expect(index.refs['refs/heads/main']).toBe(
+        (await git(seed.dir, 'rev-parse', 'HEAD')).out.trim(),
+      )
       expect(index.refs['refs/heads/topic']).toBe(seed.oid)
     })
 

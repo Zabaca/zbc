@@ -4,7 +4,6 @@
  * clone/push/fetch work, which no unit test of the routing can establish.
  */
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
-import { spawnSync } from 'node:child_process'
 import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'

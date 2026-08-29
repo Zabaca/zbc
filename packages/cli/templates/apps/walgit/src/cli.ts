@@ -8,14 +8,15 @@
  * of "is this disk current?" would answer for itself rather than for the server,
  * and would drift silently the first time the real path changed.
  *
- * Credentials come from `store-env.ts`, the same reader the smart-HTTP server,
- * the SSH forced command and both hook processes use. There is deliberately no
- * `~/.walgit/config`: a second configuration path is a second thing to be wrong
- * about, and the environment is what a `fly ssh console` session already has.
+ * Credentials come from `store-env.ts`, the same reader the smart-HTTP server
+ * and both hook processes use. There is deliberately no `~/.walgit/config`: a
+ * second configuration path is a second thing to be wrong about, and the
+ * environment is what a shell inside the container already has.
  *
- * Run it inside the container, where that environment exists:
+ * Run it inside the container, where that environment exists — or anywhere the
+ * same WALGIT_* variables are set:
  *
- *     fly ssh console -C "bun /app/src/cli.ts verify myrepo"
+ *     bun src/cli.ts verify myrepo
  *
  * Exit codes are meant to be branched on: 0 success, 1 a divergence or failure
  * the command was asked to detect, 2 misuse (unknown command, bad arguments,
