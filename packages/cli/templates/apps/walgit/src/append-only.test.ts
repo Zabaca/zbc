@@ -13,7 +13,7 @@ import * as path from 'node:path'
 
 import { appendOnlyEnabled, checkAppendOnly, rejectionMessage, suggestName } from './append-only'
 import { git, gitOrThrow } from './git'
-import { ZERO_OID } from './wal-index'
+import { ZERO_OID } from '../shared/protocol'
 
 let work: string
 let gitDir: string

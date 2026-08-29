@@ -1,16 +1,15 @@
 import { describe, expect, test } from 'bun:test'
 import { MemoryStore } from './store'
+import { ZERO_OID } from '../shared/protocol'
+import { indexKey } from './keys'
 import {
-  ZERO_OID,
   applyRefChanges,
   commitIndex,
   emptyIndex,
-  indexKey,
   loadIndex,
   loadIndexIfChanged,
   nextIndex,
   updateIndex,
-  walKey,
   type RefChange,
   type WalIndex,
 } from './wal-index'
@@ -26,19 +25,6 @@ const entry = (n: number) => ({
 /** Random suspension, so concurrent commits actually interleave rather than
  *  each running to completion in submission order. */
 const jitter = () => new Promise<void>((r) => setTimeout(r, Math.floor(Math.random() * 3)))
-
-describe('keys', () => {
-  test('index key is per repo', () => {
-    expect(indexKey('ses_01J')).toBe('repos/ses_01J/index.json')
-  })
-
-  test('wal keys zero-pad so lexicographic order is numeric order', () => {
-    const a = walKey('r', 9, 'ulid', 'pack')
-    const b = walKey('r', 10, 'ulid', 'pack')
-    expect(a).toContain('000000000009')
-    expect([b, a].sort()).toEqual([a, b])
-  })
-})
 
 describe('ref changes', () => {
   test('creates, updates, and deletes', () => {

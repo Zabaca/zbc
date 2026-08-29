@@ -41,7 +41,7 @@
   },
   // Request-level telemetry: clones, bytes served, latency, cold starts and
   // refusals by kind — the half of observability the write-ahead log cannot
-  // produce (worker/telemetry.ts). Storage and push volume are NOT written
+  // produce (shared/telemetry.ts). Storage and push volume are NOT written
   // here; `walgit usage` derives those from the log, and a second copy would
   // disagree with it. Analytics Engine keeps the data inside the account.
   "analytics_engine_datasets": [{ "binding": "WALGIT_METRICS", "dataset": "walgit_requests" }],

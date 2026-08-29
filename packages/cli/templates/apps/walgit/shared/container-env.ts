@@ -13,7 +13,7 @@
  * value up on its next request and the container keeps serving the old one, for
  * as long as traffic keeps it awake. The fingerprint below is what closes that
  * gap — the Durable Object compares it against the one it last booted with and
- * replaces the container when they differ (see `WalgitContainer` in index.ts).
+ * replaces the container when they differ (see `WalgitContainer` in worker/index.ts).
  */
 
 /**
@@ -41,7 +41,7 @@ export const CONTAINER_ENV = [
   // The ref-event stream's two halves. The push path announces from inside the
   // container, so it needs both where to announce (the Worker's own public
   // origin) and the secret that proves it is walgit's push path and not a
-  // stranger fabricating events (worker/events.ts).
+  // stranger fabricating events (shared/events.ts).
   'WALGIT_EVENTS_URL',
   'WALGIT_EVENTS_TOKEN',
 ] as const

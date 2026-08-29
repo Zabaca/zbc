@@ -18,13 +18,10 @@ import * as net from 'node:net'
 import * as os from 'node:os'
 import * as path from 'node:path'
 
-import { INTERNAL_HEADER } from '../src/http'
 import type { ObjectStore } from '../src/store'
 import { storeFromEnv } from '../src/store-env'
 import { ulid } from '../src/ulid'
 import {
-  ANNOUNCE_PATH,
-  EVENTS_PATH,
   type Handshake,
   type RefEvent,
   type WatchEntry,
@@ -36,8 +33,9 @@ import {
   parseWatch,
   watchCovers,
   watchedRepos,
-} from '../worker/events'
-import { Outbox } from '../worker/outbox'
+} from '../shared/events'
+import { Outbox } from '../shared/outbox'
+import { ANNOUNCE_PATH, EVENTS_PATH, INTERNAL_HEADER, REFS_PATH } from '../shared/protocol'
 
 export const APP_ROOT = path.resolve(import.meta.dir, '..')
 
@@ -332,7 +330,7 @@ interface SocketData {
  * purpose: everything that DECIDES anything — whether the announce credential
  * is good, what a `watch` message means, which sockets an announcement reaches,
  * what goes on the wire, and what happens to a subscriber that stops draining —
- * is imported from `worker/events.ts` and `worker/outbox.ts`, the same modules
+ * is imported from `shared/events.ts` and `shared/outbox.ts`, the same modules
  * the Worker calls. What stands in for the Durable Object is accept, remember,
  * send, forget, which is what `worker/events-do.ts` says it is and no more.
  *
@@ -489,7 +487,7 @@ export class EventsEndpoint {
     const byRepo: Record<string, Record<string, string>> = {}
     for (const repo of repos) {
       const response = await fetch(
-        `http://127.0.0.1:${node.port}/_walgit/refs?repo=${encodeURIComponent(repo)}`,
+        `http://127.0.0.1:${node.port}${REFS_PATH}?repo=${encodeURIComponent(repo)}`,
         { headers: { [INTERNAL_HEADER]: '1' } },
       )
       if (!response.ok) throw new Error(`refs lookup for ${repo}: ${response.status}`)

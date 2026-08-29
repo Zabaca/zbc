@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test'
-import { createHttpHandler, INTERNAL_HEADER, REJECT_HEADER, SERVED_HEADER } from './http'
+import { INTERNAL_HEADER, REJECT_HEADER, SERVED_HEADER } from '../shared/protocol'
+import { createHttpHandler } from './http'
 
 const handler = () =>
   createHttpHandler({

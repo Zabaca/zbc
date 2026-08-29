@@ -1,4 +1,10 @@
 {
+  // The container half: src/ (the process) and e2e/ (the suite that drives it),
+  // both compiled against bun's ambient types. shared/ is included here AND in
+  // tsconfig.worker.json on purpose — a module in shared/ imports no runtime,
+  // and being typechecked once under @types/bun and once under
+  // @cloudflare/workers-types is what makes that a rule the build enforces
+  // rather than a comment (docs/adr/0010).
   "compilerOptions": {
     "target": "ES2022",
     "module": "ESNext",
@@ -10,5 +16,5 @@
     "skipLibCheck": true,
     "verbatimModuleSyntax": true
   },
-  "include": ["src", "e2e"]
+  "include": ["src", "e2e", "shared"]
 }

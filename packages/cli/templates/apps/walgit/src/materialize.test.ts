@@ -12,18 +12,12 @@ import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
 
+import { walKey } from './keys'
 import { isPartial, markerPath, materialize, neededEntries, packBasename } from './materialize'
 import { localRefs } from './reconcile'
 import { resolveRepo } from './repo'
 import { FileStore } from './store'
-import {
-  commitIndex,
-  emptyIndex,
-  sha256,
-  walKey,
-  type WalEntry,
-  type WalIndex,
-} from './wal-index'
+import { commitIndex, emptyIndex, sha256, type WalEntry, type WalIndex } from './wal-index'
 import { ulid } from './ulid'
 
 let scratch: string
@@ -74,7 +68,14 @@ async function upload(repoId: string, seq: number, pack: Uint8Array): Promise<Wa
   const id = ulid(Date.now())
   const key = walKey(repoId, seq, id, 'pack')
   await store.put(key, pack)
-  return { seq, key, kind: 'push', size: pack.byteLength, sha256: sha256(pack), ts: new Date().toISOString() }
+  return {
+    seq,
+    key,
+    kind: 'push',
+    size: pack.byteLength,
+    sha256: sha256(pack),
+    ts: new Date().toISOString(),
+  }
 }
 
 async function publish(index: WalIndex): Promise<void> {
@@ -102,7 +103,14 @@ describe('neededEntries', () => {
       ...emptyIndex('r'),
       seq: 4,
       compaction_frontier: 2,
-      entries: [1, 2, 3, 4].map((seq) => ({ seq, key: `k${seq}`, kind: 'push', size: 0, sha256: '', ts: '' })),
+      entries: [1, 2, 3, 4].map((seq) => ({
+        seq,
+        key: `k${seq}`,
+        kind: 'push',
+        size: 0,
+        sha256: '',
+        ts: '',
+      })),
     }
     expect(neededEntries(index).map((e) => e.seq)).toEqual([3, 4])
   })
@@ -110,7 +118,14 @@ describe('neededEntries', () => {
   test('returns entries in seq order regardless of how they are stored', () => {
     const index: WalIndex = {
       ...emptyIndex('r'),
-      entries: [3, 1, 2].map((seq) => ({ seq, key: `k${seq}`, kind: 'push', size: 0, sha256: '', ts: '' })),
+      entries: [3, 1, 2].map((seq) => ({
+        seq,
+        key: `k${seq}`,
+        kind: 'push',
+        size: 0,
+        sha256: '',
+        ts: '',
+      })),
     }
     expect(neededEntries(index).map((e) => e.seq)).toEqual([1, 2, 3])
   })
@@ -134,7 +149,9 @@ describe('materialize', () => {
     expect(result.reconciled.missing).toEqual([])
     expect(localRefs(repo.dir)).toEqual({ 'refs/heads/main': src.head })
     // The whole point: the objects are really here, not just the ref.
-    expect(git(repo.dir, '--git-dir', repo.dir, 'rev-list', '--count', 'refs/heads/main').trim()).toBe('3')
+    expect(
+      git(repo.dir, '--git-dir', repo.dir, 'rev-list', '--count', 'refs/heads/main').trim(),
+    ).toBe('3')
   })
 
   test('places the uploaded .idx rather than rebuilding it', async () => {
@@ -275,7 +292,9 @@ describe('materialize', () => {
     })
 
     await materialize(store, repo)
-    expect(fs.readFileSync(path.join(repo.dir, 'HEAD'), 'utf8').trim()).toBe('ref: refs/heads/trunk')
+    expect(fs.readFileSync(path.join(repo.dir, 'HEAD'), 'utf8').trim()).toBe(
+      'ref: refs/heads/trunk',
+    )
   })
 
   test('reports its own timings, separate from anything else', async () => {

@@ -11,7 +11,6 @@ import { describe, expect, test } from 'bun:test'
 
 import {
   checkSize,
-  describeBytes,
   limitsEnforced,
   limitsFromEnv,
   liveBytes,
@@ -46,7 +45,9 @@ describe('reading the caps', () => {
     expect(limitsFromEnv({})).toEqual(NO_LIMITS)
     expect(limitsEnforced(NO_LIMITS)).toBe(false)
     // The template default. A deployment opts in; an existing one is unchanged.
-    expect(checkSize({ repoId: 'alpha', pushBytes: 1e12, repoBytes: 1e12, limits: NO_LIMITS })).toEqual({
+    expect(
+      checkSize({ repoId: 'alpha', pushBytes: 1e12, repoBytes: 1e12, limits: NO_LIMITS }),
+    ).toEqual({
       ok: true,
     })
   })
@@ -63,10 +64,27 @@ describe('reading the caps', () => {
 
 describe('what a repository costs', () => {
   test('is the live entries only — compaction shrinks it, it does not double it', () => {
-    expect(liveBytes(index([{ seq: 1, size: 10 }, { seq: 2, size: 32 }]))).toBe(42)
+    expect(
+      liveBytes(
+        index([
+          { seq: 1, size: 10 },
+          { seq: 2, size: 32 },
+        ]),
+      ),
+    ).toBe(42)
     // Entries at or below the frontier are superseded: gc deletes them, so
     // counting them would charge the repository twice for the same history.
-    expect(liveBytes(index([{ seq: 1, size: 10 }, { seq: 2, size: 32 }], 1))).toBe(32)
+    expect(
+      liveBytes(
+        index(
+          [
+            { seq: 1, size: 10 },
+            { seq: 2, size: 32 },
+          ],
+          1,
+        ),
+      ),
+    ).toBe(32)
     expect(liveBytes(index([]))).toBe(0)
   })
 })
@@ -100,7 +118,9 @@ describe('the per-repository cap', () => {
     // are not. Checking either in isolation is the bug this pins.
     const verdict = checkSize({ repoId: 'alpha', pushBytes: MIB, repoBytes: 100 * MIB, limits })
     expect(verdict.ok).toBe(false)
-    expect(checkSize({ repoId: 'alpha', pushBytes: MIB, repoBytes: 99 * MIB, limits }).ok).toBe(true)
+    expect(checkSize({ repoId: 'alpha', pushBytes: MIB, repoBytes: 99 * MIB, limits }).ok).toBe(
+      true,
+    )
   })
 
   test('says the repository is full — a different thing from the push being too big', () => {
@@ -120,13 +140,5 @@ describe('when both caps are exceeded at once', () => {
     const limits: Limits = { maxPushBytes: MIB, maxRepoBytes: MIB }
     const verdict = checkSize({ repoId: 'alpha', pushBytes: 8 * MIB, repoBytes: 8 * MIB, limits })
     expect(verdict.ok === false && verdict.kind).toBe('push')
-  })
-})
-
-describe('describeBytes', () => {
-  test('always carries the raw count, so no rounding has to be guessed', () => {
-    expect(describeBytes(512)).toBe('512 bytes')
-    expect(describeBytes(103809024)).toBe('99 MiB (103809024 bytes)')
-    expect(describeBytes(2 * 1024 ** 3)).toBe('2 GiB (2147483648 bytes)')
   })
 })

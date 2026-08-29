@@ -12,7 +12,8 @@ import {
   type PendingPush,
 } from './pending'
 import { parseRefChanges, preReceive, publishPush } from './push'
-import { ZERO_OID, loadIndex, type RefChange } from './wal-index'
+import { ZERO_OID } from '../shared/protocol'
+import { loadIndex, type RefChange } from './wal-index'
 
 const OID_A = 'a'.repeat(40)
 const OID_B = 'b'.repeat(40)

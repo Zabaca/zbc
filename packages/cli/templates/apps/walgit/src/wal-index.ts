@@ -9,6 +9,8 @@
  * See this repository's docs/adr/0007-walgit-object-storage-holds-the-log.md.
  */
 
+import { ZERO_OID } from '../shared/protocol'
+import { indexKey } from './keys'
 import type { ObjectStore, PutResult } from './store'
 
 export type WalEntryKind = 'push' | 'compaction'
@@ -90,13 +92,6 @@ export interface RefChange {
   newOid: string
 }
 
-/** The all-zeroes oid: creation when it is `oldOid`, deletion when `newOid`. */
-export const ZERO_OID = '0'.repeat(40)
-
-export function indexKey(repoId: string): string {
-  return `repos/${repoId}/index.json`
-}
-
 export function emptyIndex(repoId: string): WalIndex {
   return {
     version: 1,
@@ -107,11 +102,6 @@ export function emptyIndex(repoId: string): WalIndex {
     compaction_frontier: 0,
     tombstones: [],
   }
-}
-
-/** Zero-padded to 12 digits so lexicographic key order is numeric order. */
-export function walKey(repoId: string, seq: number, ulid: string, ext: 'pack' | 'idx'): string {
-  return `repos/${repoId}/wal/${String(seq).padStart(12, '0')}-${ulid}.${ext}`
 }
 
 /**

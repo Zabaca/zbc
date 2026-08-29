@@ -8,16 +8,39 @@ deleted at any time and rebuilt from the log. See
 ## What works today
 
 The **front door**, the **storage layer**, the **push path** that joins them, and
-the **garbage collection** that keeps the log from growing without bound:
+the **garbage collection** that keeps the log from growing without bound.
+
+walgit is one service in **three directories**, and the split is by runtime, not
+by layer:
+
+- **`src/`** — the container process. Runs under bun, touches the disk, runs git.
+- **`worker/`** — the Cloudflare Worker. The two modules that genuinely need the
+  Workers runtime, and nothing else.
+- **`shared/`** — the runtime-neutral kernel. **`shared/` imports no runtime, and
+  both halves may import it.** It is the only directory in both TypeScript
+  programs (`tsconfig.json` and `tsconfig.worker.json`), which is what makes that
+  rule something the build fails on rather than a comment. See
+  `docs/adr/0010-walgit-shared-kernel.md` in the zbc repository.
 
 | | |
 | --- | --- |
+| `shared/protocol.ts` | the wire contract: header names, internal paths, the smart-HTTP grammar, the repo-id and ref-name grammars, the zero oid, the refusal vocabulary |
+| `shared/credentials.ts` | reading a credential off the wire: the two auth forms, the token list, the constant-time compare |
+| `shared/policy.ts` | reading a limit from the environment, and saying what it is — so the cap stated and the cap enforced are one number |
+| `shared/events.ts`, `shared/outbox.ts` | the ref-event protocol and the backpressure policy — every decision, pure |
+| `shared/telemetry.ts` | classifying a request and a refusal into the datapoint the Worker writes |
+| `shared/landing.ts` | the HTML page a browser gets at `/`, rendered from the limits actually configured |
+| `shared/container-env.ts` | which of the Worker's variables the container is told about, and a fingerprint of them |
+| `worker/index.ts`, `wrangler.jsonc` | the Cloudflare Worker that proxies to the container, and forwards its environment |
+| `shared/ref-cache.ts` | the fan-out's derived, in-memory copy of ref state — bounded, never authoritative |
+| `worker/events-do.ts` | the Durable Object that holds the ref-event sockets — a shell over `shared/events.ts` |
 | `src/store.ts`, `src/wal-index.ts` | the object-store adapter and the `index.json` compare-and-swap |
-| `src/repo.ts` | repo addressing — the one place a client-supplied name becomes a path. Pure: string in, path out, no imports |
+| `src/keys.ts` | the object-store key namespace: every prefix, every key builder, and the parse back out of one |
+| `src/repo.ts` | repo addressing — the one place a client-supplied name becomes a path. Pure: string in, path out |
 | `src/cache.ts` | provisioning the bare repo that path names: `git init`, the config walgit needs, the hooks |
 | `src/http.ts`, `src/git-backend.ts`, `src/server.ts` | smart-HTTP, with `git http-backend` as a CGI child |
-| `worker/index.ts`, `wrangler.jsonc` | the Cloudflare Worker that proxies to the container, and forwards its environment |
 | `src/push.ts`, `src/hooks.ts`, `src/hook-main.ts` | the push path: upload at `pre-receive`, publish under CAS at `reference-transaction` |
+| `src/announce.ts` | telling subscribers a push landed, from `post-receive` — after it is durable, and never able to fail it |
 | `src/pending.ts` | the hand-off between the two hook processes of one push, keyed by `git-receive-pack` pid |
 | `src/reconcile.ts`, `src/sync.ts` | force the local cache to match the log, on every access |
 | `src/orphans.ts` | the packs a rejected push leaves behind, found by diffing the log |
@@ -27,6 +50,8 @@ the **garbage collection** that keeps the log from growing without bound:
 | `src/delete-repo.ts` | remove a whole repository: tombstone, wait, then index-first deletion |
 | `src/expire.ts` | decide WHICH repositories go: idle since their last push, past the window |
 | `src/limits.ts` | the push-size and repository-total caps, refused in `pre-receive` before anything is uploaded |
+| `src/usage.ts` | what the log says this service holds, folded out of the indexes |
+| `src/instructions.ts` | the plain-text `GET /` — the whole API surface, rendered from the limits actually enforced |
 | `src/verify.ts`, `src/cli.ts` | the operator CLI: inspect, rebuild, verify, reclaim |
 | `src/git.ts`, `src/mkdir-lock.ts` | the two shared primitives: running a git plumbing command, and locking with `mkdir` |
 
@@ -58,7 +83,7 @@ would read as a measurement.
 `usage` answers everything the log records. The gap is structural — a clone
 writes nothing to it — so the Worker in front of the container counts the rest
 and writes one Analytics Engine datapoint per request to the `walgit_requests`
-dataset (`worker/telemetry.ts`, bound as `WALGIT_METRICS` in `wrangler.jsonc`).
+dataset (`shared/telemetry.ts`, bound as `WALGIT_METRICS` in `wrangler.jsonc`).
 Nothing is duplicated across the two: storage, repository count and push volume
 come from the log only, because two records of one fact disagree the first time
 a write fails between them.
@@ -400,7 +425,7 @@ wrangler's gradual default never drains a single always-warm container, so a
 redeployed image silently never takes effect until it idle-sleeps.
 
 The container reads its configuration from environment variables the **Worker**
-forwards (`CONTAINER_ENV` in `worker/container-env.ts`): `wrangler secret put`
+forwards (`CONTAINER_ENV` in `shared/container-env.ts`): `wrangler secret put`
 reaches the Worker and stops there, so a secret that is not in that list never
 arrives.
 

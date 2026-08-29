@@ -1,18 +1,16 @@
 /**
- * The ref-event protocol lives in `worker/`, because the edge is where a
- * subscription has to be held: a socket the container owned would keep the one
- * container serving git awake for as long as anybody is watching. Every
- * decision in it is pure, though, so it is tested here with the rest of the
- * suite rather than behind a Workers runtime — the same arrangement as
- * `landing.test.ts` and `container-env.test.ts`.
+ * The ref-event protocol lives in `shared/`, because both halves speak it: the
+ * Durable Object at the edge holds the subscriptions and the container's push
+ * path produces the events. Every decision in it is pure, so it is tested here
+ * with the rest of the suite rather than behind a Workers runtime — the same
+ * arrangement as `landing.test.ts` and `container-env.test.ts`.
  */
 
 import { describe, expect, test } from 'bun:test'
+import { parseTokens } from '../shared/credentials'
 import {
-  ANNOUNCE_PATH,
   authorizeAnnounce,
   authorizeSubscribe,
-  EVENTS_PATH,
   encode,
   eventsEnabled,
   eventsFromChanges,
@@ -20,13 +18,12 @@ import {
   MAX_REFS_PER_ENTRY,
   MAX_WATCH_ENTRIES,
   parseAnnounce,
-  parseTokens,
   parseWatch,
   watchCovers,
   watchedRepos,
-} from '../worker/events'
+} from '../shared/events'
+import { ANNOUNCE_PATH, EVENTS_PATH, ZERO_OID } from '../shared/protocol'
 import { normalizeRepoId } from './repo'
-import { ZERO_OID } from './wal-index'
 
 const SHA_A = 'a'.repeat(40)
 const SHA_B = 'b'.repeat(40)
@@ -129,9 +126,10 @@ describe('parseWatch', () => {
   })
 
   test('the repo gate matches the one a URL path goes through', () => {
-    // src/repo.ts is the gate for a path; this is the gate for a socket, and a
-    // name one accepts and the other refuses would be a hole in whichever is
-    // laxer.
+    // Both go through `REPO_ID` in shared/protocol.ts, but not through the same
+    // function: `normalizeRepoId` strips the address forms a URL carries first.
+    // A name one accepts and the other refuses would be a hole in whichever is
+    // laxer, so the two are driven from one list.
     for (const name of ['ok-name', 'a.b_c', 'A1']) {
       expect(parseWatch(`{"watch":[{"repo":"${name}"}]}`).ok).toBe(true)
       expect(normalizeRepoId(name)).toBe(name)

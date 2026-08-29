@@ -16,12 +16,13 @@
  * handshake; a push that failed because a notification could not be delivered
  * would be a git host that stops working when a side channel does.
  *
- * The wire types and the change-to-event mapping come from `worker/events.ts`,
+ * The wire types and the change-to-event mapping come from `shared/events.ts`,
  * which is where the protocol lives — one definition, so the two ends cannot
  * disagree about what a deletion looks like.
  */
 
-import { eventsFromChanges } from '../worker/events'
+import { eventsFromChanges } from '../shared/events'
+import { ANNOUNCE_PATH } from '../shared/protocol'
 import type { RefChange } from './wal-index'
 
 export interface AnnounceConfig {
@@ -73,7 +74,7 @@ export async function announce(
   const events = eventsFromChanges(repoId, changes)
   if (events.length === 0) return false
   try {
-    const response = await fetchImpl(`${config.url}/_walgit/announce`, {
+    const response = await fetchImpl(`${config.url}${ANNOUNCE_PATH}`, {
       method: 'POST',
       headers: {
         'content-type': 'application/json',

@@ -22,7 +22,8 @@
 import * as crypto from 'node:crypto'
 
 import { git } from './git'
-import { ZERO_OID, type RefChange } from './wal-index'
+import { ZERO_OID } from '../shared/protocol'
+import type { RefChange } from './wal-index'
 
 /** The env flag an instance sets to make its repositories append-only. */
 export function appendOnlyEnabled(env: Record<string, string | undefined> = process.env): boolean {

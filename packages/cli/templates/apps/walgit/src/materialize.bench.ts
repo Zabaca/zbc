@@ -25,6 +25,7 @@ import * as os from 'node:os'
 import * as path from 'node:path'
 
 import { compact } from './compact'
+import { indexKey, siblingIdx, walKey } from './keys'
 import { materialize } from './materialize'
 import { resolveRepo } from './repo'
 import { FileStore } from './store'
@@ -34,7 +35,6 @@ import {
   emptyIndex,
   loadIndex,
   sha256,
-  walKey,
   type WalEntry,
   type WalIndex,
 } from './wal-index'
@@ -114,10 +114,7 @@ async function buildLog(repoId: string, count: number): Promise<WalIndex> {
     fs.mkdirSync(staged, { recursive: true })
     fs.writeFileSync(path.join(staged, 'p.pack'), pack)
     git(staged, 'index-pack', 'p.pack')
-    await store.put(
-      key.replace(/\.pack$/, '.idx'),
-      new Uint8Array(fs.readFileSync(path.join(staged, 'p.idx'))),
-    )
+    await store.put(siblingIdx(key), new Uint8Array(fs.readFileSync(path.join(staged, 'p.idx'))))
 
     const entry: WalEntry = {
       seq,
@@ -131,7 +128,7 @@ async function buildLog(repoId: string, count: number): Promise<WalIndex> {
     parent = head
   }
 
-  const existing = await store.get(`repos/${repoId}/index.json`)
+  const existing = await store.get(indexKey(repoId))
   await commitIndex(store, index, existing?.etag ?? null)
   return index
 }

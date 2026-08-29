@@ -2,7 +2,8 @@ import { describe, expect, test } from 'bun:test'
 
 import { MemoryStore } from './store'
 import { findOrphans } from './orphans'
-import { commitIndex, emptyIndex, walKey } from './wal-index'
+import { walKey } from './keys'
+import { commitIndex, emptyIndex } from './wal-index'
 
 describe('findOrphans', () => {
   test('an uploaded pack no index entry names is an orphan, and its idx with it', async () => {
@@ -18,7 +19,14 @@ describe('findOrphans', () => {
         ...emptyIndex('r'),
         seq: 1,
         entries: [
-          { seq: 1, key: live, kind: 'push', size: 1, sha256: 'x'.repeat(64), ts: '2026-08-21T00:00:00Z' },
+          {
+            seq: 1,
+            key: live,
+            kind: 'push',
+            size: 1,
+            sha256: 'x'.repeat(64),
+            ts: '2026-08-21T00:00:00Z',
+          },
         ],
       },
       null,

@@ -38,6 +38,7 @@ import * as path from 'node:path'
 
 import { ensureBareRepo } from './cache'
 import { git } from './git'
+import { siblingIdx } from './keys'
 import { acquireLock, type LockRelease } from './mkdir-lock'
 import { reconcile, type ReconcileResult } from './reconcile'
 import type { ResolvedRepo } from './repo'
@@ -223,7 +224,7 @@ async function placeEntry(store: ObjectStore, packDir: string, entry: WalEntry):
   }
 
   const base = path.join(packDir, packBasename(entry))
-  const idxKey = entry.key.replace(/\.pack$/, '.idx')
+  const idxKey = siblingIdx(entry.key)
   const idx = await store.get(idxKey)
 
   writeAtomic(`${base}.pack`, found.body)

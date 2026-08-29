@@ -13,25 +13,17 @@
  * a client acting on "is my main current?" can use. Replay would be a second
  * source of truth beside `index.json`, and the Index already is one.
  *
- * Everything decidable lives here, pure: which paths exist, whether a
- * credential is good, what a `watch` message means, and which sockets an
- * announcement reaches. `worker/events-do.ts` is the shell that owns the
- * sockets and makes none of those decisions — the arrangement `landing.ts` and
- * `telemetry.ts` already use, and the reason this is tested from `src/` with
- * the rest of the suite rather than behind a Workers runtime.
+ * Everything decidable lives here, pure: whether a credential is good, what a
+ * `watch` message means, and which sockets an announcement reaches.
+ * `worker/events-do.ts` is the shell that owns the sockets and makes none of
+ * those decisions — which is why this file lives in `shared/` and is tested
+ * from `src/` with the rest of the suite rather than behind a Workers runtime.
+ * The paths, the grammars and the zero oid are `shared/protocol.ts`'s, because
+ * the socket is not the only transport that validates a repository name.
  */
 
-/** Where a subscriber connects. A WebSocket upgrade, and nothing else. */
-export const EVENTS_PATH = '/_walgit/events'
-
-/**
- * Where the container publishes a push it has already made durable.
- *
- * The container is a separate process that reaches the Worker over the public
- * internet, so unlike the expiry sweep this cannot ride on a stripped header —
- * it carries a shared secret instead (`WALGIT_EVENTS_TOKEN`).
- */
-export const ANNOUNCE_PATH = '/_walgit/announce'
+import { authorizedBy } from './credentials'
+import { REF_NAME, REPO_ID, ZERO_OID } from './protocol'
 
 /** One repository, and optionally the refs within it that matter. */
 export interface WatchEntry {
@@ -54,22 +46,6 @@ export interface Handshake {
 }
 
 export type Parsed<T> = { ok: true; value: T } | { ok: false; error: string }
-
-/**
- * The same repo-id gate `src/repo.ts` applies to a URL path.
- *
- * Duplicated rather than imported because this half runs in the Worker, which
- * does not bundle `src/` — and a repo name arriving over a socket is
- * attacker-controlled in exactly the way one arriving in a path is. The tests
- * assert the two agree.
- */
-const REPO_ID = /^[A-Za-z0-9][A-Za-z0-9._-]*$/
-
-/** A ref name, as git writes it. Full name only: `main` is not a ref. */
-const REF_NAME = /^refs\/[A-Za-z0-9._\-/]+$/
-
-/** The all-zeroes oid git reports for a creation or a deletion. */
-export const ZERO_OID = '0'.repeat(40)
 
 /**
  * How many watch entries and refs one message may carry.
@@ -99,14 +75,6 @@ export function eventsEnabled(announceToken: string | undefined): boolean {
   return typeof announceToken === 'string' && announceToken.trim() !== ''
 }
 
-/** The credential list, read exactly as `src/server.ts` reads it. */
-export function parseTokens(raw: string | undefined): string[] {
-  return (raw ?? '')
-    .split(',')
-    .map((token) => token.trim())
-    .filter(Boolean)
-}
-
 /**
  * May this request watch?
  *
@@ -122,9 +90,7 @@ export function authorizeSubscribe(input: {
   isPublic: boolean
 }): boolean {
   if (input.isPublic) return true
-  const presented = presentedCredential(input.authorization ?? '')
-  if (!presented) return false
-  return input.tokens.some((token) => constantTimeEquals(token, presented))
+  return authorizedBy(input.authorization, input.tokens)
 }
 
 /**
@@ -137,8 +103,7 @@ export function authorizeSubscribe(input: {
  * trigger for anything.
  */
 export function authorizeAnnounce(authorization: string | null, secret: string): boolean {
-  const presented = presentedCredential(authorization ?? '')
-  return presented !== null && secret !== '' && constantTimeEquals(secret, presented)
+  return secret !== '' && authorizedBy(authorization, [secret])
 }
 
 /**
@@ -318,33 +283,4 @@ export function eventsFromChanges(
 /** One message on the wire. Serialized in one place so its shape is one thing. */
 export function encode(message: Handshake | RefEvent | { error: string }): string {
   return JSON.stringify(message)
-}
-
-/** `Bearer <token>`, or git's `Basic <user>:<token>` — the same two forms a read accepts. */
-function presentedCredential(header: string): string | null {
-  const bearer = /^Bearer (.+)$/i.exec(header)
-  if (bearer) return bearer[1]!
-  const basic = /^Basic (.+)$/i.exec(header)
-  if (basic) {
-    // Undecodable base64 is a malformed credential, not a crash: `atob` throws
-    // on one, and a header a stranger controls must not be able to do that.
-    let decoded: string
-    try {
-      decoded = atob(basic[1]!)
-    } catch {
-      return null
-    }
-    const colon = decoded.indexOf(':')
-    return colon === -1 ? decoded : decoded.slice(colon + 1)
-  }
-  return null
-}
-
-/** Length-independent comparison, so a wrong token leaks nothing by timing. */
-function constantTimeEquals(a: string, b: string): boolean {
-  let diff = a.length ^ b.length
-  for (let i = 0; i < Math.max(a.length, b.length); i++) {
-    diff |= (a.charCodeAt(i % a.length || 0) || 0) ^ (b.charCodeAt(i % b.length || 0) || 0)
-  }
-  return diff === 0
 }

@@ -16,9 +16,9 @@
  * reads the bucket from outside Cloudflare entirely. Losing this cache costs a
  * container round-trip, which is the correct price for a cache.
  *
- * Pure: a Map, no I/O, no runtime. That is why it is a module of its own rather
- * than fields on the Durable Object, and why its behaviour is tested from
- * `src/` with the rest of the suite.
+ * Pure: a Map, no I/O, no runtime. That is why it lives in `shared/` and is a
+ * module of its own rather than fields on the Durable Object, and why its
+ * behaviour is tested from `src/` with the rest of the suite.
  */
 
 import type { RefEvent } from './events'

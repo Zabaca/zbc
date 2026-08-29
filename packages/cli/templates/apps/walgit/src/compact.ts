@@ -31,6 +31,7 @@ import * as fs from 'node:fs'
 import * as path from 'node:path'
 
 import { gitOrThrow } from './git'
+import { leaseKey, walKey } from './keys'
 import { materialize, packBasename, packDirOf } from './materialize'
 import type { ResolvedRepo } from './repo'
 import type { ObjectStore } from './store'
@@ -39,7 +40,6 @@ import {
   loadIndex,
   sha256,
   updateIndex,
-  walKey,
   type Tombstone,
   type WalEntry,
   type WalIndex,
@@ -88,10 +88,6 @@ export function isCompactionDue(index: WalIndex, threshold = configuredThreshold
 }
 
 // ── The lease ───────────────────────────────────────────────────────────────
-
-export function leaseKey(repoId: string): string {
-  return `repos/${repoId}/compaction.lease`
-}
 
 interface Lease {
   holder: string

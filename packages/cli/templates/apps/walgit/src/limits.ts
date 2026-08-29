@@ -26,6 +26,7 @@
  * read here rather than from a copy of them.
  */
 
+import { describeBytes, positiveNumber } from '../shared/policy'
 import type { WalIndex } from './wal-index'
 
 export interface Limits {
@@ -42,19 +43,15 @@ export const NO_LIMITS: Limits = { maxPushBytes: null, maxRepoBytes: null }
  *
  * An unparseable or non-positive value reads as unset rather than as zero. Zero
  * would refuse every push, and a typo in a deployment env var must not silently
- * become "this host accepts nothing".
+ * become "this host accepts nothing". `positiveNumber` is `shared/policy.ts`'s
+ * so the Worker rendering the landing page reads the variable exactly the way
+ * `pre-receive` enforces it.
  */
 export function limitsFromEnv(env: Record<string, string | undefined> = process.env): Limits {
   return {
     maxPushBytes: positiveNumber(env.WALGIT_MAX_PUSH_BYTES),
     maxRepoBytes: positiveNumber(env.WALGIT_MAX_REPO_BYTES),
   }
-}
-
-function positiveNumber(raw: string | undefined): number | null {
-  if (raw === undefined || raw.trim() === '') return null
-  const value = Number(raw)
-  return Number.isFinite(value) && value > 0 ? value : null
 }
 
 /** Is there anything to check? Nothing is read from the store when there isn't. */
@@ -73,9 +70,10 @@ export function limitsEnforced(limits: Limits): boolean {
  * what the log actually still holds, and the same number `usage.ts` reports as
  * a repository's `liveBytes` — a cap and a usage report that disagreed would be
  * unexplainable to whoever hit it. The filter is repeated rather than
- * imported so this file stays dependency-free — `instructions.ts` shares its
- * byte formatting, and dragging git and the materializer into the HTTP server
- * to do it would be a poor trade.
+ * imported so this file stays free of `compact.ts` — dragging git and the
+ * materializer into the HTTP server to reuse one `filter` would be a poor
+ * trade. The byte formatting is not repeated: it is `shared/policy.ts`'s,
+ * because the landing page states the same cap this file refuses on.
  */
 export function liveBytes(index: WalIndex): number {
   return index.entries
@@ -154,19 +152,3 @@ function repoTooLarge(check: SizeCheck, cap: number): string {
     'Nothing was uploaded; the repository is unchanged.',
   ].join('\n')
 }
-
-/**
- * Both a unit and the raw byte count, so an agent comparing its own pack size
- * against this number never has to guess our rounding. `GET /` prints the caps
- * through this same function: an agent reads the limit there and the refusal
- * here, and two roundings would look like two different limits.
- */
-export function describeBytes(bytes: number): string {
-  const gib = bytes / 1024 ** 3
-  const mib = bytes / 1024 ** 2
-  if (gib >= 1) return `${round(gib)} GiB (${bytes} bytes)`
-  if (mib >= 1) return `${round(mib)} MiB (${bytes} bytes)`
-  return `${bytes} bytes`
-}
-
-const round = (n: number) => String(Math.round(n * 100) / 100)

@@ -10,6 +10,17 @@
  * a container hold a token long before they hold an identity of any other kind.
  */
 
+import { authorizedBy } from '../shared/credentials'
+import {
+  EXPIRE_PATH,
+  HEALTH_PATH,
+  INTERNAL_HEADER,
+  REFS_PATH,
+  REJECT_HEADER,
+  SERVED_HEADER,
+  SMART_HTTP,
+  type ContainerRejectKind,
+} from '../shared/protocol'
 import type { InstructionsPolicy } from './instructions'
 import { renderInstructions } from './instructions'
 import type { ResolvedRepo } from './repo'
@@ -78,56 +89,31 @@ export type HttpHandlerDeps = {
 }
 
 /**
- * Headers that make a response countable in front of this process.
+ * Refuse, and say which kind of refusal it was.
  *
- * The Worker proxying to this container counts refusals BY KIND, and it cannot
- * derive the kind from a status code several refusals share. So whichever layer
- * refuses names the kind here, and every response this handler produces carries
- * the `served` stamp — its absence is precisely what lets the Worker see that
- * something in FRONT of walgit refused a request walgit should have refused
- * itself. Both are stripped before the response reaches the client
- * (`worker/telemetry.ts` owns the vocabulary and the stripping).
+ * The kind is `ContainerRejectKind` rather than a free string because the
+ * Worker in front counts refusals by kind and cannot derive one from a status
+ * code several refusals share (`shared/telemetry.ts`). A kind this process
+ * invented and the Worker did not know would land in its `other` bucket,
+ * silently, which is exactly the drift the shared vocabulary exists to stop.
  */
-export const SERVED_HEADER = 'x-walgit-served'
-export const REJECT_HEADER = 'x-walgit-reject'
-
-/**
- * The header that marks a request as coming from the Worker's own scheduled
- * handler rather than from the internet.
- *
- * Expiry DELETES repositories, and this container is world-reachable by
- * design — so the endpoint that runs it must not be. The Worker strips this
- * header from every request it proxies from a client and sets it only on the
- * one it originates itself (`worker/index.ts`), which makes "the Worker asked"
- * unforgeable from outside without inventing a second credential for a service
- * whose whole point is not having one.
- */
-export const INTERNAL_HEADER = 'x-walgit-internal'
-
-/** Every kind of refusal this process distinguishes, as the Worker names them. */
-export type RejectKind = 'unauthorized' | 'not-found' | 'unavailable' | 'size-cap' | 'collision'
+function reject(
+  status: number,
+  kind: ContainerRejectKind,
+  body: string,
+  headers: Record<string, string> = {},
+): Response {
+  return new Response(body, { status, headers: { ...headers, [REJECT_HEADER]: kind } })
+}
 
 const UNAUTHORIZED = () =>
-  new Response('unauthorized\n', {
-    status: 401,
-    headers: {
-      // git prompts for a credential only when challenged in this scheme, so the
-      // header is what makes `git clone https://…` work interactively at all.
-      'www-authenticate': 'Basic realm="walgit"',
-      [REJECT_HEADER]: 'unauthorized',
-    },
+  // git prompts for a credential only when challenged in this scheme, so the
+  // header is what makes `git clone https://…` work interactively at all.
+  reject(401, 'unauthorized', 'unauthorized\n', {
+    'www-authenticate': 'Basic realm="walgit"',
   })
 
-/**
- * The smart-HTTP protocol is three endpoints and no more. Everything else a
- * bare repo exposes over HTTP is DUMB http — raw objects, packs, HEAD — which
- * would read the on-disk cache directly and bypass the WAL the cache is derived
- * from. Not routed, so not served.
- */
-const SMART_HTTP = /^\/([^/]+)\.git\/(?:info\/refs|git-upload-pack|git-receive-pack)$/
-
-const NOT_FOUND = () =>
-  new Response('not found\n', { status: 404, headers: { [REJECT_HEADER]: 'not-found' } })
+const NOT_FOUND = () => reject(404, 'not-found', 'not found\n')
 
 /**
  * Stamp a response as walgit's own. Rebuilt rather than mutated because a
@@ -162,7 +148,7 @@ function createRouter(deps: HttpHandlerDeps): (req: Request) => Promise<Response
 
     // Unauthenticated on purpose: an external health check carries no
     // credential, and this reveals nothing but that the container is up.
-    if (url.pathname === '/_walgit/health') return new Response('ok\n')
+    if (url.pathname === HEALTH_PATH) return new Response('ok\n')
 
     // The sweeper's front door. Not part of the git protocol and not reachable
     // from the internet: the Worker deletes INTERNAL_HEADER from everything it
@@ -170,7 +156,7 @@ function createRouter(deps: HttpHandlerDeps): (req: Request) => Promise<Response
     // Worker's scheduled handler. A 404 rather than a 403 for the same reason
     // every other unroutable path gets one — an endpoint nobody may call should
     // not advertise that it exists.
-    if (url.pathname === '/_walgit/expire') {
+    if (url.pathname === EXPIRE_PATH) {
       if (!deps.sweep || request.method !== 'POST') return NOT_FOUND()
       if (request.headers.get(INTERNAL_HEADER) !== '1') return NOT_FOUND()
       const report = await deps.sweep()
@@ -183,7 +169,7 @@ function createRouter(deps: HttpHandlerDeps): (req: Request) => Promise<Response
     // same reason expiry is: it is not part of the git protocol, and the Worker
     // strips INTERNAL_HEADER from everything arriving from the internet, so a
     // request carrying it can only have come from the Worker itself.
-    if (url.pathname === '/_walgit/refs') {
+    if (url.pathname === REFS_PATH) {
       if (!deps.readRefs || request.method !== 'GET') return NOT_FOUND()
       if (request.headers.get(INTERNAL_HEADER) !== '1') return NOT_FOUND()
       const requested = url.searchParams.get('repo') ?? ''
@@ -209,7 +195,9 @@ function createRouter(deps: HttpHandlerDeps): (req: Request) => Promise<Response
       })
     }
 
-    if (!deps.public && !isAuthorized(request, deps.tokens)) return UNAUTHORIZED()
+    if (!deps.public && !authorizedBy(request.headers.get('authorization'), deps.tokens)) {
+      return UNAUTHORIZED()
+    }
 
     const route = SMART_HTTP.exec(url.pathname)
     if (!route) return NOT_FOUND()
@@ -229,10 +217,7 @@ function createRouter(deps: HttpHandlerDeps): (req: Request) => Promise<Response
         // Serving a repo we could not verify against the log would hand out
         // refs that may already have been superseded, which for a fetch is
         // indistinguishable from data loss. Refuse instead.
-        return new Response(`walgit: ${(err as Error).message}\n`, {
-          status: 503,
-          headers: { [REJECT_HEADER]: 'unavailable' },
-        })
+        return reject(503, 'unavailable', `walgit: ${(err as Error).message}\n`)
       }
     }
 
@@ -250,35 +235,4 @@ function publicOrigin(request: Request, url: URL): string {
   if (!host) return url.origin
   const proto = request.headers.get('x-forwarded-proto') ?? url.protocol.replace(':', '')
   return `${proto}://${host}`
-}
-
-function isAuthorized(request: Request, tokens: string[]): boolean {
-  const header = request.headers.get('authorization') ?? ''
-  const presented = presentedCredential(header)
-  if (!presented) return false
-  return tokens.some((token) => constantTimeEquals(token, presented))
-}
-
-function presentedCredential(header: string): string | null {
-  const bearer = /^Bearer (.+)$/i.exec(header)
-  if (bearer) return bearer[1]!
-  const basic = /^Basic (.+)$/i.exec(header)
-  if (basic) {
-    // git sends `<user>:<password>`; the user half is ignored — there is one
-    // trust boundary in v0, and a per-user model needs the repo namespace that
-    // milestone 3 introduces.
-    const decoded = Buffer.from(basic[1]!, 'base64').toString('utf8')
-    const colon = decoded.indexOf(':')
-    return colon === -1 ? decoded : decoded.slice(colon + 1)
-  }
-  return null
-}
-
-/** Length-independent comparison, so a wrong token leaks nothing by timing. */
-function constantTimeEquals(a: string, b: string): boolean {
-  let diff = a.length ^ b.length
-  for (let i = 0; i < Math.max(a.length, b.length); i++) {
-    diff |= (a.charCodeAt(i % a.length || 0) || 0) ^ (b.charCodeAt(i % b.length || 0) || 0)
-  }
-  return diff === 0
 }

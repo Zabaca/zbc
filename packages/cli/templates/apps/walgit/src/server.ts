@@ -11,6 +11,8 @@
  * straight to this port.
  */
 
+import { parseTokens } from '../shared/credentials'
+import { positiveNumber } from '../shared/policy'
 import { announceConfigFromEnv } from './announce'
 import { ensureBareRepo } from './cache'
 import { configuredExpiryMs, expireRepos } from './expire'
@@ -27,11 +29,11 @@ const reposDir = process.env.WALGIT_REPOS_DIR ?? '/srv/walgit/repos'
 const port = Number(process.env.PORT ?? 8080)
 
 // Comma-separated so one deployment can rotate a credential without a window
-// where neither the old nor the new token works.
-const tokens = (process.env.WALGIT_HTTP_TOKENS ?? '')
-  .split(',')
-  .map((t) => t.trim())
-  .filter(Boolean)
+// where neither the old nor the new token works. Read through the same parser
+// the Worker uses for the event stream's tokens: a credential accepted by one
+// door and not the other would be indistinguishable, from the client, from a
+// wrong token.
+const tokens = parseTokens(process.env.WALGIT_HTTP_TOKENS)
 
 /**
  * Open to anyone, deliberately. This is the public service's whole shape: with
@@ -53,7 +55,7 @@ const limits = limitsFromEnv()
 const instructions: InstructionsPolicy = {
   publicAccess: isPublic,
   appendOnly: process.env.WALGIT_APPEND_ONLY === '1',
-  retentionHours: positiveNumber(process.env.WALGIT_RETENTION_HOURS),
+  retentionHours: positiveNumber(process.env.WALGIT_RETENTION_HOURS) ?? undefined,
   // Not re-parsed here: `limitsFromEnv` is the function `pre-receive` enforces
   // with, so the page cannot state a cap the hook does not hold.
   maxPushBytes: limits.maxPushBytes ?? undefined,
@@ -63,14 +65,6 @@ const instructions: InstructionsPolicy = {
   // announcing nowhere and `GET /` promising a socket would be the same defect
   // as a stated cap nothing enforces.
   events: announceConfigFromEnv() !== null,
-}
-
-function positiveNumber(raw: string | undefined): number | undefined {
-  if (!raw) return undefined
-  const value = Number(raw)
-  // An unparseable cap must not become a stated one: saying "1 MiB" when NaN
-  // was configured would be worse than saying nothing.
-  return Number.isFinite(value) && value > 0 ? value : undefined
 }
 
 const store = storeFromEnv()

@@ -21,15 +21,14 @@
  * have no copy that can outlive the config. So an unset limit removes its
  * claim rather than defaulting to one.
  *
- * `describeBytes` is duplicated from src/limits.ts rather than imported: the
- * two halves compile against conflicting ambient types (tsconfig.worker.json
- * excludes src/ deliberately), so they share a vocabulary without sharing a
- * bundle — the same considered copy as the header names in worker/telemetry.ts.
- * Kept identical in output so a cap read here and a refusal read there can
- * never look like two different numbers.
+ * The cap the page prints and the cap `pre-receive` refuses on are formatted by
+ * one function (`shared/policy.ts`), so they cannot look like two different
+ * numbers. That used to be a copy of `describeBytes` with a comment promising
+ * the two were kept identical.
  */
 
-import { EVENTS_PATH } from './events'
+import { describeBytes } from './policy'
+import { EVENTS_PATH } from './protocol'
 
 export interface LandingFacts {
   /** The hostname the request arrived on — every command on the page uses it. */
@@ -62,17 +61,6 @@ export function wantsLanding(method: string, pathname: string, accept: string): 
   if (pathname !== '/') return false
   return accept.toLowerCase().includes('text/html')
 }
-
-/** Both a unit and the raw count — mirrors src/limits.ts exactly. */
-export function describeBytes(bytes: number): string {
-  const gib = bytes / 1024 ** 3
-  const mib = bytes / 1024 ** 2
-  if (gib >= 1) return `${round(gib)} GiB (${bytes} bytes)`
-  if (mib >= 1) return `${round(mib)} MiB (${bytes} bytes)`
-  return `${bytes} bytes`
-}
-
-const round = (n: number) => String(Math.round(n * 100) / 100)
 
 function describeHours(hours: number): string {
   if (hours === 1) return '1 hour'

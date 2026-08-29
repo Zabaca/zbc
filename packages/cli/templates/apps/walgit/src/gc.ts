@@ -21,9 +21,9 @@
  */
 
 import { configuredGraceMs } from './compact'
+import { siblingIdx, walKeyUploadedAt } from './keys'
 import { findOrphans } from './orphans'
 import type { ObjectStore } from './store'
-import { ulidTime } from './ulid'
 import { loadIndex, updateIndex, type WalIndex } from './wal-index'
 
 export interface GcResult {
@@ -44,24 +44,16 @@ export interface GcOptions {
   dryRun?: boolean
 }
 
-/** The `.idx` uploaded beside a pack. Deleted with it, never separately. */
-function siblingIdx(key: string): string {
-  return key.replace(/\.pack$/, '.idx')
-}
-
 /**
- * The upload time encoded in a WAL key's ULID, or null when the key does not
- * carry one. Null is the "leave it alone" answer, not the "it is ancient" one.
+ * How old a WAL object is, from the ULID `keys.ts` put in its key.
+ *
+ * Null is the "leave it alone" answer, not the "it is ancient" one: a key this
+ * process cannot date is a key it will not collect. The parse itself is
+ * `keys.ts`'s — this file owns the policy, not the format.
  */
 export function keyAgeMs(key: string, now: number): number | null {
-  const stem =
-    key
-      .split('/')
-      .pop()
-      ?.replace(/\.(pack|idx)$/, '') ?? ''
-  const id = stem.includes('-') ? stem.slice(stem.indexOf('-') + 1) : ''
-  const time = id ? ulidTime(id) : null
-  return time === null ? null : now - time
+  const uploadedAt = walKeyUploadedAt(key)
+  return uploadedAt === null ? null : now - uploadedAt
 }
 
 /**

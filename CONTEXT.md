@@ -74,6 +74,10 @@ _Disambiguate_: walgit uses the same word for rebuilding a git Cache from its Wr
 
 `walgit` is a git host where object storage holds the write-ahead log and is the source of truth, and the bare repo on local disk is a disposable cache ([ADR-0007](./docs/adr/0007-walgit-object-storage-holds-the-log.md)). Every term below is a consequence of that sentence, and each names a file under `packages/walgit/src/`. It serves git smart-HTTP — the only transport — from a Cloudflare Container behind a thin Worker ([ADR-0008](./docs/adr/0008-walgit-runs-on-a-cloudflare-container-without-ssh.md)).
 
+**Shared Kernel** (`shared/`):
+The runtime-neutral third directory beside `src/` (the container process) and `worker/` (the Cloudflare Worker). Its rule is one sentence — *`shared/` imports no runtime, and both halves may import it* — and it is enforced rather than asserted: `shared/` is the only directory in both TypeScript programs, so a module there is typechecked against bun's ambient types and against the Workers runtime's ([ADR-0010](./docs/adr/0010-walgit-shared-kernel.md)). It holds what both halves have to agree on exactly: the wire contract (`protocol.ts`), credential reading, limit reading and formatting, and the ref-event, telemetry and landing-page logic.
+_Avoid_: common, util, lib — none of them says why a module qualifies
+
 **Write-Ahead Log** (the WAL):
 The ordered sequence of packfiles under `repos/<repo_id>/wal/`, and the source of truth for a repository. A push is not acknowledged until its entry is published to it. Object storage, not a filesystem and not a database — swappable through one adapter (`store.ts`).
 _Avoid_: the bucket (names the backend, not the log), the archive

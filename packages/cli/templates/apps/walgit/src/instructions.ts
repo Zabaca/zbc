@@ -13,8 +13,8 @@
  * policy rather than written once as a constant.
  */
 
-import { EVENTS_PATH } from '../worker/events'
-import { describeBytes } from './limits'
+import { describeBytes } from '../shared/policy'
+import { EVENTS_PATH } from '../shared/protocol'
 
 export type InstructionsPolicy = {
   /** Reads and writes need no credential. */
@@ -124,7 +124,7 @@ function facts(policy: InstructionsPolicy): string[] {
  *
  * Written as the answer to "is my main still current?", because that is the
  * question the polling it replaces was asking. The wire vocabulary is the one
- * `worker/events.ts` implements — a `watch` message, a handshake carrying the
+ * `shared/events.ts` implements — a `watch` message, a handshake carrying the
  * current sha of everything watched, then one message per ref that moves — so
  * the text and the protocol cannot describe two different things.
  *

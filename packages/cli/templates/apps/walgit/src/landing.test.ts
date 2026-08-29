@@ -1,15 +1,14 @@
 /**
- * The landing page lives in `worker/`, because the edge is where it has to be
- * answered: a link on an aggregator points at `/`, and none of that traffic
- * should reach the one container serving git. Rendering it is pure, though, so
- * it is tested here with the rest of the suite rather than behind a Workers
- * runtime — the same arrangement as `telemetry.test.ts`.
+ * The landing page is answered at the edge, because a link on an aggregator
+ * points at `/` and none of that traffic should reach the one container serving
+ * git. Rendering it is pure, so the module lives in `shared/` and is tested
+ * here with the rest of the suite rather than behind a Workers runtime — the
+ * same arrangement as `telemetry.test.ts`.
  */
 
 import { describe, expect, test } from 'bun:test'
 
-import { describeBytes as describeBytesFromLimits } from './limits'
-import { describeBytes, renderLanding, wantsLanding } from '../worker/landing'
+import { renderLanding, wantsLanding } from '../shared/landing'
 
 const FACTS = {
   host: 'agentgit.zabaca.com',
@@ -97,13 +96,4 @@ describe('the ref-event stream on the page', () => {
     expect(page).not.toContain('WebSocket')
     expect(page).not.toContain('{{')
   })
-})
-
-// The duplication is deliberate (the two halves compile against conflicting
-// ambient types), so the thing worth testing is that it stayed a copy: a cap
-// read on the page and a refusal read from a hook must never round differently.
-test('the page and the push path describe a size the same way', () => {
-  for (const bytes of [512, 1024 ** 2, 99 * 1024 * 1024, 250 * 1024 * 1024, 4 * 1024 ** 3]) {
-    expect(describeBytes(bytes)).toBe(describeBytesFromLimits(bytes))
-  }
 })

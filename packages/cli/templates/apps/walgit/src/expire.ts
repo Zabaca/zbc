@@ -27,7 +27,7 @@
 
 import { deleteRepo, type DeleteResult } from './delete-repo'
 import type { ObjectStore } from './store'
-import { listRepoIds } from './usage'
+import { listRepoIds } from './keys'
 import { loadIndex, type WalIndex } from './wal-index'
 
 /**
