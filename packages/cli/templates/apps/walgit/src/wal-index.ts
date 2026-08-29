@@ -44,6 +44,22 @@ export interface Tombstone {
   collect_after: string
 }
 
+/**
+ * A repository scheduled for deletion.
+ *
+ * Deletion is deferred for the same reason a tombstone is: a clone that read
+ * this index a moment ago is still downloading the packs it names, and pulling
+ * them out from under it fails the clone with a missing object. The marker is
+ * written under compare-and-swap like everything else, so an operator asking
+ * twice does not shorten the wait — the first request's `collect_after` stands.
+ */
+export interface RepoDeletion {
+  /** ISO instant the operator asked for the repository to go. */
+  requested_at: string
+  /** ISO instant before which nothing under the repo prefix may be deleted. */
+  collect_after: string
+}
+
 export interface WalIndex {
   version: 1
   repo_id: string
@@ -59,6 +75,12 @@ export interface WalIndex {
    * before compaction existed does not have the field; absent reads as empty.
    */
   tombstones?: Tombstone[]
+  /**
+   * Set when this repository has been scheduled for deletion. Its presence is
+   * what makes the second run of `walgit delete` a collection rather than a
+   * second request.
+   */
+  deletion?: RepoDeletion
 }
 
 /** A ref change as `reference-transaction` reports it on stdin. */

@@ -25,6 +25,7 @@
 import * as path from 'node:path'
 
 import { compact, configuredGraceMs, type CompactResult } from './compact'
+import { configuredDeleteGraceMs, deleteRepo } from './delete-repo'
 import { collectGarbage } from './gc'
 import { materialize, round } from './materialize'
 import { normalizeRepoId, resolveRepo } from './repo'
@@ -48,7 +49,7 @@ export interface ParsedArgs {
  * `gc myrepo --yes myotherrepo` swallow a repo id: a flag takes the next token
  * only when it is declared to want one.
  */
-const KNOWN_VALUE_FLAGS = new Set(['min-age', 'repos-dir'])
+const KNOWN_VALUE_FLAGS = new Set(['min-age', 'repos-dir', 'grace'])
 
 export function parseArgs(argv: readonly string[]): ParsedArgs {
   const positional: string[] = []
@@ -80,13 +81,15 @@ const USAGE = `walgit — operator CLI for a WAL-backed git host
   walgit verify <repo_id> [path]        check local state against index.json
   walgit gc <repo_id...>                reclaim orphaned WAL objects (dry run)
   walgit compact <repo_id> [path]       repack the log into one entry, now
+  walgit delete <repo_id...>            remove repositories entirely (dry run)
 
 Options
   --repos-dir <dir>   where bare repos live (default: $WALGIT_REPOS_DIR)
   --json              machine-readable output
-  --yes               gc: actually delete (without it, gc only reports)
+  --yes               gc/delete: actually delete (without it, they only report)
   --force=false       compact: respect the entry-count threshold instead of forcing
   --min-age <minutes> gc: never collect an object younger than this (default 60)
+  --grace <minutes>   delete: how long a repo is tombstoned first (default 60)
 
 The object store is read from the environment the app itself uses:
 WALGIT_S3_ENDPOINT / _BUCKET / _ACCESS_KEY_ID / _SECRET_ACCESS_KEY, or
@@ -179,7 +182,8 @@ async function gcCommand(args: ParsedArgs, env: NodeJS.ProcessEnv): Promise<numb
   }
   const store = requireStore(env)
   const minAgeFlag = args.flags['min-age']
-  const graceMs = typeof minAgeFlag === 'string' ? Number(minAgeFlag) * 60_000 : configuredGraceMs(env)
+  const graceMs =
+    typeof minAgeFlag === 'string' ? Number(minAgeFlag) * 60_000 : configuredGraceMs(env)
   if (!Number.isFinite(graceMs) || graceMs < 0) {
     console.error(`walgit gc: --min-age must be a number of minutes, got ${String(minAgeFlag)}`)
     return MISUSE
@@ -201,17 +205,87 @@ async function gcCommand(args: ParsedArgs, env: NodeJS.ProcessEnv): Promise<numb
     total += reclaimable.length
     const verb = dryRun ? 'would collect' : 'collected'
     lines.push(`${result.repoId}: ${verb} ${reclaimable.length} objects`)
-    for (const key of result.collected) lines.push(`  ${dryRun ? '-' : 'deleted'} ${key} (superseded)`)
-    for (const key of result.orphansCollected) lines.push(`  ${dryRun ? '-' : 'deleted'} ${key} (orphan)`)
+    for (const key of result.collected)
+      lines.push(`  ${dryRun ? '-' : 'deleted'} ${key} (superseded)`)
+    for (const key of result.orphansCollected)
+      lines.push(`  ${dryRun ? '-' : 'deleted'} ${key} (orphan)`)
     // Held objects are named rather than counted: "why is this still here" is
     // the question an operator actually arrives with.
     for (const key of result.retained) lines.push(`  kept (in grace) ${key}`)
     for (const key of result.orphansHeld) lines.push(`  kept (too young or undatable) ${key}`)
   }
-  if (results.every((r) => r.collected.length + r.orphansCollected.length + r.retained.length + r.orphansHeld.length === 0)) {
+  if (
+    results.every(
+      (r) =>
+        r.collected.length +
+          r.orphansCollected.length +
+          r.retained.length +
+          r.orphansHeld.length ===
+        0,
+    )
+  ) {
     lines.push('nothing to collect')
   }
   if (dryRun && total > 0) lines.push('nothing was deleted — re-run with --yes')
+  emit(args, results, lines.join('\n'))
+  return OK
+}
+
+/**
+ * Remove repositories entirely — index, WAL objects, and the cached bare repo.
+ *
+ * Deferred in two steps by design: the first `--yes` run tombstones, and a
+ * later one collects once the grace period has elapsed. See `delete-repo.ts`
+ * for why the wait is not optional and why the index goes first.
+ */
+async function deleteCommand(args: ParsedArgs, env: NodeJS.ProcessEnv): Promise<number> {
+  if (args.positional.length === 0) {
+    console.error('walgit delete: usage: walgit delete <repo_id...> [--yes] [--grace <minutes>]')
+    return MISUSE
+  }
+  const store = requireStore(env)
+  const graceFlag = args.flags.grace
+  const graceMs =
+    typeof graceFlag === 'string' ? Number(graceFlag) * 60_000 : configuredDeleteGraceMs(env)
+  if (!Number.isFinite(graceMs) || graceMs < 0) {
+    console.error(`walgit delete: --grace must be a number of minutes, got ${String(graceFlag)}`)
+    return MISUSE
+  }
+
+  // Dry run is the default, as it is for `gc`, and more emphatically: this
+  // command deletes objects the index still names.
+  const dryRun = args.flags.yes !== true
+  const results = []
+  for (const requested of args.positional) {
+    const repo = repoAt(args, env, requested)
+    results.push(await deleteRepo(store, repo.repoId, { graceMs, dryRun, dir: repo.dir }))
+  }
+
+  const lines: string[] = []
+  for (const result of results) {
+    if (result.status === 'absent') {
+      lines.push(`${result.repoId}: nothing to delete`)
+    } else if (result.status === 'tombstoned') {
+      lines.push(
+        `${result.repoId}: ${dryRun ? 'would be scheduled' : 'scheduled'} for deletion, ` +
+          `collectable after ${result.collectAfter}`,
+      )
+    } else if (result.status === 'retained') {
+      lines.push(
+        `${result.repoId}: already scheduled — nothing may be deleted before ` +
+          `${result.collectAfter}`,
+      )
+    } else {
+      const verb = dryRun ? 'would delete' : 'deleted'
+      lines.push(`${result.repoId}: ${verb} ${result.deleted.length} objects`)
+    }
+    for (const key of result.deleted) lines.push(`  ${dryRun ? '-' : 'deleted'} ${key}`)
+    for (const kept of result.retained) lines.push(`  kept ${kept.key} (${kept.reason})`)
+    if (result.cacheRemoved) lines.push(`  removed cache ${result.cacheRemoved}`)
+  }
+  if (dryRun && results.some((r) => r.status !== 'absent')) {
+    lines.push('nothing was changed — re-run with --yes')
+  }
   emit(args, results, lines.join('\n'))
   return OK
 }
@@ -283,6 +357,8 @@ export async function main(
         return await gcCommand(args, env)
       case 'compact':
         return await compactCommand(args, env)
+      case 'delete':
+        return await deleteCommand(args, env)
       default:
         console.error(`walgit: unknown command "${args.command}"\n\n${USAGE}`)
         return MISUSE
