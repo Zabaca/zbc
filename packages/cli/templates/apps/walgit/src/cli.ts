@@ -29,6 +29,7 @@ import { collectGarbage } from './gc'
 import { materialize, round } from './materialize'
 import { normalizeRepoId, resolveRepo } from './repo'
 import { requireStore } from './store-env'
+import { collectUsage, formatUsage, parseDuration } from './usage'
 import { formatVerify, verifyRepo } from './verify'
 
 const OK = 0
@@ -48,7 +49,7 @@ export interface ParsedArgs {
  * `gc myrepo --yes myotherrepo` swallow a repo id: a flag takes the next token
  * only when it is declared to want one.
  */
-const KNOWN_VALUE_FLAGS = new Set(['min-age', 'repos-dir'])
+const KNOWN_VALUE_FLAGS = new Set(['min-age', 'repos-dir', 'since', 'top'])
 
 export function parseArgs(argv: readonly string[]): ParsedArgs {
   const positional: string[] = []
@@ -80,6 +81,7 @@ const USAGE = `walgit — operator CLI for a WAL-backed git host
   walgit verify <repo_id> [path]        check local state against index.json
   walgit gc <repo_id...>                reclaim orphaned WAL objects (dry run)
   walgit compact <repo_id> [path]       repack the log into one entry, now
+  walgit usage                          what the log says this service holds
 
 Options
   --repos-dir <dir>   where bare repos live (default: $WALGIT_REPOS_DIR)
@@ -87,6 +89,8 @@ Options
   --yes               gc: actually delete (without it, gc only reports)
   --force=false       compact: respect the entry-count threshold instead of forcing
   --min-age <minutes> gc: never collect an object younger than this (default 60)
+  --since <duration>  usage: push window, e.g. 24h, 7d, 30m (default 24h)
+  --top <n>           usage: how many repositories to name (0 = all, default 10)
 
 The object store is read from the environment the app itself uses:
 WALGIT_S3_ENDPOINT / _BUCKET / _ACCESS_KEY_ID / _SECRET_ACCESS_KEY, or
@@ -179,7 +183,8 @@ async function gcCommand(args: ParsedArgs, env: NodeJS.ProcessEnv): Promise<numb
   }
   const store = requireStore(env)
   const minAgeFlag = args.flags['min-age']
-  const graceMs = typeof minAgeFlag === 'string' ? Number(minAgeFlag) * 60_000 : configuredGraceMs(env)
+  const graceMs =
+    typeof minAgeFlag === 'string' ? Number(minAgeFlag) * 60_000 : configuredGraceMs(env)
   if (!Number.isFinite(graceMs) || graceMs < 0) {
     console.error(`walgit gc: --min-age must be a number of minutes, got ${String(minAgeFlag)}`)
     return MISUSE
@@ -201,14 +206,25 @@ async function gcCommand(args: ParsedArgs, env: NodeJS.ProcessEnv): Promise<numb
     total += reclaimable.length
     const verb = dryRun ? 'would collect' : 'collected'
     lines.push(`${result.repoId}: ${verb} ${reclaimable.length} objects`)
-    for (const key of result.collected) lines.push(`  ${dryRun ? '-' : 'deleted'} ${key} (superseded)`)
-    for (const key of result.orphansCollected) lines.push(`  ${dryRun ? '-' : 'deleted'} ${key} (orphan)`)
+    for (const key of result.collected)
+      lines.push(`  ${dryRun ? '-' : 'deleted'} ${key} (superseded)`)
+    for (const key of result.orphansCollected)
+      lines.push(`  ${dryRun ? '-' : 'deleted'} ${key} (orphan)`)
     // Held objects are named rather than counted: "why is this still here" is
     // the question an operator actually arrives with.
     for (const key of result.retained) lines.push(`  kept (in grace) ${key}`)
     for (const key of result.orphansHeld) lines.push(`  kept (too young or undatable) ${key}`)
   }
-  if (results.every((r) => r.collected.length + r.orphansCollected.length + r.retained.length + r.orphansHeld.length === 0)) {
+  if (
+    results.every(
+      (r) =>
+        r.collected.length +
+          r.orphansCollected.length +
+          r.retained.length +
+          r.orphansHeld.length ===
+        0,
+    )
+  ) {
     lines.push('nothing to collect')
   }
   if (dryRun && total > 0) lines.push('nothing was deleted — re-run with --yes')
@@ -259,6 +275,35 @@ async function compactCommand(args: ParsedArgs, env: NodeJS.ProcessEnv): Promise
   return OK
 }
 
+/**
+ * `usage` reads and only reads. It needs no repos directory, no local cache and
+ * no running server — bucket credentials are the whole requirement, so it can
+ * be run from a laptop while the service is on fire.
+ */
+async function usageCommand(args: ParsedArgs, env: NodeJS.ProcessEnv): Promise<number> {
+  if (args.positional.length > 0) {
+    console.error('walgit usage: usage: walgit usage [--since 24h] [--top 10] [--json]')
+    return MISUSE
+  }
+  const since = args.flags.since
+  const top = args.flags.top
+  const topN = typeof top === 'string' ? Number(top) : 10
+  if (!Number.isInteger(topN) || topN < 0) {
+    console.error(`walgit usage: --top expects a non-negative integer, got ${String(top)}`)
+    return MISUSE
+  }
+  const store = requireStore(env)
+
+  const report = await collectUsage(store, {
+    // A window is the default because "what is happening now" is the question
+    // that brings someone here; `--since 0` asks for lifetime totals only.
+    sinceMs: parseDuration(typeof since === 'string' ? since : '24h') || undefined,
+    top: topN,
+  })
+  emit(args, report, formatUsage(report))
+  return OK
+}
+
 // ── Entry point ─────────────────────────────────────────────────────────────
 
 export async function main(
@@ -283,6 +328,8 @@ export async function main(
         return await gcCommand(args, env)
       case 'compact':
         return await compactCommand(args, env)
+      case 'usage':
+        return await usageCommand(args, env)
       default:
         console.error(`walgit: unknown command "${args.command}"\n\n${USAGE}`)
         return MISUSE

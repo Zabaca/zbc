@@ -35,7 +35,18 @@ walgit materialize <repo_id> [path]   # rebuild a repo from the write-ahead log
 walgit verify <repo_id> [path]        # check local state against index.json
 walgit gc <repo_id...>                # reclaim superseded and orphaned objects (dry run)
 walgit compact <repo_id> [path]       # repack the log into one entry, now
+walgit usage [--since 24h] [--top 10] # what the log says this service holds
 ```
+
+`usage` is the one command that needs nothing but bucket credentials — no repos
+directory, no local cache, no running node — because the log is already a usage
+ledger: every entry carries a `size` and a `ts`, so repository count, bytes
+stored, the largest repositories and push volume over time are all derivable
+with no instrumentation and nothing to keep in sync. It is strictly read-only,
+which matters because it is run at exactly the moment a command that also
+repairs things would be dangerous. It reports **pushes and storage only** — a
+clone leaves no trace in the log at all, and an approximation invented here
+would read as a measurement.
 
 It runs where the app's environment is — inside the container:
 
@@ -49,7 +60,7 @@ forced command and both hook processes use. There is deliberately no
 about, and it would drift from the one the app actually reads.
 
 **Every command is a thin front over the functions the server calls** —
-`materialize`, `reconcile`, `findOrphans`. That is what makes `verify`
+`materialize`, `reconcile`, `findOrphans`, `collectUsage`. That is what makes `verify`
 trustworthy: a command-line reimplementation of "is this disk current?" would
 answer for itself rather than for the server.
 
