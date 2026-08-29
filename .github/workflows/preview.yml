@@ -33,8 +33,15 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -o pipefail
+          # `set +e` is load-bearing. GitHub runs steps with `bash -e`, where an
+          # assignment whose right-hand side is a failing command substitution
+          # exits the shell AT THE ASSIGNMENT — so `STATUS=$?` and the echo below
+          # never ran, and every failed preview apply produced a red job with an
+          # empty log. The error was captured into OUTPUT and then thrown away.
+          set +e
           OUTPUT=$(bun run --cwd packages/cli src/index.ts apply preview 2>&1)
           STATUS=$?
+          set -e
           echo "$OUTPUT"
 
           # Pair each "Deployed:" URL with the most recent "→ <module>:<name>" header
