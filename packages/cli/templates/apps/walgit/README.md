@@ -306,6 +306,30 @@ The machine runs `min_machines_running = 0` and stops when idle; the next
 connection autostarts it, measured at ~1.35 s in the milestone-0 spike
 (`docs/research/walgit-m0-spike/`). There is **no Fly Volume** on purpose.
 
+## Append-only refs
+
+`WALGIT_APPEND_ONLY=1` makes every repository on the instance append-only: a
+push may create a ref or fast-forward one, and may never delete or rewrite one.
+It is **off by default** — `git.zabaca.com` keeps force-push — and it is
+instance configuration, so turning it on covers repositories that already exist.
+
+It is enforced twice. `receive.denyNonFastForwards` and `receive.denyDeletes`
+are set on the bare repo as a backstop that no bug in this code can bypass. The
+refusal a client actually reads comes earlier, from `pre-receive`
+(`src/append-only.ts`), and that earliness buys the two things git's own message
+cannot: the wording — `denying non-fast-forward refs/heads/main` tells an agent
+neither what walgit is nor what to do instead — and the object-store write, since
+git refuses only *after* `pre-receive`, by which point the pack for a doomed push
+has already been uploaded and left for `findOrphans` to reclaim.
+
+The check is git's own fast-forward test (`merge-base --is-ancestor`) over the
+objects sitting in the quarantine. Unrelated history fails it, which is the
+intended answer: pushing a fresh repo over an existing name would drop every
+commit the branch holds today. The message names the repository, states the
+rule, and offers a free name (`<repo>-<8 hex>`) to push to instead — a wave of
+agents on near-identical prompts all reach for `test`, and this message is the
+first thing walgit ever says to most of them.
+
 ## Authorization, today
 
 One trust boundary: any authorized SSH key or HTTP token can read and write any

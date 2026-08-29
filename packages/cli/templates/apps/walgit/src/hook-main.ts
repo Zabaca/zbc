@@ -16,6 +16,7 @@
 import { spawn } from 'node:child_process'
 import * as path from 'node:path'
 
+import { appendOnlyEnabled, checkAppendOnly } from './append-only'
 import { configuredThreshold, isCompactionDue } from './compact'
 import {
   clearPending,
@@ -61,6 +62,17 @@ async function main(): Promise<number> {
   const stdin = await Bun.stdin.text()
 
   if (hook === 'pre-receive') {
+    // Before the store is even touched: a push that will be refused must not
+    // cost an object-store write. git's own deny rules run after this hook, so
+    // leaving it to them would upload a pack nothing will ever reference.
+    if (appendOnlyEnabled()) {
+      const changes = parseRefChanges(stdin).filter((c) => c.ref.startsWith('refs/'))
+      const verdict = checkAppendOnly(gitDir, repoId, changes)
+      if (!verdict.ok) {
+        process.stderr.write(`${verdict.message}\n`)
+        return 1
+      }
+    }
     const store = requireStore()
     await preReceive({
       store,
