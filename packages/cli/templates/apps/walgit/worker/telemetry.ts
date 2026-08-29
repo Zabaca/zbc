@@ -64,6 +64,11 @@ export type RequestKind =
   | 'push-advertise'
   | 'push'
   | 'instructions'
+  // The browser's `/`, answered at the edge and never proxied — so it is its
+  // own kind rather than folded into `instructions`. Counting them together
+  // would hide the one number a launch actually turns on: how many people read
+  // the page versus how many clients read the protocol.
+  | 'landing'
   | 'health'
   | 'other'
 
