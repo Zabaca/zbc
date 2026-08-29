@@ -16,6 +16,8 @@
 import * as fs from 'node:fs'
 import * as nodePath from 'node:path'
 
+import { acquireLock } from './mkdir-lock'
+
 /** A conditional precondition on a write. */
 export type PutCondition =
   /** Write only if the object's current ETag matches (compare-and-swap). */
@@ -282,33 +284,17 @@ export class FileStore implements ObjectStore {
     }
   }
 
+  /**
+   * A conditional write is over in milliseconds, so a lock still held after a
+   * second belongs to a process that died mid-write — and one of those would
+   * otherwise wedge every later push. See `mkdir-lock.ts` for why breaking it
+   * is safe.
+   */
   private async lock(key: string): Promise<() => void> {
     const dir = `${this.root}/.walgit-locks`
     fs.mkdirSync(dir, { recursive: true })
     const lockPath = `${dir}/${key.replace(/[^A-Za-z0-9]/g, '_')}.lock`
-    for (let i = 0; ; i += 1) {
-      try {
-        fs.mkdirSync(lockPath)
-        return () => {
-          try {
-            fs.rmdirSync(lockPath)
-          } catch {
-            /* already released */
-          }
-        }
-      } catch {
-        // A holder that died mid-write would otherwise wedge every later push,
-        // so the wait is bounded and then broken.
-        if (i > 200) {
-          try {
-            fs.rmdirSync(lockPath)
-          } catch {
-            /* someone else broke it first */
-          }
-        }
-        await new Promise((r) => setTimeout(r, 5))
-      }
-    }
+    return acquireLock(lockPath, { breakAfter: 200 })
   }
 
   async delete(key: string): Promise<void> {

@@ -13,11 +13,17 @@ import * as os from 'node:os'
 import * as path from 'node:path'
 
 import { main, parseArgs } from './cli'
-import { sha256 } from './push'
 import { FileStore } from './store'
 import { ulid } from './ulid'
 import { verifyRepo } from './verify'
-import { commitIndex, emptyIndex, walKey, type WalEntry, type WalIndex } from './wal-index'
+import {
+  commitIndex,
+  emptyIndex,
+  sha256,
+  walKey,
+  type WalEntry,
+  type WalIndex,
+} from './wal-index'
 
 let scratch: string
 let storeDir: string

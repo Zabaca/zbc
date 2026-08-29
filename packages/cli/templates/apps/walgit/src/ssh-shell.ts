@@ -13,7 +13,8 @@
  */
 
 import { spawnSync } from 'node:child_process'
-import { ensureBareRepo, parseSshCommand, resolveRepo } from './repo'
+import { ensureBareRepo } from './cache'
+import { parseSshCommand, resolveRepo } from './repo'
 import { storeFromEnv } from './store-env'
 import { syncRepo } from './sync'
 

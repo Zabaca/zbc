@@ -31,7 +31,7 @@
 import * as fs from 'node:fs'
 import * as path from 'node:path'
 
-import { isPartial, neededEntries, packBasename } from './materialize'
+import { absentEntries, isPartial } from './materialize'
 import { localRefs, presentObjects } from './reconcile'
 import type { ResolvedRepo } from './repo'
 import type { ObjectStore } from './store'
@@ -119,13 +119,11 @@ export async function verifyRepo(
     .map(([ref]) => ref)
     .sort()
 
-  const packDir = path.join(repo.dir, 'objects', 'pack')
-  const onDisk = new Set(
-    fs.existsSync(packDir) ? fs.readdirSync(packDir).filter((f) => f.endsWith('.pack')) : [],
-  )
-  const missingPacks = neededEntries(index)
-    .filter((entry) => !onDisk.has(`${packBasename(entry)}.pack`))
-    .map((entry) => ({ seq: entry.seq, key: entry.key }))
+  // The same predicate materialize fetches by, not a second copy of it.
+  const missingPacks = absentEntries(repo.dir, index).map((entry) => ({
+    seq: entry.seq,
+    key: entry.key,
+  }))
 
   const partial = isPartial(repo.dir)
   return {
