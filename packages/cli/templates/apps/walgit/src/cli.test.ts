@@ -19,6 +19,7 @@ import { verifyRepo } from './verify'
 import {
   commitIndex,
   emptyIndex,
+  loadIndex,
   sha256,
   walKey,
   type WalEntry,
@@ -265,6 +266,56 @@ describe('walgit gc', () => {
 
   test('gc with no repo id is misuse — there is no collect-everything mode', async () => {
     expect(await main(['gc'], env)).toBe(2)
+  })
+})
+
+describe('walgit delete', () => {
+  test('dry run schedules nothing and deletes nothing', async () => {
+    const { repoId } = await published()
+
+    expect(await main(['delete', repoId], env)).toBe(0)
+    expect(out.join('\n')).toContain('re-run with --yes')
+    const { index } = await loadIndex(store, repoId)
+    expect(index.deletion).toBeUndefined()
+    expect(await store.get(index.entries[0]!.key)).not.toBeNull()
+  })
+
+  test('--yes tombstones first, and the grace period holds the objects', async () => {
+    const { repoId } = await published()
+
+    expect(await main(['delete', repoId, '--yes'], env)).toBe(0)
+    expect(out.join('\n')).toContain('scheduled for deletion')
+    const { index } = await loadIndex(store, repoId)
+    expect(index.deletion).toBeDefined()
+    expect(await store.get(index.entries[0]!.key)).not.toBeNull()
+
+    out.length = 0
+    expect(await main(['delete', repoId, '--yes'], env)).toBe(0)
+    expect(out.join('\n')).toContain('already scheduled')
+    expect(await store.get(index.entries[0]!.key)).not.toBeNull()
+  })
+
+  test('--grace 0 collects on the second call, index first', async () => {
+    const { repoId } = await published()
+    const { index } = await loadIndex(store, repoId)
+    const dir = path.join(reposDir, `${repoId}.git`)
+    fs.mkdirSync(dir, { recursive: true })
+
+    expect(await main(['delete', repoId, '--yes', '--grace', '0'], env)).toBe(0)
+    expect(await main(['delete', repoId, '--yes', '--grace', '0'], env)).toBe(0)
+
+    expect(await store.get(`repos/${repoId}/index.json`)).toBeNull()
+    expect(await store.get(index.entries[0]!.key)).toBeNull()
+    expect(fs.existsSync(dir)).toBe(false)
+  })
+
+  test('deleting a repository that does not exist is a no-op', async () => {
+    expect(await main(['delete', 'never-existed', '--yes'], env)).toBe(0)
+    expect(out.join('\n')).toContain('nothing to delete')
+  })
+
+  test('delete with no repo id is misuse', async () => {
+    expect(await main(['delete'], env)).toBe(2)
   })
 })
 
