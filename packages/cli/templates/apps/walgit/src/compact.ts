@@ -111,7 +111,7 @@ export type LeaseResult =
 /**
  * Take the per-repository compaction lease.
  *
- * The lease EXPIRES because the holder is a process on a machine Fly may stop
+ * The lease EXPIRES because the holder is a process in a container Cloudflare may stop
  * at any moment: a lease that only a graceful release could clear would wedge
  * compaction for a repository permanently, and the failure would present as
  * restores quietly getting slower forever. Stealing an expired lease is a
@@ -223,7 +223,7 @@ export async function compact(
     return { status: 'not-due', pending: pendingEntries(index).length }
   }
 
-  const holder = opts.holder ?? `${process.env.FLY_MACHINE_ID ?? 'local'}:${process.pid}`
+  const holder = opts.holder ?? `${process.env.HOSTNAME ?? 'local'}:${process.pid}`
   const lease = await acquireLease(store, repo.repoId, {
     holder,
     now: now(),

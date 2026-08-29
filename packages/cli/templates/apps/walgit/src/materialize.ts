@@ -6,7 +6,8 @@
  * is sufficient: `index.json` names every packfile still needed and the full
  * ref state that results from applying them.
  *
- * On Fly with `min_machines_running = 0` this is the NORMAL path, not disaster
+ * With a container that sleeps when idle and a disk wiped on every restart,
+ * this is the NORMAL path, not disaster
  * recovery — an idle repo loses its machine routinely, so materialize runs on
  * ordinary first access after a pause. The restore path is therefore exercised
  * continuously instead of only in a crisis, which is the point.
@@ -279,7 +280,7 @@ function ensureHead(gitDir: string, index: WalIndex): void {
  * Six seconds before the lock is broken, not one: unlike a `FileStore` write
  * the holder here is downloading packfiles, so a lock still held after a second
  * usually means a slow restore rather than a dead one. Breaking it eventually
- * is still required — on Fly a machine is stopped whenever it is idle — and
+ * is still required — the container is stopped whenever it is idle — and
  * still safe, because the loser re-reads the directory and downloads only what
  * is genuinely absent.
  */
@@ -290,7 +291,7 @@ function acquire(gitDir: string): Promise<LockRelease> {
 /**
  * One machine-readable line per restore.
  *
- * It is reported separately from anything else on purpose: on Fly, machine wake
+ * It is reported separately from anything else on purpose: container cold start
  * alone is ~1.35 s (measured in the milestone-0 spike), so a single
  * end-to-end number cannot attribute a regression to either half. This is the
  * materialize half and nothing else.

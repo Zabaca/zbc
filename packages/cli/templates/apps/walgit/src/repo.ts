@@ -1,11 +1,9 @@
 /**
  * The repo-addressing seam.
  *
- * SSH has no SNI: one front door serves every repository, and the repository is
- * named in the client's own command (`git@host:<repo_id>.git`) or in the
- * smart-HTTP URL path. That makes the repo name attacker-controlled on every
- * entry point, so exactly one function turns it into a path — this one — and
- * both entry points funnel through it.
+ * The repository a request means is named in the smart-HTTP URL path, so the
+ * repo name is attacker-controlled on the way in. Exactly one function turns it
+ * into a path — this one — and every entry point funnels through it.
  *
  * Nothing here touches the disk or the log: it is string in, path out, and it
  * imports nothing. Provisioning the bare repo that path names is `cache.ts`.
@@ -29,12 +27,9 @@ const REPO_ID = /^[A-Za-z0-9][A-Za-z0-9._-]*$/
  * second copy of it to drift.
  */
 export function normalizeRepoId(requested: string): string {
-  // Strip the address forms a client can send: ssh://host/alpha.git yields a
-  // leading slash, and OpenSSH passes `~/alpha.git` through unexpanded.
-  const repoId = requested
-    .replace(/^~\//, '')
-    .replace(/^\//, '')
-    .replace(/\.git$/, '')
+  // Strip the address forms a client can send: a URL path yields a leading
+  // slash, and `.git` is a suffix the client chooses, not part of the id.
+  const repoId = requested.replace(/^\//, '').replace(/\.git$/, '')
   // A trailing newline is not a formality: JavaScript's `$` matches before one,
   // so `alpha\n` would otherwise pass validation and reach a shell-free but
   // still surprising path.
@@ -47,24 +42,4 @@ export function normalizeRepoId(requested: string): string {
 export function resolveRepo(reposDir: string, requested: string): ResolvedRepo {
   const repoId = normalizeRepoId(requested)
   return { repoId, dir: path.join(reposDir, `${repoId}.git`) }
-}
-
-export type GitService = 'git-upload-pack' | 'git-receive-pack'
-export type SshRequest = { service: GitService; requested: string }
-
-/**
- * Parse `SSH_ORIGINAL_COMMAND` under the forced command.
- *
- * This is the whole of the SSH attack surface: the key's `command=` option
- * means the client's command line is never executed, only read here, so the
- * grammar is a strict allow-list of the two transport verbs and one
- * single-quoted argument. `git-upload-archive` is excluded on purpose — it is
- * a third verb clients rarely need and one more code path to reason about.
- */
-export function parseSshCommand(original: string | undefined): SshRequest {
-  const match = /^git[- ](upload-pack|receive-pack) '([^']*)'$/.exec(original ?? '')
-  if (!match) {
-    throw new Error(`refused: only git-upload-pack and git-receive-pack are permitted`)
-  }
-  return { service: `git-${match[1]}` as GitService, requested: match[2]! }
 }

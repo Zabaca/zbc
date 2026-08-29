@@ -8,16 +8,20 @@
   },
   "scripts": {
     "test": "bun test src",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.worker.json",
     "bench:materialize": "bun run src/materialize.bench.ts",
     "walgit": "bun run src/cli.ts",
-    "e2e": "bun run e2e/suite.ts"
+    "e2e": "bun run e2e/suite.ts",
+    "deploy": "wrangler deploy"
   },
   "dependencies": {
     "aws4fetch": "^1.0.20"
   },
   "devDependencies": {
+    "@cloudflare/containers": "^0.3.7",
+    "@cloudflare/workers-types": "^4.20250101.0",
     "@types/bun": "^1.3.14",
-    "typescript": "^5.7.0"
+    "typescript": "^5.7.0",
+    "wrangler": "^4.0.0"
   }
 }

@@ -1,0 +1,38 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  // walgit as a Durable-Object-bound Cloudflare Container: one Bun process
+  // serving git smart-HTTP (worker/index.ts proxies straight to it), with the
+  // write-ahead log in R2 reached over the S3 API from inside the container.
+  // Container-backed: needs Docker running locally at apply time and a Workers
+  // Paid plan with Containers enabled.
+  //
+  // Generic defaults only — per-project identity (the worker name, the custom
+  // domain, the secrets) lives in the zbc instance file, so this file is
+  // identical across projects.
+  "name": "walgit",
+  "main": "worker/index.ts",
+  "compatibility_date": "2026-07-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "observability": { "enabled": true },
+  "containers": [
+    {
+      "class_name": "WalgitContainer",
+      "image": "./Dockerfile",
+      // git is not memory-hungry until it packs: `git repack -adf` on a 250 MiB
+      // repository is the sizing case, and it succeeded on this tier in the
+      // Containers spike (27.7 s, with /dev/shm unusable).
+      "instance_type": "standard-1",
+      // One instance, deliberately — see worker/index.ts. The disk is a cache,
+      // so a second instance is correct but starts cold and materializes
+      // everything it serves.
+      "max_instances": 1
+    }
+  ],
+  "durable_objects": {
+    "bindings": [{ "class_name": "WalgitContainer", "name": "WALGIT_CONTAINER" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["WalgitContainer"] }]
+  // No r2_buckets binding. The container writes the log itself, outside the
+  // Worker's binding graph, so it needs real S3 credentials (WALGIT_S3_*) —
+  // a binding here would reach only the Worker, which never touches the log.
+}

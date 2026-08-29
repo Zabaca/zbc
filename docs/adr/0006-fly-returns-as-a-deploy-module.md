@@ -1,6 +1,6 @@
 # Fly returns as a Deploy Module, for payloads Cloudflare cannot serve
 
-**Status:** accepted (2026-08-20)
+**Status:** accepted (2026-08-20). **Superseded for `walgit` by [ADR-0008](./0008-walgit-runs-on-a-cloudflare-container-without-ssh.md)** (2026-08-28): walgit dropped SSH, which removed the raw-TCP requirement that put it here, and moved onto a Cloudflare Container. The `fly` module and everything argued below stand — the option this ADR rejected ("stay on Cloudflare, drop SSH") became right for walgit specifically, once its users turned out to be agents holding tokens rather than humans holding keys.
 
 [ADR-0001](./0001-nats-server-cloudflare-package.md) deleted the `nats-server`
 module "as part of the broader move off Vercel/Fly onto Cloudflare". This adds a

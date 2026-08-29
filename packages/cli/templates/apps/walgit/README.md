@@ -15,8 +15,8 @@ the **garbage collection** that keeps the log from growing without bound:
 | `src/store.ts`, `src/wal-index.ts` | the object-store adapter and the `index.json` compare-and-swap |
 | `src/repo.ts` | repo addressing — the one place a client-supplied name becomes a path. Pure: string in, path out, no imports |
 | `src/cache.ts` | provisioning the bare repo that path names: `git init`, the config walgit needs, the hooks |
-| `src/ssh-shell.ts` | the SSH forced command: one git verb, one repository |
 | `src/http.ts`, `src/git-backend.ts`, `src/server.ts` | smart-HTTP, with `git http-backend` as a CGI child |
+| `worker/index.ts`, `wrangler.jsonc` | the Cloudflare Worker that proxies to the container, and forwards its environment |
 | `src/push.ts`, `src/hooks.ts`, `src/hook-main.ts` | the push path: upload at `pre-receive`, publish under CAS at `reference-transaction` |
 | `src/pending.ts` | the hand-off between the two hook processes of one push, keyed by `git-receive-pack` pid |
 | `src/reconcile.ts`, `src/sync.ts` | force the local cache to match the log, on every access |
@@ -37,15 +37,15 @@ walgit gc <repo_id...>                # reclaim superseded and orphaned objects 
 walgit compact <repo_id> [path]       # repack the log into one entry, now
 ```
 
-It runs where the app's environment is — inside the container:
+It runs where the app's environment is — inside the container, or anywhere the
+same `WALGIT_*` variables are set:
 
 ```bash
-fly ssh console -C "bun /app/src/cli.ts verify myrepo"
+bun src/cli.ts verify myrepo
 ```
 
-**Credentials come from `src/store-env.ts`**, the same reader the server, the SSH
-forced command and both hook processes use. There is deliberately no
-`~/.walgit/config`: a second configuration path is a second thing to be wrong
+**Credentials come from `src/store-env.ts`**, the same reader the server and both
+hook processes use. There is deliberately no `~/.walgit/config`: a second configuration path is a second thing to be wrong
 about, and it would drift from the one the app actually reads.
 
 **Every command is a thin front over the functions the server calls** —
@@ -121,10 +121,10 @@ runs `git init --bare`, downloads every WAL entry above `compaction_frontier` in
 seq order, drops each `.pack`/`.idx` pair straight into `objects/pack/`, and
 writes `packed-refs` from `index.json.refs` in one shot.
 
-**It is not disaster recovery — it is the normal path.** The machine runs
-`min_machines_running = 0`, so an idle repo loses its disk routinely and the
-next access rebuilds it. The restore path is therefore exercised continuously
-rather than only in a crisis.
+**It is not disaster recovery — it is the normal path.** The container sleeps
+when idle and its disk is wiped completely on every restart, so an idle repo
+loses its cache routinely and the next access rebuilds it. The restore path is
+therefore exercised continuously rather than only in a crisis.
 
 `src/sync.ts` decides which of the two repairs an access needs, and a warm disk
 pays for neither:
@@ -151,7 +151,7 @@ reading as a valid-but-truncated repo.
 ### What it costs
 
 Measured with `bun run bench:materialize` (macOS arm64, `FileStore` on local
-disk, 15 runs per size). Replay only — **machine wake is not in these numbers**.
+disk, 15 runs per size). Replay only — **cold start is not in these numbers**.
 Each size is measured twice: over the raw log, and over the same repository
 after compaction.
 
@@ -167,9 +167,9 @@ compacted restore at 200 pushes is indistinguishable from one at 20, because it
 replays one entry either way.
 
 Deliberately **two numbers, not one**. The design's "cold materialize under two
-seconds" was written for an always-on NVMe node; on Fly a client also pays
-machine wake, measured at ~1.35 s in the milestone-0 spike. Gate them
-separately or a regression cannot be attributed to either half.
+seconds" was written for an always-on NVMe node; here a client also pays
+container cold start, measured at a median of 1.77 s (spread 0.93–6.45 s) in the
+Containers spike. Gate them separately or a regression cannot be attributed to either half.
 
 The materialize number is a **control loop, not a pass/fail gate**: it is linear
 in entry count, so exceeding the target means the WAL is replaying too many
@@ -193,7 +193,7 @@ from the index after it, produce byte-identical history.
 Three things make it safe:
 
 - **A lease, not optimism.** `repos/{id}/compaction.lease` is taken under a
-  compare-and-swap and expires, so a machine Fly stops mid-repack cannot wedge
+  compare-and-swap and expires, so a container stopped mid-repack cannot wedge
   compaction for that repository forever. Two nodes repacking at once would both
   upload a full copy and the loser's CAS would tombstone entries the winner's
   pack does not contain.
@@ -236,12 +236,15 @@ data with no error anywhere.
 ## How a client reaches it
 
 ```bash
-# SSH — the repository is named in the command, because SSH has no SNI
-git clone git@<ip>:myrepo.git
-
-# smart-HTTP — the token is sent as the Basic-auth password
-git clone https://walgit:$WALGIT_TOKEN@<app>.fly.dev/myrepo.git
+# smart-HTTP is the only transport; the token is sent as the Basic-auth password
+git clone https://walgit:$WALGIT_TOKEN@<worker-host>/myrepo.git
 ```
+
+There is no SSH. It was removed when walgit moved onto a Cloudflare Container:
+SSH needs raw inbound TCP, which is what put the app on a Fly machine with a
+dedicated IPv4 in the first place ([ADR-0006](../../../../../docs/adr/0006-fly-returns-as-a-deploy-module.md)),
+and no Cloudflare product delivers it. Every client that could hold a key can
+hold a token.
 
 A repository is created on first contact: pushing to a name nobody has used
 creates it, with `receive.unpackLimit=0` so even a tiny push is retained as a
@@ -249,19 +252,21 @@ packfile (what the WAL will upload).
 
 ## Deployment
 
-Through the `fly` module, never by hand — `zbc apply <env>`. The instance must
-set `ipv4: "dedicated"`: shared IPv4 covers ports 80/443 only, so SSH on :22
-would be unreachable and `fly deploy` would still report success.
+Through the `cloudflare` module, never by hand — `zbc apply <env>`. The Worker
+(`worker/index.ts`) is a thin proxy in front of a Durable-Object-bound Container
+running this package's Dockerfile; `wrangler deploy` builds the image, so Docker
+must be running at apply time and the account must be on a Workers Paid plan
+with Containers enabled. Set `immediateContainerRollout: true` on the instance —
+wrangler's gradual default never drains a single always-warm container, so a
+redeployed image silently never takes effect until it idle-sleeps.
 
-Secrets the app needs (in the environment's `secrets.yaml`):
+The container reads its configuration from environment variables the **Worker**
+forwards (`worker/index.ts`): `wrangler secret put` reaches the Worker and stops
+there, so a secret that is not in that list never arrives.
 
-- `WALGIT_SSH_HOST_KEY` — an ed25519 **private** key
-  (`ssh-keygen -t ed25519 -f walgit_host -N ''`). It is a secret rather than a
-  generated-at-boot file because the container filesystem does not survive a
-  machine stop, and this machine stops whenever it is idle — a regenerated host
-  key would trip every client's man-in-the-middle warning.
-- `WALGIT_SSH_AUTHORIZED_KEYS` — newline-separated **public** keys. Each is
-  written into `authorized_keys` pinned to the forced command.
+Secrets the app needs (in the environment's `secrets.yaml`, wired as the
+cloudflare instance's `workerSecrets`):
+
 - `WALGIT_HTTP_TOKENS` — comma-separated bearer tokens (comma-separated so a
   credential can be rotated without a window where neither works).
 - `WALGIT_S3_ENDPOINT`, `WALGIT_S3_BUCKET`, `WALGIT_S3_ACCESS_KEY_ID`,
@@ -270,16 +275,21 @@ Secrets the app needs (in the environment's `secrets.yaml`):
   its local cache and **refuses every push**. `WALGIT_STORE_DIR` substitutes a
   local directory for the bucket, which is for development and tests only.
 
-The machine runs `min_machines_running = 0` and stops when idle; the next
-connection autostarts it, measured at ~1.35 s in the milestone-0 spike
-(`docs/research/walgit-m0-spike/`). There is **no Fly Volume** on purpose.
+The container sleeps when idle and the next request wakes it — one regime,
+median 1.77 s, spread 0.93–6.45 s, and a ten-minute idle measures the same. Its
+10.67 GiB disk is **wiped completely on every restart**, which is exactly the
+assumption the cache-and-log design was written against, so there is no volume
+and nothing to mount.
+
+Trap worth knowing when tearing one down: `wrangler delete` on the Worker does
+**not** delete its container application. That needs a separate
+`wrangler containers delete`, or the instances stay live.
 
 ## Authorization, today
 
-One trust boundary: any authorized SSH key or HTTP token can read and write any
-repository. Per-repo authorization and an SSH CA are deferred until the repo
-namespace exists in the WAL — the forced command and the `tokens` list are the
-seams they plug into.
+One trust boundary: any HTTP token can read and write any repository. Per-repo
+authorization is deferred until the repo namespace exists in the WAL — the
+`tokens` list is the seam it plugs into.
 
 ## Tests
 
@@ -287,9 +297,8 @@ seams they plug into.
 bun test src
 ```
 
-Includes end-to-end clone/push/fetch over both transports against a real `git`
-client — smart-HTTP through a real server, SSH through the real forced command
-with a stand-in for `ssh` itself — a cold-materialize suite that builds a repo
+Includes end-to-end clone/push/fetch through a real server against a real `git`
+client, a cold-materialize suite that builds a repo
 with 100 pushes across 5 branches and 3 tags, deletes its disk, and asserts the
 rebuilt repo matches a reference clone on refs, reachable history and `git
 fsck`, a compaction suite that repacks a 40-push log and asserts history is

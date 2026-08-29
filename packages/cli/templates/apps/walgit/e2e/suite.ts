@@ -48,7 +48,7 @@ interface Outcome {
 const run: RunType = new Run()
 
 // Cleanup on the way out by every route, including the ones that skip `finally`.
-// A run that leaks its prefix costs storage; a run that leaks a Fly app costs
+// A run that leaks its prefix costs storage; a run that leaks a deployed app costs
 // two dollars a month forever.
 let cleaned = false
 const cleanup = async () => {

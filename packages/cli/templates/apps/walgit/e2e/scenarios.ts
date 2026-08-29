@@ -415,7 +415,7 @@ const restoreLatency: Scenario = {
     const sizes = opts.quick ? [1, 10] : [1, 10, 50]
     const runs = opts.quick ? 5 : 11
     const notes: string[] = [
-      'measures WAL replay ONLY — machine wake (~1.35s on Fly, milestone-0 spike) is excluded, ' +
+      'measures WAL replay ONLY — container cold start (median 1.77s, Containers spike) is excluded, ' +
         'because blending the two makes a regression unattributable',
     ]
     const breaches: string[] = []

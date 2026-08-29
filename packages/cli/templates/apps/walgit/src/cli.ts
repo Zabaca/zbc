@@ -8,14 +8,15 @@
  * of "is this disk current?" would answer for itself rather than for the server,
  * and would drift silently the first time the real path changed.
  *
- * Credentials come from `store-env.ts`, the same reader the smart-HTTP server,
- * the SSH forced command and both hook processes use. There is deliberately no
- * `~/.walgit/config`: a second configuration path is a second thing to be wrong
- * about, and the environment is what a `fly ssh console` session already has.
+ * Credentials come from `store-env.ts`, the same reader the smart-HTTP server
+ * and both hook processes use. There is deliberately no `~/.walgit/config`: a
+ * second configuration path is a second thing to be wrong about, and the
+ * environment is what a shell inside the container already has.
  *
- * Run it inside the container, where that environment exists:
+ * Run it inside the container, where that environment exists — or anywhere the
+ * same WALGIT_* variables are set:
  *
- *     fly ssh console -C "bun /app/src/cli.ts verify myrepo"
+ *     bun src/cli.ts verify myrepo
  *
  * Exit codes are meant to be branched on: 0 success, 1 a divergence or failure
  * the command was asked to detect, 2 misuse (unknown command, bad arguments,
@@ -179,7 +180,8 @@ async function gcCommand(args: ParsedArgs, env: NodeJS.ProcessEnv): Promise<numb
   }
   const store = requireStore(env)
   const minAgeFlag = args.flags['min-age']
-  const graceMs = typeof minAgeFlag === 'string' ? Number(minAgeFlag) * 60_000 : configuredGraceMs(env)
+  const graceMs =
+    typeof minAgeFlag === 'string' ? Number(minAgeFlag) * 60_000 : configuredGraceMs(env)
   if (!Number.isFinite(graceMs) || graceMs < 0) {
     console.error(`walgit gc: --min-age must be a number of minutes, got ${String(minAgeFlag)}`)
     return MISUSE
@@ -201,14 +203,25 @@ async function gcCommand(args: ParsedArgs, env: NodeJS.ProcessEnv): Promise<numb
     total += reclaimable.length
     const verb = dryRun ? 'would collect' : 'collected'
     lines.push(`${result.repoId}: ${verb} ${reclaimable.length} objects`)
-    for (const key of result.collected) lines.push(`  ${dryRun ? '-' : 'deleted'} ${key} (superseded)`)
-    for (const key of result.orphansCollected) lines.push(`  ${dryRun ? '-' : 'deleted'} ${key} (orphan)`)
+    for (const key of result.collected)
+      lines.push(`  ${dryRun ? '-' : 'deleted'} ${key} (superseded)`)
+    for (const key of result.orphansCollected)
+      lines.push(`  ${dryRun ? '-' : 'deleted'} ${key} (orphan)`)
     // Held objects are named rather than counted: "why is this still here" is
     // the question an operator actually arrives with.
     for (const key of result.retained) lines.push(`  kept (in grace) ${key}`)
     for (const key of result.orphansHeld) lines.push(`  kept (too young or undatable) ${key}`)
   }
-  if (results.every((r) => r.collected.length + r.orphansCollected.length + r.retained.length + r.orphansHeld.length === 0)) {
+  if (
+    results.every(
+      (r) =>
+        r.collected.length +
+          r.orphansCollected.length +
+          r.retained.length +
+          r.orphansHeld.length ===
+        0,
+    )
+  ) {
     lines.push('nothing to collect')
   }
   if (dryRun && total > 0) lines.push('nothing was deleted — re-run with --yes')

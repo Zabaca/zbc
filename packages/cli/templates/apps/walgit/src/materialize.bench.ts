@@ -3,7 +3,7 @@
  * Materialize latency, measured as its OWN number.
  *
  * The design's target — a cold materialize under two seconds — was written for
- * an always-on NVMe node. On Fly with `min_machines_running = 0` the wall-clock
+ * an always-on NVMe node. With a container that sleeps when idle the wall-clock
  * a client experiences is machine wake PLUS this, and wake alone was measured
  * at ~1.35 s in the milestone-0 spike. Blending them makes a regression
  * unattributable, so this harness measures the replay half and nothing else:
@@ -241,7 +241,7 @@ console.log(
         'Each size is measured twice: over the raw log, and over the same repository ' +
         'after compaction. The second column is the one that must stay flat.',
       note:
-        'On Fly, a client also pays machine wake (~1350ms, milestone-0 spike). ' +
+        'A client also pays container cold start (median 1770ms, Containers spike). ' +
         'These numbers are a control loop on the compaction threshold, not a pass/fail gate.',
       store: 'FileStore (local disk) — a real bucket adds one round trip per entry',
       platform: `${process.platform}/${process.arch}`,

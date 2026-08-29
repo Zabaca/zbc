@@ -1,0 +1,19 @@
+{
+  // worker/ imports the Cloudflare Workers runtime (Durable Objects, the
+  // Container class), whose ambient types conflict with the bun types src/ is
+  // compiled against — one program cannot hold both, so the two halves get one
+  // config each. src/ is deliberately NOT included: nothing in it ever runs in
+  // the Workers runtime.
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "lib": ["ES2022"],
+    "types": ["@cloudflare/workers-types"],
+    "strict": true,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "verbatimModuleSyntax": true
+  },
+  "include": ["worker"]
+}

@@ -9,7 +9,7 @@
  *
  * It covers the commands walgit runs and READS. It deliberately does not cover
  * the two places git is not a subprocess to be read but a transport to be
- * handed the socket: `ssh-shell.ts` execs `git-upload-pack`/`git-receive-pack`
+ * handed the socket: `git-backend.ts` runs `git http-backend`
  * with inherited stdio, and `git-backend.ts` streams `git http-backend` as CGI.
  * Both speak the pack protocol on their own stdio and must never be buffered.
  *
