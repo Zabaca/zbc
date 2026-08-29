@@ -82,6 +82,31 @@ if (!store) {
 const expiryMs = configuredExpiryMs()
 
 /**
+ * What this process actually booted with, printed once.
+ *
+ * The policy above is read at boot, and that is correct for a process — but the
+ * variables come from the WORKER (worker/index.ts forwards them), and the
+ * Worker picks up a deploy the moment it lands while the container keeps the
+ * environment it started with until it is restarted. A deploy that only
+ * changes an env var therefore changes nothing in here, exits 0, and leaves the
+ * edge stating a policy this process does not enforce: on 2026-08-29 the
+ * landing page promised a 24-hour window while the container still had expiry
+ * off and answered 404 to every sweep.
+ *
+ * There is no way to make one deploy reach both halves at once from in here.
+ * What there is, is the difference between a drift that is visible and one that
+ * is not — so the process says what it believes on the way up, and `wrangler
+ * tail` answers "does the container agree with the page?" in one line instead
+ * of by inference from a missing paragraph.
+ */
+console.log(
+  `walgit boot: public=${isPublic} appendOnly=${instructions.appendOnly} ` +
+    `retentionHours=${instructions.retentionHours ?? 'off'} ` +
+    `maxPush=${limits.maxPushBytes ?? 'unset'} maxRepo=${limits.maxRepoBytes ?? 'unset'} ` +
+    `store=${store ? 'configured' : 'MISSING'}`,
+)
+
+/**
  * One sweep, for real. `--yes` is the CLI's opt-in because a human at a
  * terminal should have to ask; a scheduled sweep IS the asking, and a dry run
  * on a timer would collect nothing forever while looking healthy.
