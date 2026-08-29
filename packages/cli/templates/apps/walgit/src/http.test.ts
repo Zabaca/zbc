@@ -63,7 +63,7 @@ describe('createHttpHandler', () => {
     // Dumb-HTTP object paths would serve raw loose objects and packs straight
     // off the cache directory, bypassing everything walgit is going to put in
     // front of the repo. Refused.
-    for (const path of ['/alpha.git/objects/info/packs', '/alpha.git/HEAD', '/alpha.git', '/']) {
+    for (const path of ['/alpha.git/objects/info/packs', '/alpha.git/HEAD', '/alpha.git']) {
       expect((await authorized(path)).status).toBe(404)
     }
   })
@@ -86,6 +86,29 @@ describe('createHttpHandler', () => {
     )
     expect(res.status).toBe(404)
     expect(created).toBe(0)
+  })
+
+  test('serves the instructions at the root, without a credential', async () => {
+    // An agent that had to authenticate to learn how to authenticate would
+    // have nowhere to start, so this route sits in front of the auth check.
+    const res = await handler()(new Request('https://walgit.test/'))
+    expect(res.status).toBe(200)
+    expect(res.headers.get('content-type')).toBe('text/plain; charset=utf-8')
+    expect(await res.text()).toContain('git push https://walgit.test/$NAME.git')
+  })
+
+  test('the instructions name the host the client actually reached', async () => {
+    const res = await handler()(
+      new Request('http://10.0.0.3:8080/', {
+        headers: { 'x-forwarded-host': 'walgit.zabaca.com', 'x-forwarded-proto': 'https' },
+      }),
+    )
+    expect(await res.text()).toContain('https://walgit.zabaca.com/$NAME.git')
+  })
+
+  test('the root is instructions only for a read; nothing else is routed there', async () => {
+    const res = await handler()(new Request('https://walgit.test/', { method: 'POST' }))
+    expect(res.status).toBe(401)
   })
 
   test('reports health without a credential, so the platform can probe it', async () => {

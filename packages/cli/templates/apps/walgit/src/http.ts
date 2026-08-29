@@ -10,6 +10,8 @@
  * token long before they have an SSH identity.
  */
 
+import type { InstructionsPolicy } from './instructions'
+import { renderInstructions } from './instructions'
 import type { ResolvedRepo } from './repo'
 import { resolveRepo } from './repo'
 
@@ -32,6 +34,12 @@ export type HttpHandlerDeps = {
    */
   syncRepo?: (repo: ResolvedRepo) => Promise<unknown>
   runBackend: (req: BackendRequest) => Promise<Response>
+  /**
+   * What `GET /` tells an agent about this instance. Rendered from the limits
+   * actually configured, so the page can never promise a rule the deployment
+   * does not enforce.
+   */
+  instructions?: InstructionsPolicy
 }
 
 const UNAUTHORIZED = () =>
@@ -60,6 +68,16 @@ export function createHttpHandler(deps: HttpHandlerDeps): (req: Request) => Prom
     // reveals nothing but that a machine is up.
     if (url.pathname === '/_walgit/health') return new Response('ok\n')
 
+    // The instructions are the API surface, so they come BEFORE the credential
+    // check: an agent that has to authenticate to learn how to authenticate
+    // has nowhere to start. text/plain because the reader is a model with a
+    // default fetch, not a browser — no markup to parse to find the endpoint.
+    if (url.pathname === '/' && (request.method === 'GET' || request.method === 'HEAD')) {
+      return new Response(renderInstructions(publicOrigin(request, url), deps.instructions), {
+        headers: { 'content-type': 'text/plain; charset=utf-8' },
+      })
+    }
+
     if (!isAuthorized(request, deps.tokens)) return UNAUTHORIZED()
 
     const route = SMART_HTTP.exec(url.pathname)
@@ -86,6 +104,18 @@ export function createHttpHandler(deps: HttpHandlerDeps): (req: Request) => Prom
 
     return deps.runBackend({ repo, pathInfo: url.pathname, request })
   }
+}
+
+/**
+ * The host in the example has to be the host the agent typed. Behind a proxy
+ * (the deployment is fronted by a Worker) the request URL carries the internal
+ * address, so the forwarded headers win when present.
+ */
+function publicOrigin(request: Request, url: URL): string {
+  const host = request.headers.get('x-forwarded-host') ?? request.headers.get('host')
+  if (!host) return url.origin
+  const proto = request.headers.get('x-forwarded-proto') ?? url.protocol.replace(':', '')
+  return `${proto}://${host}`
 }
 
 function isAuthorized(request: Request, tokens: string[]): boolean {

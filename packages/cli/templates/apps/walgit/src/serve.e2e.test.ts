@@ -68,6 +68,7 @@ beforeAll(() => {
       ensureRepo: ensureBareRepo,
       syncRepo: (repo) => syncRepo(new FileStore(storeDir), repo),
       runBackend: runGitHttpBackend,
+      instructions: { appendOnly: true, retentionHours: 24, maxPushBytes: 99 * 1024 * 1024 },
     }),
   })
   origin = `http://walgit:${TOKEN}@127.0.0.1:${server.port}/alpha.git`
@@ -103,6 +104,41 @@ describe('smart-HTTP', () => {
     await git(first, 'push', 'origin', 'HEAD:refs/heads/main')
     expect((await git(second, 'fetch', 'origin')).status).toBe(0)
     expect((await git(second, 'log', '--oneline', 'origin/main')).out).toContain('second commit')
+  })
+
+  test('a plain fetch of the root returns instructions whose example works verbatim', async () => {
+    const res = await fetch(`http://127.0.0.1:${server.port}/`)
+    expect(res.status).toBe(200)
+    expect(res.headers.get('content-type')).toBe('text/plain; charset=utf-8')
+    const text = await res.text()
+    expect(text).not.toContain('<')
+
+    // The example is not paraphrased here: the push line is taken out of the
+    // served text and run, so a change to the copy that breaks the flow fails
+    // this test rather than reaching an agent.
+    const line = text
+      .split('\n')
+      .map((l) => l.trim())
+      .find((l) => l.startsWith('git push http'))
+    expect(line).toBeDefined()
+
+    const work = path.join(scratch, 'from-instructions')
+    fs.mkdirSync(work, { recursive: true })
+    fs.writeFileSync(path.join(work, 'file'), 'from the instructions\n')
+    await git(work, 'init', '.')
+    await git(work, 'add', '-A')
+    await git(work, '-c', 'user.email=agent@localhost', '-c', 'user.name=agent', 'commit', '-m', 'first')
+
+    // The one substitution: this instance still demands a credential, which
+    // public mode removes in a sibling ticket. Everything else — the path
+    // shape, the `.git` suffix and the refspec — is the served text's own.
+    const args = line!.split(' ').slice(1)
+    args[1] = args[1]!
+      .replace('$NAME', `instructions-${Date.now()}`)
+      .replace('http://', `http://walgit:${TOKEN}@`)
+    const pushed = await git(work, ...args)
+    expect(pushed.out).toContain('[new branch]')
+    expect(pushed.status).toBe(0)
   })
 
   test('an anonymous clone is refused', async () => {
