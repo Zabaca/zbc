@@ -27,6 +27,7 @@ import * as path from 'node:path'
 
 import { compact, configuredGraceMs, type CompactResult } from './compact'
 import { configuredDeleteGraceMs, deleteRepo } from './delete-repo'
+import { configuredExpiryMs, expireRepos } from './expire'
 import { collectGarbage } from './gc'
 import { materialize, round } from './materialize'
 import { normalizeRepoId, resolveRepo } from './repo'
@@ -51,7 +52,7 @@ export interface ParsedArgs {
  * `gc myrepo --yes myotherrepo` swallow a repo id: a flag takes the next token
  * only when it is declared to want one.
  */
-const KNOWN_VALUE_FLAGS = new Set(['min-age', 'repos-dir', 'grace', 'since', 'top'])
+const KNOWN_VALUE_FLAGS = new Set(['min-age', 'repos-dir', 'grace', 'after', 'since', 'top'])
 
 export function parseArgs(argv: readonly string[]): ParsedArgs {
   const positional: string[] = []
@@ -85,14 +86,16 @@ const USAGE = `walgit — operator CLI for a WAL-backed git host
   walgit compact <repo_id> [path]       repack the log into one entry, now
   walgit delete <repo_id...>            remove repositories entirely (dry run)
   walgit usage                          what the log says this service holds
+  walgit expire [repo_id...]            collect repos idle past the window (dry run)
 
 Options
   --repos-dir <dir>   where bare repos live (default: $WALGIT_REPOS_DIR)
   --json              machine-readable output
-  --yes               gc/delete: actually delete (without it, they only report)
+  --yes               gc/delete/expire: actually delete (else they only report)
   --force=false       compact: respect the entry-count threshold instead of forcing
   --min-age <minutes> gc: never collect an object younger than this (default 60)
-  --grace <minutes>   delete: how long a repo is tombstoned first (default 60)
+  --grace <minutes>   delete/expire: how long a repo is tombstoned first (default 60)
+  --after <hours>     expire: idle window (default $WALGIT_RETENTION_HOURS; unset = off)
   --since <duration>  usage: push window, e.g. 24h, 7d, 30m (default 24h)
   --top <n>           usage: how many repositories to name (0 = all, default 10)
 
@@ -296,6 +299,79 @@ async function deleteCommand(args: ParsedArgs, env: NodeJS.ProcessEnv): Promise<
 }
 
 /**
+ * Collect repositories nobody has pushed to for longer than the window.
+ *
+ * Named repositories may be given, but the point of the command is the bare
+ * form: it enumerates every repository in the store, which is exactly what `gc`
+ * refuses to do. The difference is what a wrong answer costs. `gc` deletes
+ * objects `index.json` does not name, so guessing the repo set there risks
+ * deleting a live repository's packs; expiry deletes only what the log itself
+ * dates as idle, and every case it cannot date resolves toward keeping.
+ *
+ * Off unless `WALGIT_RETENTION_HOURS` (or `--after`) says otherwise, because an
+ * instance that has not been told to expire anything must not.
+ */
+async function expireCommand(args: ParsedArgs, env: NodeJS.ProcessEnv): Promise<number> {
+  const afterFlag = args.flags.after
+  const windowMs =
+    typeof afterFlag === 'string' ? Number(afterFlag) * 3_600_000 : configuredExpiryMs(env)
+  if (windowMs !== null && (!Number.isFinite(windowMs) || windowMs <= 0)) {
+    console.error(
+      `walgit expire: --after must be a positive number of hours, got ${String(afterFlag)}`,
+    )
+    return MISUSE
+  }
+  const graceFlag = args.flags.grace
+  const graceMs =
+    typeof graceFlag === 'string' ? Number(graceFlag) * 60_000 : configuredDeleteGraceMs(env)
+  if (!Number.isFinite(graceMs) || graceMs < 0) {
+    console.error(`walgit expire: --grace must be a number of minutes, got ${String(graceFlag)}`)
+    return MISUSE
+  }
+
+  if (windowMs === null) {
+    // Not an error: an instance with no retention window is a valid instance,
+    // and the timer calling this should not start failing because of it.
+    emit(
+      args,
+      { collected: [], retained: [], windowMs: null, dryRun: true },
+      'expiry is not configured — set WALGIT_RETENTION_HOURS or pass --after <hours>',
+    )
+    return OK
+  }
+
+  const store = requireStore(env)
+  const dryRun = args.flags.yes !== true
+  const result = await expireRepos(store, {
+    windowMs,
+    graceMs,
+    dryRun,
+    reposDir: reposDirOf(args, env),
+    repoIds:
+      args.positional.length > 0 ? args.positional.map((r) => normalizeRepoId(r)) : undefined,
+  })
+
+  const lines: string[] = [
+    `window ${windowMs / 3_600_000}h — ${result.collected.length} collected, ` +
+      `${result.retained.length} retained`,
+  ]
+  for (const outcome of result.collected) {
+    const status = outcome.deletion?.status ?? 'collected'
+    lines.push(
+      `  ${dryRun ? 'would collect' : status} ${outcome.repoId} (${outcome.decision.reason})`,
+    )
+  }
+  // Retentions are named with their reason rather than counted: a repository
+  // that should have gone and did not is only debuggable if the run says why.
+  for (const outcome of result.retained) {
+    lines.push(`  kept ${outcome.repoId} (${outcome.decision.reason})`)
+  }
+  if (dryRun && result.collected.length > 0) lines.push('nothing was changed — re-run with --yes')
+  emit(args, result, lines.join('\n'))
+  return OK
+}
+
+/**
  * Force a compaction, bypassing the entry-count threshold.
  *
  * The threshold exists so compaction happens on its own after enough pushes;
@@ -395,6 +471,8 @@ export async function main(
         return await deleteCommand(args, env)
       case 'usage':
         return await usageCommand(args, env)
+      case 'expire':
+        return await expireCommand(args, env)
       default:
         console.error(`walgit: unknown command "${args.command}"\n\n${USAGE}`)
         return MISUSE

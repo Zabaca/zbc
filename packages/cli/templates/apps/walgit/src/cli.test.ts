@@ -351,3 +351,60 @@ describe('the command surface', () => {
     expect(out.join('\n')).toContain('invalid repository name')
   })
 })
+
+describe('walgit expire', () => {
+  /** Re-date a published repository's only entry, to make it look idle. */
+  async function backdate(repoId: string, hoursAgo: number): Promise<void> {
+    const { index, etag } = await loadIndex(store, repoId)
+    const ts = new Date(Date.now() - hoursAgo * 3_600_000).toISOString()
+    await commitIndex(store, { ...index, entries: index.entries.map((e) => ({ ...e, ts })) }, etag)
+  }
+
+  test('does nothing at all when no window is configured', async () => {
+    const { repoId } = await published()
+    await backdate(repoId, 100)
+
+    expect(await main(['expire', repoId, '--yes'], env)).toBe(0)
+    expect(out.join('\n')).toContain('expiry is not configured')
+    expect((await loadIndex(store, repoId)).index.deletion).toBeUndefined()
+  })
+
+  test('reads its window from WALGIT_RETENTION_HOURS — the var GET / promises', async () => {
+    const { repoId } = await published()
+    await backdate(repoId, 100)
+
+    expect(await main(['expire', repoId], { ...env, WALGIT_RETENTION_HOURS: '24' })).toBe(0)
+    expect(out.join('\n')).toContain('would collect')
+    // Dry run: described, not done.
+    expect((await loadIndex(store, repoId)).index.deletion).toBeUndefined()
+  })
+
+  test('collects the idle repository and names why each other one was kept', async () => {
+    const stale = (await published()).repoId
+    const fresh = (await published()).repoId
+    await backdate(stale, 100)
+
+    expect(await main(['expire', stale, fresh, '--after', '24', '--yes'], env)).toBe(0)
+    const text = out.join('\n')
+    expect(text).toContain(`tombstoned ${stale}`)
+    expect(text).toContain(`kept ${fresh}`)
+    expect(text).toContain('inside the 24h window')
+    expect((await loadIndex(store, stale)).index.deletion).toBeDefined()
+    expect((await loadIndex(store, fresh)).index.deletion).toBeUndefined()
+  })
+
+  test('a push extends life — the repository is retained on the next sweep', async () => {
+    const { repoId } = await published()
+    await backdate(repoId, 100)
+    // The agent pushes again: the newest entry is now, so the signal moves.
+    await backdate(repoId, 0)
+
+    expect(await main(['expire', repoId, '--after', '24', '--yes'], env)).toBe(0)
+    expect(out.join('\n')).toContain('inside the 24h window')
+    expect((await loadIndex(store, repoId)).index.deletion).toBeUndefined()
+  })
+
+  test('--after must be a positive number of hours', async () => {
+    expect(await main(['expire', '--after', 'soon'], env)).toBe(2)
+  })
+})
