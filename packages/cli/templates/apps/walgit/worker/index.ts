@@ -28,6 +28,7 @@ import { Container, getContainer } from '@cloudflare/containers'
 import {
   COLD_HEADER,
   INTERNAL_HEADERS,
+  INTERNAL_REQUEST_HEADER,
   SERVED_HEADER,
   classifyOutcome,
   classifyRequest,
@@ -134,6 +135,14 @@ export default {
     const facts = classifyRequest(request.method, url.pathname, url.search)
     const startedAt = Date.now()
 
+    // The container's expiry endpoint trusts INTERNAL_REQUEST_HEADER to mean "the
+    // scheduled handler asked". That is only true because this line makes it
+    // true: every request arriving from the internet has the header removed
+    // before it is proxied, whatever the client set it to. Done for ALL paths,
+    // not just the one, so a future internal endpoint inherits the guarantee
+    // instead of having to remember it.
+    const forwarded = stripInternal(request)
+
     let response: Response
     try {
       // No id, so one singleton container serves every repository. That is not a
@@ -141,7 +150,7 @@ export default {
       // and `sync.ts` reconciles on every access, so any container could take any
       // push — it is cache locality: a second instance starts with an empty disk
       // and materializes everything it is asked for from the log.
-      response = await getContainer(env.WALGIT_CONTAINER).fetch(request)
+      response = await getContainer(env.WALGIT_CONTAINER).fetch(forwarded)
     } catch (error) {
       // The container never answered, so nothing downstream can name this
       // refusal — it is an `edge` one by construction, and counting it as such
@@ -180,7 +189,11 @@ export default {
 
     if (!response.body) {
       record(env, ctx, metric)
-      return new Response(null, { status: response.status, statusText: response.statusText, headers })
+      return new Response(null, {
+        status: response.status,
+        statusText: response.statusText,
+        headers,
+      })
     }
 
     // Bytes served and total time are only known when the last byte is written,
@@ -205,8 +218,64 @@ export default {
         },
       }),
     )
-    return new Response(counted, { status: response.status, statusText: response.statusText, headers })
+    return new Response(counted, {
+      status: response.status,
+      statusText: response.statusText,
+      headers,
+    })
   },
+
+  /**
+   * The expiry sweeper's timer (`wrangler.jsonc` → `triggers.crons`).
+   *
+   * It lives here rather than inside the container because the container SLEEPS
+   * when idle: an interval running in there would stop firing precisely when
+   * nothing is keeping it awake, which is exactly the state a repository has to
+   * be in to be collectable. The Cron Trigger wakes it instead, and the wake is
+   * the only cost — a sweep with nothing to collect is one delimited LIST.
+   *
+   * The report is logged rather than swallowed, because "the sweeper runs on a
+   * schedule and its output is visible" is the requirement, and a sweep that
+   * deletes repositories silently is the one failure mode nobody notices until
+   * the repositories are gone. A deployment with no `WALGIT_RETENTION_HOURS`
+   * has no sweep endpoint at all: the container answers 404, this logs it, and
+   * nothing is collected — which is correct for an instance that never promised
+   * a retention window.
+   */
+  async scheduled(event: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
+    ctx.waitUntil(sweep(event, env))
+  },
+}
+
+async function sweep(event: ScheduledController, env: Env): Promise<void> {
+  const request = new Request('https://walgit.internal/_walgit/expire', {
+    method: 'POST',
+    headers: { [INTERNAL_REQUEST_HEADER]: '1' },
+  })
+  try {
+    const response = await getContainer(env.WALGIT_CONTAINER).fetch(request)
+    const body = (await response.text()).trim()
+    console.log(`walgit expire [cron ${event.cron}]: ${response.status} ${body}`)
+  } catch (error) {
+    // Logged, never thrown: a failed sweep is storage that stays a little
+    // longer, and over-retaining is the safe direction. Throwing would only
+    // turn it into an unhandled rejection nobody reads.
+    console.error(`walgit expire [cron ${event.cron}] failed: ${(error as Error).message}`)
+  }
+}
+
+/**
+ * The same request with any client-supplied INTERNAL_REQUEST_HEADER removed.
+ *
+ * Rebuilt rather than mutated — a Request's headers are immutable — with the
+ * body passed through by reference, so a 90 MiB push is not buffered to drop
+ * one header.
+ */
+function stripInternal(request: Request): Request {
+  if (!request.headers.has(INTERNAL_REQUEST_HEADER)) return request
+  const headers = new Headers(request.headers)
+  headers.delete(INTERNAL_REQUEST_HEADER)
+  return new Request(request, { headers })
 }
 
 /** The facts known before the container answers. */

@@ -37,6 +37,17 @@
   // here; `walgit usage` derives those from the log, and a second copy would
   // disagree with it. Analytics Engine keeps the data inside the account.
   "analytics_engine_datasets": [{ "binding": "WALGIT_METRICS", "dataset": "walgit_requests" }],
+  // The expiry sweeper's timer (worker/index.ts's `scheduled`). Hourly, not
+  // daily: the window is `WALGIT_RETENTION_HOURS`, so an hourly sweep bounds
+  // how far past the promise a repository can linger to one hour, and a sweep
+  // with nothing to collect is one delimited LIST plus a container wake.
+  //
+  // Safe in every deployment that shares this file, including a preview one:
+  // expiry is off unless `WALGIT_RETENTION_HOURS` is set, and the container
+  // then exposes no sweep endpoint at all, so the cron logs a 404 and collects
+  // nothing. Unlike a route, a Cron Trigger is per-Worker rather than per-zone,
+  // so it cannot be stolen by another deployment of this same config.
+  "triggers": { "crons": ["0 * * * *"] },
   "migrations": [{ "tag": "v1", "new_sqlite_classes": ["WalgitContainer"] }]
   // No r2_buckets binding. The container writes the log itself, outside the
   // Worker's binding graph, so it needs real S3 credentials (WALGIT_S3_*) —
