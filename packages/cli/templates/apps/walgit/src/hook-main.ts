@@ -14,12 +14,14 @@
  */
 
 import { spawn } from 'node:child_process'
+import * as fs from 'node:fs'
 import * as path from 'node:path'
 
 import { appendOnlyEnabled, checkAppendOnly } from './append-only'
 import { configuredThreshold, isCompactionDue } from './compact'
+import { checkSize, limitsEnforced, limitsFromEnv, liveBytes } from './limits'
 import { clearPending, invocationId, markConsumed, readPending, sweepPending } from './pending'
-import { parseRefChanges, preReceive, publishPush } from './push'
+import { parseRefChanges, preReceive, publishPush, quarantinePack } from './push'
 import { requireStore, storeFromEnv } from './store-env'
 import { loadIndex } from './wal-index'
 
@@ -67,12 +69,35 @@ async function main(): Promise<number> {
         return 1
       }
     }
+    const quarantineDir = process.env.GIT_QUARANTINE_PATH || process.env.GIT_OBJECT_DIRECTORY
     const store = requireStore()
+
+    // Size, for the same reason and at the same moment. The pack is in the
+    // quarantine and its size is exact, so the answer costs one stat and (only
+    // when a repository total is configured) one index read — against the ~37 s
+    // an oversized push otherwise spends uploading before the EDGE refuses it
+    // with something that reads like a dropped connection. See src/limits.ts.
+    const limits = limitsFromEnv()
+    if (limitsEnforced(limits)) {
+      const found = quarantineDir ? quarantinePack(quarantineDir) : null
+      const pushBytes = found ? fs.statSync(found.pack).size : 0
+      // Skipped for a ref-only push: it adds nothing, so neither cap can move.
+      if (pushBytes > 0) {
+        const repoBytes =
+          limits.maxRepoBytes === null ? 0 : liveBytes((await loadIndex(store, repoId)).index)
+        const verdict = checkSize({ repoId, pushBytes, repoBytes, limits })
+        if (!verdict.ok) {
+          process.stderr.write(`${verdict.message}\n`)
+          return 1
+        }
+      }
+    }
+
     await preReceive({
       store,
       repoId,
       gitDir,
-      quarantineDir: process.env.GIT_QUARANTINE_PATH || process.env.GIT_OBJECT_DIRECTORY,
+      quarantineDir,
     })
     fault('after-upload')
     await stall()

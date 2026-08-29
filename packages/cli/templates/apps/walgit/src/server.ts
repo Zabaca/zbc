@@ -15,6 +15,7 @@ import { ensureBareRepo } from './cache'
 import { createHttpHandler } from './http'
 import { runGitHttpBackend } from './git-backend'
 import type { InstructionsPolicy } from './instructions'
+import { limitsFromEnv } from './limits'
 import { storeFromEnv } from './store-env'
 import { syncRepo } from './sync'
 
@@ -42,12 +43,15 @@ if (tokens.length === 0) {
  * than a copy of it that can drift. Unset means unenforced, and unenforced
  * limits are simply not mentioned.
  */
+const limits = limitsFromEnv()
 const instructions: InstructionsPolicy = {
   publicAccess: process.env.WALGIT_PUBLIC === '1',
   appendOnly: process.env.WALGIT_APPEND_ONLY === '1',
   retentionHours: positiveNumber(process.env.WALGIT_RETENTION_HOURS),
-  maxPushBytes: positiveNumber(process.env.WALGIT_MAX_PUSH_BYTES),
-  maxRepoBytes: positiveNumber(process.env.WALGIT_MAX_REPO_BYTES),
+  // Not re-parsed here: `limitsFromEnv` is the function `pre-receive` enforces
+  // with, so the page cannot state a cap the hook does not hold.
+  maxPushBytes: limits.maxPushBytes ?? undefined,
+  maxRepoBytes: limits.maxRepoBytes ?? undefined,
 }
 
 function positiveNumber(raw: string | undefined): number | undefined {

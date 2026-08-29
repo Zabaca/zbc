@@ -26,6 +26,7 @@ the **garbage collection** that keeps the log from growing without bound:
 | `src/gc.ts` | delete superseded and orphaned objects, a grace period later |
 | `src/delete-repo.ts` | remove a whole repository: tombstone, wait, then index-first deletion |
 | `src/expire.ts` | decide WHICH repositories go: idle since their last push, past the window |
+| `src/limits.ts` | the push-size and repository-total caps, refused in `pre-receive` before anything is uploaded |
 | `src/verify.ts`, `src/cli.ts` | the operator CLI: inspect, rebuild, verify, reclaim |
 | `src/git.ts`, `src/mkdir-lock.ts` | the two shared primitives: running a git plumbing command, and locking with `mkdir` |
 
@@ -396,6 +397,11 @@ cloudflare instance's `workerSecrets`):
   its local cache and **refuses every push**. `WALGIT_STORE_DIR` substitutes a
   local directory for the bucket, which is for development and tests only.
 
+Optional instance configuration (plain env, not secrets): `WALGIT_APPEND_ONLY`,
+`WALGIT_MAX_PUSH_BYTES`, `WALGIT_MAX_REPO_BYTES`, `WALGIT_RETENTION_HOURS`,
+`WALGIT_PUBLIC` — each unset means the behaviour is off and `GET /` does not
+claim it.
+
 The container sleeps when idle and the next request wakes it — one regime,
 median 1.77 s, spread 0.93–6.45 s, and a ten-minute idle measures the same. Its
 10.67 GiB disk is **wiped completely on every restart**, which is exactly the
@@ -429,6 +435,48 @@ commit the branch holds today. The message names the repository, states the
 rule, and offers a free name (`<repo>-<8 hex>`) to push to instead — a wave of
 agents on near-identical prompts all reach for `test`, and this message is the
 first thing walgit ever says to most of them.
+
+## Size limits
+
+`WALGIT_MAX_PUSH_BYTES` caps a single push; `WALGIT_MAX_REPO_BYTES` caps what
+one repository holds in total. Both are **unset by default** — an instance opts
+in, and an instance that does not set them enforces nothing and claims nothing.
+`GET /` states each cap it enforces, rendered through the same
+`limitsFromEnv` the hook enforces with, so the page cannot promise a limit the
+push path does not hold.
+
+The refusal happens in `pre-receive` (`src/limits.ts`), where the pack is
+sitting in the quarantine at a known size and nothing has been written to the
+object store. That earliness is the whole feature. `http.postBuffer` defaults to
+1 MiB, so every real push is chunked, and a chunked body is uploaded IN FULL
+before a proxy can answer: measured against Fly, 99 MiB passes and 100 MiB is
+refused only after all 104,879,625 bytes have gone up — 37 s of upload to be
+told `RPC failed; HTTP 413` and `unexpected disconnect`, which reads like a
+dropped network and gets retried. A documented cap must therefore sit under the
+**chunked** cutoff, not the `Content-Length` one (which 413s at 101 MiB after
+~2 MB): ~99 MiB is the safe ceiling for the public instance, with a repository
+total of ~250 MB.
+
+The repository total needs no new state. Every WAL entry carries its `size`, so
+the total is a sum over the entries above the compaction frontier — the live
+ones. Superseded entries are excluded on purpose: `gc.ts` deletes them, and
+counting them would charge a repository twice for history it holds once, so a
+repository that compacted itself would appear to have grown.
+
+The two refusals say different things, because they are different problems. Too
+big a push is one client sending too much at once and can be split; a full
+repository is many small pushes that were each fine, and splitting will not help
+— that one names a fresh repository instead. Both state the cap and the actual
+size in bytes as well as units, and both say the push was not a network failure,
+because the message they replace is one an agent retries.
+
+`receive.maxInputSize` is set as a backstop, at **twice** the cap rather than at
+it. git hands that value to `index-pack`, which fails while the pack is still
+being read — before `pre-receive` runs — so a backstop set to the cap would win
+every race and every client would read `fatal: pack exceeds maximum allowed
+size` instead of walgit's message. At twice the cap the hook owns every refusal
+a real client can provoke, and git still bounds a pack far enough past the cap
+that a bug in the hook is the likelier explanation.
 
 ## Authorization, today
 
