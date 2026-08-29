@@ -1,5 +1,5 @@
 /**
- * The seven scenarios from the walgit design, as executable specs.
+ * The scenarios from the walgit design, as executable specs.
  *
  * They are numbered and worded to match the design so a reader can hold the
  * document and this file side by side. Each one returns the observations it
@@ -8,7 +8,8 @@
  * weakened into tautologies without changing a single assertion.
  *
  * See docs/adr/0007-walgit-object-storage-holds-the-log.md in the zbc
- * repository for why these are the seven that matter.
+ * repository for why the first seven are the ones that matter; scenario 8 is
+ * the ref-event stream of docs/adr/0009.
  */
 
 import * as fs from 'node:fs'
@@ -20,7 +21,7 @@ import { materialize } from '../src/materialize'
 import { resolveRepo } from '../src/repo'
 import { loadIndex, type WalIndex } from '../src/wal-index'
 import { LATENCY_BASELINE, type LatencyCeiling } from './latency-baseline'
-import { clone, commit, git, gitOk, sleep, type Run } from './harness'
+import { EventsEndpoint, clone, commit, git, gitOk, sleep, type Run } from './harness'
 
 export interface Scenario {
   n: number
@@ -516,6 +517,134 @@ function loadCeilings(): Record<string, LatencyCeiling> {
   return JSON.parse(fs.readFileSync(override, 'utf8')) as Record<string, LatencyCeiling>
 }
 
+// ── 8. Ref events ───────────────────────────────────────────────────────────
+
+/**
+ * How long a push that must announce NOTHING is given to prove it.
+ *
+ * A negative is only as strong as the wait behind it: assert immediately and
+ * the scenario passes because the announcement had not arrived yet. This is an
+ * announcement over loopback from a hook that has already exited, so a second
+ * is orders of magnitude more than it needs.
+ */
+const SILENCE_WINDOW_MS = 1_000
+
+const refEvents: Scenario = {
+  n: 8,
+  name: 'Ref events — a subscriber sees a real push, and never sees one that lost',
+  async run(run) {
+    const repoId = run.repoId('events')
+    const endpoint = new EventsEndpoint()
+    await endpoint.start()
+    try {
+      // Both nodes announce to the same endpoint, which is what makes the
+      // third check possible: the loser of a compare-and-swap has somewhere to
+      // announce to, and still announces nothing.
+      const eventsEnv = {
+        WALGIT_EVENTS_URL: endpoint.url,
+        WALGIT_EVENTS_TOKEN: endpoint.token,
+      }
+      const a = await run.node('events-a', eventsEnv)
+      const b = await run.node('events-b', eventsEnv)
+      endpoint.refsFrom(a)
+
+      const work = await clone(run, a, repoId, 'work')
+      const seed = await commit(work, 'seed\n')
+      assert(
+        (await git(work, 'push', 'origin', 'HEAD:refs/heads/main')).status === 0,
+        'the seed push failed',
+      )
+
+      // Subscribed AFTER the seed push, so the handshake has something to be
+      // right about: a subscriber that connects to a repository already in
+      // motion must be told where it stands before any event fires.
+      const subscriber = await endpoint.subscribe([{ repo: repoId }])
+      const handshakeMain = subscriber.handshake?.refs.find((r) => r.ref === 'refs/heads/main')
+      assert(
+        handshakeMain?.sha === seed,
+        `handshake said ${handshakeMain?.sha ?? 'nothing'} for main, expected ${seed}`,
+      )
+
+      // 1. A real push, over a real socket.
+      const pushed = await commit(work, 'pushed\n')
+      assert(
+        (await git(work, 'push', 'origin', 'HEAD:refs/heads/main')).status === 0,
+        'the push under observation failed',
+      )
+      const advanced = await subscriber.next((e) => e.ref === 'refs/heads/main' && e.sha === pushed)
+
+      // 2. A ref-only push. `git push` sends no pack at all here — the objects
+      // are already on the server — so a hook path that only fires when
+      // something was uploaded would pass every other check and fail this one.
+      const beforeRelease = subscriber.events.length
+      assert(
+        (await git(work, 'push', 'origin', 'refs/heads/main:refs/heads/release')).status === 0,
+        'the ref-only push failed',
+      )
+      const release = await subscriber.next(
+        (e) => e.ref === 'refs/heads/release' && e.sha === pushed,
+      )
+      assert(
+        subscriber.events.length > beforeRelease,
+        'the ref-only push arrived as no new message',
+      )
+
+      // 3. The loser announces nothing. Two clones from two different nodes,
+      // as in scenario 3, so the race is resolved by the store's
+      // compare-and-swap rather than by one machine's lock — and the push that
+      // loses it never reaches `post-receive`, which is the ordering the
+      // announcement's correctness rests on (src/announce.ts).
+      const left = await clone(run, a, repoId, 'left')
+      const right = await clone(run, b, repoId, 'right')
+      const leftOid = await commit(left, 'left\n')
+      const rightOid = await commit(right, 'right\n')
+      const [pushLeft, pushRight] = await Promise.all([
+        git(left, 'push', 'origin', 'HEAD:refs/heads/main'),
+        git(right, 'push', 'origin', 'HEAD:refs/heads/main'),
+      ])
+      const winners = [pushLeft, pushRight].filter((r) => r.status === 0)
+      assert(
+        winners.length === 1,
+        `expected exactly one winner, got ${winners.length}\nleft:\n${pushLeft.out}\nright:\n${pushRight.out}`,
+      )
+      const winnerOid = pushLeft.status === 0 ? leftOid : rightOid
+      const loserOid = pushLeft.status === 0 ? rightOid : leftOid
+
+      await subscriber.next((e) => e.ref === 'refs/heads/main' && e.sha === winnerOid)
+      await sleep(SILENCE_WINDOW_MS)
+      // Asserted against what the endpoint was TOLD, not against what the
+      // socket received: an announcement the fan-out happened to drop would
+      // otherwise read as a push that never announced.
+      assert(
+        !endpoint.announced.some((e) => e.sha === loserOid),
+        `the loser ${loserOid.slice(0, 8)} was announced`,
+      )
+      assert(
+        !subscriber.events.some((e) => e.sha === loserOid),
+        `the loser ${loserOid.slice(0, 8)} reached the subscriber`,
+      )
+
+      const { index } = await loadIndex(run.store, repoId)
+      assert(
+        index.refs['refs/heads/main'] === winnerOid,
+        'the log does not name the push the subscriber was told about',
+      )
+
+      return [
+        `handshake reported main at ${seed.slice(0, 8)} from the Index before any event`,
+        `push ${pushed.slice(0, 8)} reached the subscriber as ${advanced.ref} over a real socket`,
+        `ref-only push (no pack) reached it as ${release.ref} at ${release.sha?.slice(0, 8)}`,
+        `the compare-and-swap loser ${loserOid.slice(0, 8)} announced nothing in ` +
+          `${SILENCE_WINDOW_MS}ms; the winner ${winnerOid.slice(0, 8)} arrived`,
+        'NOTE: the sockets are held by a Bun server, not a Durable Object — the ' +
+          'decisions are worker/events.ts and worker/outbox.ts either way',
+      ]
+    } finally {
+      endpoint.stop()
+    }
+  },
+}
+
 export const SCENARIOS: Scenario[] = [
   durability,
   noPhantomAcks,
@@ -524,4 +653,5 @@ export const SCENARIOS: Scenario[] = [
   compactionSafety,
   idleRoundTrip,
   restoreLatency,
+  refEvents,
 ]
