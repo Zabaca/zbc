@@ -31,6 +31,12 @@
   "durable_objects": {
     "bindings": [{ "class_name": "WalgitContainer", "name": "WALGIT_CONTAINER" }]
   },
+  // Request-level telemetry: clones, bytes served, latency, cold starts and
+  // refusals by kind — the half of observability the write-ahead log cannot
+  // produce (worker/telemetry.ts). Storage and push volume are NOT written
+  // here; `walgit usage` derives those from the log, and a second copy would
+  // disagree with it. Analytics Engine keeps the data inside the account.
+  "analytics_engine_datasets": [{ "binding": "WALGIT_METRICS", "dataset": "walgit_requests" }],
   "migrations": [{ "tag": "v1", "new_sqlite_classes": ["WalgitContainer"] }]
   // No r2_buckets binding. The container writes the log itself, outside the
   // Worker's binding graph, so it needs real S3 credentials (WALGIT_S3_*) —
