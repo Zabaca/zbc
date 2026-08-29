@@ -18,6 +18,7 @@
 import * as fs from 'node:fs'
 import * as path from 'node:path'
 
+import { appendOnlyEnabled } from './append-only'
 import { git, gitOrThrow } from './git'
 import { installHooks } from './hooks'
 import { sweepPending } from './pending'
@@ -100,6 +101,15 @@ export function ensureBareRepo(repo: ResolvedRepo): ResolvedRepo {
   // disagrees with it.
   ensureConfig(repo.dir, 'receive.autogc', 'false')
   ensureConfig(repo.dir, 'gc.auto', '0')
+  // The backstop under `pre-receive`'s append-only check. git enforces these
+  // AFTER the hook, so they never produce the message a client reads in
+  // practice — they are here so a bug in the hook cannot cost anyone history.
+  // Written on every access rather than at creation, because the instance can
+  // turn the flag on over repositories that already exist.
+  if (appendOnlyEnabled()) {
+    ensureConfig(repo.dir, 'receive.denyNonFastForwards', 'true')
+    ensureConfig(repo.dir, 'receive.denyDeletes', 'true')
+  }
   // The hooks ARE the push path. Re-installed on every access for the same
   // reason as the config above: a repo that arrived here by any other route
   // would otherwise accept pushes that never reach the write-ahead log.
