@@ -429,7 +429,8 @@ cloudflare instance's `workerSecrets`):
 Optional instance configuration (plain env, not secrets): `WALGIT_APPEND_ONLY`,
 `WALGIT_MAX_PUSH_BYTES`, `WALGIT_MAX_REPO_BYTES`, `WALGIT_RETENTION_HOURS`,
 `WALGIT_PUBLIC` — each unset means the behaviour is off and `GET /` does not
-claim it.
+claim it. `WALGIT_EVENTS_URL` and `WALGIT_EVENTS_TOKEN` (a secret) turn on the
+ref-event stream below.
 
 The container sleeps when idle and the next request wakes it — one regime,
 median 1.77 s, spread 0.93–6.45 s, and a ten-minute idle measures the same. Its
@@ -506,6 +507,51 @@ every race and every client would read `fatal: pack exceeds maximum allowed
 size` instead of walgit's message. At twice the cap the hook owns every refusal
 a real client can provoke, and git still bounds a pack far enough past the cap
 that a bug in the hook is the likelier explanation.
+
+## Ref events
+
+An agent working in a sandbox cannot be told anything: it has no ingress, no
+stable address and often no listening port, so a webhook has nowhere to go.
+Every agent therefore pays a background tax — *is my local main still current?*
+— one fetch and one slice of context at a time, and almost every answer is
+"nothing changed". The stream inverts the direction: the client dials out once
+and is told.
+
+Set both `WALGIT_EVENTS_URL` (this deployment's own public origin) and
+`WALGIT_EVENTS_TOKEN` (a shared secret, in `workerSecrets`) to turn it on. With
+either unset there is no endpoint at all — a subscriber gets the same 404 as for
+any other path that does not exist.
+
+```
+# one outbound WebSocket, the same credential a clone needs
+→ {"watch":[{"repo":"my-thing","refs":["refs/heads/main"]}]}
+← {"ok":true,"refs":[{"repo":"my-thing","ref":"refs/heads/main","sha":"9f2c…"}]}
+← {"repo":"my-thing","ref":"refs/heads/main","sha":"0ab7…"}
+← {"repo":"my-thing","ref":"refs/heads/main","sha":null}
+```
+
+Omit `refs` to watch every ref in a repository; `sha: null` is a deletion. The
+handshake answers with current state read from `index.json`, so connect and
+catch-up are one operation and there is no window between them in which a push
+is missed by both.
+
+Events are **latest state, not a log**: no cursor, no `since`, no sequence
+number anywhere on the wire. A reconnecting subscriber gets current state, which
+is the only answer a client asking "is my main current?" can act on — replay
+would be a second source of truth beside the Index.
+
+The push path announces from `post-receive` (`src/announce.ts`), which git runs
+only once the ref transaction committed — that is, only once the
+compare-and-swap on `index.json` won. A push that lost it is rejected and never
+reaches that hook, so nobody is ever told about a push that then lost. The
+announcement is authenticated with `WALGIT_EVENTS_TOKEN`, bounded to two
+seconds, and every failure is logged and swallowed: a notification outage must
+never be the reason a push fails.
+
+Subscribing takes exactly the credential a read takes — an event is a strict
+subset of what a clone hands over — so a public deployment has a public stream.
+Sockets are held by a Durable Object using the hibernation API, so watching a
+quiet repository costs storage rather than duration.
 
 ## Authorization, today
 

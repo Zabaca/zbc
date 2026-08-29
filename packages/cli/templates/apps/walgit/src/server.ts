@@ -20,6 +20,7 @@ import { limitsFromEnv } from './limits'
 import type { ObjectStore } from './store'
 import { storeFromEnv } from './store-env'
 import { syncRepo } from './sync'
+import { loadIndex } from './wal-index'
 
 const reposDir = process.env.WALGIT_REPOS_DIR ?? '/srv/walgit/repos'
 const port = Number(process.env.PORT ?? 8080)
@@ -143,6 +144,11 @@ try {
     // report either way, but a deployment that cannot collect anything should
     // not answer as though it might.
     sweep: store && expiryMs !== null ? () => runSweep(store, expiryMs) : undefined,
+    // Answered from the Index, so a ref-event handshake states what is
+    // published rather than what this node's disk happens to hold. Absent
+    // without a store, in which case there is nothing authoritative to read
+    // and the endpoint should not exist.
+    readRefs: store ? async (repoId) => (await loadIndex(store, repoId)).index.refs : undefined,
   })
 } catch (err) {
   // Refusing to boot beats booting a half-configured git host — either an open

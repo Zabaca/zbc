@@ -64,6 +64,17 @@ export type HttpHandlerDeps = {
    * Cron Trigger wakes it instead (`worker/index.ts`).
    */
   sweep?: () => Promise<unknown>
+  /**
+   * The Index's ref state for one repository — what a ref-event subscriber's
+   * handshake is answered with (`worker/events-do.ts`).
+   *
+   * Read from `index.json` rather than from the bare repo on disk, because the
+   * Index is the source of truth and the disk is a cache: answering from the
+   * cache would tell a subscriber where this node happens to stand, which is
+   * exactly the stale answer the whole design exists to avoid. Optional, so an
+   * instance with no store — or no event stream — simply does not answer.
+   */
+  readRefs?: (repoId: string) => Promise<Record<string, string>>
 }
 
 /**
@@ -164,6 +175,26 @@ function createRouter(deps: HttpHandlerDeps): (req: Request) => Promise<Response
       if (request.headers.get(INTERNAL_HEADER) !== '1') return NOT_FOUND()
       const report = await deps.sweep()
       return new Response(`${JSON.stringify(report)}\n`, {
+        headers: { 'content-type': 'application/json; charset=utf-8' },
+      })
+    }
+
+    // Current ref state, for the event stream's handshake. Internal for the
+    // same reason expiry is: it is not part of the git protocol, and the Worker
+    // strips INTERNAL_HEADER from everything arriving from the internet, so a
+    // request carrying it can only have come from the Worker itself.
+    if (url.pathname === '/_walgit/refs') {
+      if (!deps.readRefs || request.method !== 'GET') return NOT_FOUND()
+      if (request.headers.get(INTERNAL_HEADER) !== '1') return NOT_FOUND()
+      const requested = url.searchParams.get('repo') ?? ''
+      let repoId: string
+      try {
+        repoId = resolveRepo(deps.reposDir, requested).repoId
+      } catch {
+        return NOT_FOUND()
+      }
+      const refs = await deps.readRefs(repoId)
+      return new Response(`${JSON.stringify({ repo: repoId, refs })}\n`, {
         headers: { 'content-type': 'application/json; charset=utf-8' },
       })
     }

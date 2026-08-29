@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { REJECT_HEADER, SERVED_HEADER, createHttpHandler } from './http'
+import { createHttpHandler, INTERNAL_HEADER, REJECT_HEADER, SERVED_HEADER } from './http'
 
 const handler = () =>
   createHttpHandler({
@@ -130,7 +130,9 @@ describe('createHttpHandler', () => {
   })
 
   test('names the kind of each refusal it makes, for counting by kind', async () => {
-    const unauthorized = await handler()(new Request('https://walgit.test/alpha.git/git-upload-pack'))
+    const unauthorized = await handler()(
+      new Request('https://walgit.test/alpha.git/git-upload-pack'),
+    )
     expect(unauthorized.headers.get(REJECT_HEADER)).toBe('unauthorized')
 
     const notFound = await handler()(
@@ -182,7 +184,9 @@ describe('public mode', () => {
   })
 
   test('an unknown path is still 404, not an open door', async () => {
-    const res = await publicHandler()(new Request('https://walgit.test/alpha.git/objects/info/packs'))
+    const res = await publicHandler()(
+      new Request('https://walgit.test/alpha.git/objects/info/packs'),
+    )
     expect(res.status).toBe(404)
   })
 
@@ -202,5 +206,57 @@ describe('public mode', () => {
         runBackend: async () => new Response('backend ran'),
       }),
     ).toThrow(/no tokens configured and public mode is off/)
+  })
+})
+
+describe('the internal refs endpoint', () => {
+  const refsHandler = (readRefs?: (repoId: string) => Promise<Record<string, string>>) =>
+    createHttpHandler({
+      reposDir: '/srv/repos',
+      tokens: ['s3cret'],
+      ensureRepo: (repo) => repo,
+      runBackend: async () => new Response('backend ran'),
+      readRefs,
+    })
+
+  const refs = { 'refs/heads/main': 'a'.repeat(40) }
+
+  test('answers the Worker, with the ref state a handshake is built from', async () => {
+    const res = await refsHandler(async () => refs)(
+      new Request('https://walgit.test/_walgit/refs?repo=alpha', {
+        headers: { [INTERNAL_HEADER]: '1' },
+      }),
+    )
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual({ repo: 'alpha', refs })
+  })
+
+  test('is unreachable from the internet', async () => {
+    // The Worker strips INTERNAL_HEADER from everything it proxies, so a
+    // request carrying it can only have been originated by the Worker itself.
+    const res = await refsHandler(async () => refs)(
+      new Request('https://walgit.test/_walgit/refs?repo=alpha', {
+        headers: { authorization: 'Bearer s3cret' },
+      }),
+    )
+    expect(res.status).toBe(404)
+  })
+
+  test('does not exist without a store to read the Index from', async () => {
+    const res = await refsHandler(undefined)(
+      new Request('https://walgit.test/_walgit/refs?repo=alpha', {
+        headers: { [INTERNAL_HEADER]: '1' },
+      }),
+    )
+    expect(res.status).toBe(404)
+  })
+
+  test('a bad repo name is refused by the same gate a path goes through', async () => {
+    const res = await refsHandler(async () => refs)(
+      new Request('https://walgit.test/_walgit/refs?repo=../etc', {
+        headers: { [INTERNAL_HEADER]: '1' },
+      }),
+    )
+    expect(res.status).toBe(404)
   })
 })
