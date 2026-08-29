@@ -21,10 +21,11 @@ const BUN = process.execPath
 const HOOK_MAIN = path.join(import.meta.dir, 'hook-main.ts')
 
 /**
- * `post-receive` is here for compaction and nothing else. It runs after the
+ * `post-receive` is here for compaction and for ref events. It runs after the
  * refs have moved and after the push is durable, which makes it the only hook
- * where doing work cannot cost correctness — and it hands that work to a
- * detached process so it does not cost latency either.
+ * where doing work cannot cost correctness — compaction is handed to a detached
+ * process so it does not cost latency either, and the ref-event announcement is
+ * bounded and swallows its own failures (src/announce.ts).
  */
 const HOOKS = ['pre-receive', 'reference-transaction', 'post-receive'] as const
 

@@ -28,6 +28,15 @@
 import { Container, getContainer } from '@cloudflare/containers'
 
 import { containerEnv, fingerprintEnv } from './container-env'
+import {
+  ANNOUNCE_PATH,
+  EVENTS_PATH,
+  authorizeAnnounce,
+  authorizeSubscribe,
+  eventsEnabled,
+  parseTokens,
+} from './events'
+import { BROADCAST_PATH, EVENTS_OBJECT_NAME, WalgitEvents } from './events-do'
 import { type LandingFacts, renderLanding, wantsLanding } from './landing'
 import {
   COLD_HEADER,
@@ -66,7 +75,19 @@ export interface Env {
    * binding simply records nothing, and serves exactly as before.
    */
   WALGIT_METRICS?: AnalyticsEngineDataset
+  /**
+   * The ref-event stream (worker/events.ts). Off unless `WALGIT_EVENTS_TOKEN`
+   * is set: without it nothing could publish an event, so the endpoints do not
+   * exist rather than existing and staying silent. The token is the shared
+   * secret the container's push path presents when it announces; the container
+   * gets it, and the URL to announce to, through the forward list.
+   */
+  WALGIT_EVENTS_TOKEN?: string
+  WALGIT_EVENTS_URL?: string
+  WALGIT_EVENTS: DurableObjectNamespace<WalgitEvents>
 }
+
+export { WalgitEvents }
 
 /** Where `reconcileEnv` remembers the environment the container booted with. */
 const ENV_FINGERPRINT_KEY = 'container-env-fingerprint'
@@ -230,6 +251,20 @@ export default {
       })
     }
 
+    // The ref-event stream, answered at the edge for the same reason the
+    // landing page is: a subscription is a socket the container has no reason
+    // to hold, and holding one would keep the single container awake for as
+    // long as anybody is watching. When the feature is unconfigured neither
+    // path is claimed at all — the request falls through to the container,
+    // which does not route it, and the client gets the same 404 as for any
+    // other path that does not exist.
+    if (
+      (url.pathname === EVENTS_PATH || url.pathname === ANNOUNCE_PATH) &&
+      eventsEnabled(env.WALGIT_EVENTS_TOKEN)
+    ) {
+      return events(request, url, env)
+    }
+
     const facts = classifyRequest(request.method, url.pathname, url.search)
 
     // The container's expiry endpoint trusts INTERNAL_REQUEST_HEADER to mean "the
@@ -342,6 +377,52 @@ export default {
   async scheduled(event: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
     ctx.waitUntil(sweep(event, env))
   },
+}
+
+/**
+ * The two ends of the ref-event stream: a subscriber connecting, and the push
+ * path publishing.
+ *
+ * Both are gated here rather than inside the Durable Object, because this is
+ * the layer that holds the environment — the read tokens and the announce
+ * secret — and the object should not carry a second copy of either. What it
+ * gets is a request that has already been allowed.
+ */
+async function events(request: Request, url: URL, env: Env): Promise<Response> {
+  const stub = env.WALGIT_EVENTS.get(env.WALGIT_EVENTS.idFromName(EVENTS_OBJECT_NAME))
+
+  if (url.pathname === ANNOUNCE_PATH) {
+    if (request.method !== 'POST') return new Response('method not allowed\n', { status: 405 })
+    if (!authorizeAnnounce(request.headers.get('authorization'), env.WALGIT_EVENTS_TOKEN ?? '')) {
+      return new Response('unauthorized\n', { status: 401 })
+    }
+    return stub.fetch(
+      new Request(`https://walgit.internal${BROADCAST_PATH}`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: request.body,
+      }),
+    )
+  }
+
+  if (request.headers.get('upgrade')?.toLowerCase() !== 'websocket') {
+    return new Response('expected a websocket upgrade\n', { status: 426 })
+  }
+  // Exactly the credential a read of the repository needs — see
+  // `authorizeSubscribe`. The challenge header is sent for the same reason the
+  // container sends it: a client that can be prompted should be.
+  const allowed = authorizeSubscribe({
+    authorization: request.headers.get('authorization'),
+    tokens: parseTokens(env.WALGIT_HTTP_TOKENS),
+    isPublic: env.WALGIT_PUBLIC === '1',
+  })
+  if (!allowed) {
+    return new Response('unauthorized\n', {
+      status: 401,
+      headers: { 'www-authenticate': 'Basic realm="walgit"' },
+    })
+  }
+  return stub.fetch(request)
 }
 
 async function sweep(event: ScheduledController, env: Env): Promise<void> {

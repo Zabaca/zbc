@@ -29,7 +29,15 @@
     }
   ],
   "durable_objects": {
-    "bindings": [{ "class_name": "WalgitContainer", "name": "WALGIT_CONTAINER" }]
+    "bindings": [
+      { "class_name": "WalgitContainer", "name": "WALGIT_CONTAINER" },
+      // The ref-event stream's rendezvous: one object holding every subscriber's
+      // socket, so a push published in one colo reaches a client connected to
+      // another (worker/events-do.ts). Bound unconditionally — the endpoints
+      // only exist when WALGIT_EVENTS_TOKEN is set, and an unused binding costs
+      // nothing.
+      { "class_name": "WalgitEvents", "name": "WALGIT_EVENTS" }
+    ]
   },
   // Request-level telemetry: clones, bytes served, latency, cold starts and
   // refusals by kind — the half of observability the write-ahead log cannot
@@ -48,7 +56,10 @@
   // nothing. Unlike a route, a Cron Trigger is per-Worker rather than per-zone,
   // so it cannot be stolen by another deployment of this same config.
   "triggers": { "crons": ["0 * * * *"] },
-  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["WalgitContainer"] }]
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["WalgitContainer"] },
+    { "tag": "v2", "new_sqlite_classes": ["WalgitEvents"] }
+  ]
   // No r2_buckets binding. The container writes the log itself, outside the
   // Worker's binding graph, so it needs real S3 credentials (WALGIT_S3_*) —
   // a binding here would reach only the Worker, which never touches the log.

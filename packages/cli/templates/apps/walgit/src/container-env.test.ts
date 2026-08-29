@@ -31,6 +31,22 @@ describe('containerEnv', () => {
     expect(containerEnv({})).toEqual({})
   })
 
+  test('the ref-event variables reach the container', () => {
+    // The push path announces from INSIDE the container (src/announce.ts), so
+    // both the endpoint and the shared secret have to cross this seam. A name
+    // missing here is a feature that is configured on the Worker, advertised,
+    // and silently never fires.
+    const forwarded = containerEnv({
+      WALGIT_EVENTS_URL: 'https://walgit.example.com',
+      WALGIT_EVENTS_TOKEN: 'announce-secret',
+    })
+
+    expect(forwarded).toEqual({
+      WALGIT_EVENTS_URL: 'https://walgit.example.com',
+      WALGIT_EVENTS_TOKEN: 'announce-secret',
+    })
+  })
+
   test('every forwarded name is one src/ actually reads', () => {
     // A name added here and nowhere else is a variable that looks configured
     // and does nothing.

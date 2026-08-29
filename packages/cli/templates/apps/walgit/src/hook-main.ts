@@ -17,6 +17,7 @@ import { spawn } from 'node:child_process'
 import * as fs from 'node:fs'
 import * as path from 'node:path'
 
+import { announce, announceConfigFromEnv } from './announce'
 import { appendOnlyEnabled, checkAppendOnly } from './append-only'
 import { configuredThreshold, isCompactionDue } from './compact'
 import { checkSize, limitsEnforced, limitsFromEnv, liveBytes } from './limits'
@@ -159,6 +160,19 @@ async function main(): Promise<number> {
     // acknowledged, so a failure here must be invisible to the client.
     clearPending(gitDir, invocationId())
     sweepPending(gitDir)
+
+    // Ref events, announced here and not from `reference-transaction`, because
+    // here is the first moment the push is certainly durable: git only runs
+    // this hook once the ref transaction committed, which is only once the
+    // compare-and-swap on index.json won. A push that lost it is rejected and
+    // never reaches this line, so nobody is ever told about one. See
+    // src/announce.ts, which swallows every failure for the same reason the
+    // rest of this branch does.
+    const events = announceConfigFromEnv()
+    if (events) {
+      const changes = parseRefChanges(stdin).filter((c) => c.ref.startsWith('refs/'))
+      if (changes.length > 0) await announce(events, repoId, changes)
+    }
     try {
       const store = storeFromEnv()
       if (!store) return 0

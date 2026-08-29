@@ -38,6 +38,12 @@ export const CONTAINER_ENV = [
   'WALGIT_RETENTION_HOURS',
   'WALGIT_MAX_PUSH_BYTES',
   'WALGIT_MAX_REPO_BYTES',
+  // The ref-event stream's two halves. The push path announces from inside the
+  // container, so it needs both where to announce (the Worker's own public
+  // origin) and the secret that proves it is walgit's push path and not a
+  // stranger fabricating events (worker/events.ts).
+  'WALGIT_EVENTS_URL',
+  'WALGIT_EVENTS_TOKEN',
 ] as const
 
 export type ContainerEnvName = (typeof CONTAINER_ENV)[number]
