@@ -68,7 +68,11 @@ export default cloudflareZoneModule.instance({
       // at all: Cloudflare answers with its own anycast A and AAAA regardless of
       // the origin's address family, so v4 visitors are unaffected.
       //
-      // walgit — the public git host (docs/adr/0008), route on `walgit-public`.
+      // walgit — the public git host (docs/adr/0008), routed on `walgit-public`.
+      // Two names, one worker: `agentgit` is what the service launches as, and
+      // `walgit` stays because a git remote is configuration on somebody else's
+      // disk — retiring the hostname would break their next push silently.
+      { type: 'AAAA', name: 'agentgit.zabaca.com', content: '100::', proxied: true },
       { type: 'AAAA', name: 'walgit.zabaca.com', content: '100::', proxied: true },
       { type: 'AAAA', name: 'zabaca.com', content: '100::', proxied: true },
       { type: 'AAAA', name: 'www.zabaca.com', content: '100::', proxied: true },

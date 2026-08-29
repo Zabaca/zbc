@@ -56,7 +56,13 @@ export default cloudflareModule.instance({
     workdir: 'packages/walgit',
     accountId: '99a19e584439be0568f33aad0477372b',
     workerName: 'zbc-walgit-public',
-    routes: ['walgit.zabaca.com/*'],
+    // Two hostnames, one worker. `agentgit.zabaca.com` is the name the service
+    // launches under; `walgit.zabaca.com` stays routed so the remotes that
+    // already exist keep resolving — a git remote is configuration on somebody
+    // else's disk, and retiring a hostname breaks it silently on their next
+    // push. The page renders whichever host the request arrived on, so both
+    // read correctly rather than one advertising the other.
+    routes: ['agentgit.zabaca.com/*', 'walgit.zabaca.com/*'],
     // wrangler's gradual rollout never drains a single always-warm container,
     // so without this a redeployed image silently never takes effect until the
     // container idle-sleeps.
@@ -88,17 +94,22 @@ export default cloudflareModule.instance({
       // 250 MiB total per repository — the size `git repack -adf` was measured
       // succeeding on in the Containers spike, which is the sizing case.
       { name: 'WALGIT_MAX_REPO_BYTES', value: String(250 * 1024 * 1024) },
-      // ── expiry, deliberately not yet on ──────────────────────────────────
+      // ── expiry ───────────────────────────────────────────────────────────
       //
-      // Uncomment after a push and a clone have been verified against the LIVE
-      // service. Expiry is the only path in walgit that destroys data, and
-      // turning the destructive path on before the happy path is proven is how
-      // a launch loses its first repositories. Unset means expiry is off
-      // entirely, the container exposes no sweep endpoint, and `GET /` promises
-      // no retention window — the page renders from this same variable, so it
-      // cannot claim a window the sweeper does not enforce.
+      // On, and it was gated rather than assumed: this stayed commented out
+      // until a push and a clone had both been verified against the LIVE
+      // service, because expiry is the only path in walgit that destroys data
+      // and turning the destructive path on before the happy path is proven is
+      // how a launch loses its first repositories. Both were verified on
+      // 2026-08-29 against walgit.zabaca.com — an unauthenticated push, a clone
+      // of it back, and a force-push refused by `pre-receive`.
       //
-      // { name: 'WALGIT_RETENTION_HOURS', value: '24' },
+      // One variable, three consumers, which is the point: the sweeper
+      // (worker/index.ts's cron) collects on it, `GET /` states it, and the
+      // landing page claims it. Unset, all three go quiet together — no
+      // sweep endpoint, no promise, no copy — so the window can never be
+      // advertised by one of them and not enforced by another.
+      { name: 'WALGIT_RETENTION_HOURS', value: '24' },
     ],
   },
 })

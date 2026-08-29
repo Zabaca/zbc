@@ -25,6 +25,7 @@
 
 import { Container, getContainer } from '@cloudflare/containers'
 
+import { type LandingFacts, renderLanding, wantsLanding } from './landing'
 import {
   COLD_HEADER,
   INTERNAL_HEADERS,
@@ -131,9 +132,48 @@ export class WalgitContainer extends Container<Env> {
 
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
-    const url = new URL(request.url)
-    const facts = classifyRequest(request.method, url.pathname, url.search)
     const startedAt = Date.now()
+    const url = new URL(request.url)
+
+    // The browser half of `/`, answered at the edge (worker/landing.ts). Placed
+    // before every other decision on purpose: a link on an aggregator points at
+    // this exact URL, and none of that traffic should wake the container, queue
+    // behind a clone, or count against the one instance serving git. git never
+    // asks for HTML, so a clone cannot land here.
+    const accept = request.headers.get('accept') ?? ''
+    if (wantsLanding(request.method, url.pathname, accept)) {
+      const page = renderLanding({ host: url.host, ...limitsFromEnv(env) })
+      const bytes = new TextEncoder().encode(page)
+      record(env, ctx, {
+        kind: 'landing',
+        repo: '',
+        outcome: 'ok',
+        reject: '',
+        status: 200,
+        // Neither is a lie by omission: the container was not involved at all,
+        // which is the property this branch exists to create and the one an
+        // operator should be able to see in the data.
+        served: false,
+        cold: false,
+        ttfbMs: Date.now() - startedAt,
+        totalMs: Date.now() - startedAt,
+        bytesServed: bytes.byteLength,
+        bytesReceived: 0,
+      })
+      return new Response(request.method === 'HEAD' ? null : bytes, {
+        status: 200,
+        headers: {
+          'content-type': 'text/html; charset=utf-8',
+          // Short, and deliberately not longer: the page renders the limits
+          // this deployment enforces, so a stale copy at the edge would state a
+          // cap the push path no longer has. A minute absorbs a launch spike
+          // without outliving a config change by anything that matters.
+          'cache-control': 'public, max-age=60',
+        },
+      })
+    }
+
+    const facts = classifyRequest(request.method, url.pathname, url.search)
 
     // The container's expiry endpoint trusts INTERNAL_REQUEST_HEADER to mean "the
     // scheduled handler asked". That is only true because this line makes it
@@ -276,6 +316,28 @@ function stripInternal(request: Request): Request {
   const headers = new Headers(request.headers)
   headers.delete(INTERNAL_REQUEST_HEADER)
   return new Request(request, { headers })
+}
+
+/**
+ * The limit facts the page is allowed to claim.
+ *
+ * Deliberately the same reading as src/limits.ts: unset, blank, unparseable or
+ * non-positive all mean "this deployment enforces nothing here", so a typo in a
+ * variable removes a claim rather than inventing one. The page then omits it
+ * (worker/landing.ts) instead of printing a number nobody enforces.
+ */
+function limitsFromEnv(env: Env): Omit<LandingFacts, 'host'> {
+  return {
+    retentionHours: positiveNumber(env.WALGIT_RETENTION_HOURS),
+    maxPushBytes: positiveNumber(env.WALGIT_MAX_PUSH_BYTES),
+    maxRepoBytes: positiveNumber(env.WALGIT_MAX_REPO_BYTES),
+  }
+}
+
+function positiveNumber(raw: string | undefined): number | null {
+  if (raw === undefined || raw.trim() === '') return null
+  const value = Number(raw)
+  return Number.isFinite(value) && value > 0 ? value : null
 }
 
 /** The facts known before the container answers. */
