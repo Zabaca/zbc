@@ -48,6 +48,25 @@ primary_region = "sjc"
     port = 443
     handlers = ["tls", "http"]
 
+  # The only health check, and one is enough for both front doors: entrypoint.sh
+  # runs sshd and the HTTP server so that either dying kills the other, on the
+  # grounds that half a git host should stop rather than keep answering. So an
+  # sshd that died is an HTTP server that is already gone, and this check sees it.
+  #
+  # It exists for the failure autostart cannot see. Autostart reacts to CAPACITY
+  # — it starts another machine when the running ones are over their soft limit —
+  # and a machine that is up, accepting TCP, and broken presents no capacity
+  # pressure at all. Without a check the proxy keeps routing to it.
+  #
+  # `/_walgit/health` is unauthenticated on purpose (src/http.ts): Fly's checker
+  # carries no credential, and the endpoint reveals only that a machine is up.
+  [[services.http_checks]]
+    interval = "15s"
+    timeout = "2s"
+    grace_period = "10s"
+    method = "get"
+    path = "/_walgit/health"
+
 # No [[mounts]]. Deliberate: see the Dockerfile — the repo on disk is a cache.
 [[vm]]
   size = "shared-cpu-1x"
