@@ -158,3 +158,49 @@ describe('createHttpHandler', () => {
     expect(unavailable.headers.get(REJECT_HEADER)).toBe('unavailable')
   })
 })
+
+describe('public mode', () => {
+  const publicHandler = () =>
+    createHttpHandler({
+      reposDir: '/srv/repos',
+      tokens: [],
+      public: true,
+      ensureRepo: (repo) => repo,
+      runBackend: async () => new Response('backend ran', { status: 200 }),
+    })
+
+  test('serves reads and writes with no Authorization header at all', async () => {
+    for (const [path, method] of [
+      ['/alpha.git/info/refs?service=git-upload-pack', 'GET'],
+      ['/alpha.git/git-upload-pack', 'POST'],
+      ['/alpha.git/git-receive-pack', 'POST'],
+    ] as const) {
+      const res = await publicHandler()(new Request(`https://walgit.test${path}`, { method }))
+      expect(res.status).toBe(200)
+      expect(await res.text()).toBe('backend ran')
+    }
+  })
+
+  test('an unknown path is still 404, not an open door', async () => {
+    const res = await publicHandler()(new Request('https://walgit.test/alpha.git/objects/info/packs'))
+    expect(res.status).toBe(404)
+  })
+
+  test('health is unauthenticated in both modes', async () => {
+    for (const h of [handler(), publicHandler()]) {
+      const res = await h(new Request('https://walgit.test/_walgit/health'))
+      expect(res.status).toBe(200)
+    }
+  })
+
+  test('no tokens and no public flag refuses to serve, naming the misconfiguration', async () => {
+    expect(() =>
+      createHttpHandler({
+        reposDir: '/srv/repos',
+        tokens: [],
+        ensureRepo: (repo) => repo,
+        runBackend: async () => new Response('backend ran'),
+      }),
+    ).toThrow(/no tokens configured and public mode is off/)
+  })
+})

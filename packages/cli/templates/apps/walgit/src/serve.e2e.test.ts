@@ -20,6 +20,8 @@ let reposDir: string
 let scratch: string
 let storeDir: string
 let origin: string
+let publicServer: ReturnType<typeof Bun.serve>
+let publicOrigin: string
 
 /**
  * git runs ASYNCHRONOUSLY here, not via spawnSync. The server under test lives
@@ -71,10 +73,29 @@ beforeAll(() => {
     }),
   })
   origin = `http://walgit:${TOKEN}@127.0.0.1:${server.port}/alpha.git`
+
+  // A second instance of the same handler, configured open. Same repos dir and
+  // same log — the only difference is that no credential is demanded, which is
+  // exactly the claim under test.
+  publicServer = Bun.serve({
+    port: 0,
+    idleTimeout: 0,
+    fetch: createHttpHandler({
+      reposDir,
+      tokens: [],
+      public: true,
+      ensureRepo: ensureBareRepo,
+      syncRepo: (repo) => syncRepo(new FileStore(storeDir), repo),
+      runBackend: runGitHttpBackend,
+      instructions: { publicAccess: true, appendOnly: true, retentionHours: 24 },
+    }),
+  })
+  publicOrigin = `http://127.0.0.1:${publicServer.port}/open.git`
 })
 
 afterAll(() => {
   server.stop(true)
+  publicServer.stop(true)
   delete process.env.WALGIT_STORE_DIR
   fs.rmSync(storeDir, { recursive: true, force: true })
 })
@@ -147,6 +168,26 @@ describe('smart-HTTP', () => {
     const pushed = await git(work, ...args)
     expect(pushed.out).toContain('[new branch]')
     expect(pushed.status).toBe(0)
+  })
+
+  test('in public mode a real clone and push carry no credential at all', async () => {
+    const work = path.join(scratch, 'public')
+    // The URL has no userinfo and the client is forbidden from prompting, so a
+    // handler that asked for a credential would fail this rather than hang.
+    expect((await git(scratch, 'clone', publicOrigin, work)).status).toBe(0)
+
+    fs.writeFileSync(path.join(work, 'README'), 'open to anyone\n')
+    await git(work, 'config', 'user.email', 'agent@example.test')
+    await git(work, 'config', 'user.name', 'agent')
+    await git(work, 'add', 'README')
+    await git(work, 'commit', '-m', 'anonymous commit')
+    const pushed = await git(work, 'push', 'origin', 'HEAD:refs/heads/main')
+    expect(pushed.out).toContain('[new branch]')
+    expect(pushed.status).toBe(0)
+
+    const again = path.join(scratch, 'public-second')
+    expect((await git(scratch, 'clone', publicOrigin, again)).status).toBe(0)
+    expect(fs.readFileSync(path.join(again, 'README'), 'utf8')).toBe('open to anyone\n')
   })
 
   test('an anonymous clone is refused', async () => {
