@@ -122,3 +122,65 @@ describe('the bound', () => {
     expect(cache.read(['alpha']).alpha).toEqual({ [MAIN]: SHA_A })
   })
 })
+
+/**
+ * The window a handshake opens.
+ *
+ * Reading a repository's ref state is a round-trip to the container, and a push
+ * can land inside it — announced from a state newer than the snapshot already
+ * in flight. Before this bracket existed, that event was dropped (no entry yet)
+ * and the older snapshot then installed over it, so the handshake answered a
+ * push behind and the subscriber had no way to find out until the next push.
+ */
+describe('a read that a push overtakes', () => {
+  test('an event announced during a fill survives it', () => {
+    const cache = new RefCache()
+    cache.beginFill('alpha')
+    cache.apply([{ repo: 'alpha', ref: MAIN, sha: SHA_B }])
+    // The snapshot the container was already computing when the push landed.
+    cache.endFill('alpha', { [MAIN]: SHA_A })
+    expect(cache.read(['alpha']).alpha).toEqual({ [MAIN]: SHA_B })
+  })
+
+  test('a deletion announced during a fill survives it', () => {
+    const cache = new RefCache()
+    cache.beginFill('alpha')
+    cache.apply([{ repo: 'alpha', ref: MAIN, sha: null }])
+    cache.endFill('alpha', { [MAIN]: SHA_A })
+    expect(cache.read(['alpha']).alpha).toEqual({})
+  })
+
+  test('an event for a repository nobody is reading is still dropped', () => {
+    const cache = new RefCache()
+    cache.beginFill('alpha')
+    cache.apply([{ repo: 'beta', ref: MAIN, sha: SHA_B }])
+    cache.endFill('alpha', { [MAIN]: SHA_A })
+    expect(cache.missing(['beta'])).toEqual(['beta'])
+  })
+
+  test('two readers of one unknown repository both get the newer state', () => {
+    const cache = new RefCache()
+    cache.beginFill('alpha')
+    cache.beginFill('alpha')
+    cache.apply([{ repo: 'alpha', ref: MAIN, sha: SHA_B }])
+    cache.endFill('alpha', { [MAIN]: SHA_A })
+    expect(cache.read(['alpha']).alpha).toEqual({ [MAIN]: SHA_B })
+    // The second reader's own snapshot is just as stale, and must not undo it.
+    cache.endFill('alpha', { [MAIN]: SHA_A })
+    expect(cache.read(['alpha']).alpha).toEqual({ [MAIN]: SHA_B })
+  })
+
+  test('a failed read leaves the repository unknown rather than empty', () => {
+    const cache = new RefCache()
+    cache.beginFill('alpha')
+    cache.abortFill('alpha')
+    expect(cache.missing(['alpha'])).toEqual(['alpha'])
+    expect(cache.read(['alpha'])).toEqual({})
+  })
+
+  test('a fill with no bracket still works, and buffers nothing', () => {
+    const cache = new RefCache()
+    cache.endFill('alpha', { [MAIN]: SHA_A })
+    expect(cache.read(['alpha']).alpha).toEqual({ [MAIN]: SHA_A })
+  })
+})

@@ -40,7 +40,77 @@ export class RefCache {
   /** Insertion-ordered, so the oldest fill is the first eviction candidate. */
   private readonly refsByRepo = new Map<string, Refs>()
 
+  /**
+   * Events that landed while a repository was being read from the Index.
+   *
+   * Reading one is a round-trip to the container, and a push can land in the
+   * middle of it — announced from a ref state NEWER than the snapshot already
+   * in flight. Without this, `apply` would drop that event (the repository has
+   * no entry yet, correctly) and the fill that follows would then install the
+   * older snapshot, leaving the cache — and the handshake reading it — behind
+   * by one push until the next one happened to arrive.
+   *
+   * So a fill is bracketed: `beginFill` says a read is in flight, `apply`
+   * buffers anything for that repository, and `endFill` replays the buffer over
+   * the snapshot. The buffer is per-repository and lives only for the length of
+   * one read.
+   */
+  private readonly inFlight = new Map<string, { readers: number; buffered: RefEvent[] }>()
+
   constructor(private readonly maxRepos: number = MAX_CACHED_REPOS) {}
+
+  /**
+   * A read of this repository's ref state has started.
+   *
+   * Counted rather than flagged: two subscribers can connect for the same
+   * unknown repository at once, and the second one's `endFill` must not throw
+   * away a buffer the first one is still relying on.
+   */
+  beginFill(repo: string): void {
+    const existing = this.inFlight.get(repo)
+    if (existing) {
+      existing.readers += 1
+      return
+    }
+    this.inFlight.set(repo, { readers: 1, buffered: [] })
+  }
+
+  /**
+   * A read finished: install the snapshot, then replay anything announced while
+   * it was in flight, so the result is never older than an event already sent.
+   */
+  endFill(repo: string, refs: Refs): void {
+    const flight = this.inFlight.get(repo)
+    this.fill(repo, refs)
+    if (!flight) return
+    // Detached and the slot emptied BEFORE the replay: `apply` buffers whatever
+    // is still in flight, so replaying the very array it appends to would never
+    // terminate.
+    const buffered = flight.buffered
+    flight.buffered = []
+    this.release(repo, flight)
+    if (buffered.length > 0) this.apply(buffered)
+  }
+
+  /**
+   * A read failed: leave the repository unknown.
+   *
+   * Emphatically NOT a fill with an empty ref state — that would be a cache hit
+   * claiming the repository has no refs, and a later handshake would answer it
+   * confidently. A miss costs another round-trip; a wrong hit costs a
+   * subscriber that never learns it is behind.
+   */
+  abortFill(repo: string): void {
+    const flight = this.inFlight.get(repo)
+    if (!flight) return
+    this.release(repo, flight)
+  }
+
+  private release(repo: string, flight: { readers: number; buffered: RefEvent[] }): void {
+    flight.readers -= 1
+    if (flight.readers <= 0) this.inFlight.delete(repo)
+    else flight.buffered = []
+  }
 
   /** Is this repository's ref state known here? */
   has(repo: string): boolean {
@@ -93,6 +163,10 @@ export class RefCache {
    */
   apply(events: readonly RefEvent[]): void {
     for (const event of events) {
+      // Buffered rather than dropped when a read of this repository is in
+      // flight: the fill about to land is a snapshot taken BEFORE this event.
+      const flight = this.inFlight.get(event.repo)
+      if (flight) flight.buffered.push(event)
       const refs = this.refsByRepo.get(event.repo)
       if (!refs) continue
       if (event.sha === null) delete refs[event.ref]
