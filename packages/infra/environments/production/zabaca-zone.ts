@@ -7,23 +7,15 @@ import zabacaDnsToken from './zabaca-dns-token'
 // nameserver; this instance converges the records inside it. It does not create
 // or move the zone, and the module has no `destroy` that could remove it.
 //
-// The reason it exists now is `git.zabaca.com` — walgit's front door. That
-// record is the only new one here; everything else is what Cloudflare was
-// already serving on the day the zone was adopted, transcribed so the next
-// change to this domain is a diff rather than a dashboard visit.
-//
-// ── git.zabaca.com ────────────────────────────────────────────────────────
-//
-// `proxied: false` is NOT a default that happened to be left alone. walgit
-// serves SSH on port 22, and Cloudflare's proxy carries only its documented
-// HTTP(S) port list — a proxied record would leave `git clone git@…` hanging
-// with nothing in any log to say why, while smart-HTTP over the same name kept
-// working. It is the same wall that put walgit on Fly instead of Cloudflare
-// (docs/adr/0006). Grey-cloud also means the Fly IP is visible in DNS, which it
-// already is: clients have been cloning from 37.16.14.20 directly.
-//
-// Both address families point at the same machine. The v4 is a DEDICATED Fly
-// IP ($2/mo) because shared IPv4 covers 80/443 only; see the walgit instance.
+// It was adopted for `git.zabaca.com` — walgit's front door on Fly. That name
+// is retired: walgit dropped SSH and moved onto a Cloudflare Container
+// (docs/adr/0008), which removed the raw-TCP requirement that needed an
+// unproxied record pointing at a dedicated Fly IP, and the Container
+// deployment answers on its own hostname instead. The A, AAAA and ACME-challenge records
+// were deleted from the zone along with the Fly app that owned the address.
+// What remains here is what Cloudflare was already serving on the day the zone
+// was adopted, transcribed so the next change to this domain is a diff rather
+// than a dashboard visit.
 //
 // ── mail ──────────────────────────────────────────────────────────────────
 //
@@ -55,29 +47,6 @@ export default cloudflareZoneModule.instance({
     zone: 'zabaca.com',
     apiToken: { from: 'zabaca-dns-token', output: 'tokenValue' },
     records: [
-      // walgit — the only new records in this file.
-      { type: 'A', name: 'git.zabaca.com', content: '37.16.14.20', proxied: false },
-      { type: 'AAAA', name: 'git.zabaca.com', content: '2a09:8280:1::179:baa8:0', proxied: false },
-      // Fly's ACME DNS challenge, and it is REQUIRED here rather than optional.
-      //
-      // Fly's documented default is HTTP-01: it serves the challenge at
-      // `/.well-known/acme-challenge/…` on port 80 once A/AAAA point at the
-      // app, which they do above. But walgit's fly.toml sets
-      // `force_https = true` on port 80, so that path answers `301 ->
-      // https://…` — including for the challenge. Validation then needs the
-      // certificate that validation is trying to issue, and the certificate
-      // sits at "Not verified" forever with nothing failing loudly.
-      //
-      // The DNS challenge has no such dependency: it proves control of the name
-      // through this zone rather than through the app, which also means it does
-      // not care that the machine stops whenever it is idle.
-      {
-        type: 'CNAME',
-        name: '_acme-challenge.git.zabaca.com',
-        content: 'git.zabaca.com.nwy3m9d.flydns.net',
-        proxied: false,
-      },
-
       // Worker-served hostnames. `100::` is Cloudflare's documented placeholder
       // origin for a name served entirely at the edge — the RFC 6666 discard
       // prefix, unroutable by construction, so if the Worker route in front of
@@ -87,10 +56,8 @@ export default cloudflareZoneModule.instance({
       // the origin's address family, so v4 visitors are unaffected.
       { type: 'AAAA', name: 'zabaca.com', content: '100::', proxied: true },
       { type: 'AAAA', name: 'www.zabaca.com', content: '100::', proxied: true },
-      // zbc's own site. Proxied, unlike git.zabaca.com — this one is plain
-      // HTTPS with no port-22 problem, so the placeholder origin and a Worker
-      // route are all it needs. The route itself is declared on the `landing`
-      // instance, not here and not in wrangler.jsonc.
+      // zbc's own site. The route itself is declared on the `landing` instance,
+      // not here and not in wrangler.jsonc.
       { type: 'AAAA', name: 'zbc.zabaca.com', content: '100::', proxied: true },
       { type: 'AAAA', name: 'ceo.zabaca.com', content: '100::', proxied: true },
       { type: 'AAAA', name: 'crux.zabaca.com', content: '100::', proxied: true },

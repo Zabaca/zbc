@@ -416,7 +416,7 @@ Trap worth knowing when tearing one down: `wrangler delete` on the Worker does
 
 `WALGIT_APPEND_ONLY=1` makes every repository on the instance append-only: a
 push may create a ref or fast-forward one, and may never delete or rewrite one.
-It is **off by default** — `git.zabaca.com` keeps force-push — and it is
+It is **off by default** — a private instance may want force-push — and it is
 instance configuration, so turning it on covers repositories that already exist.
 
 It is enforced twice. `receive.denyNonFastForwards` and `receive.denyDeletes`
