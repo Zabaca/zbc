@@ -26,7 +26,6 @@ import * as path from 'node:path'
 
 import { compact } from './compact'
 import { materialize } from './materialize'
-import { sha256 } from './push'
 import { resolveRepo } from './repo'
 import { FileStore } from './store'
 import { ulid } from './ulid'
@@ -34,6 +33,7 @@ import {
   commitIndex,
   emptyIndex,
   loadIndex,
+  sha256,
   walKey,
   type WalEntry,
   type WalIndex,

@@ -10,7 +10,7 @@ import * as os from 'node:os'
 import * as path from 'node:path'
 
 import { createHttpHandler } from './http'
-import { ensureBareRepo } from './repo'
+import { ensureBareRepo } from './cache'
 import { runGitHttpBackend } from './git-backend'
 import { FileStore } from './store'
 import { syncRepo } from './sync'

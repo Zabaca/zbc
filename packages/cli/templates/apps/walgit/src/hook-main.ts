@@ -21,12 +21,10 @@ import {
   clearPending,
   invocationId,
   markConsumed,
-  parseRefChanges,
-  preReceive,
-  publishPush,
   readPending,
   sweepPending,
-} from './push'
+} from './pending'
+import { parseRefChanges, preReceive, publishPush } from './push'
 import { requireStore, storeFromEnv } from './store-env'
 import { loadIndex } from './wal-index'
 

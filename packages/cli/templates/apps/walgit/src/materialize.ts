@@ -32,15 +32,16 @@
  * proportional to bytes already transferred.
  */
 
-import { spawnSync } from 'node:child_process'
 import * as fs from 'node:fs'
 import * as path from 'node:path'
 
-import { ensureBareRepo, type ResolvedRepo } from './repo'
+import { ensureBareRepo } from './cache'
+import { git } from './git'
+import { acquireLock, type LockRelease } from './mkdir-lock'
 import { reconcile, type ReconcileResult } from './reconcile'
-import { sha256 } from './push'
+import type { ResolvedRepo } from './repo'
 import type { ObjectStore } from './store'
-import { loadIndex, type WalEntry, type WalIndex } from './wal-index'
+import { loadIndex, sha256, type WalEntry, type WalIndex } from './wal-index'
 
 /**
  * Removed only when a materialize completes. Its presence means a previous
@@ -107,6 +108,32 @@ export function neededEntries(index: WalIndex): WalEntry[] {
     .sort((a, b) => a.seq - b.seq)
 }
 
+/** Where git keeps this repo's packfiles. One knower of that layout. */
+export function packDirOf(gitDir: string): string {
+  return path.join(gitDir, 'objects', 'pack')
+}
+
+/**
+ * The entries a restore would still have to fetch: needed by the index, and not
+ * already sitting in `objects/pack`.
+ *
+ * Exported because `verify` asks the same question and must get the same
+ * answer. `cli.ts` states the rule it is obeying — the operator commands are a
+ * thin front over the functions the server already calls, because a
+ * reimplementation "would answer for itself rather than for the server, and
+ * would drift silently the first time the real path changed". This predicate is
+ * what decides both what materialize downloads and what verify reports missing;
+ * two copies of it means a `walgit verify` that can call a node healthy while
+ * every access re-downloads its whole log.
+ */
+export function absentEntries(gitDir: string, index: WalIndex): WalEntry[] {
+  const packDir = packDirOf(gitDir)
+  const onDisk = new Set(
+    fs.existsSync(packDir) ? fs.readdirSync(packDir).filter((f) => f.endsWith('.pack')) : [],
+  )
+  return neededEntries(index).filter((entry) => !onDisk.has(`${packBasename(entry)}.pack`))
+}
+
 /**
  * Rebuild `repo` from the log and reconcile its refs against the index.
  *
@@ -128,12 +155,11 @@ export async function materialize(
   const release = await acquire(repo.dir)
   const waited = release.waited
   try {
-    const packDir = path.join(repo.dir, 'objects', 'pack')
+    const packDir = packDirOf(repo.dir)
     fs.mkdirSync(packDir, { recursive: true })
-    const onDisk = new Set(fs.readdirSync(packDir).filter((f) => f.endsWith('.pack')))
 
     const needed = neededEntries(index)
-    const absent = needed.filter((entry) => !onDisk.has(`${packBasename(entry)}.pack`))
+    const absent = absentEntries(repo.dir, index)
 
     const fetchStart = performance.now()
     let bytes = 0
@@ -205,11 +231,9 @@ async function placeEntry(store: ObjectStore, packDir: string, entry: WalEntry):
   } else {
     // Only when the log predates uploading the index, or the sibling was lost.
     // It is the expensive path the `.idx` upload exists to avoid, so it says so.
-    const built = spawnSync('git', ['index-pack', `${base}.pack`], {
-      stdio: ['ignore', 'ignore', 'pipe'],
-    })
+    const built = git(['index-pack', `${base}.pack`])
     if (built.status !== 0) {
-      throw new Error(`walgit: could not index ${entry.key}: ${built.stderr?.toString().trim()}`)
+      throw new Error(`walgit: could not index ${entry.key}: ${built.stderr.trim()}`)
     }
   }
   return found.body.byteLength
@@ -252,33 +276,15 @@ function ensureHead(gitDir: string, index: WalIndex): void {
  * `packed-refs` rewrite is not something two writers should race on, and paying
  * for the same download twice is the latency this milestone is measured by.
  *
- * `mkdir` is the primitive because it is atomic on POSIX and needs no daemon —
- * the same choice `FileStore` makes, and for the same reason.
+ * Six seconds before the lock is broken, not one: unlike a `FileStore` write
+ * the holder here is downloading packfiles, so a lock still held after a second
+ * usually means a slow restore rather than a dead one. Breaking it eventually
+ * is still required — on Fly a machine is stopped whenever it is idle — and
+ * still safe, because the loser re-reads the directory and downloads only what
+ * is genuinely absent.
  */
-async function acquire(gitDir: string): Promise<(() => void) & { waited: boolean }> {
-  const lockPath = path.join(gitDir, LOCK)
-  let waited = false
-  for (let i = 0; ; i += 1) {
-    try {
-      fs.mkdirSync(lockPath)
-      const release = () => {
-        try {
-          fs.rmdirSync(lockPath)
-        } catch {
-          /* already released */
-        }
-      }
-      return Object.assign(release, { waited })
-    } catch {
-      waited = true
-      // A holder killed mid-restore would otherwise wedge the repo forever, and
-      // on Fly a machine is stopped whenever it is idle — so the wait is
-      // bounded and then broken. Breaking it is safe: the loser re-reads the
-      // directory and downloads only what is genuinely absent.
-      if (i > 1200) fs.rmSync(lockPath, { recursive: true, force: true })
-      await new Promise((r) => setTimeout(r, 5))
-    }
-  }
+function acquire(gitDir: string): Promise<LockRelease> {
+  return acquireLock(path.join(gitDir, LOCK), { breakAfter: 1200 })
 }
 
 /**

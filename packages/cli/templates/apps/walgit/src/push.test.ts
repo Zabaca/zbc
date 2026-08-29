@@ -6,14 +6,12 @@ import * as path from 'node:path'
 import { MemoryStore } from './store'
 import {
   PENDING_MAX_AGE_MS,
-  parseRefChanges,
-  preReceive,
-  publishPush,
   readPending,
   sweepPending,
   writePending,
   type PendingPush,
-} from './push'
+} from './pending'
+import { parseRefChanges, preReceive, publishPush } from './push'
 import { ZERO_OID, loadIndex, type RefChange } from './wal-index'
 
 const OID_A = 'a'.repeat(40)

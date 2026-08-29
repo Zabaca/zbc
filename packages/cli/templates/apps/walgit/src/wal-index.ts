@@ -92,6 +92,19 @@ export function walKey(repoId: string, seq: number, ulid: string, ext: 'pack' | 
   return `repos/${repoId}/wal/${String(seq).padStart(12, '0')}-${ulid}.${ext}`
 }
 
+/**
+ * A WAL object's content address, as `WalEntry.sha256` carries it.
+ *
+ * It lives beside the field it fills rather than with whichever caller happens
+ * to compute it: the push path stamps it on upload, compaction stamps it on the
+ * pack it publishes, and materialize checks a download against it — a truncated
+ * transfer being the failure a restore actually has. Three callers, one
+ * definition of what the digest is over.
+ */
+export function sha256(body: Uint8Array): string {
+  return new Bun.CryptoHasher('sha256').update(body).digest('hex')
+}
+
 // ── Reading ─────────────────────────────────────────────────────────────────
 
 export interface LoadedIndex {

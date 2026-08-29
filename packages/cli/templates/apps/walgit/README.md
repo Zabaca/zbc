@@ -13,16 +13,19 @@ the **garbage collection** that keeps the log from growing without bound:
 | | |
 | --- | --- |
 | `src/store.ts`, `src/wal-index.ts` | the object-store adapter and the `index.json` compare-and-swap |
-| `src/repo.ts` | repo addressing — the one place a client-supplied name becomes a path |
+| `src/repo.ts` | repo addressing — the one place a client-supplied name becomes a path. Pure: string in, path out, no imports |
+| `src/cache.ts` | provisioning the bare repo that path names: `git init`, the config walgit needs, the hooks |
 | `src/ssh-shell.ts` | the SSH forced command: one git verb, one repository |
 | `src/http.ts`, `src/git-backend.ts`, `src/server.ts` | smart-HTTP, with `git http-backend` as a CGI child |
 | `src/push.ts`, `src/hooks.ts`, `src/hook-main.ts` | the push path: upload at `pre-receive`, publish under CAS at `reference-transaction` |
+| `src/pending.ts` | the hand-off between the two hook processes of one push, keyed by `git-receive-pack` pid |
 | `src/reconcile.ts`, `src/sync.ts` | force the local cache to match the log, on every access |
 | `src/orphans.ts` | the packs a rejected push leaves behind, found by diffing the log |
 | `src/materialize.ts` | rebuild a repo from the log alone, on a disk that holds nothing |
 | `src/compact.ts` | collapse the log to one entry, under a per-repo lease |
 | `src/gc.ts` | delete superseded and orphaned objects, a grace period later |
 | `src/verify.ts`, `src/cli.ts` | the operator CLI: inspect, rebuild, verify, reclaim |
+| `src/git.ts`, `src/mkdir-lock.ts` | the two shared primitives: running a git plumbing command, and locking with `mkdir` |
 
 ## The operator CLI
 

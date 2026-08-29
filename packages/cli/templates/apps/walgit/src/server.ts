@@ -7,7 +7,7 @@
  * both go through src/repo.ts to decide which repo a request means.
  */
 
-import { ensureBareRepo } from './repo'
+import { ensureBareRepo } from './cache'
 import { createHttpHandler } from './http'
 import { runGitHttpBackend } from './git-backend'
 import { storeFromEnv } from './store-env'

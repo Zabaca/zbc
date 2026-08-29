@@ -15,10 +15,10 @@
  * publish the truth it was just told.
  */
 
-import { spawnSync } from 'node:child_process'
 import * as fs from 'node:fs'
 import * as path from 'node:path'
 
+import { git } from './git'
 import type { WalIndex } from './wal-index'
 
 export interface ReconcileResult {
@@ -37,10 +37,8 @@ export interface ReconcileResult {
 }
 
 export function localRefs(gitDir: string): Record<string, string> {
-  const res = spawnSync('git', ['--git-dir', gitDir, 'for-each-ref', '--format=%(objectname) %(refname)'], {
-    encoding: 'utf8',
-  })
-  if (res.status !== 0) throw new Error(`for-each-ref failed: ${res.stderr?.trim()}`)
+  const res = git(['--git-dir', gitDir, 'for-each-ref', '--format=%(objectname) %(refname)'])
+  if (res.status !== 0) throw new Error(`for-each-ref failed: ${res.stderr.trim()}`)
   const refs: Record<string, string> = {}
   for (const line of res.stdout.split('\n')) {
     const match = /^(\S+) (.+)$/.exec(line)
@@ -52,12 +50,11 @@ export function localRefs(gitDir: string): Record<string, string> {
 /** Which of these oids the local object store actually has. One process. */
 export function presentObjects(gitDir: string, oids: readonly string[]): Set<string> {
   if (oids.length === 0) return new Set()
-  const res = spawnSync('git', ['--git-dir', gitDir, 'cat-file', '--batch-check'], {
+  const res = git(['--git-dir', gitDir, 'cat-file', '--batch-check'], {
     input: `${oids.join('\n')}\n`,
-    encoding: 'utf8',
   })
   const present = new Set<string>()
-  for (const line of (res.stdout ?? '').split('\n')) {
+  for (const line of res.stdout.split('\n')) {
     const match = /^(\S+) (\S+) \d+$/.exec(line)
     if (match && match[2] !== 'missing') present.add(match[1]!)
   }

@@ -13,11 +13,17 @@ import * as os from 'node:os'
 import * as path from 'node:path'
 
 import { isPartial, markerPath, materialize, neededEntries, packBasename } from './materialize'
-import { sha256 } from './push'
 import { localRefs } from './reconcile'
 import { resolveRepo } from './repo'
 import { FileStore } from './store'
-import { commitIndex, emptyIndex, walKey, type WalEntry, type WalIndex } from './wal-index'
+import {
+  commitIndex,
+  emptyIndex,
+  sha256,
+  walKey,
+  type WalEntry,
+  type WalIndex,
+} from './wal-index'
 import { ulid } from './ulid'
 
 let scratch: string

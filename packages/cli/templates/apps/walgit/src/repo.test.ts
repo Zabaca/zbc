@@ -3,8 +3,9 @@ import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
 import { spawnSync } from 'node:child_process'
-import { readPending, writePending } from './push'
-import { ensureBareRepo, parseSshCommand, resolveRepo } from './repo'
+import { readPending, writePending } from './pending'
+import { ensureBareRepo } from './cache'
+import { parseSshCommand, resolveRepo } from './repo'
 
 describe('resolveRepo', () => {
   test('maps a bare repo id to a directory under the repos root', () => {

@@ -27,17 +27,17 @@
  *     grace period later.
  */
 
-import { spawnSync } from 'node:child_process'
 import * as fs from 'node:fs'
 import * as path from 'node:path'
 
-import { materialize, packBasename } from './materialize'
-import { sha256 } from './push'
+import { gitOrThrow } from './git'
+import { materialize, packBasename, packDirOf } from './materialize'
 import type { ResolvedRepo } from './repo'
 import type { ObjectStore } from './store'
 import { ulid } from './ulid'
 import {
   loadIndex,
+  sha256,
   updateIndex,
   walKey,
   type Tombstone,
@@ -239,8 +239,8 @@ export async function compact(
     // is why the snapshot is taken here and not re-read after.
     const supersedesThrough = index.seq
 
-    const packDir = path.join(repo.dir, 'objects', 'pack')
-    run('git', ['--git-dir', repo.dir, 'repack', '-adfq'])
+    const packDir = packDirOf(repo.dir)
+    gitOrThrow(['--git-dir', repo.dir, 'repack', '-adfq'])
 
     const onDisk = fs.readdirSync(packDir)
     // A cruft pack is not a second copy of the repository — it is git's
@@ -358,12 +358,5 @@ function adoptLocally(packDir: string, produced: string, basename: string): void
   for (const file of siblings) {
     if (file.endsWith('.pack') || file.endsWith('.idx')) continue
     fs.rmSync(path.join(packDir, file), { force: true })
-  }
-}
-
-function run(cmd: string, args: string[]): void {
-  const res = spawnSync(cmd, args, { stdio: ['ignore', 'ignore', 'pipe'] })
-  if (res.status !== 0) {
-    throw new Error(`${cmd} ${args.join(' ')} failed: ${res.stderr?.toString().trim()}`)
   }
 }
