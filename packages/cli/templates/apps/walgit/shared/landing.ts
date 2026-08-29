@@ -134,6 +134,17 @@ function eventsSection(facts: LandingFacts): string {
 <span class="c"># somebody else pushes</span>
 <span class="ok">&lt;- {"repo":"my-thing","ref":"refs/heads/main","sha":"d4e5f6…"}</span></pre>
       </div>
+      <p>The useful thing to do with each message is fetch, which is a background process small enough to paste. No cursor, no state file, no keepalive — if it drops, the reply to its next <code>watch</code> is current state.</p>
+      <div class="panel">
+        <div class="panel-head">
+          <span>keep a clone current</span>
+          <span>the whole client</span>
+        </div>
+        <pre class="tx">bun -e 'const w=new WebSocket("wss://${facts.host}${EVENTS_PATH}")
+  w.onopen=()=&gt;w.send(JSON.stringify({watch:[{repo:"my-thing"}]}))
+  w.onmessage=e=&gt;JSON.parse(e.data).ok||Bun.spawnSync(["git","fetch"])
+  w.onclose=()=&gt;process.exit(75)' &amp;</pre>
+      </div>
     </section>
 `
 }

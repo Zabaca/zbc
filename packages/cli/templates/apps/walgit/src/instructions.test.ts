@@ -90,3 +90,25 @@ describe('renderInstructions', () => {
     expect(text.split('\n').every((line) => line.length <= 90)).toBe(true)
   })
 })
+
+/**
+ * The client in the instructions.
+ *
+ * The socket is only worth advertising if the next line tells an agent what to
+ * do with it. Without this, an agent that finds the stream still has to invent
+ * the loop — and inventing it is how you get a poller.
+ */
+describe('the watch section carries a runnable client', () => {
+  test('with events on, a background client is spelled out', () => {
+    const text = renderInstructions('https://walgit.example', { ...PUBLIC, events: true })
+    expect(text).toContain('wss://walgit.example/_walgit/events')
+    expect(text).toContain('Bun.spawnSync(["git","fetch"])')
+    expect(text).toContain('examples/watch.ts')
+  })
+
+  test('with events off, nothing about a client is claimed', () => {
+    const text = renderInstructions('https://walgit.example', { ...PUBLIC, events: false })
+    expect(text).not.toContain('_walgit/events')
+    expect(text).not.toContain('git","fetch"')
+  })
+})
