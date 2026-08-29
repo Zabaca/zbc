@@ -3,8 +3,11 @@
   // Static Next export (out/) fronted by a tiny Worker for the two /api routes.
   // Static assets are served directly by the edge; the Worker only runs when no
   // asset matches the path (i.e. /api/hello, /api/nats-token). Lands on
-  // zbc-landing.<subdomain>.workers.dev; preview PRs get a renamed worker via
-  // the module's `workerName`.
+  // Production answers on zbc.zabaca.com, via a `routes` entry on the landing
+  // INSTANCE — deliberately not here: preview PRs deploy this same file under a
+  // per-PR `workerName`, and a Cloudflare route is unique per zone, so a route
+  // in this file would have the newest PR take production's traffic. Preview
+  // workers carry no route and so keep their own *.workers.dev URL.
   "name": "zbc-landing",
   "main": "worker/index.ts",
   "compatibility_date": "2025-11-01",

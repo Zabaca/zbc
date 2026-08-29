@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react'
 import './globals.css'
 
-const SITE = 'https://zbc-landing.james-99a.workers.dev'
+const SITE = 'https://zbc.zabaca.com'
 const TITLE = 'zbc: declarative infrastructure for Bun'
 const DESCRIPTION =
   'Describe your database and your workers in TypeScript. One command provisions what is missing, converges what drifted, and deploys your code, locally and in CI, the same way. No state file.'
