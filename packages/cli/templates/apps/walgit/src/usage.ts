@@ -52,6 +52,12 @@ export interface RepoUsage {
   /** Pushes and bytes inside the requested window; zero when none was asked for. */
   pushesInWindow: number
   bytesInWindow: number
+  /**
+   * The repository is scheduled for deletion but still inside its grace period.
+   * Its bytes are counted, because the bucket still holds them — but an
+   * operator reading a total needs to know which part of it is already leaving.
+   */
+  deletionPending: boolean
 }
 
 /** One slice of the window, for push volume over time. */
@@ -82,6 +88,8 @@ export interface UsageReport {
   /** Repositories the store holds an index for. */
   repos: number
   bytes: number
+  /** Bytes belonging to repositories already scheduled for deletion. */
+  bytesPendingDeletion: number
   liveBytes: number
   entries: number
   pushes: number
@@ -166,6 +174,7 @@ export function usageOfIndex(
     lastPush: null,
     pushesInWindow: 0,
     bytesInWindow: 0,
+    deletionPending: index.deletion !== undefined,
   }
 
   for (const entry of index.entries) {
@@ -290,6 +299,7 @@ export async function collectUsage(
       : null,
     repos: rows.length,
     bytes: rows.reduce((n, r) => n + r.bytes, 0),
+    bytesPendingDeletion: rows.reduce((n, r) => n + (r.deletionPending ? r.bytes : 0), 0),
     liveBytes: rows.reduce((n, r) => n + r.liveBytes, 0),
     entries: rows.reduce((n, r) => n + r.entries, 0),
     pushes: rows.reduce((n, r) => n + r.pushes, 0),
@@ -360,6 +370,12 @@ export function formatUsage(report: UsageReport): string {
     )
   }
 
+  if (report.bytesPendingDeletion > 0) {
+    lines.push(
+      `  ${formatBytes(report.bytesPendingDeletion)} belongs to repositories scheduled for deletion`,
+    )
+  }
+
   if (report.largest.length > 0) {
     lines.push('', 'Largest repositories')
     const width = Math.max(...report.largest.map((r) => r.repoId.length))
@@ -368,7 +384,7 @@ export function formatUsage(report: UsageReport): string {
         `  ${row.repoId.padEnd(width)}  ${formatBytes(row.bytes).padStart(9)}  ` +
           `${String(row.pushes).padStart(5)} ${row.pushes === 1 ? 'push ' : 'pushes'}  ` +
           `${row.refs} ${row.refs === 1 ? 'ref ' : 'refs'}  ` +
-          `last push ${row.lastPush ?? 'never'}`,
+          `last push ${row.lastPush ?? 'never'}${row.deletionPending ? '  (deleting)' : ''}`,
       )
     }
   }

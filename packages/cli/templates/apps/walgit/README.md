@@ -24,6 +24,7 @@ the **garbage collection** that keeps the log from growing without bound:
 | `src/materialize.ts` | rebuild a repo from the log alone, on a disk that holds nothing |
 | `src/compact.ts` | collapse the log to one entry, under a per-repo lease |
 | `src/gc.ts` | delete superseded and orphaned objects, a grace period later |
+| `src/delete-repo.ts` | remove a whole repository: tombstone, wait, then index-first deletion |
 | `src/verify.ts`, `src/cli.ts` | the operator CLI: inspect, rebuild, verify, reclaim |
 | `src/git.ts`, `src/mkdir-lock.ts` | the two shared primitives: running a git plumbing command, and locking with `mkdir` |
 
@@ -35,6 +36,7 @@ walgit materialize <repo_id> [path]   # rebuild a repo from the write-ahead log
 walgit verify <repo_id> [path]        # check local state against index.json
 walgit gc <repo_id...>                # reclaim superseded and orphaned objects (dry run)
 walgit compact <repo_id> [path]       # repack the log into one entry, now
+walgit delete <repo_id...>            # remove repositories entirely (dry run)
 walgit usage [--since 24h] [--top 10] # what the log says this service holds
 ```
 
@@ -86,6 +88,14 @@ from the ULID in the key, so it costs no extra round trip — and an object whos
 age cannot be read is left alone. There is no collect-everything mode: a `LIST`
 of the whole bucket would name repos this node never served, and the blast
 radius of a wrong guess is objects deleted from the source of truth.
+
+`delete` removes repositories on purpose, which is why it is the most cautious
+command here: it **only reports unless given `--yes`**, and even then the first
+run does not delete — it writes a `deletion` marker into `index.json` and the
+objects survive until `--grace` minutes have passed (default 60,
+`WALGIT_DELETE_GRACE_MS`). A second run after that deadline collects. Asking
+twice inside the window does not restart the clock, and deleting a repository
+that is not there is a no-op rather than an error.
 
 `compact` forces a compaction rather than waiting for
 `WALGIT_COMPACTION_THRESHOLD` pushes to trigger one — for the repo whose restore
@@ -243,6 +253,28 @@ is gone, which is a broken repository rather than a recoverable one.
 
 The asymmetry throughout: over-retaining costs storage, under-retaining loses
 data with no error anywhere.
+
+## Deleting a repository
+
+`src/delete-repo.ts` is the one thing that destroys data on purpose, and it
+inherits the collector's discipline rather than inventing a faster one.
+
+It is **deferred**: the first request tombstones the repository by writing a
+`deletion` marker into `index.json`, and only a later call — past
+`WALGIT_DELETE_GRACE_MS` — removes anything. A clone that read the index a
+moment before the request is still downloading the packs it names, and the
+grace period is what stops it being cut off mid-transfer. The knob is its own
+rather than the collector's, because expiry and compaction have unrelated
+timescales.
+
+Collection then deletes **`index.json` first** and the objects it names second.
+A crash between the two leaves objects that nothing references — exactly what
+`findOrphans` discovers and `gc` reclaims — instead of an index naming an
+object that is gone. The cached bare repo on disk goes last, because a cache
+left behind is reclaimable and a half-deleted log is not.
+
+Deciding *which* repositories go — expiry — is not this file's business. It
+takes a repo id.
 
 ## How a client reaches it
 

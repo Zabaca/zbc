@@ -10,6 +10,7 @@
 import { ensureBareRepo } from './cache'
 import { createHttpHandler } from './http'
 import { runGitHttpBackend } from './git-backend'
+import type { InstructionsPolicy } from './instructions'
 import { storeFromEnv } from './store-env'
 import { syncRepo } from './sync'
 
@@ -31,11 +32,35 @@ if (tokens.length === 0) {
   process.exit(1)
 }
 
+/**
+ * What `GET /` is allowed to promise. Each limit is read from the same env var
+ * that enforces it, so the page states the deployment's real behaviour rather
+ * than a copy of it that can drift. Unset means unenforced, and unenforced
+ * limits are simply not mentioned.
+ */
+const instructions: InstructionsPolicy = {
+  publicAccess: process.env.WALGIT_PUBLIC === '1',
+  appendOnly: process.env.WALGIT_APPEND_ONLY === '1',
+  retentionHours: positiveNumber(process.env.WALGIT_RETENTION_HOURS),
+  maxPushBytes: positiveNumber(process.env.WALGIT_MAX_PUSH_BYTES),
+  maxRepoBytes: positiveNumber(process.env.WALGIT_MAX_REPO_BYTES),
+}
+
+function positiveNumber(raw: string | undefined): number | undefined {
+  if (!raw) return undefined
+  const value = Number(raw)
+  // An unparseable cap must not become a stated one: saying "1 MiB" when NaN
+  // was configured would be worse than saying nothing.
+  return Number.isFinite(value) && value > 0 ? value : undefined
+}
+
 const store = storeFromEnv()
 if (!store) {
   // Warned, not fatal: reads still work off the local cache, and a push is
   // refused by the hooks themselves rather than by guessing here.
-  console.error('walgit: no object store configured — pushes will be REFUSED (see src/store-env.ts)')
+  console.error(
+    'walgit: no object store configured — pushes will be REFUSED (see src/store-env.ts)',
+  )
 }
 
 const handler = createHttpHandler({
@@ -44,6 +69,7 @@ const handler = createHttpHandler({
   ensureRepo: ensureBareRepo,
   syncRepo: (repo) => syncRepo(store, repo),
   runBackend: runGitHttpBackend,
+  instructions,
 })
 
 Bun.serve({ port, idleTimeout: 0, fetch: handler })

@@ -142,6 +142,22 @@ describe('collectUsage', () => {
     expect(formatUsage(report)).toContain('ghost')
   })
 
+  test('flags a repository that is inside its deletion grace period', async () => {
+    const store = new MemoryStore()
+    const doomed = indexOf('doomed', [entry(1, 400, hoursAgo(2))])
+    await seed(store, indexOf('alpha', [entry(1, 100, hoursAgo(2))]), {
+      ...doomed,
+      deletion: { requested_at: hoursAgo(1), collect_after: hoursAgo(-1) },
+    })
+
+    const report = await collectUsage(store, { now: () => NOW })
+    // Its bytes still count — the bucket still holds them — but the total says
+    // how much of itself is already on the way out.
+    expect(report.bytes).toBe(500)
+    expect(report.bytesPendingDeletion).toBe(400)
+    expect(formatUsage(report)).toContain('(deleting)')
+  })
+
   test('reports an empty store without failing', async () => {
     const report = await collectUsage(new MemoryStore(), { now: () => NOW })
     expect(report.repos).toBe(0)

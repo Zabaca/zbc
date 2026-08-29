@@ -25,6 +25,7 @@
 import * as path from 'node:path'
 
 import { compact, configuredGraceMs, type CompactResult } from './compact'
+import { configuredDeleteGraceMs, deleteRepo } from './delete-repo'
 import { collectGarbage } from './gc'
 import { materialize, round } from './materialize'
 import { normalizeRepoId, resolveRepo } from './repo'
@@ -49,7 +50,7 @@ export interface ParsedArgs {
  * `gc myrepo --yes myotherrepo` swallow a repo id: a flag takes the next token
  * only when it is declared to want one.
  */
-const KNOWN_VALUE_FLAGS = new Set(['min-age', 'repos-dir', 'since', 'top'])
+const KNOWN_VALUE_FLAGS = new Set(['min-age', 'repos-dir', 'grace', 'since', 'top'])
 
 export function parseArgs(argv: readonly string[]): ParsedArgs {
   const positional: string[] = []
@@ -81,14 +82,16 @@ const USAGE = `walgit — operator CLI for a WAL-backed git host
   walgit verify <repo_id> [path]        check local state against index.json
   walgit gc <repo_id...>                reclaim orphaned WAL objects (dry run)
   walgit compact <repo_id> [path]       repack the log into one entry, now
+  walgit delete <repo_id...>            remove repositories entirely (dry run)
   walgit usage                          what the log says this service holds
 
 Options
   --repos-dir <dir>   where bare repos live (default: $WALGIT_REPOS_DIR)
   --json              machine-readable output
-  --yes               gc: actually delete (without it, gc only reports)
+  --yes               gc/delete: actually delete (without it, they only report)
   --force=false       compact: respect the entry-count threshold instead of forcing
   --min-age <minutes> gc: never collect an object younger than this (default 60)
+  --grace <minutes>   delete: how long a repo is tombstoned first (default 60)
   --since <duration>  usage: push window, e.g. 24h, 7d, 30m (default 24h)
   --top <n>           usage: how many repositories to name (0 = all, default 10)
 
@@ -233,6 +236,65 @@ async function gcCommand(args: ParsedArgs, env: NodeJS.ProcessEnv): Promise<numb
 }
 
 /**
+ * Remove repositories entirely — index, WAL objects, and the cached bare repo.
+ *
+ * Deferred in two steps by design: the first `--yes` run tombstones, and a
+ * later one collects once the grace period has elapsed. See `delete-repo.ts`
+ * for why the wait is not optional and why the index goes first.
+ */
+async function deleteCommand(args: ParsedArgs, env: NodeJS.ProcessEnv): Promise<number> {
+  if (args.positional.length === 0) {
+    console.error('walgit delete: usage: walgit delete <repo_id...> [--yes] [--grace <minutes>]')
+    return MISUSE
+  }
+  const store = requireStore(env)
+  const graceFlag = args.flags.grace
+  const graceMs =
+    typeof graceFlag === 'string' ? Number(graceFlag) * 60_000 : configuredDeleteGraceMs(env)
+  if (!Number.isFinite(graceMs) || graceMs < 0) {
+    console.error(`walgit delete: --grace must be a number of minutes, got ${String(graceFlag)}`)
+    return MISUSE
+  }
+
+  // Dry run is the default, as it is for `gc`, and more emphatically: this
+  // command deletes objects the index still names.
+  const dryRun = args.flags.yes !== true
+  const results = []
+  for (const requested of args.positional) {
+    const repo = repoAt(args, env, requested)
+    results.push(await deleteRepo(store, repo.repoId, { graceMs, dryRun, dir: repo.dir }))
+  }
+
+  const lines: string[] = []
+  for (const result of results) {
+    if (result.status === 'absent') {
+      lines.push(`${result.repoId}: nothing to delete`)
+    } else if (result.status === 'tombstoned') {
+      lines.push(
+        `${result.repoId}: ${dryRun ? 'would be scheduled' : 'scheduled'} for deletion, ` +
+          `collectable after ${result.collectAfter}`,
+      )
+    } else if (result.status === 'retained') {
+      lines.push(
+        `${result.repoId}: already scheduled — nothing may be deleted before ` +
+          `${result.collectAfter}`,
+      )
+    } else {
+      const verb = dryRun ? 'would delete' : 'deleted'
+      lines.push(`${result.repoId}: ${verb} ${result.deleted.length} objects`)
+    }
+    for (const key of result.deleted) lines.push(`  ${dryRun ? '-' : 'deleted'} ${key}`)
+    for (const kept of result.retained) lines.push(`  kept ${kept.key} (${kept.reason})`)
+    if (result.cacheRemoved) lines.push(`  removed cache ${result.cacheRemoved}`)
+  }
+  if (dryRun && results.some((r) => r.status !== 'absent')) {
+    lines.push('nothing was changed — re-run with --yes')
+  }
+  emit(args, results, lines.join('\n'))
+  return OK
+}
+
+/**
  * Force a compaction, bypassing the entry-count threshold.
  *
  * The threshold exists so compaction happens on its own after enough pushes;
@@ -328,6 +390,8 @@ export async function main(
         return await gcCommand(args, env)
       case 'compact':
         return await compactCommand(args, env)
+      case 'delete':
+        return await deleteCommand(args, env)
       case 'usage':
         return await usageCommand(args, env)
       default:
