@@ -51,6 +51,17 @@ export interface ObjectStore {
   delete(key: string): Promise<void>
   /** Keys under a prefix, lexicographically ascending. */
   list(prefix: string): Promise<string[]>
+  /**
+   * Immediate child prefixes under `prefix`, delimited by `/`.
+   *
+   * Optional because it is an optimisation, not a capability: a store without
+   * it is enumerated by `list` and derivation (see `listRepoIds`). It exists
+   * because "which repositories exist?" is one question the bucket can answer
+   * in a handful of round trips, and answering it by listing every packfile in
+   * the log would make a read-only report the most expensive command walgit
+   * has.
+   */
+  listPrefixes?(prefix: string): Promise<string[]>
 }
 
 // ── In-memory implementation ────────────────────────────────────────────────
@@ -210,6 +221,30 @@ export class S3Store implements ObjectStore {
       token = xml.match(/<NextContinuationToken>([^<]+)<\/NextContinuationToken>/)?.[1]
     } while (token)
     return keys.sort()
+  }
+
+  /**
+   * `delimiter=/` makes the store roll every key sharing a child prefix into a
+   * single `CommonPrefixes` entry, so a bucket holding a million WAL objects
+   * still answers "which repositories are there?" in one page per thousand
+   * repositories.
+   */
+  async listPrefixes(prefix: string): Promise<string[]> {
+    const prefixes: string[] = []
+    let token: string | undefined
+    do {
+      const params = new URLSearchParams({ 'list-type': '2', prefix, delimiter: '/' })
+      if (token) params.set('continuation-token', token)
+      const res = await this.opts.fetch(`${this.opts.endpoint}/${this.opts.bucket}?${params}`)
+      if (!res.ok) throw new Error(`LIST ${prefix}: HTTP ${res.status}`)
+      const xml = await res.text()
+      for (const block of xml.matchAll(/<CommonPrefixes>([\s\S]*?)<\/CommonPrefixes>/g)) {
+        const found = /<Prefix>([^<]+)<\/Prefix>/.exec(block[1]!)
+        if (found) prefixes.push(found[1]!)
+      }
+      token = xml.match(/<NextContinuationToken>([^<]+)<\/NextContinuationToken>/)?.[1]
+    } while (token)
+    return prefixes.sort()
   }
 }
 

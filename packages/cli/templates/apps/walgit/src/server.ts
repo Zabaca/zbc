@@ -58,7 +58,9 @@ const store = storeFromEnv()
 if (!store) {
   // Warned, not fatal: reads still work off the local cache, and a push is
   // refused by the hooks themselves rather than by guessing here.
-  console.error('walgit: no object store configured — pushes will be REFUSED (see src/store-env.ts)')
+  console.error(
+    'walgit: no object store configured — pushes will be REFUSED (see src/store-env.ts)',
+  )
 }
 
 const handler = createHttpHandler({

@@ -127,7 +127,16 @@ describe('smart-HTTP', () => {
     fs.writeFileSync(path.join(work, 'file'), 'from the instructions\n')
     await git(work, 'init', '.')
     await git(work, 'add', '-A')
-    await git(work, '-c', 'user.email=agent@localhost', '-c', 'user.name=agent', 'commit', '-m', 'first')
+    await git(
+      work,
+      '-c',
+      'user.email=agent@localhost',
+      '-c',
+      'user.name=agent',
+      'commit',
+      '-m',
+      'first',
+    )
 
     // The one substitution: this instance still demands a credential, which
     // public mode removes in a sibling ticket. Everything else — the path
