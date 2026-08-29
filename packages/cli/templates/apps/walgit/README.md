@@ -37,7 +37,18 @@ walgit verify <repo_id> [path]        # check local state against index.json
 walgit gc <repo_id...>                # reclaim superseded and orphaned objects (dry run)
 walgit compact <repo_id> [path]       # repack the log into one entry, now
 walgit delete <repo_id...>            # remove repositories entirely (dry run)
+walgit usage [--since 24h] [--top 10] # what the log says this service holds
 ```
+
+`usage` is the one command that needs nothing but bucket credentials — no repos
+directory, no local cache, no running node — because the log is already a usage
+ledger: every entry carries a `size` and a `ts`, so repository count, bytes
+stored, the largest repositories and push volume over time are all derivable
+with no instrumentation and nothing to keep in sync. It is strictly read-only,
+which matters because it is run at exactly the moment a command that also
+repairs things would be dangerous. It reports **pushes and storage only** — a
+clone leaves no trace in the log at all, and an approximation invented here
+would read as a measurement.
 
 It runs where the app's environment is — inside the container, or anywhere the
 same `WALGIT_*` variables are set:
@@ -51,7 +62,7 @@ hook processes use. There is deliberately no `~/.walgit/config`: a second config
 about, and it would drift from the one the app actually reads.
 
 **Every command is a thin front over the functions the server calls** —
-`materialize`, `reconcile`, `findOrphans`. That is what makes `verify`
+`materialize`, `reconcile`, `findOrphans`, `collectUsage`. That is what makes `verify`
 trustworthy: a command-line reimplementation of "is this disk current?" would
 answer for itself rather than for the server.
 
@@ -316,6 +327,30 @@ and nothing to mount.
 Trap worth knowing when tearing one down: `wrangler delete` on the Worker does
 **not** delete its container application. That needs a separate
 `wrangler containers delete`, or the instances stay live.
+
+## Append-only refs
+
+`WALGIT_APPEND_ONLY=1` makes every repository on the instance append-only: a
+push may create a ref or fast-forward one, and may never delete or rewrite one.
+It is **off by default** — `git.zabaca.com` keeps force-push — and it is
+instance configuration, so turning it on covers repositories that already exist.
+
+It is enforced twice. `receive.denyNonFastForwards` and `receive.denyDeletes`
+are set on the bare repo as a backstop that no bug in this code can bypass. The
+refusal a client actually reads comes earlier, from `pre-receive`
+(`src/append-only.ts`), and that earliness buys the two things git's own message
+cannot: the wording — `denying non-fast-forward refs/heads/main` tells an agent
+neither what walgit is nor what to do instead — and the object-store write, since
+git refuses only *after* `pre-receive`, by which point the pack for a doomed push
+has already been uploaded and left for `findOrphans` to reclaim.
+
+The check is git's own fast-forward test (`merge-base --is-ancestor`) over the
+objects sitting in the quarantine. Unrelated history fails it, which is the
+intended answer: pushing a fresh repo over an existing name would drop every
+commit the branch holds today. The message names the repository, states the
+rule, and offers a free name (`<repo>-<8 hex>`) to push to instead — a wave of
+agents on near-identical prompts all reach for `test`, and this message is the
+first thing walgit ever says to most of them.
 
 ## Authorization, today
 

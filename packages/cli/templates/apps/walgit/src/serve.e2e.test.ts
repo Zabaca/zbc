@@ -4,7 +4,6 @@
  * clone/push/fetch work, which no unit test of the routing can establish.
  */
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
-import { spawnSync } from 'node:child_process'
 import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
@@ -127,7 +126,16 @@ describe('smart-HTTP', () => {
     fs.writeFileSync(path.join(work, 'file'), 'from the instructions\n')
     await git(work, 'init', '.')
     await git(work, 'add', '-A')
-    await git(work, '-c', 'user.email=agent@localhost', '-c', 'user.name=agent', 'commit', '-m', 'first')
+    await git(
+      work,
+      '-c',
+      'user.email=agent@localhost',
+      '-c',
+      'user.name=agent',
+      'commit',
+      '-m',
+      'first',
+    )
 
     // The one substitution: this instance still demands a credential, which
     // public mode removes in a sibling ticket. Everything else — the path

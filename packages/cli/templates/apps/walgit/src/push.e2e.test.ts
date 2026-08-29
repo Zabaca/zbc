@@ -9,7 +9,7 @@
  * die, EITHER the client saw a rejection OR the commit is durably in the log.
  * Never neither.
  */
-import { afterAll, beforeAll, beforeEach, describe, expect, test } from 'bun:test'
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } from 'bun:test'
 import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
@@ -293,5 +293,141 @@ describe('concurrent pushes on one node', () => {
 
     // Nothing an acknowledged push uploaded was left unreferenced.
     expect(await findOrphans(store, repoId)).toEqual([])
+  })
+})
+
+describe('append-only refs', () => {
+  /**
+   * A clone whose main has diverged from the server's: the tip commit dropped
+   * and a different one put in its place. This — not "a clone with an extra
+   * commit" — is what a force push actually carries; a clone that merely added
+   * a commit fast-forwards and is allowed.
+   */
+  async function divergedClient(): Promise<{ dir: string; oid: string }> {
+    const dir = path.join(scratch, `${repoId}-divergent`)
+    await git(scratch, 'clone', '--quiet', origin, dir)
+    await git(dir, 'config', 'user.email', 'walgit@example.test')
+    await git(dir, 'config', 'user.name', 'walgit')
+    await git(dir, 'reset', '--quiet', '--hard', 'HEAD~1')
+    fs.writeFileSync(path.join(dir, 'README'), 'rewritten\n')
+    await git(dir, 'add', 'README')
+    await git(dir, 'commit', '--quiet', '-m', 'rewritten')
+    return { dir, oid: (await git(dir, 'rev-parse', 'HEAD')).out.trim() }
+  }
+
+  /** main with two commits, so a client can drop one and still have a history. */
+  async function seedMain(): Promise<{ dir: string; oid: string }> {
+    const seed = await clientWithCommit('seed', 'seed\n')
+    expect((await git(seed.dir, 'push', 'origin', 'HEAD:refs/heads/main')).status).toBe(0)
+    fs.writeFileSync(path.join(seed.dir, 'README'), 'seed two\n')
+    await git(seed.dir, 'add', 'README')
+    await git(seed.dir, 'commit', '--quiet', '-m', 'seed two')
+    expect((await git(seed.dir, 'push', 'origin', 'HEAD:refs/heads/main')).status).toBe(0)
+    return { dir: seed.dir, oid: (await git(seed.dir, 'rev-parse', 'HEAD')).out.trim() }
+  }
+
+  describe('with the instance flag on', () => {
+    beforeEach(() => {
+      process.env.WALGIT_APPEND_ONLY = '1'
+    })
+    afterEach(() => {
+      delete process.env.WALGIT_APPEND_ONLY
+    })
+
+    test('refuses a force push, in walgit’s own words', async () => {
+      const seed = await seedMain()
+      const { dir } = await divergedClient()
+
+      const forced = await git(dir, 'push', '--force', 'origin', 'HEAD:refs/heads/main')
+      expect(forced.status).not.toBe(0)
+      // The exit code alone would also be satisfied by git's own refusal, which
+      // says nothing an agent can act on. The words are the deliverable.
+      expect(forced.out).toContain(`${repoId} is append-only`)
+      expect(forced.out).toContain('would rewrite refs/heads/main')
+      expect(forced.out).toMatch(new RegExp(`${repoId}-[0-9a-f]{8}\\.git`))
+
+      const { index } = await loadIndex(store, repoId)
+      expect(index.refs['refs/heads/main']).toBe(seed.oid)
+    })
+
+    test('a refused push writes nothing to the log — the reason the check is early', async () => {
+      await seedMain()
+      const before = await loadIndex(store, repoId)
+      const { dir } = await divergedClient()
+
+      expect((await git(dir, 'push', '--force', 'origin', 'HEAD:refs/heads/main')).status).not.toBe(
+        0,
+      )
+
+      const after = await loadIndex(store, repoId)
+      expect(after.index.entries).toHaveLength(before.index.entries.length)
+      // Not merely unpublished: never uploaded. An orphan here would mean the
+      // pack reached the store and `findOrphans` has to reclaim it.
+      expect(await findOrphans(store, repoId)).toEqual([])
+    })
+
+    test('refuses a ref deletion', async () => {
+      const seed = await seedMain()
+
+      const deleted = await git(seed.dir, 'push', 'origin', ':refs/heads/main')
+      expect(deleted.status).not.toBe(0)
+      expect(deleted.out).toContain('Deleting refs/heads/main')
+
+      const { index } = await loadIndex(store, repoId)
+      expect(index.refs['refs/heads/main']).toBe(seed.oid)
+    })
+
+    test('refuses an unrelated history pushed over an existing branch', async () => {
+      const seed = await seedMain()
+      const dir = path.join(scratch, `${repoId}-unrelated`)
+      fs.mkdirSync(dir, { recursive: true })
+      await git(dir, 'init', '--quiet', '--initial-branch=main', dir)
+      await git(dir, 'config', 'user.email', 'walgit@example.test')
+      await git(dir, 'config', 'user.name', 'walgit')
+      fs.writeFileSync(path.join(dir, 'README'), 'mine\n')
+      await git(dir, 'add', 'README')
+      await git(dir, 'commit', '--quiet', '-m', 'mine')
+
+      const pushed = await git(dir, 'push', '--force', origin, 'HEAD:refs/heads/main')
+      expect(pushed.status).not.toBe(0)
+      expect(pushed.out).toContain(`${repoId} is append-only`)
+
+      const { index } = await loadIndex(store, repoId)
+      expect(index.refs['refs/heads/main']).toBe(seed.oid)
+    })
+
+    test('still accepts a new branch and a fast-forward', async () => {
+      const seed = await seedMain()
+      expect((await git(seed.dir, 'push', 'origin', 'HEAD:refs/heads/topic')).status).toBe(0)
+
+      fs.writeFileSync(path.join(seed.dir, 'README'), 'more\n')
+      await git(seed.dir, 'add', 'README')
+      await git(seed.dir, 'commit', '--quiet', '-m', 'more')
+      expect((await git(seed.dir, 'push', 'origin', 'HEAD:refs/heads/main')).status).toBe(0)
+
+      const { index } = await loadIndex(store, repoId)
+      expect(index.refs['refs/heads/main']).toBe(
+        (await git(seed.dir, 'rev-parse', 'HEAD')).out.trim(),
+      )
+      expect(index.refs['refs/heads/topic']).toBe(seed.oid)
+    })
+
+    test('installs git’s own deny rules as the backstop under the hook', async () => {
+      await seedMain()
+      const config = async (key: string) =>
+        (await git(scratch, '--git-dir', bareDir(), 'config', '--get', key)).out.trim()
+      expect(await config('receive.denyNonFastForwards')).toBe('true')
+      expect(await config('receive.denyDeletes')).toBe('true')
+    })
+  })
+
+  test('is off by default: an instance without the flag still accepts a force push', async () => {
+    await seedMain()
+    const { dir, oid } = await divergedClient()
+
+    expect((await git(dir, 'push', '--force', 'origin', 'HEAD:refs/heads/main')).status).toBe(0)
+
+    const { index } = await loadIndex(store, repoId)
+    expect(index.refs['refs/heads/main']).toBe(oid)
   })
 })

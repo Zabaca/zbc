@@ -32,6 +32,13 @@ export interface Env {
   /** Optional knobs, not secrets (see the app README). */
   WALGIT_COMPACTION_THRESHOLD?: string
   WALGIT_GC_GRACE_MS?: string
+  WALGIT_DELETE_GRACE_MS?: string
+  /** The policy `GET /` states and the push path enforces (src/instructions.ts). */
+  WALGIT_PUBLIC?: string
+  WALGIT_APPEND_ONLY?: string
+  WALGIT_RETENTION_HOURS?: string
+  WALGIT_MAX_PUSH_BYTES?: string
+  WALGIT_MAX_REPO_BYTES?: string
 }
 
 /** Every variable the container is allowed to be told about, and no more. */
@@ -44,6 +51,15 @@ const CONTAINER_ENV = [
   'WALGIT_S3_REGION',
   'WALGIT_COMPACTION_THRESHOLD',
   'WALGIT_GC_GRACE_MS',
+  'WALGIT_DELETE_GRACE_MS',
+  // A limit that does not reach the container is a limit `GET /` never states
+  // and the push path never enforces — silently, since every one of these is
+  // optional and an unset one simply means unenforced.
+  'WALGIT_PUBLIC',
+  'WALGIT_APPEND_ONLY',
+  'WALGIT_RETENTION_HOURS',
+  'WALGIT_MAX_PUSH_BYTES',
+  'WALGIT_MAX_REPO_BYTES',
 ] as const
 
 export class WalgitContainer extends Container<Env> {
