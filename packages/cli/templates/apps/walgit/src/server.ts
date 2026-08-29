@@ -90,8 +90,8 @@ const expiryMs = configuredExpiryMs()
  * too, but this line is the one that survives in the container's own log when
  * the question is what the sweeper actually did.
  */
-async function runSweep(store: ObjectStore, windowMs: number) {
-  const result = await expireRepos(store, { windowMs, dryRun: false, reposDir })
+async function runSweep(logStore: ObjectStore, windowMs: number) {
+  const result = await expireRepos(logStore, { windowMs, dryRun: false, reposDir })
   console.log(
     `walgit expire: collected ${result.collected.length}, retained ${result.retained.length}`,
   )
