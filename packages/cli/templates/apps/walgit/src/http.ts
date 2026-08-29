@@ -52,6 +52,18 @@ export type HttpHandlerDeps = {
    * does not enforce.
    */
   instructions?: InstructionsPolicy
+  /**
+   * Run one expiry sweep. Optional: an instance that is not given one simply
+   * does not answer the endpoint, which is what a deployment with no timer in
+   * front of it should do.
+   *
+   * The sweep lives out here rather than on a timer inside the container
+   * because the container sleeps when idle — an internal `setInterval` would
+   * stop firing at exactly the moment there is nothing keeping it awake, which
+   * is exactly when there are idle repositories to collect. The deployment's
+   * Cron Trigger wakes it instead (`worker/index.ts`).
+   */
+  sweep?: () => Promise<unknown>
 }
 
 /**
@@ -67,6 +79,19 @@ export type HttpHandlerDeps = {
  */
 export const SERVED_HEADER = 'x-walgit-served'
 export const REJECT_HEADER = 'x-walgit-reject'
+
+/**
+ * The header that marks a request as coming from the Worker's own scheduled
+ * handler rather than from the internet.
+ *
+ * Expiry DELETES repositories, and this container is world-reachable by
+ * design — so the endpoint that runs it must not be. The Worker strips this
+ * header from every request it proxies from a client and sets it only on the
+ * one it originates itself (`worker/index.ts`), which makes "the Worker asked"
+ * unforgeable from outside without inventing a second credential for a service
+ * whose whole point is not having one.
+ */
+export const INTERNAL_HEADER = 'x-walgit-internal'
 
 /** Every kind of refusal this process distinguishes, as the Worker names them. */
 export type RejectKind = 'unauthorized' | 'not-found' | 'unavailable' | 'size-cap' | 'collision'
@@ -127,6 +152,21 @@ function createRouter(deps: HttpHandlerDeps): (req: Request) => Promise<Response
     // Unauthenticated on purpose: an external health check carries no
     // credential, and this reveals nothing but that the container is up.
     if (url.pathname === '/_walgit/health') return new Response('ok\n')
+
+    // The sweeper's front door. Not part of the git protocol and not reachable
+    // from the internet: the Worker deletes INTERNAL_HEADER from everything it
+    // forwards, so a request carrying it can only have been originated by the
+    // Worker's scheduled handler. A 404 rather than a 403 for the same reason
+    // every other unroutable path gets one — an endpoint nobody may call should
+    // not advertise that it exists.
+    if (url.pathname === '/_walgit/expire') {
+      if (!deps.sweep || request.method !== 'POST') return NOT_FOUND()
+      if (request.headers.get(INTERNAL_HEADER) !== '1') return NOT_FOUND()
+      const report = await deps.sweep()
+      return new Response(`${JSON.stringify(report)}\n`, {
+        headers: { 'content-type': 'application/json; charset=utf-8' },
+      })
+    }
 
     // The instructions are the API surface, so they come BEFORE the credential
     // check: an agent that has to authenticate to learn how to authenticate

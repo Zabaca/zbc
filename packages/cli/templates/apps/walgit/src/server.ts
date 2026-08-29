@@ -12,10 +12,12 @@
  */
 
 import { ensureBareRepo } from './cache'
+import { configuredExpiryMs, expireRepos } from './expire'
 import { createHttpHandler } from './http'
 import { runGitHttpBackend } from './git-backend'
 import type { InstructionsPolicy } from './instructions'
 import { limitsFromEnv } from './limits'
+import type { ObjectStore } from './store'
 import { storeFromEnv } from './store-env'
 import { syncRepo } from './sync'
 
@@ -73,6 +75,33 @@ if (!store) {
   )
 }
 
+/**
+ * The window, read once at boot from the same variable `GET /` renders its
+ * retention promise from — so the page and the sweeper can never disagree.
+ */
+const expiryMs = configuredExpiryMs()
+
+/**
+ * One sweep, for real. `--yes` is the CLI's opt-in because a human at a
+ * terminal should have to ask; a scheduled sweep IS the asking, and a dry run
+ * on a timer would collect nothing forever while looking healthy.
+ *
+ * Logged as well as returned: the Worker's scheduled handler prints the report
+ * too, but this line is the one that survives in the container's own log when
+ * the question is what the sweeper actually did.
+ */
+async function runSweep(logStore: ObjectStore, windowMs: number) {
+  const result = await expireRepos(logStore, { windowMs, dryRun: false, reposDir })
+  console.log(
+    `walgit expire: collected ${result.collected.length}, retained ${result.retained.length}`,
+  )
+  return {
+    collected: result.collected.map((o) => ({ repoId: o.repoId, reason: o.decision.reason })),
+    retained: result.retained.length,
+    windowMs: result.windowMs,
+  }
+}
+
 let handler
 try {
   handler = createHttpHandler({
@@ -83,6 +112,12 @@ try {
     syncRepo: (repo) => syncRepo(store, repo),
     runBackend: runGitHttpBackend,
     instructions,
+    // Only when there is both a log to sweep and a window to sweep by. An
+    // instance with no retention configured has expiry off entirely, and the
+    // endpoint should not exist for it — `expireRepos` would return an empty
+    // report either way, but a deployment that cannot collect anything should
+    // not answer as though it might.
+    sweep: store && expiryMs !== null ? () => runSweep(store, expiryMs) : undefined,
   })
 } catch (err) {
   // Refusing to boot beats booting a half-configured git host — either an open

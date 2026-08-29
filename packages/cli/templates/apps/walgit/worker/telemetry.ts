@@ -38,6 +38,14 @@ export const REJECT_HEADER = 'x-walgit-reject'
 /** Header the container sets on the first response after it started. */
 export const COLD_HEADER = 'x-walgit-cold'
 
+/**
+ * Header marking a REQUEST as originated by this Worker rather than by a
+ * client. The value is mirrored in `src/http.ts`, which is what reads it —
+ * the same deliberate duplication as the two above, so the container process
+ * and the Worker share a vocabulary without sharing a bundle.
+ */
+export const INTERNAL_REQUEST_HEADER = 'x-walgit-internal'
+
 /** Stripped before the response leaves the Worker — internal, not protocol. */
 export const INTERNAL_HEADERS = [SERVED_HEADER, REJECT_HEADER, COLD_HEADER] as const
 
@@ -214,7 +222,14 @@ export function toDataPoint(metric: RequestMetric): DataPoint {
 }
 
 /** Column names for the datapoint above — the legend for a SQL API query. */
-export const BLOB_COLUMNS = ['kind', 'outcome', 'reject', 'repo', 'temperature', 'answered'] as const
+export const BLOB_COLUMNS = [
+  'kind',
+  'outcome',
+  'reject',
+  'repo',
+  'temperature',
+  'answered',
+] as const
 export const DOUBLE_COLUMNS = [
   'status',
   'ttfb_ms',

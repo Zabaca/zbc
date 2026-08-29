@@ -10,12 +10,25 @@ import zabacaDnsToken from './zabaca-dns-token'
 // It was adopted for `git.zabaca.com` — walgit's front door on Fly. That name
 // is retired: walgit dropped SSH and moved onto a Cloudflare Container
 // (docs/adr/0008), which removed the raw-TCP requirement that needed an
-// unproxied record pointing at a dedicated Fly IP, and the Container
-// deployment answers on its own hostname instead. The A, AAAA and ACME-challenge records
-// were deleted from the zone along with the Fly app that owned the address.
-// What remains here is what Cloudflare was already serving on the day the zone
-// was adopted, transcribed so the next change to this domain is a diff rather
-// than a dashboard visit.
+// unproxied record pointing at a dedicated Fly IP. The A, AAAA and
+// ACME-challenge records were deleted from the zone along with the Fly app that
+// owned the address. What remains here is what Cloudflare was already serving
+// on the day the zone was adopted, transcribed so the next change to this
+// domain is a diff rather than a dashboard visit.
+//
+// ── walgit.zabaca.com ─────────────────────────────────────────────────────
+//
+// The Container deployment's hostname, and the successor to the name above.
+//
+// `proxied: true` where `git.zabaca.com` had to be grey-clouded. That record
+// was unproxied for exactly one reason — Cloudflare's proxy carries only its
+// documented HTTP(S) ports, and walgit served SSH on 22. With SSH gone the
+// reason is gone, and proxying is now REQUIRED rather than merely allowed: the
+// Worker route in front of this name is what serves it.
+//
+// `100::` is Cloudflare's documented placeholder origin for a name served
+// entirely at the edge (see the block below). The route itself is declared on
+// the `walgit-public` instance, not here and not in wrangler.jsonc.
 //
 // ── mail ──────────────────────────────────────────────────────────────────
 //
@@ -54,6 +67,9 @@ export default cloudflareZoneModule.instance({
       // whatever answers at a real address. Proxying is what makes these usable
       // at all: Cloudflare answers with its own anycast A and AAAA regardless of
       // the origin's address family, so v4 visitors are unaffected.
+      //
+      // walgit — the public git host (docs/adr/0008), route on `walgit-public`.
+      { type: 'AAAA', name: 'walgit.zabaca.com', content: '100::', proxied: true },
       { type: 'AAAA', name: 'zabaca.com', content: '100::', proxied: true },
       { type: 'AAAA', name: 'www.zabaca.com', content: '100::', proxied: true },
       // zbc's own site. The route itself is declared on the `landing` instance,

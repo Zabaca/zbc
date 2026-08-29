@@ -352,8 +352,25 @@ error anywhere.
 
 Collection is delegated to `delete-repo.ts`, so an expired repository is
 tombstoned and collected a grace period later exactly like one deleted by hand.
-Dry run is the default; `--yes` acts. What runs it on a timer is the
-deployment's business, not this file's.
+Dry run is the default; `--yes` acts.
+
+What runs it on a timer is the **deployment's** business. On Cloudflare that is
+a Cron Trigger (`wrangler.jsonc` → `triggers.crons`, hourly) firing the Worker's
+`scheduled` handler, which POSTs `/_walgit/expire` to the container and logs the
+report. The timer lives out there rather than as an interval inside the
+container because the container SLEEPS when idle — an internal timer would stop
+firing at exactly the moment nothing is keeping it awake, which is precisely the
+state a repository has to be in to be collectable.
+
+That endpoint deletes repositories and the container is world-reachable, so it
+is reachable only by the Worker: the request must carry `x-walgit-internal: 1`,
+and the Worker STRIPS that header from every request it proxies from a client
+before forwarding it. "The Worker asked" is therefore unforgeable from outside,
+with no second credential invented for a service whose whole point is not having
+one. Anything else gets the same 404 as any other unroutable path. An instance
+with no `WALGIT_RETENTION_HOURS` exposes no sweep endpoint at all, so the cron
+logs a 404 and collects nothing — correct for an instance that never promised a
+retention window.
 
 ## How a client reaches it
 
