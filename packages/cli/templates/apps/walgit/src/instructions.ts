@@ -13,6 +13,7 @@
  * policy rather than written once as a constant.
  */
 
+import { EVENTS_PATH } from '../worker/events'
 import { describeBytes } from './limits'
 
 export type InstructionsPolicy = {
@@ -26,6 +27,16 @@ export type InstructionsPolicy = {
   maxPushBytes?: number
   /** Largest total size of one repository, in bytes. */
   maxRepoBytes?: number
+  /**
+   * This deployment serves the ref-event stream.
+   *
+   * Advertised for the same reason the limits are: an agent that cannot
+   * discover the socket falls back to fetching on a timer, which is the exact
+   * cost the stream exists to remove. And a deployment without one must not
+   * describe it — a promised socket that refuses the upgrade is worse than no
+   * mention at all, because the agent writes the client before finding out.
+   */
+  events?: boolean
 }
 
 /**
@@ -65,6 +76,7 @@ export function renderInstructions(origin: string, policy: InstructionsPolicy = 
     '',
     `    git clone ${origin}/$NAME.git`,
     '',
+    ...(policy.events ? watchSection(origin) : []),
     'IF A PUSH IS REFUSED',
     '',
     ...wrap(
@@ -107,11 +119,49 @@ function facts(policy: InstructionsPolicy): string[] {
   return facts
 }
 
+/**
+ * The stream, described where an agent will actually read about it.
+ *
+ * Written as the answer to "is my main still current?", because that is the
+ * question the polling it replaces was asking. The wire vocabulary is the one
+ * `worker/events.ts` implements — a `watch` message, a handshake carrying the
+ * current sha of everything watched, then one message per ref that moves — so
+ * the text and the protocol cannot describe two different things.
+ *
+ * No cursor is mentioned anywhere, deliberately: events are latest state, and
+ * an agent told to resume from a position would build a client the server has
+ * no way to serve.
+ */
+function watchSection(origin: string): string[] {
+  return [
+    'WATCH FOR PUSHES INSTEAD OF FETCHING ON A TIMER',
+    '',
+    ...wrap(
+      `Open a WebSocket to ${websocket(origin)}${EVENTS_PATH} and send one message naming what you care about. The reply is the current sha of everything you named. After that you get one message every time one of those refs moves, and nothing in between.`,
+    ),
+    '',
+    ...wrap(
+      'Use the same credential a clone needs, if this instance needs one. Events are latest state, not a log: there is no cursor and no replay, and a reconnect gets the current state in its reply. Omit "refs" to watch every ref in a repository. A "sha" of null means the ref is not there.',
+    ),
+    '',
+    // Labelled rather than arrowed: an arrow would put a `<` in a document
+    // whose whole promise is that there is no markup in it to parse.
+    `    send: {"watch":[{"repo":"$NAME","refs":["refs/heads/main"]}]}`,
+    `    recv: {"ok":true,"refs":[{"repo":"$NAME","ref":"refs/heads/main","sha":"a1b2c3..."}]}`,
+    `    recv: {"repo":"$NAME","ref":"refs/heads/main","sha":"d4e5f6..."}`,
+    '',
+  ]
+}
+
+/** The same origin the example pushes to, as the scheme a socket dials. */
+function websocket(origin: string): string {
+  return origin.replace(/^http/, 'ws')
+}
+
 function describeHours(hours: number): string {
   if (hours >= 48 && hours % 24 === 0) return `${hours / 24} days`
   return `${hours} hour${hours === 1 ? '' : 's'}`
 }
-
 
 /** Hard-wrapped, so the text reads the same in a terminal as in a context window. */
 function wrap(text: string, width = 78): string[] {

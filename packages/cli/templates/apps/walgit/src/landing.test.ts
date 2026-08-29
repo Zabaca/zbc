@@ -16,6 +16,7 @@ const FACTS = {
   retentionHours: null,
   maxPushBytes: null,
   maxRepoBytes: null,
+  events: false,
 }
 
 describe('wantsLanding', () => {
@@ -76,6 +77,25 @@ describe('renderLanding', () => {
     const page = renderLanding(FACTS)
     expect(page).not.toContain('per push')
     expect(page).not.toContain('per repository')
+  })
+})
+
+describe('the ref-event stream on the page', () => {
+  test('with events on, the page describes the same capability', () => {
+    const page = renderLanding({ ...FACTS, events: true, host: 'agentgit.zabaca.com' })
+    expect(page).toContain('Know when it moved. Without asking.')
+    expect(page).toContain('wss://agentgit.zabaca.com/_walgit/events')
+    expect(page).toContain('&lt;- {"ok":true')
+    expect(page).not.toContain('{{')
+  })
+
+  // The same rule the limits follow: a page describing a socket the deployment
+  // does not claim would 404 whoever believed it.
+  test('with events off, the page does not mention it', () => {
+    const page = renderLanding(FACTS)
+    expect(page).not.toContain('_walgit/events')
+    expect(page).not.toContain('WebSocket')
+    expect(page).not.toContain('{{')
   })
 })
 

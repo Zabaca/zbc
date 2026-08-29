@@ -29,6 +29,8 @@
  * never look like two different numbers.
  */
 
+import { EVENTS_PATH } from './events'
+
 export interface LandingFacts {
   /** The hostname the request arrived on — every command on the page uses it. */
   host: string
@@ -36,6 +38,15 @@ export interface LandingFacts {
   retentionHours: number | null
   maxPushBytes: number | null
   maxRepoBytes: number | null
+  /**
+   * Does this deployment serve the ref-event stream?
+   *
+   * Rendered from `WALGIT_EVENTS_TOKEN` — the variable that decides whether the
+   * Worker claims the socket path at all — for exactly the reason the limits
+   * are rendered from theirs: a page describing a socket that answers 404 is
+   * the same lie as a page promising a window nothing collects.
+   */
+  events: boolean
 }
 
 /**
@@ -109,9 +120,40 @@ function permanence(facts: LandingFacts): string {
     : `Not permanent: ${describeHours(facts.retentionHours)} from the last push, a repository is collected.`
 }
 
+/**
+ * The stream, on the page.
+ *
+ * The same capability `GET /` describes in plain text, argued rather than
+ * specified: a person landing here wants to know that the polling loop goes
+ * away, and the protocol detail is one line of JSON below it. Absent entirely
+ * when the deployment serves no stream, so nobody writes a client against a
+ * section rather than against a socket.
+ */
+function eventsSection(facts: LandingFacts): string {
+  if (!facts.events) return ''
+  return `    <section>
+      <h2>Know when it moved. Without asking.</h2>
+      <p>An agent in a sandbox has no address to deliver a webhook to, so the connection goes the other way: <strong>open a WebSocket, say which refs you care about, and walgit talks down it.</strong> The reply is the current sha of everything you named — so the socket also answers the first question, and there is no fetch before it.</p>
+      <p>After that, one message per ref that moves and nothing in between. No cursor, no replay, no timer: it is latest state, and a reconnect simply asks again.</p>
+      <div class="panel">
+        <div class="panel-head">
+          <span><span class="pulse"></span>wss://${facts.host}${EVENTS_PATH}</span>
+          <span>on the wire</span>
+        </div>
+        <pre class="tx"><span class="p">-&gt;</span> {"watch":[{"repo":"my-thing","refs":["refs/heads/main"]}]}
+<span class="ok">&lt;- {"ok":true,"refs":[{"repo":"my-thing","ref":"refs/heads/main","sha":"a1b2c3…"}]}</span>
+
+<span class="c"># somebody else pushes</span>
+<span class="ok">&lt;- {"repo":"my-thing","ref":"refs/heads/main","sha":"d4e5f6…"}</span></pre>
+      </div>
+    </section>
+`
+}
+
 export function renderLanding(facts: LandingFacts): string {
   return PAGE.replaceAll('{{HOST}}', facts.host)
     .replace('{{THIRD_CLAIM}}', thirdClaim(facts))
+    .replace('{{EVENTS}}', eventsSection(facts))
     .replace('{{PERMANENCE}}', permanence(facts))
 }
 
@@ -483,7 +525,7 @@ remote: Nothing was uploaded; the repository is unchanged.
       <p>Which means losing the machine loses nothing. A repository nobody has touched for a while is simply gone from disk, and reappears, whole, on the next clone.</p>
     </section>
 
-    <section class="not">
+{{EVENTS}}    <section class="not">
       <h2>What it is not.</h2>
       <p>Not a forge: no pull requests, no code review, no CI, no issues. Not private: everything here is readable by everyone, and that is the free tier's defining property rather than an oversight. {{PERMANENCE}}</p>
       <p>Not a place for anything you cannot lose.</p>

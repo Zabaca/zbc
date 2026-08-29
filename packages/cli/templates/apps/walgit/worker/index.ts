@@ -220,7 +220,13 @@ export default {
     // asks for HTML, so a clone cannot land here.
     const accept = request.headers.get('accept') ?? ''
     if (wantsLanding(request.method, url.pathname, accept)) {
-      const page = renderLanding({ host: url.host, ...limitsFromEnv(env) })
+      const page = renderLanding({
+        host: url.host,
+        // The same predicate that decides whether the socket path is claimed
+        // below, so the page cannot advertise a stream this request would 404.
+        events: eventsEnabled(env.WALGIT_EVENTS_TOKEN),
+        ...limitsFromEnv(env),
+      })
       const bytes = new TextEncoder().encode(page)
       record(env, ctx, {
         kind: 'landing',
@@ -464,7 +470,7 @@ function stripInternal(request: Request): Request {
  * variable removes a claim rather than inventing one. The page then omits it
  * (worker/landing.ts) instead of printing a number nobody enforces.
  */
-function limitsFromEnv(env: Env): Omit<LandingFacts, 'host'> {
+function limitsFromEnv(env: Env): Omit<LandingFacts, 'host' | 'events'> {
   return {
     retentionHours: positiveNumber(env.WALGIT_RETENTION_HOURS),
     maxPushBytes: positiveNumber(env.WALGIT_MAX_PUSH_BYTES),
