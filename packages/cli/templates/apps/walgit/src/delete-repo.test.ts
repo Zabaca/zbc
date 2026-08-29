@@ -192,7 +192,7 @@ describe('ordering', () => {
 
     // And the collector reclaims them without any special knowledge.
     const gc = await collectGarbage(store, 'r', { now: () => at(GRACE + 1), graceMs: GRACE })
-    expect(gc.orphansCollected.sort()).toEqual(orphans.sort())
+    expect(gc.orphansCollected.toSorted()).toEqual(orphans.toSorted())
     expect(await store.list(repoPrefix('r'))).toEqual([])
   })
 })
