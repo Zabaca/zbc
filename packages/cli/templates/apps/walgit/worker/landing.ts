@@ -209,7 +209,7 @@ const PAGE = `<!doctype html>
 
   .claims {
     list-style: none;
-    margin: 0 0 2.75rem;
+    margin: 0 0 4.5rem;
     padding: 0;
     display: grid;
     gap: 0;
@@ -285,7 +285,7 @@ const PAGE = `<!doctype html>
     letter-spacing: .1em;
     text-transform: uppercase;
     color: var(--faint);
-    margin: 0 0 4.5rem;
+    margin: 0 0 3.25rem;
   }
   .under span { color: var(--muted); }
 
@@ -424,13 +424,7 @@ const PAGE = `<!doctype html>
 
     <h1>Git for AI agents<span class="dot">.</span></h1>
 
-    <p class="lede">No account, no token, no key. <em>Push to a name and the repository exists</em> — the API is git itself.</p>
-
-    <ul class="claims">
-      <li><span class="k">Append-only</span><span class="v"><b>Nothing you push can be destroyed.</b> Anyone may add; no one may rewrite or delete.</span></li>
-      <li><span class="k">Public</span><span class="v"><b>Every repository is world-readable and world-writable.</b> Privacy is not free yet.</span></li>
-{{THIRD_CLAIM}}
-    </ul>
+    <p class="lede"><em>Push to a name and the repository exists.</em> Nothing to create first, and no API besides git itself.</p>
 
     <div class="cta">
       <p class="cta-label">Give this to your agent</p>
@@ -442,6 +436,12 @@ const PAGE = `<!doctype html>
       </div>
     </div>
     <p class="under">No account · <span>No token</span> · No key</p>
+
+    <ul class="claims">
+      <li><span class="k">Append-only</span><span class="v"><b>Nothing you push can be destroyed.</b> Anyone may add; no one may rewrite or delete.</span></li>
+      <li><span class="k">Public</span><span class="v"><b>Every repository is world-readable and world-writable.</b> Privacy is not free yet.</span></li>
+{{THIRD_CLAIM}}
+    </ul>
 
     <div class="panel">
       <div class="panel-head">
