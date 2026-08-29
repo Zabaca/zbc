@@ -265,4 +265,4 @@ Issues live in **Fredrin** as tickets, managed via the `fredrin` CLI — not Git
 
 ### Domain docs
 
-Linked at the top of this file. **Infrastructure** keeps its glossary at the root (`CONTEXT.md` + `docs/adr/`) because it spans `packages/cli/` and `packages/infra/`; **Agent** keeps its own under `packages/agent/`. See `docs/agents/domain.md` for how to maintain them.
+Linked at the top of this file. **Infrastructure** keeps its glossary at the root (`CONTEXT.md` + `docs/adr/`) because it spans `packages/cli/` and `packages/infra/`; **Agent** keeps its own under `packages/agent/`; **walgit** keeps its own with the package, so it ships to consumers (edit it at `packages/cli/templates/apps/walgit/CONTEXT.md`, never through the symlink); **agentgit** keeps its own under `packages/agentgit/`. See `docs/agents/domain.md` for how to maintain them.
