@@ -1,9 +1,13 @@
 {
+  // Kept in step with `packages/cli/templates/infra/tsconfig.json`, which is the
+  // file a consumer actually gets. `modules/` and `src/` here are symlinks into
+  // that template, so this program IS the one consumers compile — the two
+  // `types` arrays disagreeing is the only way that stops being true.
   "extends": "../../tsconfig.json",
   "compilerOptions": {
     "outDir": "./dist",
     "rootDir": ".",
-    "types": ["node"]
+    "types": ["node", "@types/bun"]
   },
   "include": ["src/**/*", "modules/**/*", "environments/**/*"],
   "exclude": ["**/*.test.ts"]
