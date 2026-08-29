@@ -17,14 +17,14 @@ import { spawn } from 'node:child_process'
 import * as fs from 'node:fs'
 import * as path from 'node:path'
 
-import { announce, announceConfigFromEnv } from './announce'
+import { announceConfigFromEnv } from './announce'
 import { appendOnlyEnabled, checkAppendOnly } from './append-only'
 import { configuredThreshold, isCompactionDue } from './compact'
 import { checkSize, limitsEnforced, limitsFromEnv, liveBytes } from './limits'
 import { clearPending, invocationId, markConsumed, readPending, sweepPending } from './pending'
 import { parseRefChanges, preReceive, publishPush, quarantinePack } from './push'
 import { requireStore, storeFromEnv } from './store-env'
-import { loadIndex } from './wal-index'
+import { loadIndex, type RefChange } from './wal-index'
 
 const hook = process.argv[2]
 const phase = process.argv[3]
@@ -171,7 +171,7 @@ async function main(): Promise<number> {
     const events = announceConfigFromEnv()
     if (events) {
       const changes = parseRefChanges(stdin).filter((c) => c.ref.startsWith('refs/'))
-      if (changes.length > 0) await announce(events, repoId, changes)
+      if (changes.length > 0) spawnAnnounce(repoId, changes)
     }
     try {
       const store = storeFromEnv()
@@ -203,4 +203,32 @@ try {
 } catch (err) {
   process.stderr.write(`walgit: ${(err as Error).message}\n`)
   process.exit(1)
+}
+
+/**
+ * Hand the announcement to a detached process and return.
+ *
+ * `post-receive` holds the client's connection until it exits, so the
+ * announcement must not be awaited here: a fan-out that is slow or unreachable
+ * would be paid for by the pusher, on the path this project keeps fast. The
+ * refs are passed as one JSON argument — a push moves a handful of them, and
+ * the alternative (a pipe to a disowned child) would keep this process alive to
+ * write it.
+ *
+ * A spawn that fails is logged and dropped, like every other failure in
+ * `post-receive`: the push is already durable and `index.json` already holds
+ * what this would have announced, so a subscriber's next handshake reads it
+ * there anyway.
+ */
+function spawnAnnounce(repo: string, changes: readonly RefChange[]): void {
+  try {
+    const child = spawn(
+      process.execPath,
+      [path.join(import.meta.dir, 'announce-main.ts'), repo, JSON.stringify(changes)],
+      { detached: true, stdio: 'ignore' },
+    )
+    child.unref()
+  } catch (err) {
+    process.stderr.write(`walgit: ref-event announce not spawned: ${(err as Error).message}\n`)
+  }
 }

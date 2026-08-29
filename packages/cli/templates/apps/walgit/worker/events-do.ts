@@ -113,9 +113,21 @@ export class WalgitEvents extends DurableObject<EventsEnv> {
    * and otherwise from the Index through the container, which is the source of
    * truth for refs (docs/adr/0007). Either way a subscriber's first message
    * tells it where it stands and it never has to fetch to find out.
-   * Sending it before the subscription is recorded would open a window in which
-   * a push is in neither the handshake nor the stream, so the order here is:
-   * read, record, answer.
+   *
+   * The order is RECORD, read, answer, and both halves of that matter because
+   * reading can take a container round-trip and a push can land inside it:
+   *
+   *   - recorded first, so a push during the read reaches this socket as an
+   *     event rather than being fanned out to a socket that is not yet
+   *     subscribed and therefore skipped;
+   *   - and `RefCache` brackets the read, so the snapshot that lands cannot be
+   *     older than an event already sent on this socket.
+   *
+   * Recording first means a subscriber can see an event before its handshake.
+   * That is harmless — both carry the same sha, and latest-state has no order
+   * to violate — where the reverse, a handshake claiming a sha older than the
+   * event already delivered, would leave the client believing it is current
+   * when it is a push behind.
    */
   async webSocketMessage(ws: WebSocket, message: string | ArrayBuffer): Promise<void> {
     const raw = typeof message === 'string' ? message : new TextDecoder().decode(message)
@@ -124,6 +136,8 @@ export class WalgitEvents extends DurableObject<EventsEnv> {
       ws.send(encode({ error: parsed.error }))
       return
     }
+
+    ws.serializeAttachment(parsed.value)
 
     let refsByRepo: Record<string, Record<string, string>>
     try {
@@ -137,7 +151,6 @@ export class WalgitEvents extends DurableObject<EventsEnv> {
       return
     }
 
-    ws.serializeAttachment(parsed.value)
     ws.send(encode(handshake(parsed.value, refsByRepo)))
   }
 
@@ -198,7 +211,17 @@ export class WalgitEvents extends DurableObject<EventsEnv> {
    */
   private async currentRefs(repos: string[]): Promise<Record<string, Record<string, string>>> {
     for (const repo of this.refs.missing(repos)) {
-      this.refs.fill(repo, await this.fetchRefs(repo))
+      // Bracketed: anything announced while the container is answering is
+      // replayed over the snapshot rather than lost behind it.
+      this.refs.beginFill(repo)
+      try {
+        this.refs.endFill(repo, await this.fetchRefs(repo))
+      } catch (error) {
+        // Left unknown rather than filled empty: the next connect pays another
+        // round-trip, which is cheaper than answering confidently with nothing.
+        this.refs.abortFill(repo)
+        throw error
+      }
     }
     return this.refs.read(repos)
   }
