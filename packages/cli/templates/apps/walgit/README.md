@@ -27,7 +27,7 @@ by layer:
 | `shared/protocol.ts` | the wire contract: header names, internal paths, the smart-HTTP grammar, the repo-id and ref-name grammars, the zero oid, the refusal vocabulary |
 | `shared/credentials.ts` | reading a credential off the wire: the two auth forms, the token list, the constant-time compare |
 | `shared/policy.ts` | reading a limit from the environment, and saying what it is — so the cap stated and the cap enforced are one number |
-| `shared/events.ts`, `shared/outbox.ts` | the ref-event protocol and the backpressure policy — every decision, pure |
+| `shared/events.ts`, `shared/outbox.ts` | the ref-event protocol and the per-ref coalesce window that bounds a subscriber's message rate — every decision, pure |
 | `shared/telemetry.ts` | classifying a request and a refusal into the datapoint the Worker writes |
 | `shared/landing.ts` | the HTML page a browser gets at `/`, rendered from the limits actually configured |
 | `shared/container-env.ts` | which of the Worker's variables the container is told about, and a fingerprint of them |
@@ -577,6 +577,17 @@ Subscribing takes exactly the credential a read takes — an event is a strict
 subset of what a clone hands over — so a public deployment has a public stream.
 Sockets are held by a Durable Object using the hibernation API, so watching a
 quiet repository costs storage rather than duration.
+
+A socket gets **at most one message per repository-and-ref per 250 ms**. The
+first move of a ref goes out the moment it lands; a second inside that window
+replaces the one already queued rather than joining it, so a branch pushed to
+five times in a second is five pushes and one or two messages, each carrying the
+sha at the time it was sent. Nothing here observes the reader — the Workers
+runtime gives a Worker no way to see a socket's backlog — so the bound is the
+rate, which is sound only because events are latest state: the sha you receive
+when the window elapses is the one you would have converged to anyway. The cost
+is that a push can reach a subscriber up to half a second late when its ref is
+already moving.
 
 ## Authorization, today
 

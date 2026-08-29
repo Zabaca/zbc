@@ -460,11 +460,6 @@ export class EventsEndpoint {
       const wanted = events.filter((event) => watchCovers(watch, event))
       if (wanted.length === 0) continue
       ws.data.outbox ??= new Outbox({
-        // Bun exposes the buffer as a method and the policy is written against
-        // a property, so the adapter is here and the policy stays untouched.
-        get bufferedAmount() {
-          return ws.getBufferedAmount()
-        },
         send: (data) => {
           ws.send(data)
         },
