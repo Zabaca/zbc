@@ -87,6 +87,11 @@ export default cloudflareZoneModule.instance({
       // the origin's address family, so v4 visitors are unaffected.
       { type: 'AAAA', name: 'zabaca.com', content: '100::', proxied: true },
       { type: 'AAAA', name: 'www.zabaca.com', content: '100::', proxied: true },
+      // zbc's own site. Proxied, unlike git.zabaca.com — this one is plain
+      // HTTPS with no port-22 problem, so the placeholder origin and a Worker
+      // route are all it needs. The route itself is declared on the `landing`
+      // instance, not here and not in wrangler.jsonc.
+      { type: 'AAAA', name: 'zbc.zabaca.com', content: '100::', proxied: true },
       { type: 'AAAA', name: 'ceo.zabaca.com', content: '100::', proxied: true },
       { type: 'AAAA', name: 'crux.zabaca.com', content: '100::', proxied: true },
       { type: 'AAAA', name: 'ledger.zabaca.com', content: '100::', proxied: true },
