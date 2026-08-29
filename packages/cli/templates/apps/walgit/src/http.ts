@@ -26,6 +26,18 @@ export type HttpHandlerDeps = {
   reposDir: string
   /** Accepted credentials. A request must present one of these. */
   tokens: string[]
+  /**
+   * Serve every request with no credential at all — the public instance, where
+   * writes are open and there is therefore nothing for a credential to prove.
+   *
+   * Explicit on purpose: an EMPTY `tokens` list does NOT mean public. A
+   * deployment that loses its secret would then be indistinguishable from one
+   * that chose to be open, and the failure direction is unrecoverable — once
+   * strangers have pushed to an accidentally public instance there is no
+   * undoing it. So the two must be configured separately, and the combination
+   * of neither is refused outright (see below).
+   */
+  public?: boolean
   ensureRepo: (repo: ResolvedRepo) => ResolvedRepo
   /**
    * Bring the local cache in line with the log before serving. Optional only so
@@ -61,6 +73,17 @@ const SMART_HTTP = /^\/([^/]+)\.git\/(?:info\/refs|git-upload-pack|git-receive-p
 const NOT_FOUND = () => new Response('not found\n', { status: 404 })
 
 export function createHttpHandler(deps: HttpHandlerDeps): (req: Request) => Promise<Response> {
+  if (!deps.public && deps.tokens.length === 0) {
+    // Fail closed. With no tokens every comparison fails, so the instance would
+    // serve nothing but 401s while looking, from the client side, exactly like
+    // a wrong credential — hours of debugging for a config that is simply
+    // absent. Refusing here means the misconfiguration is reported once, at
+    // boot, in the words of the thing that is missing.
+    throw new Error(
+      'walgit: no tokens configured and public mode is off — refusing to serve (set tokens, or opt in to public mode explicitly)',
+    )
+  }
+
   return async (request) => {
     const url = new URL(request.url)
 
@@ -78,7 +101,7 @@ export function createHttpHandler(deps: HttpHandlerDeps): (req: Request) => Prom
       })
     }
 
-    if (!isAuthorized(request, deps.tokens)) return UNAUTHORIZED()
+    if (!deps.public && !isAuthorized(request, deps.tokens)) return UNAUTHORIZED()
 
     const route = SMART_HTTP.exec(url.pathname)
     if (!route) return NOT_FOUND()

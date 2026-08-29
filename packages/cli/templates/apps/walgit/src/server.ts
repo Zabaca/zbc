@@ -28,13 +28,15 @@ const tokens = (process.env.WALGIT_HTTP_TOKENS ?? '')
   .map((t) => t.trim())
   .filter(Boolean)
 
-if (tokens.length === 0) {
-  // Refusing to boot beats booting an open git host: with no tokens configured
-  // every credential comparison fails closed, which looks identical to a
-  // misconfigured client and would be debugged for hours.
-  console.error('walgit: WALGIT_HTTP_TOKENS is empty — refusing to start')
-  process.exit(1)
-}
+/**
+ * Open to anyone, deliberately. This is the public service's whole shape: with
+ * writes open there is nothing a credential could prove, so demanding one only
+ * costs an agent a step. It is an explicit opt-in and NOT the absence of
+ * tokens — `createHttpHandler` refuses to serve when neither is configured, so
+ * a deployment that loses its secrets fails closed instead of opening to the
+ * world. Off unless set, so every existing deployment is unchanged.
+ */
+const isPublic = process.env.WALGIT_PUBLIC === '1'
 
 /**
  * What `GET /` is allowed to promise. Each limit is read from the same env var
@@ -43,7 +45,7 @@ if (tokens.length === 0) {
  * limits are simply not mentioned.
  */
 const instructions: InstructionsPolicy = {
-  publicAccess: process.env.WALGIT_PUBLIC === '1',
+  publicAccess: isPublic,
   appendOnly: process.env.WALGIT_APPEND_ONLY === '1',
   retentionHours: positiveNumber(process.env.WALGIT_RETENTION_HOURS),
   maxPushBytes: positiveNumber(process.env.WALGIT_MAX_PUSH_BYTES),
@@ -67,14 +69,23 @@ if (!store) {
   )
 }
 
-const handler = createHttpHandler({
-  reposDir,
-  tokens,
-  ensureRepo: ensureBareRepo,
-  syncRepo: (repo) => syncRepo(store, repo),
-  runBackend: runGitHttpBackend,
-  instructions,
-})
+let handler
+try {
+  handler = createHttpHandler({
+    reposDir,
+    tokens,
+    public: isPublic,
+    ensureRepo: ensureBareRepo,
+    syncRepo: (repo) => syncRepo(store, repo),
+    runBackend: runGitHttpBackend,
+    instructions,
+  })
+} catch (err) {
+  // Refusing to boot beats booting a half-configured git host — either an open
+  // one, or one that answers every request with a 401 nobody can satisfy.
+  console.error((err as Error).message)
+  process.exit(1)
+}
 
 Bun.serve({ port, idleTimeout: 0, fetch: handler })
 console.log(`walgit smart-HTTP listening on :${port} (repos: ${reposDir})`)
