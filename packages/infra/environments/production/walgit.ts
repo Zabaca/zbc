@@ -49,6 +49,18 @@ export default flyModule.instance({
     org: 'personal',
     ipv4: 'dedicated',
     certs: ['git.zabaca.com'],
+    // Two machines, which is the first time this design has been asked to be
+    // what it claims. The disk is a cache and `index.json` is compare-and-swap,
+    // so there is no primary to elect and no routing table to keep: any machine
+    // can take any push, and `sync.ts` runs its conditional GET on every access
+    // precisely so a node never serves refs another node published over. The
+    // one election is per-repository compaction, via the lease that compact.ts
+    // says exists "to let replicas arrive later".
+    //
+    // It also stops a single machine's death from being downtime. NOTE: this
+    // does not yet mean two failure domains — the module cannot pin regions, so
+    // Fly may place both in sjc.
+    highAvailability: true,
     flySecrets: [
       'WALGIT_SSH_HOST_KEY',
       'WALGIT_SSH_AUTHORIZED_KEYS',
