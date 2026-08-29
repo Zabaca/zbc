@@ -75,6 +75,22 @@ export default cloudflareModule.instance({
     workerSecrets: [
       { name: 'WALGIT_S3_ACCESS_KEY_ID', secret: 'WAREHOUSE_R2_ACCESS_KEY_ID' },
       { name: 'WALGIT_S3_SECRET_ACCESS_KEY', secret: 'WAREHOUSE_R2_SECRET_ACCESS_KEY' },
+      // The ref-event stream's announce credential, and the variable that turns
+      // the stream on at all: with it unset there is no endpoint, and a
+      // subscriber gets the same 404 as for any path that does not exist.
+      //
+      // A SECRET rather than a var, and the distinction is not cosmetic here.
+      // `workerVars` are applied through `wrangler deploy --var`, i.e. on a
+      // command line, while secrets are piped to `wrangler secret put` on
+      // stdin. This value is what separates walgit's own push path from a
+      // stranger fabricating ref events, so it takes the stdin path.
+      //
+      // It is generated for this deployment and shared with nothing: the
+      // announcement is walgit talking to itself (the container's
+      // `post-receive` calling back into its own Worker), so there is no second
+      // party to agree a value with, and the S3-credential argument for reusing
+      // an existing secret does not apply.
+      { name: 'WALGIT_EVENTS_TOKEN', secret: 'WALGIT_PUBLIC_EVENTS_TOKEN' },
     ],
     // ── what propagates, and how ─────────────────────────────────────────
     //
@@ -148,6 +164,24 @@ export default cloudflareModule.instance({
       // needs the container restart described above to hold across a deploy;
       // it was written before the restart existed, and did not.
       { name: 'WALGIT_RETENTION_HOURS', value: '24' },
+      // ── ref events ───────────────────────────────────────────────────────
+      //
+      // Where the container announces a push TO — this deployment's own public
+      // origin. The announcement is an outbound HTTP request made from inside
+      // the container by `post-receive`, so it needs an address the container
+      // can dial, and the Worker in front of these routes is the only thing
+      // that can reach the Durable Object holding the sockets.
+      //
+      // `agentgit.zabaca.com` of the two routed hostnames, because that is the
+      // name the service launches under; either would work (one worker answers
+      // both), and this one is not a client-visible choice — no subscriber ever
+      // sees this value, they connect to whichever host they already use.
+      //
+      // The credential half lives in `workerSecrets` above. Both are required:
+      // `src/announce.ts` reads the pair and stays silent unless both are set,
+      // so a half-configured deployment announces nothing rather than
+      // announcing unauthenticated.
+      { name: 'WALGIT_EVENTS_URL', value: 'https://agentgit.zabaca.com' },
     ],
   },
 })

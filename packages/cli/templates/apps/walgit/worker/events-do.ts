@@ -33,6 +33,7 @@ import {
   watchCovers,
   watchedRepos,
 } from './events'
+import { Outbox } from './outbox'
 import { RefCache } from './ref-cache'
 import { INTERNAL_REQUEST_HEADER } from './telemetry'
 
@@ -65,6 +66,17 @@ export class WalgitEvents extends DurableObject<EventsEnv> {
    * Index stays the source of truth.
    */
   private readonly refs = new RefCache()
+
+  /**
+   * One outbound queue per live socket.
+   *
+   * In memory, and not serialized onto the socket: a queue only exists while a
+   * reader is behind, and a reader that is behind is not an idle subscription,
+   * so hibernation cannot strike mid-backlog. If it somehow did, losing the
+   * queue costs nothing — the client's next handshake is current state, which
+   * is what the queue was converging to anyway.
+   */
+  private readonly outboxes = new WeakMap<WebSocket, Outbox>()
 
   async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url)
@@ -129,7 +141,12 @@ export class WalgitEvents extends DurableObject<EventsEnv> {
     ws.send(encode(handshake(parsed.value, refsByRepo)))
   }
 
+  webSocketClose(ws: WebSocket): void {
+    this.outboxes.delete(ws)
+  }
+
   webSocketError(ws: WebSocket): void {
+    this.outboxes.delete(ws)
     // Nothing to clean up beyond the socket itself: the subscription lives on
     // the socket's attachment, so it goes when the socket goes.
     try {
@@ -145,19 +162,25 @@ export class WalgitEvents extends DurableObject<EventsEnv> {
     for (const ws of this.ctx.getWebSockets()) {
       const watch = readWatch(ws)
       if (!watch) continue
-      for (const event of events) {
-        if (!watchCovers(watch, event)) continue
-        try {
-          ws.send(encode(event))
-          delivered += 1
-        } catch {
-          // A socket that has gone away mid-fan-out must not stop the ones
-          // behind it: the push it describes already happened, and the client
-          // learns the state on its next handshake.
-        }
-      }
+      const wanted = events.filter((event) => watchCovers(watch, event))
+      if (wanted.length === 0) continue
+      // Through the outbox rather than straight to the socket: it decides what
+      // a backed-up reader gets (the newest sha per ref, once) and when a
+      // reader that will not drain is closed instead of buffered. A socket that
+      // has gone away mid-fan-out must not stop the ones behind it, which is
+      // why the outbox never throws.
+      delivered += this.outbox(ws).offer(wanted).sent
     }
     return delivered
+  }
+
+  /** This socket's queue, created on the first event it is owed. */
+  private outbox(ws: WebSocket): Outbox {
+    const existing = this.outboxes.get(ws)
+    if (existing) return existing
+    const created = new Outbox(ws)
+    this.outboxes.set(ws, created)
+    return created
   }
 
   /**

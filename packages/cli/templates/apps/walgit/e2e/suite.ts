@@ -1,8 +1,8 @@
 #!/usr/bin/env bun
 /**
- * The seven-scenario verification suite.
+ * The verification suite.
  *
- *     bun run e2e/suite.ts               # all seven, against a local FileStore
+ *     bun run e2e/suite.ts               # every scenario, against a local FileStore
  *     bun run e2e/suite.ts --quick       # smaller fixtures, disclosed in the output
  *     bun run e2e/suite.ts --only 2,7    # a subset, disclosed in the output
  *
@@ -85,7 +85,7 @@ const outcomes: Outcome[] = []
 try {
   for (const scenario of selected) {
     const startedAt = performance.now()
-    process.stdout.write(`[${scenario.n}/7] ${scenario.name}\n`)
+    process.stdout.write(`[${scenario.n}/${SCENARIOS.length}] ${scenario.name}\n`)
     try {
       const notes = await scenario.run(run, { quick })
       const ms = Math.round(performance.now() - startedAt)
@@ -126,7 +126,7 @@ if (process.env.WALGIT_E2E_JSON) {
 }
 
 // 1 = something is broken. 2 = nothing broke but the suite ran less than the
-// full seven, which must not be readable as a clean sweep by a script either.
+// full set, which must not be readable as a clean sweep by a script either.
 if (failed.length > 0) process.exit(1)
 if (selected.length < SCENARIOS.length) {
   console.log('PARTIAL RUN — exiting 2 so this cannot be mistaken for a full pass.')

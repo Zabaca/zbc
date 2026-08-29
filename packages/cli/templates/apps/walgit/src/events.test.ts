@@ -17,6 +17,8 @@ import {
   eventsEnabled,
   eventsFromChanges,
   handshake,
+  MAX_REFS_PER_ENTRY,
+  MAX_WATCH_ENTRIES,
   parseAnnounce,
   parseTokens,
   parseWatch,
@@ -267,5 +269,72 @@ describe('the wire', () => {
   test('the paths are the ones the Worker routes and the container does not', () => {
     expect(EVENTS_PATH).toBe('/_walgit/events')
     expect(ANNOUNCE_PATH).toBe('/_walgit/announce')
+  })
+})
+
+describe('caps', () => {
+  // A client over the cap has to know how far over it is to split its
+  // subscription; a bare limit makes it guess.
+  test('a subscribe over the cap names the cap and the count asked for', () => {
+    const watch = Array.from({ length: MAX_WATCH_ENTRIES + 3 }, (_, i) => ({
+      repo: `repo-${i}`,
+    }))
+    const parsed = parseWatch(JSON.stringify({ watch }))
+
+    expect(parsed.ok).toBe(false)
+    if (parsed.ok) return
+    expect(parsed.error).toContain(String(MAX_WATCH_ENTRIES))
+    expect(parsed.error).toContain(String(MAX_WATCH_ENTRIES + 3))
+  })
+
+  test('exactly the cap is allowed', () => {
+    const watch = Array.from({ length: MAX_WATCH_ENTRIES }, (_, i) => ({ repo: `repo-${i}` }))
+    expect(parseWatch(JSON.stringify({ watch })).ok).toBe(true)
+  })
+
+  test('too many refs names the cap, the count and the repository', () => {
+    const refs = Array.from({ length: MAX_REFS_PER_ENTRY + 1 }, (_, i) => `refs/heads/b${i}`)
+    const parsed = parseWatch(JSON.stringify({ watch: [{ repo: 'demo', refs }] }))
+
+    expect(parsed.ok).toBe(false)
+    if (parsed.ok) return
+    expect(parsed.error).toContain(String(MAX_REFS_PER_ENTRY))
+    expect(parsed.error).toContain(String(MAX_REFS_PER_ENTRY + 1))
+    expect(parsed.error).toContain('demo')
+  })
+})
+
+describe('no wildcard', () => {
+  // A wildcard on a public deployment is a firehose of strangers' pushes, so
+  // there is no spelling of one: every entry names a repository, and the
+  // repo-id gate rejects the characters a wildcard would need.
+  test.each(['*', '**', 'a*', '.*', '%', 'all', 'demo/*'])(
+    'rejects %p as a repository name',
+    (repo) => {
+      const parsed = parseWatch(JSON.stringify({ watch: [{ repo }] }))
+      if (repo === 'all') {
+        // A repository genuinely named "all" is a repository, not a wildcard.
+        expect(parsed.ok).toBe(true)
+        return
+      }
+      expect(parsed.ok).toBe(false)
+    },
+  )
+
+  test('there is no watch form that omits the repository', () => {
+    expect(parseWatch(JSON.stringify({ watch: [{}] })).ok).toBe(false)
+    expect(parseWatch(JSON.stringify({ watch: [{ refs: ['refs/heads/main'] }] })).ok).toBe(false)
+    expect(parseWatch(JSON.stringify({ watch: 'all' })).ok).toBe(false)
+  })
+})
+
+describe('reconnecting after a drop', () => {
+  // What makes closing a slow subscriber safe: no history is owed, so the
+  // client that comes back is immediately correct from its handshake alone.
+  test('the handshake carries current state, whatever was missed', () => {
+    const watch = [{ repo: 'demo', refs: ['refs/heads/main'] }]
+    const answer = handshake(watch, { demo: { 'refs/heads/main': SHA_B } })
+
+    expect(answer.refs).toEqual([{ repo: 'demo', ref: 'refs/heads/main', sha: SHA_B }])
   })
 })

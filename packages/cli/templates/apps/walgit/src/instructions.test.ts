@@ -7,6 +7,7 @@ const PUBLIC = {
   retentionHours: 24,
   maxPushBytes: 99 * 1024 * 1024,
   maxRepoBytes: 250 * 1024 * 1024,
+  events: true,
 }
 
 describe('renderInstructions', () => {
@@ -33,6 +34,11 @@ describe('renderInstructions', () => {
     expect(text).not.toContain('append-only')
     expect(text).not.toContain('LAST PUSH')
     expect(text).not.toMatch(/may not exceed/)
+    // A stream nobody serves is the same defect as a cap nobody enforces: an
+    // agent that reads about it writes a client before finding out.
+    expect(text).not.toContain('WebSocket')
+    expect(text).not.toContain('watch')
+    expect(text).not.toContain('_walgit/events')
     // …and says what an unconfigured instance actually does instead.
     expect(text).toContain('requires a credential')
   })
@@ -55,6 +61,27 @@ describe('renderInstructions', () => {
     // Guarding the direction rather than the formatting: a limit absent from
     // policy must produce no sentence at all, never "NaN".
     expect(renderInstructions('https://walgit.example', {})).not.toContain('NaN')
+  })
+
+  test('with events on, the stream is described with its wire format', () => {
+    const text = renderInstructions('https://walgit.example', PUBLIC)
+    expect(text).toContain('WATCH FOR PUSHES INSTEAD OF FETCHING ON A TIMER')
+    // The socket is dialled on the origin the agent reached us on, as a socket
+    // scheme — an agent copying `https://` into a WebSocket gets nothing.
+    expect(text).toContain('wss://walgit.example/_walgit/events')
+    // The three messages, in the order a client sees them.
+    expect(text).toContain('{"watch":[{"repo":"$NAME","refs":["refs/heads/main"]}]}')
+    expect(text).toContain('"ok":true')
+    expect(text).toContain('"sha":"d4e5f6..."')
+    // Latest state, stated as such: an agent told about a cursor would build a
+    // client this server cannot serve.
+    expect(text.replace(/\s+/g, ' ')).toContain('no cursor and no replay')
+  })
+
+  test('a plain-http origin dials a plain-ws socket', () => {
+    expect(renderInstructions('http://127.0.0.1:8080', PUBLIC)).toContain(
+      'ws://127.0.0.1:8080/_walgit/events',
+    )
   })
 
   test('is plain text a model can read without parsing anything', () => {

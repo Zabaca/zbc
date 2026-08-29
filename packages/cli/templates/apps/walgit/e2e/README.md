@@ -1,9 +1,9 @@
-# The seven-scenario verification suite
+# The verification suite
 
 One command runs every guarantee walgit claims:
 
 ```bash
-bun run e2e            # all seven
+bun run e2e            # every scenario
 bun run e2e -- --quick # smaller fixtures — disclosed in the output
 bun run e2e -- --only 2,7
 ```
@@ -43,9 +43,9 @@ directory it created, and is wired to the normal exit, to a throw, and to
 
 | Code | Meaning |
 | ---- | ------- |
-| 0 | All seven passed |
+| 0 | Everything passed |
 | 1 | At least one scenario failed |
-| 2 | Nothing failed, but the suite ran less than the full seven (`--only`) |
+| 2 | Nothing failed, but the suite ran less than the full set (`--only`) |
 
 Code 2 exists so a narrowed sweep cannot be mistaken for a clean one by a
 script. For the same reason `--quick`, an unbaselined latency size, and a run
@@ -76,3 +76,24 @@ Scenario 2 enumerates its kill points in `KILL_POINTS` — `after-upload`,
 (a `SIGKILL` at an arbitrary moment, which is the check on the enumeration being
 incomplete). The list is enumerated rather than exhaustive, and the suite says
 so in its output. **Adding a step to the push path means adding it here.**
+
+## Scenario 8 and the events endpoint
+
+Scenario 8 is the only one with a stand-in, and it is a narrow one. In
+production the sockets live in a Durable Object behind the Worker; here they
+live in a Bun server inside the suite (`EventsEndpoint` in `harness.ts`), because
+the alternative is a Workers runtime in the test path.
+
+What is **not** stood in for is everything that decides anything: the announce
+credential is checked by `authorizeAnnounce`, the `watch` message is parsed by
+`parseWatch`, the fan-out is `watchCovers`, the handshake is `handshake`, the
+backpressure policy is the real `Outbox` — the same modules the Worker calls.
+The handshake's refs are read from the node's `/_walgit/refs`, over the same
+internal endpoint the Durable Object uses, so they come from the Index rather
+than from the suite's own memory.
+
+The push side is entirely real, which is the point of the scenario: the hook
+fires, `post-receive` announces over a real socket to a real port, and the
+subscriber is a real WebSocket client. It covers three things a unit test
+cannot see — a push arriving, a **ref-only** push (no pack uploaded at all)
+arriving, and a push that lost the compare-and-swap announcing nothing.

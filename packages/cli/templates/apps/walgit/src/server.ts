@@ -11,6 +11,7 @@
  * straight to this port.
  */
 
+import { announceConfigFromEnv } from './announce'
 import { ensureBareRepo } from './cache'
 import { configuredExpiryMs, expireRepos } from './expire'
 import { createHttpHandler } from './http'
@@ -57,6 +58,11 @@ const instructions: InstructionsPolicy = {
   // with, so the page cannot state a cap the hook does not hold.
   maxPushBytes: limits.maxPushBytes ?? undefined,
   maxRepoBytes: limits.maxRepoBytes ?? undefined,
+  // The same configuration the push path announces down, so the text can only
+  // describe a stream this deployment actually publishes to. `post-receive`
+  // announcing nowhere and `GET /` promising a socket would be the same defect
+  // as a stated cap nothing enforces.
+  events: announceConfigFromEnv() !== null,
 }
 
 function positiveNumber(raw: string | undefined): number | undefined {
