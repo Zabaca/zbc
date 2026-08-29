@@ -357,7 +357,7 @@ export class EventsEndpoint {
     // Arrow handlers throughout: they close over `this`, which is what lets the
     // decisions stay methods on this class rather than free functions holding a
     // reference to it.
-    this.server = Bun.serve<SocketData, Record<string, never>>({
+    this.server = Bun.serve<SocketData>({
       port: this.port,
       hostname: '127.0.0.1',
       idleTimeout: 0,

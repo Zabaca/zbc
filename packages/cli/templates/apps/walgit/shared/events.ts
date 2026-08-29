@@ -269,7 +269,10 @@ export function handshake(
  */
 export function eventsFromChanges(
   repo: string,
-  changes: readonly { ref: string; newOid: string }[],
+  // `oldOid` is accepted and ignored: callers hand this whole `RefChange`s
+  // straight from the push path, and a parameter narrower than what they hold
+  // would make every call site build a second object to drop one field.
+  changes: readonly { ref: string; oldOid?: string; newOid: string }[],
 ): RefEvent[] {
   return changes
     .filter((change) => REF_NAME.test(change.ref))
