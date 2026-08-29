@@ -27,7 +27,14 @@ WORKDIR /app
 # devDependencies precisely so `--production` leaves them out of this image.
 COPY package.json ./
 RUN bun install --production --no-save
+# BOTH directories, and the second one is not optional: `src/` imports
+# `../shared/` (the runtime-neutral kernel, docs/adr/0010 in the zbc
+# repository), so an image with only `src/` builds cleanly and then dies on its
+# first import. Cloudflare reports that as "Failed to start container: internal
+# error connecting to the port" — the process never binds :8080 — so the cause
+# is named here rather than left to be rediscovered from that message.
 COPY src ./src
+COPY shared ./shared
 
 ENV WALGIT_REPOS_DIR=/srv/walgit/repos \
     PORT=8080
