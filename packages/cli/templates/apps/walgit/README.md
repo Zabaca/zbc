@@ -400,8 +400,20 @@ wrangler's gradual default never drains a single always-warm container, so a
 redeployed image silently never takes effect until it idle-sleeps.
 
 The container reads its configuration from environment variables the **Worker**
-forwards (`worker/index.ts`): `wrangler secret put` reaches the Worker and stops
-there, so a secret that is not in that list never arrives.
+forwards (`CONTAINER_ENV` in `worker/container-env.ts`): `wrangler secret put`
+reaches the Worker and stops there, so a secret that is not in that list never
+arrives.
+
+It reads them **once, at container start** — a running process's environment
+cannot be changed, so re-reading `process.env` per request would return the same
+value. `immediateContainerRollout` does not help either: a deploy that changes
+only vars produces no new container image for it to roll. So the Durable Object
+fingerprints the environment it would boot with, keeps that fingerprint in its
+own storage, and destroys the running container the first time the two differ
+(`reconcileEnv`). Changing a forwarded variable therefore costs one container
+restart on the first request after the deploy, and takes effect immediately —
+where previously the Worker picked it up and the container kept the old value
+for as long as traffic kept it awake.
 
 Secrets the app needs (in the environment's `secrets.yaml`, wired as the
 cloudflare instance's `workerSecrets`):

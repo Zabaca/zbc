@@ -66,14 +66,50 @@ export default cloudflareModule.instance({
     // wrangler's gradual rollout never drains a single always-warm container,
     // so without this a redeployed image silently never takes effect until the
     // container idle-sleeps.
+    //
+    // It covers the IMAGE and only the image. A deploy that changes a var below
+    // and nothing else produces no new container version for it to roll, so it
+    // is not what makes the values in `workerVars` reach the container — see
+    // the note above `workerVars`.
     immediateContainerRollout: true,
     workerSecrets: [
       { name: 'WALGIT_S3_ACCESS_KEY_ID', secret: 'WAREHOUSE_R2_ACCESS_KEY_ID' },
       { name: 'WALGIT_S3_SECRET_ACCESS_KEY', secret: 'WAREHOUSE_R2_SECRET_ACCESS_KEY' },
     ],
+    // ── what propagates, and how ─────────────────────────────────────────
+    //
+    // Read this before changing anything below — or in `workerSecrets` above,
+    // which propagates the same way. There are TWO readers of these values, on
+    // two different schedules, and they used to disagree:
+    //
+    //   the Worker    — reconstructed on every deploy, so never stale. It
+    //                   renders the landing page from these values directly.
+    //   the container — a separate process that reads its environment ONCE, at
+    //                   start. `GET /` in plain text, the `pre-receive` size
+    //                   caps and the `/_walgit/expire` sweep endpoint all come
+    //                   from that one read.
+    //
+    // A vars-only deploy therefore used to change the page and nothing else,
+    // for as long as traffic kept the container awake — the page promising a
+    // retention window the sweeper was not enforcing (ZBC-XR87OB). Neither
+    // `immediateContainerRollout` (no new image, nothing to roll) nor reading
+    // `process.env` per request in the container (a running process's
+    // environment is fixed) fixes that; only a new container does.
+    //
+    // So the Durable Object fingerprints the environment it would boot with,
+    // keeps that fingerprint in its own storage, and destroys the running
+    // container the first time the two differ — `reconcileEnv` in
+    // packages/walgit/worker/index.ts. Changing a var here costs one container
+    // restart on the next request after the deploy, and the value is live.
+    //
+    // The one thing that does NOT propagate this way is a new NAME: a variable
+    // reaches the container only if `CONTAINER_ENV` in
+    // packages/walgit/worker/container-env.ts lists it. Adding an entry here
+    // and not there deploys a variable the container never sees.
     workerVars: [
       // Not secrets, and none of them reach the client — but every one of them
-      // reaches the CONTAINER only because worker/index.ts forwards it by name.
+      // reaches the CONTAINER only because worker/container-env.ts forwards it
+      // by name.
       { name: 'WALGIT_S3_BUCKET', from: 'walgit-public-wal', output: 'bucketName' },
       {
         name: 'WALGIT_S3_ENDPOINT',
@@ -108,7 +144,9 @@ export default cloudflareModule.instance({
       // (worker/index.ts's cron) collects on it, `GET /` states it, and the
       // landing page claims it. Unset, all three go quiet together — no
       // sweep endpoint, no promise, no copy — so the window can never be
-      // advertised by one of them and not enforced by another.
+      // advertised by one of them and not enforced by another. That property
+      // needs the container restart described above to hold across a deploy;
+      // it was written before the restart existed, and did not.
       { name: 'WALGIT_RETENTION_HOURS', value: '24' },
     ],
   },

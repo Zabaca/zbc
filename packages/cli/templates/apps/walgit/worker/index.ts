@@ -10,7 +10,9 @@
  * What this file DOES own is the environment the container boots with: the
  * container runs outside the Worker's binding graph, so the object store's
  * credentials can only reach it as environment variables, forwarded here from
- * the Worker's own secrets.
+ * the Worker's own secrets (worker/container-env.ts) — and, because a container
+ * reads them exactly once at start, it owns replacing the container when a
+ * deploy changes them (`reconcileEnv`).
  *
  * It also owns the one thing only this side can see: request-level telemetry.
  * The log is already a usage ledger for pushes and storage, but a clone writes
@@ -25,6 +27,7 @@
 
 import { Container, getContainer } from '@cloudflare/containers'
 
+import { containerEnv, fingerprintEnv } from './container-env'
 import { type LandingFacts, renderLanding, wantsLanding } from './landing'
 import {
   COLD_HEADER,
@@ -65,26 +68,8 @@ export interface Env {
   WALGIT_METRICS?: AnalyticsEngineDataset
 }
 
-/** Every variable the container is allowed to be told about, and no more. */
-const CONTAINER_ENV = [
-  'WALGIT_HTTP_TOKENS',
-  'WALGIT_S3_ENDPOINT',
-  'WALGIT_S3_BUCKET',
-  'WALGIT_S3_ACCESS_KEY_ID',
-  'WALGIT_S3_SECRET_ACCESS_KEY',
-  'WALGIT_S3_REGION',
-  'WALGIT_COMPACTION_THRESHOLD',
-  'WALGIT_GC_GRACE_MS',
-  'WALGIT_DELETE_GRACE_MS',
-  // A limit that does not reach the container is a limit `GET /` never states
-  // and the push path never enforces — silently, since every one of these is
-  // optional and an unset one simply means unenforced.
-  'WALGIT_PUBLIC',
-  'WALGIT_APPEND_ONLY',
-  'WALGIT_RETENTION_HOURS',
-  'WALGIT_MAX_PUSH_BYTES',
-  'WALGIT_MAX_REPO_BYTES',
-] as const
+/** Where `reconcileEnv` remembers the environment the container booted with. */
+const ENV_FINGERPRINT_KEY = 'container-env-fingerprint'
 
 export class WalgitContainer extends Container<Env> {
   /**
@@ -109,15 +94,87 @@ export class WalgitContainer extends Container<Env> {
   // put` reaches this Worker and stops there. Forwarding is what gives the push
   // path an object store at all — without it every push is REFUSED, correctly
   // but confusingly, by hooks three processes down (src/store-env.ts).
-  envVars = Object.fromEntries(
-    CONTAINER_ENV.map((name) => [name, this.env[name] ?? '']).filter(([, value]) => value !== ''),
-  ) as Record<string, string>
+  //
+  // Read here rather than in `worker/container-env.ts` only because `this.env`
+  // is what the class has; the shape and the exclusion rules live there.
+  envVars = containerEnv(this.env)
+
+  /**
+   * Has the container been checked against the environment this Worker version
+   * would boot it with, since this Durable Object was constructed?
+   *
+   * One promise rather than a boolean so concurrent requests await the same
+   * check instead of each racing to replace the container.
+   */
+  private reconciled: Promise<void> | null = null
 
   onStart(): void {
     this.freshStart = true
   }
 
+  /**
+   * Replace the container if it is running an environment this deploy changed.
+   *
+   * `envVars` above is re-read on every Durable Object construction, and a
+   * `wrangler deploy` constructs a new one — so this side is never stale. The
+   * container is: it read `process.env` once at start and cannot be told
+   * anything afterwards, and a vars-only deploy produces no new container image
+   * for `--containers-rollout immediate` to roll. Without this, the new value
+   * takes effect whenever the container next happens to idle out, which under
+   * sustained traffic is never.
+   *
+   * The fingerprint is persisted in Durable Object storage because that is the
+   * only state that survives the very event being detected — a redeploy
+   * discards every in-memory field, so an in-memory copy would compare the new
+   * environment against itself and always agree.
+   */
+  private async reconcileEnv(): Promise<void> {
+    const current = fingerprintEnv(this.envVars ?? {})
+    const booted = await this.ctx.storage.get<string>(ENV_FINGERPRINT_KEY)
+    if (booted === current) return
+
+    // Only a RUNNING container can be stale. A stopped one has nothing to
+    // replace: its next start reads `envVars` as it now is, which is already
+    // the new environment.
+    //
+    // No recorded fingerprint counts as a mismatch rather than as a fresh
+    // start, deliberately. A running container with no record predates this
+    // code, so what it booted with is unknowable — and on the deploy that
+    // ships this, that container is exactly the one already serving a
+    // superseded policy. Assuming it is current would leave the bug live
+    // until the next idle. A DO that has never started a container reaches
+    // here with `running` false and simply records.
+    if (this.ctx.container?.running) {
+      // SIGKILL rather than a graceful stop: the container serves git over
+      // HTTP and holds nothing worth draining — every durable effect of a push
+      // is in the log before it is acknowledged (docs/adr/0007) — and
+      // `sleepAfter` already covers the polite path. `destroy` triggers
+      // `onStop`; the next `containerFetch` starts a fresh one.
+      await this.destroy()
+      console.log(
+        `walgit container env changed (${booted ?? 'unrecorded'} -> ${current}); container replaced`,
+      )
+    }
+    // Written last, and only after a successful destroy: recording first would
+    // make a failed replacement look reconciled forever.
+    await this.ctx.storage.put(ENV_FINGERPRINT_KEY, current)
+  }
+
   async fetch(request: Request): Promise<Response> {
+    // Before anything is proxied, so a request never reaches a container whose
+    // policy this deploy already superseded. Single-flight and memoized: the
+    // storage read happens once per Durable Object lifetime, not per request.
+    if (!this.reconciled) {
+      this.reconciled = this.reconcileEnv().catch((error) => {
+        // Cleared so the next request retries. Never rethrown: a container
+        // serving a stale limit is a worse day than an outage only if it is
+        // ALSO the reason git stopped working, and it should not be.
+        this.reconciled = null
+        console.error(`walgit container env reconcile failed: ${(error as Error).message}`)
+      })
+    }
+    await this.reconciled
+
     const cold = this.freshStart
     this.freshStart = false
     const response = await super.fetch(request)
