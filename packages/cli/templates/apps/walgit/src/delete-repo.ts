@@ -28,7 +28,8 @@
 import * as fs from 'node:fs'
 
 import type { ObjectStore } from './store'
-import { indexKey, loadIndex, updateIndex, type WalIndex } from './wal-index'
+import { indexKey, repoPrefix } from './keys'
+import { loadIndex, updateIndex, type WalIndex } from './wal-index'
 
 /**
  * How long a repository sits tombstoned before its objects may be deleted.
@@ -85,11 +86,6 @@ export interface DeleteOptions {
   dryRun?: boolean
   /** The bare repo on disk to remove once the log has let go of it. */
   dir?: string
-}
-
-/** Everything walgit stores for one repository lives under this prefix. */
-export function repoPrefix(repoId: string): string {
-  return `repos/${repoId}/`
 }
 
 /**

@@ -1,23 +1,22 @@
 /**
- * The request-level telemetry lives in `worker/`, because the Worker is the
- * only layer that sees every request — including the ones the container never
- * receives. Its classification is pure, though, so it is tested here with the
- * rest of the suite rather than behind a Workers runtime.
+ * The request-level telemetry is counted by the Worker, because it is the only
+ * layer that sees every request — including the ones the container never
+ * receives. Its classification is pure and its vocabulary is shared with the
+ * container that names most of the refusals, so it lives in `shared/` and is
+ * tested here with the rest of the suite rather than behind a Workers runtime.
  */
 
 import { describe, expect, test } from 'bun:test'
 
+import { REJECT_HEADER, SERVED_HEADER } from '../shared/protocol'
 import {
   BLOB_COLUMNS,
   DOUBLE_COLUMNS,
-  REJECT_HEADER,
-  SERVED_HEADER,
   classifyOutcome,
   classifyRequest,
   toDataPoint,
   type RequestMetric,
-} from '../worker/telemetry'
-import * as http from './http'
+} from '../shared/telemetry'
 
 describe('classifyRequest', () => {
   test('separates a clone from the advertisement that precedes it', () => {
@@ -70,8 +69,14 @@ describe('classifyOutcome', () => {
   })
 
   test('the kinds stay apart — a size cap is never a collision', () => {
-    const sizeCap = classifyOutcome(413, headers({ [SERVED_HEADER]: '1', [REJECT_HEADER]: 'size-cap' }))
-    const collision = classifyOutcome(409, headers({ [SERVED_HEADER]: '1', [REJECT_HEADER]: 'collision' }))
+    const sizeCap = classifyOutcome(
+      413,
+      headers({ [SERVED_HEADER]: '1', [REJECT_HEADER]: 'size-cap' }),
+    )
+    const collision = classifyOutcome(
+      409,
+      headers({ [SERVED_HEADER]: '1', [REJECT_HEADER]: 'collision' }),
+    )
     expect(sizeCap.reject).toBe('size-cap')
     expect(collision.reject).toBe('collision')
     expect(sizeCap.reject).not.toBe(collision.reject)
@@ -92,11 +97,6 @@ describe('classifyOutcome', () => {
   test('an unrecognised kind becomes other rather than a new column', () => {
     expect(classifyOutcome(400, headers({ [REJECT_HEADER]: 'wat' })).reject).toBe('other')
   })
-})
-
-test('the container and the Worker agree on the header contract', () => {
-  expect(http.SERVED_HEADER).toBe(SERVED_HEADER)
-  expect(http.REJECT_HEADER).toBe(REJECT_HEADER)
 })
 
 describe('toDataPoint', () => {
@@ -126,7 +126,9 @@ describe('toDataPoint', () => {
 
   test('indexed by request kind, so refusals are sampled apart from clones', () => {
     expect(toDataPoint(metric).indexes).toEqual(['clone'])
-    expect(toDataPoint({ ...metric, kind: 'push', outcome: 'reject', reject: 'size-cap' }).indexes).toEqual(['push'])
+    expect(
+      toDataPoint({ ...metric, kind: 'push', outcome: 'reject', reject: 'size-cap' }).indexes,
+    ).toEqual(['push'])
   })
 
   test('records nothing that identifies a caller or carries repository content', () => {

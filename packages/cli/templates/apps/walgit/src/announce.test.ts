@@ -6,7 +6,7 @@
 import { describe, expect, test } from 'bun:test'
 
 import { announce, announceConfigFromEnv } from './announce'
-import { ZERO_OID } from './wal-index'
+import { ZERO_OID } from '../shared/protocol'
 
 const SHA = 'a'.repeat(40)
 const CONFIG = { url: 'https://walgit.example.com', token: 'announce-secret' }

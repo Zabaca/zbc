@@ -8,7 +8,7 @@
 
 import { describe, expect, test } from 'bun:test'
 
-import { CONTAINER_ENV, containerEnv, fingerprintEnv } from '../worker/container-env'
+import { CONTAINER_ENV, containerEnv, fingerprintEnv } from '../shared/container-env'
 
 describe('containerEnv', () => {
   test('forwards only the names on the list', () => {

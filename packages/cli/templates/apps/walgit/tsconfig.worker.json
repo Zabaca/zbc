@@ -4,6 +4,11 @@
   // compiled against — one program cannot hold both, so the two halves get one
   // config each. src/ is deliberately NOT included: nothing in it ever runs in
   // the Workers runtime.
+  //
+  // shared/ IS included, and is the only directory both programs compile. That
+  // is the enforcement mechanism for its one rule — shared/ imports no runtime
+  // — because a module there that reached for `Bun` or for a Durable Object
+  // would fail one of the two typechecks (docs/adr/0010).
   "compilerOptions": {
     "target": "ES2022",
     "module": "ESNext",
@@ -15,5 +20,5 @@
     "skipLibCheck": true,
     "verbatimModuleSyntax": true
   },
-  "include": ["worker"]
+  "include": ["worker", "shared"]
 }

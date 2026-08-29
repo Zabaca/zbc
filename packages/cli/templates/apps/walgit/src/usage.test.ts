@@ -9,16 +9,10 @@
  */
 import { describe, expect, test } from 'bun:test'
 
+import { walKey } from './keys'
 import { MemoryStore, type ObjectStore, type PutResult } from './store'
-import {
-  collectUsage,
-  formatBytes,
-  formatUsage,
-  listRepoIds,
-  parseDuration,
-  usageOfIndex,
-} from './usage'
-import { commitIndex, emptyIndex, walKey, type WalEntry, type WalIndex } from './wal-index'
+import { collectUsage, formatBytes, formatUsage, parseDuration, usageOfIndex } from './usage'
+import { commitIndex, emptyIndex, type WalEntry, type WalIndex } from './wal-index'
 
 const NOW = new Date('2026-08-28T12:00:00.000Z')
 const hoursAgo = (h: number) => new Date(NOW.getTime() - h * 3_600_000).toISOString()
@@ -195,33 +189,6 @@ describe('collectUsage', () => {
     const report = await collectUsage(readOnly, { now: () => NOW, sinceMs: 24 * 3_600_000 })
     expect(report.repos).toBe(2)
     expect(report.bytes).toBe(30)
-  })
-})
-
-describe('listRepoIds', () => {
-  test('derives ids from a full listing when the store has no delimiter support', async () => {
-    const store = new MemoryStore()
-    await seed(store, indexOf('alpha', [entry(1, 1, hoursAgo(1))]))
-    await store.put('repos/beta/wal/000000000001-x.pack', new Uint8Array([1]))
-    expect(await listRepoIds(store)).toEqual(['alpha', 'beta'])
-  })
-
-  test('prefers the delimited listing when the store offers one', async () => {
-    const inner = new MemoryStore()
-    let listed = 0
-    const store: ObjectStore = {
-      get: (key) => inner.get(key),
-      getIfNoneMatch: (key, etag) => inner.getIfNoneMatch(key, etag),
-      put: (key, body, cond) => inner.put(key, body, cond),
-      delete: (key) => inner.delete(key),
-      list: async (prefix) => {
-        listed += 1
-        return inner.list(prefix)
-      },
-      listPrefixes: async () => ['repos/alpha/', 'repos/beta/'],
-    }
-    expect(await listRepoIds(store)).toEqual(['alpha', 'beta'])
-    expect(listed).toBe(0)
   })
 })
 

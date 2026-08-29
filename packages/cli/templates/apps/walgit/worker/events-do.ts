@@ -8,7 +8,7 @@
  *
  * It carries NO decisions. Whether a credential is good, what a `watch` message
  * means, which sockets an announcement reaches and what goes on the wire are
- * all `worker/events.ts`, which is pure and tested. What is left here — accept,
+ * all `shared/events.ts`, which is pure and tested. What is left here — accept,
  * remember, send, forget — is the part that cannot be unit-tested without a
  * runtime, so there is deliberately nothing else in it.
  *
@@ -32,10 +32,10 @@ import {
   parseWatch,
   watchCovers,
   watchedRepos,
-} from './events'
-import { Outbox } from './outbox'
-import { RefCache } from './ref-cache'
-import { INTERNAL_REQUEST_HEADER } from './telemetry'
+} from '../shared/events'
+import { Outbox } from '../shared/outbox'
+import { INTERNAL_HEADER, REFS_PATH } from '../shared/protocol'
+import { RefCache } from '../shared/ref-cache'
 
 /** Only the bindings this object touches — the Worker's Env is a superset. */
 export interface EventsEnv {
@@ -61,7 +61,7 @@ export class WalgitEvents extends DurableObject<EventsEnv> {
    * What this object remembers about refs, so a connect for a repository it has
    * already seen does not wake the container to be told what it just announced.
    *
-   * In memory, never in storage (worker/ref-cache.ts): hibernation drops it,
+   * In memory, never in storage (shared/ref-cache.ts): hibernation drops it,
    * and the cost of that is one container round-trip on the next connect. The
    * Index stays the source of truth.
    */
@@ -193,7 +193,7 @@ export class WalgitEvents extends DurableObject<EventsEnv> {
    *
    * A miss goes to the container rather than to the object store directly,
    * because the store's credentials are the container's, not the Worker's
-   * (worker/container-env.ts) — and because `index.json` is the only place refs
+   * (shared/container-env.ts) — and because `index.json` is the only place refs
    * are authoritative.
    */
   private async currentRefs(repos: string[]): Promise<Record<string, Record<string, string>>> {
@@ -206,8 +206,8 @@ export class WalgitEvents extends DurableObject<EventsEnv> {
   /** One repository's ref state, read from the Index through the container. */
   private async fetchRefs(repo: string): Promise<Record<string, string>> {
     const request = new Request(
-      `https://walgit.internal/_walgit/refs?repo=${encodeURIComponent(repo)}`,
-      { headers: { [INTERNAL_REQUEST_HEADER]: '1' } },
+      `https://walgit.internal${REFS_PATH}?repo=${encodeURIComponent(repo)}`,
+      { headers: { [INTERNAL_HEADER]: '1' } },
     )
     const response = await getContainer(this.env.WALGIT_CONTAINER).fetch(request)
     if (!response.ok) throw new Error(`refs lookup for ${repo}: ${response.status}`)

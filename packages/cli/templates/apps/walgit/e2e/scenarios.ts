@@ -637,7 +637,7 @@ const refEvents: Scenario = {
         `the compare-and-swap loser ${loserOid.slice(0, 8)} announced nothing in ` +
           `${SILENCE_WINDOW_MS}ms; the winner ${winnerOid.slice(0, 8)} arrived`,
         'NOTE: the sockets are held by a Bun server, not a Durable Object — the ' +
-          'decisions are worker/events.ts and worker/outbox.ts either way',
+          'decisions are shared/events.ts and shared/outbox.ts either way',
       ]
     } finally {
       endpoint.stop()

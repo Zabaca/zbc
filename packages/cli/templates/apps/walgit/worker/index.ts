@@ -10,7 +10,7 @@
  * What this file DOES own is the environment the container boots with: the
  * container runs outside the Worker's binding graph, so the object store's
  * credentials can only reach it as environment variables, forwarded here from
- * the Worker's own secrets (worker/container-env.ts) — and, because a container
+ * the Worker's own secrets (shared/container-env.ts) — and, because a container
  * reads them exactly once at start, it owns replacing the container when a
  * deploy changes them (`reconcileEnv`).
  *
@@ -18,7 +18,7 @@
  * The log is already a usage ledger for pushes and storage, but a clone writes
  * nothing to it, so read volume, latency, cold starts and refusals are counted
  * here instead — off the serving path, and only for what the log cannot answer
- * (worker/telemetry.ts).
+ * (shared/telemetry.ts).
  *
  * Reads are proxied like everything else. Serving a fetch straight from R2 at
  * the edge, without waking the container, is a real optimisation and
@@ -27,27 +27,27 @@
 
 import { Container, getContainer } from '@cloudflare/containers'
 
-import { containerEnv, fingerprintEnv } from './container-env'
+import { containerEnv, fingerprintEnv } from '../shared/container-env'
+import { parseTokens } from '../shared/credentials'
+import { authorizeAnnounce, authorizeSubscribe, eventsEnabled } from '../shared/events'
+import { type LandingFacts, renderLanding, wantsLanding } from '../shared/landing'
+import { positiveNumber } from '../shared/policy'
 import {
   ANNOUNCE_PATH,
-  EVENTS_PATH,
-  authorizeAnnounce,
-  authorizeSubscribe,
-  eventsEnabled,
-  parseTokens,
-} from './events'
-import { BROADCAST_PATH, EVENTS_OBJECT_NAME, WalgitEvents } from './events-do'
-import { type LandingFacts, renderLanding, wantsLanding } from './landing'
-import {
   COLD_HEADER,
+  EVENTS_PATH,
+  EXPIRE_PATH,
+  INTERNAL_HEADER,
   INTERNAL_HEADERS,
-  INTERNAL_REQUEST_HEADER,
   SERVED_HEADER,
+} from '../shared/protocol'
+import {
   classifyOutcome,
   classifyRequest,
   toDataPoint,
   type RequestMetric,
-} from './telemetry'
+} from '../shared/telemetry'
+import { BROADCAST_PATH, EVENTS_OBJECT_NAME, WalgitEvents } from './events-do'
 
 export interface Env {
   WALGIT_CONTAINER: DurableObjectNamespace<WalgitContainer>
@@ -71,12 +71,12 @@ export interface Env {
   WALGIT_MAX_REPO_BYTES?: string
   /**
    * Where request-level telemetry goes — the half of observability the log
-   * cannot produce (worker/telemetry.ts). Optional: a deployment without the
+   * cannot produce (shared/telemetry.ts). Optional: a deployment without the
    * binding simply records nothing, and serves exactly as before.
    */
   WALGIT_METRICS?: AnalyticsEngineDataset
   /**
-   * The ref-event stream (worker/events.ts). Off unless `WALGIT_EVENTS_TOKEN`
+   * The ref-event stream (shared/events.ts). Off unless `WALGIT_EVENTS_TOKEN`
    * is set: without it nothing could publish an event, so the endpoints do not
    * exist rather than existing and staying silent. The token is the shared
    * secret the container's push path presents when it announces; the container
@@ -116,7 +116,7 @@ export class WalgitContainer extends Container<Env> {
   // path an object store at all — without it every push is REFUSED, correctly
   // but confusingly, by hooks three processes down (src/store-env.ts).
   //
-  // Read here rather than in `worker/container-env.ts` only because `this.env`
+  // Read here rather than in `shared/container-env.ts` only because `this.env`
   // is what the class has; the shape and the exclusion rules live there.
   envVars = containerEnv(this.env)
 
@@ -213,7 +213,7 @@ export default {
     const startedAt = Date.now()
     const url = new URL(request.url)
 
-    // The browser half of `/`, answered at the edge (worker/landing.ts). Placed
+    // The browser half of `/`, answered at the edge (shared/landing.ts). Placed
     // before every other decision on purpose: a link on an aggregator points at
     // this exact URL, and none of that traffic should wake the container, queue
     // behind a clone, or count against the one instance serving git. git never
@@ -273,7 +273,7 @@ export default {
 
     const facts = classifyRequest(request.method, url.pathname, url.search)
 
-    // The container's expiry endpoint trusts INTERNAL_REQUEST_HEADER to mean "the
+    // The container's expiry endpoint trusts INTERNAL_HEADER to mean "the
     // scheduled handler asked". That is only true because this line makes it
     // true: every request arriving from the internet has the header removed
     // before it is proxied, whatever the client set it to. Done for ALL paths,
@@ -432,9 +432,9 @@ async function events(request: Request, url: URL, env: Env): Promise<Response> {
 }
 
 async function sweep(event: ScheduledController, env: Env): Promise<void> {
-  const request = new Request('https://walgit.internal/_walgit/expire', {
+  const request = new Request(`https://walgit.internal${EXPIRE_PATH}`, {
     method: 'POST',
-    headers: { [INTERNAL_REQUEST_HEADER]: '1' },
+    headers: { [INTERNAL_HEADER]: '1' },
   })
   try {
     const response = await getContainer(env.WALGIT_CONTAINER).fetch(request)
@@ -449,26 +449,28 @@ async function sweep(event: ScheduledController, env: Env): Promise<void> {
 }
 
 /**
- * The same request with any client-supplied INTERNAL_REQUEST_HEADER removed.
+ * The same request with any client-supplied INTERNAL_HEADER removed.
  *
  * Rebuilt rather than mutated — a Request's headers are immutable — with the
  * body passed through by reference, so a 90 MiB push is not buffered to drop
  * one header.
  */
 function stripInternal(request: Request): Request {
-  if (!request.headers.has(INTERNAL_REQUEST_HEADER)) return request
+  if (!request.headers.has(INTERNAL_HEADER)) return request
   const headers = new Headers(request.headers)
-  headers.delete(INTERNAL_REQUEST_HEADER)
+  headers.delete(INTERNAL_HEADER)
   return new Request(request, { headers })
 }
 
 /**
  * The limit facts the page is allowed to claim.
  *
- * Deliberately the same reading as src/limits.ts: unset, blank, unparseable or
- * non-positive all mean "this deployment enforces nothing here", so a typo in a
- * variable removes a claim rather than inventing one. The page then omits it
- * (worker/landing.ts) instead of printing a number nobody enforces.
+ * Literally the same reading as the push path's, because `positiveNumber` is
+ * `shared/policy.ts`'s and `src/limits.ts` enforces through it: unset, blank,
+ * unparseable or non-positive all mean "this deployment enforces nothing
+ * here", so a typo in a variable removes a claim rather than inventing one. The
+ * page then omits it (shared/landing.ts) instead of printing a number nobody
+ * enforces.
  */
 function limitsFromEnv(env: Env): Omit<LandingFacts, 'host' | 'events'> {
   return {
@@ -476,12 +478,6 @@ function limitsFromEnv(env: Env): Omit<LandingFacts, 'host' | 'events'> {
     maxPushBytes: positiveNumber(env.WALGIT_MAX_PUSH_BYTES),
     maxRepoBytes: positiveNumber(env.WALGIT_MAX_REPO_BYTES),
   }
-}
-
-function positiveNumber(raw: string | undefined): number | null {
-  if (raw === undefined || raw.trim() === '') return null
-  const value = Number(raw)
-  return Number.isFinite(value) && value > 0 ? value : null
 }
 
 /** The facts known before the container answers. */

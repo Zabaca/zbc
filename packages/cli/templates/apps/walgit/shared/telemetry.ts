@@ -14,40 +14,23 @@
  * fact disagree the first time a write fails between them, and the log's copy
  * is the one that cannot drift.
  *
- * Refusals are counted BY KIND, never as an aggregate error rate, because the
- * kinds mean different things to whoever is reading:
- *
- *   - `size-cap`     a client pushing more than the instance allows — abuse, or
- *                    a misconfigured client
- *   - `collision`    a name already taken — a product signal about naming
- *   - `unauthorized` a bad or missing credential
- *   - `edge`         walgit did not refuse; something in front of it did. This
- *                    one is a BUG SIGNAL: every refusal walgit means to make it
- *                    should make itself, with an explanation. Absorbing it into
- *                    a general error count is how it would stay invisible.
+ * Refusals are counted BY KIND, never as an aggregate error rate — the kinds
+ * and what each one means are `shared/protocol.ts`'s, because the container is
+ * the layer that names most of them and this is the layer that counts them.
  *
  * Pure on purpose — no Workers types, no bindings, no clock. `worker/index.ts`
  * owns the one side effect (a single `writeDataPoint`), and `src/telemetry.test.ts`
  * exercises everything here without a runtime.
  */
 
-/** Header the container stamps on every response it produces itself. */
-export const SERVED_HEADER = 'x-walgit-served'
-/** Header naming a refusal's kind, set by whichever layer refused. */
-export const REJECT_HEADER = 'x-walgit-reject'
-/** Header the container sets on the first response after it started. */
-export const COLD_HEADER = 'x-walgit-cold'
-
-/**
- * Header marking a REQUEST as originated by this Worker rather than by a
- * client. The value is mirrored in `src/http.ts`, which is what reads it —
- * the same deliberate duplication as the two above, so the container process
- * and the Worker share a vocabulary without sharing a bundle.
- */
-export const INTERNAL_REQUEST_HEADER = 'x-walgit-internal'
-
-/** Stripped before the response leaves the Worker — internal, not protocol. */
-export const INTERNAL_HEADERS = [SERVED_HEADER, REJECT_HEADER, COLD_HEADER] as const
+import {
+  HEALTH_PATH,
+  REJECT_HEADER,
+  SERVED_HEADER,
+  SMART_HTTP,
+  normalizeReject,
+  type RejectKind,
+} from './protocol'
 
 /**
  * What the request was asking for.
@@ -72,19 +55,7 @@ export type RequestKind =
   | 'health'
   | 'other'
 
-/** Every refusal walgit distinguishes. Aligned with the messages it emits. */
-export type RejectKind =
-  | 'size-cap'
-  | 'collision'
-  | 'unauthorized'
-  | 'not-found'
-  | 'unavailable'
-  | 'edge'
-  | 'other'
-
 export type Outcome = 'ok' | 'reject'
-
-const SMART_HTTP = /^\/([^/]+)\.git\/(info\/refs|git-upload-pack|git-receive-pack)$/
 
 export interface RequestFacts {
   kind: RequestKind
@@ -102,7 +73,7 @@ export interface RequestFacts {
  * no user agent, no credential, no bytes of anyone's repository content.
  */
 export function classifyRequest(method: string, pathname: string, search: string): RequestFacts {
-  if (pathname === '/_walgit/health') return { kind: 'health', repo: '' }
+  if (pathname === HEALTH_PATH) return { kind: 'health', repo: '' }
   if (pathname === '/' && (method === 'GET' || method === 'HEAD')) {
     return { kind: 'instructions', repo: '' }
   }
@@ -142,22 +113,6 @@ export function classifyOutcome(
   if (status < 400) return { outcome: 'ok', reject: '' }
   if (headers.get(SERVED_HEADER) === null) return { outcome: 'reject', reject: 'edge' }
   return { outcome: 'reject', reject: fromStatus(status) }
-}
-
-const KINDS = new Set<RejectKind>([
-  'size-cap',
-  'collision',
-  'unauthorized',
-  'not-found',
-  'unavailable',
-  'edge',
-  'other',
-])
-
-/** An unrecognised kind becomes `other` rather than a new column nobody reads. */
-function normalizeReject(value: string): RejectKind {
-  const kind = value.trim().toLowerCase()
-  return KINDS.has(kind as RejectKind) ? (kind as RejectKind) : 'other'
 }
 
 function fromStatus(status: number): RejectKind {

@@ -13,6 +13,7 @@ import * as os from 'node:os'
 import * as path from 'node:path'
 
 import { main, parseArgs } from './cli'
+import { walKey } from './keys'
 import { FileStore } from './store'
 import { ulid } from './ulid'
 import { verifyRepo } from './verify'
@@ -21,7 +22,6 @@ import {
   emptyIndex,
   loadIndex,
   sha256,
-  walKey,
   type WalEntry,
   type WalIndex,
 } from './wal-index'

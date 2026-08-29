@@ -5,20 +5,18 @@
  * repo name is attacker-controlled on the way in. Exactly one function turns it
  * into a path — this one — and every entry point funnels through it.
  *
- * Nothing here touches the disk or the log: it is string in, path out, and it
- * imports nothing. Provisioning the bare repo that path names is `cache.ts`.
+ * Nothing here touches the disk or the log: it is string in, path out. The
+ * grammar itself is `shared/protocol.ts`'s, because a repository name arriving
+ * over the event socket is attacker-controlled in exactly the way one arriving
+ * in a path is, and one gate that both transports apply is the only way they
+ * cannot disagree. Provisioning the bare repo that path names is `cache.ts`.
  */
 
 import * as path from 'node:path'
 
-export type ResolvedRepo = { repoId: string; dir: string }
+import { REPO_ID } from '../shared/protocol'
 
-/**
- * A repo id is one flat segment. Flat because the WAL keys repositories by id
- * (docs/adr/0007), not by a directory tree, and a hierarchy on disk that the
- * log cannot express would drift the moment a repo is rebuilt from the log.
- */
-const REPO_ID = /^[A-Za-z0-9][A-Za-z0-9._-]*$/
+export type ResolvedRepo = { repoId: string; dir: string }
 
 /**
  * The repo id a request names, validated. Split out from `resolveRepo` because

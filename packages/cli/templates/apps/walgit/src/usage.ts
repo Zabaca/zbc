@@ -21,11 +21,9 @@
  * request path, not here.
  */
 
-import { indexKey, type WalEntry, type WalIndex } from './wal-index'
+import { indexKey, listRepoIds } from './keys'
 import type { ObjectStore } from './store'
-
-/** Where every repository's state lives. One flat level: `repos/<repo_id>/`. */
-const REPOS_PREFIX = 'repos/'
+import type { WalEntry, WalIndex } from './wal-index'
 
 export interface RepoUsage {
   repoId: string
@@ -122,23 +120,6 @@ export interface UsageOptions {
  * in-memory and filesystem ones) fall back to deriving the ids from a full
  * listing, which is fine at their scale and wrong at a bucket's.
  */
-export async function listRepoIds(store: ObjectStore): Promise<string[]> {
-  if (store.listPrefixes) {
-    const prefixes = await store.listPrefixes(REPOS_PREFIX)
-    return prefixes
-      .map((p) => p.slice(REPOS_PREFIX.length).replace(/\/$/, ''))
-      .filter((id) => id.length > 0)
-      .sort()
-  }
-  const keys = await store.list(REPOS_PREFIX)
-  const ids = new Set<string>()
-  for (const key of keys) {
-    const id = key.slice(REPOS_PREFIX.length).split('/')[0]
-    if (id) ids.add(id)
-  }
-  return [...ids].sort()
-}
-
 // ── Folding one index ───────────────────────────────────────────────────────
 
 function isInWindow(entry: WalEntry, since: number, until: number): boolean {

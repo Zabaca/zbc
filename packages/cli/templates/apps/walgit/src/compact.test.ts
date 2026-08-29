@@ -8,12 +8,12 @@ import {
   configuredGraceMs,
   configuredThreshold,
   isCompactionDue,
-  leaseKey,
   pendingEntries,
 } from './compact'
+import { leaseKey, walKey } from './keys'
 import { MemoryStore } from './store'
 import { ulid, ulidTime } from './ulid'
-import { emptyIndex, walKey, type WalEntry, type WalIndex } from './wal-index'
+import { emptyIndex, type WalEntry, type WalIndex } from './wal-index'
 
 function entry(seq: number): WalEntry {
   return {

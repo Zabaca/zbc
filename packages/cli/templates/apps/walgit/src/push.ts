@@ -20,17 +20,17 @@
 import * as fs from 'node:fs'
 import * as path from 'node:path'
 
+import { ZERO_OID } from '../shared/protocol'
+import { walKey } from './keys'
 import { writePending, type PendingPush } from './pending'
 import type { ObjectStore } from './store'
 import { ulid } from './ulid'
 import {
-  ZERO_OID,
   applyRefChanges,
   commitIndex,
   loadIndex,
   nextIndex,
   sha256,
-  walKey,
   type RefChange,
   type WalEntry,
   type WalIndex,

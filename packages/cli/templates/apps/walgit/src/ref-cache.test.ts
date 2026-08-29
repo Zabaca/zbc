@@ -1,5 +1,5 @@
 /**
- * The fan-out's copy of ref state (`worker/ref-cache.ts`).
+ * The fan-out's copy of ref state (`shared/ref-cache.ts`).
  *
  * A Map with no I/O, so it is tested here with the rest of the suite rather
  * than behind a Workers runtime — the same arrangement as `events.test.ts`.
@@ -9,7 +9,7 @@
  */
 
 import { describe, expect, test } from 'bun:test'
-import { RefCache } from '../worker/ref-cache'
+import { RefCache } from '../shared/ref-cache'
 
 const SHA_A = 'a'.repeat(40)
 const SHA_B = 'b'.repeat(40)

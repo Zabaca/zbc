@@ -8,13 +8,13 @@
 
 import { describe, expect, test } from 'bun:test'
 
-import type { RefEvent } from '../worker/events'
+import type { RefEvent } from '../shared/events'
 import {
   COALESCE_WATERMARK,
   MAX_BUFFERED_BYTES,
   Outbox,
   SLOW_CONSUMER_CLOSE_CODE,
-} from '../worker/outbox'
+} from '../shared/outbox'
 
 const SHA_A = 'a'.repeat(40)
 const SHA_B = 'b'.repeat(40)

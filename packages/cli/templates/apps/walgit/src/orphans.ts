@@ -19,6 +19,7 @@
  * garbage.
  */
 
+import { siblingIdx, walPrefix } from './keys'
 import type { ObjectStore } from './store'
 import { loadIndex } from './wal-index'
 
@@ -26,10 +27,6 @@ export interface Orphan {
   key: string
   /** Milliseconds since this object was uploaded, if the store reports it. */
   ageMs?: number
-}
-
-export function walPrefix(repoId: string): string {
-  return `repos/${repoId}/wal/`
 }
 
 /**
@@ -47,7 +44,7 @@ export async function findOrphans(store: ObjectStore, repoId: string): Promise<s
   const live = new Set<string>()
   for (const entry of index.entries) {
     live.add(entry.key)
-    live.add(entry.key.replace(/\.pack$/, '.idx'))
+    live.add(siblingIdx(entry.key))
   }
   return keys.filter((key) => !live.has(key))
 }

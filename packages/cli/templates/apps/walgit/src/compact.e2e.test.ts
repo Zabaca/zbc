@@ -31,7 +31,8 @@ import { resolveRepo } from './repo'
 import { FileStore } from './store'
 import { syncRepo } from './sync'
 import { ulid } from './ulid'
-import { loadIndex, walKey, type WalIndex } from './wal-index'
+import { walKey } from './keys'
+import { loadIndex, type WalIndex } from './wal-index'
 
 const TOKEN = 's3cret'
 const BRANCHES = ['main', 'alpha', 'beta']
