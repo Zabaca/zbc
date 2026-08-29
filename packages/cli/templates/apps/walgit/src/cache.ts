@@ -19,6 +19,7 @@ import * as fs from 'node:fs'
 import * as path from 'node:path'
 
 import { appendOnlyEnabled } from './append-only'
+import { limitsFromEnv } from './limits'
 import { git, gitOrThrow } from './git'
 import { installHooks } from './hooks'
 import { sweepPending } from './pending'
@@ -51,6 +52,12 @@ function ensureConfig(gitDir: string, key: string, value: string): void {
   if (res.status === 0) return
   if (readConfig(gitDir, key) === value) return
   throw new Error(`git config ${key} ${value} failed: ${res.stderr.trim()}`)
+}
+
+/** Remove a config key, if it is set. Losing the lock race is not fatal here. */
+function clearConfig(gitDir: string, key: string): void {
+  if (readConfig(gitDir, key) === undefined) return
+  git(['--git-dir', gitDir, 'config', '--unset', key])
 }
 
 /** The configured value, or undefined when the key is unset. */
@@ -109,6 +116,22 @@ export function ensureBareRepo(repo: ResolvedRepo): ResolvedRepo {
   if (appendOnlyEnabled()) {
     ensureConfig(repo.dir, 'receive.denyNonFastForwards', 'true')
     ensureConfig(repo.dir, 'receive.denyDeletes', 'true')
+  }
+  // The backstop under `pre-receive`'s size check — but deliberately NOT set to
+  // the cap itself. git hands `receive.maxInputSize` to `index-pack`, which
+  // fails while the pack is still being read, i.e. BEFORE `pre-receive` runs:
+  // set to the cap, it would win every race and every client would read
+  // `fatal: pack exceeds maximum allowed size` instead of the message
+  // src/limits.ts exists to write. So it is set with headroom: the hook owns
+  // every refusal a real client can provoke, and this only bounds a pack so far
+  // past the cap that a bug in the hook is the likelier explanation.
+  // Cleared when the cap is, because a stale limit on a repository whose
+  // instance no longer sets one would refuse pushes nothing documents.
+  const { maxPushBytes } = limitsFromEnv()
+  if (maxPushBytes === null) {
+    clearConfig(repo.dir, 'receive.maxInputSize')
+  } else {
+    ensureConfig(repo.dir, 'receive.maxInputSize', String(Math.floor(maxPushBytes) * 2))
   }
   // The hooks ARE the push path. Re-installed on every access for the same
   // reason as the config above: a repo that arrived here by any other route

@@ -10,6 +10,7 @@
  * Never neither.
  */
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } from 'bun:test'
+import * as crypto from 'node:crypto'
 import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
@@ -429,5 +430,107 @@ describe('append-only refs', () => {
 
     const { index } = await loadIndex(store, repoId)
     expect(index.refs['refs/heads/main']).toBe(oid)
+  })
+})
+
+describe('size limits', () => {
+  /**
+   * A commit carrying `bytes` of incompressible data, so the pack git builds is
+   * within a rounding error of that number. A compressible blob would make the
+   * pack size a property of zlib rather than of the test.
+   */
+  async function clientWithBlob(name: string, bytes: number): Promise<{ dir: string }> {
+    const dir = path.join(scratch, `${repoId}-${name}`)
+    await git(scratch, 'clone', '--quiet', origin, dir)
+    await git(dir, 'config', 'user.email', 'walgit@example.test')
+    await git(dir, 'config', 'user.name', 'walgit')
+    fs.writeFileSync(path.join(dir, 'blob'), crypto.randomBytes(bytes))
+    await git(dir, 'add', 'blob')
+    await git(dir, 'commit', '--quiet', '-m', name)
+    return { dir }
+  }
+
+  afterEach(() => {
+    delete process.env.WALGIT_MAX_PUSH_BYTES
+    delete process.env.WALGIT_MAX_REPO_BYTES
+  })
+
+  test('refuses a push over the per-push cap, in walgit’s own words', async () => {
+    process.env.WALGIT_MAX_PUSH_BYTES = String(64 * 1024)
+    // Over the cap, under the `receive.maxInputSize` backstop — which is where
+    // a real over-limit push lands, and where the hook must own the message.
+    const { dir } = await clientWithBlob('fat', 96 * 1024)
+
+    const pushed = await git(dir, 'push', 'origin', 'HEAD:refs/heads/main')
+    expect(pushed.status).not.toBe(0)
+    // Not git's `pack exceeds maximum allowed size`, and not the edge's
+    // `unexpected disconnect`: an agent must be able to act on this.
+    expect(pushed.out).toContain('this push is larger than 65536 bytes')
+    expect(pushed.out).toContain('not a network failure')
+    expect(pushed.out).toContain('Nothing was uploaded')
+  })
+
+  test('a refused push writes nothing to the log — the reason the check is early', async () => {
+    process.env.WALGIT_MAX_PUSH_BYTES = String(64 * 1024)
+    const before = await loadIndex(store, repoId)
+    const { dir } = await clientWithBlob('fat', 96 * 1024)
+
+    expect((await git(dir, 'push', 'origin', 'HEAD:refs/heads/main')).status).not.toBe(0)
+
+    const after = await loadIndex(store, repoId)
+    expect(after.index.entries).toHaveLength(before.index.entries.length)
+    // Not merely unpublished: never uploaded. The whole point of refusing here
+    // rather than after `preReceive` is that there is no orphan to reclaim.
+    expect(await findOrphans(store, repoId)).toEqual([])
+  })
+
+  test('refuses a push that would take the repository over its total, and says so differently', async () => {
+    const seeded = await clientWithBlob('seed', 128 * 1024)
+    expect((await git(seeded.dir, 'push', 'origin', 'HEAD:refs/heads/main')).status).toBe(0)
+    const { index } = await loadIndex(store, repoId)
+    const held = index.entries.reduce((n, e) => n + e.size, 0)
+
+    // Room for the seed, not for another one like it. The second push is small
+    // enough that a per-push cap would never fire on it.
+    process.env.WALGIT_MAX_REPO_BYTES = String(held + 16 * 1024)
+    const { dir } = await clientWithBlob('more', 128 * 1024)
+
+    const pushed = await git(dir, 'push', 'origin', 'HEAD:refs/heads/main')
+    expect(pushed.status).not.toBe(0)
+    expect(pushed.out).toContain(`${repoId} would exceed its`)
+    expect(pushed.out).toContain('it is the repository that is full')
+    expect(pushed.out).not.toContain('this push is larger than')
+
+    const after = await loadIndex(store, repoId)
+    expect(after.index.entries).toHaveLength(index.entries.length)
+    expect(await findOrphans(store, repoId)).toEqual([])
+  })
+
+  test('a push under both caps is untouched, and the git backstop sits above the cap', async () => {
+    process.env.WALGIT_MAX_PUSH_BYTES = String(1024 * 1024)
+    process.env.WALGIT_MAX_REPO_BYTES = String(4 * 1024 * 1024)
+    const { dir } = await clientWithBlob('small', 32 * 1024)
+
+    expect((await git(dir, 'push', 'origin', 'HEAD:refs/heads/main')).status).toBe(0)
+
+    // Set to the cap, `index-pack` would refuse before `pre-receive` ever runs
+    // and every client would read git's message instead of ours. What the
+    // backstop does when it DOES fire is deliberately not asserted here: it
+    // kills the stream mid-body, which the client reports as `unexpected
+    // disconnect` — the very message this feature exists to stop producing,
+    // and the reason the backstop is set far above the cap rather than at it.
+    const configured = (
+      await git(scratch, '--git-dir', bareDir(), 'config', '--get', 'receive.maxInputSize')
+    ).out.trim()
+    expect(Number(configured)).toBeGreaterThan(1024 * 1024)
+  })
+
+  test('is off by default: an unset cap refuses nothing', async () => {
+    // Comfortably past every cap the tests above configure, and deliberately
+    // not much larger: a multi-hundred-KiB body through this in-process
+    // harness flakes on its own, unrelated to anything under test here.
+    const { dir } = await clientWithBlob('unbounded', 128 * 1024)
+    expect((await git(dir, 'push', 'origin', 'HEAD:refs/heads/main')).status).toBe(0)
+    expect((await loadIndex(store, repoId)).index.entries).toHaveLength(1)
   })
 })
