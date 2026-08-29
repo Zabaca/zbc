@@ -71,9 +71,21 @@ const REF_NAME = /^refs\/[A-Za-z0-9._\-/]+$/
 /** The all-zeroes oid git reports for a creation or a deletion. */
 export const ZERO_OID = '0'.repeat(40)
 
-/** How many watch entries and refs one message may carry. */
-const MAX_WATCH_ENTRIES = 64
-const MAX_REFS_PER_ENTRY = 256
+/**
+ * How many watch entries and refs one message may carry.
+ *
+ * A cap rather than an unbounded list because one connection asking to watch
+ * every repository on the host is the operator's problem, not the client's: the
+ * handshake alone reads the Index once per repository named. Exported so the
+ * refusal, the tests and any future advertisement of the limit all read the
+ * same number.
+ *
+ * There is deliberately no wildcard beside these — no `repo: "*"`, no
+ * `watch: "all"`. On a public deployment that would be a firehose of strangers'
+ * pushes, and `REPO_ID` rejects `*` for the same reason a URL path does.
+ */
+export const MAX_WATCH_ENTRIES = 64
+export const MAX_REFS_PER_ENTRY = 256
 
 /**
  * Is the stream configured at all?
@@ -151,7 +163,12 @@ export function parseWatch(raw: string): Parsed<WatchEntry[]> {
   if (!Array.isArray(watch)) return { ok: false, error: 'expected a "watch" array' }
   if (watch.length === 0) return { ok: false, error: '"watch" is empty' }
   if (watch.length > MAX_WATCH_ENTRIES) {
-    return { ok: false, error: `at most ${MAX_WATCH_ENTRIES} watch entries` }
+    // Both numbers, because a client over the cap has to know how far over it
+    // is to split its subscription — a bare limit makes it guess.
+    return {
+      ok: false,
+      error: `at most ${MAX_WATCH_ENTRIES} watch entries, asked for ${watch.length}`,
+    }
   }
 
   const entries: WatchEntry[] = []
@@ -173,7 +190,7 @@ export function parseWatch(raw: string): Parsed<WatchEntry[]> {
     if (refs.length > MAX_REFS_PER_ENTRY) {
       return {
         ok: false,
-        error: `at most ${MAX_REFS_PER_ENTRY} refs per repository`,
+        error: `at most ${MAX_REFS_PER_ENTRY} refs per repository, asked for ${refs.length} on ${repo}`,
       }
     }
     for (const ref of refs) {
