@@ -138,8 +138,10 @@ async function main(): Promise<number> {
     fault('before-cas')
     const store = requireStore()
     // The pack belongs to the first transaction that publishes; later ones in
-    // the same push carry ref changes only.
-    const toPublish = pending.consumed ? { entry: null } : pending
+    // the same push carry ref changes only — but they carry the same Signer,
+    // because they are the same push. Dropping it here would attribute the
+    // first ref of a multi-ref push and silently leave the rest anonymous.
+    const toPublish = pending.consumed ? { entry: null, provenance: pending.provenance } : pending
     const result = await publishPush(store, repoId, toPublish, changes)
     if (!result.ok) {
       process.stderr.write(

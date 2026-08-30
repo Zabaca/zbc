@@ -72,3 +72,20 @@ The container telling the Fan-out that refs moved, over `/_walgit/announce`, fro
 **Coalesce Window**:
 The 250 ms in which one socket gets at most one message for a given repository and ref. A second move inside it REPLACES the queued message rather than joining it, so what a subscriber receives when the window elapses is the newest sha, once. It is a rate bound and not a reaction to a slow reader: the Workers runtime reports no backlog for a socket (no `bufferedAmount`), so there is nothing to react to. Sound only because a Ref Event is latest-state.
 _Avoid_: backpressure, throttling, debounce (each implies a reader being watched, or a message being dropped rather than superseded)
+
+## Provenance (ADR-0011)
+
+**Push Certificate**:
+The small signed document a `git push --signed` carries: the pusher's claimed key, the pushee, the nonce this host issued, and every ref the push moves — with an SSH signature over all of it. A `receive-pack` capability, not a transport one, which is why it works with no SSH anywhere. Advertised if and only if the receiving repository has `receive.certNonceSeed`, so that one config key is the whole of "this deployment takes signed pushes".
+_Avoid_: the signature (the certificate is the document; the signature is one field of it), the token
+
+**Signer**:
+The key that signed a push, named by its fingerprint (`SHA256:…`). A key, never a user or an account — neither exists here, and either word would imply a registry walgit deliberately does not have.
+_Avoid_: user, account, identity, owner (the last is reserved for a permission system that does not exist)
+
+**Provenance**:
+The recorded fact that a Signer moved a given ref — an optional map in the Index, ref → `{ signer, ts }`, written by the same compare-and-swap that publishes the push. Latest-state per ref like everything else here: there is no provenance history, because the audit trail of *content* is the commit graph.
+_Avoid_: identity, attribution log, audit trail
+
+**Fail open**:
+The rule the whole capability is built to: a missing, malformed or unverifiable certificate, a bad nonce, or a verifier that is absent or throws records no Signer and **accepts the push**. Provenance is metadata and must never become a new way for a push to fail — anonymous pushing is first-class and stays that way.

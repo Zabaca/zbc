@@ -16,7 +16,7 @@
 import * as fs from 'node:fs'
 import * as path from 'node:path'
 
-import type { WalEntry } from './wal-index'
+import type { Provenance, WalEntry } from './wal-index'
 
 /**
  * What `pre-receive` hands to `reference-transaction`.
@@ -32,6 +32,15 @@ export interface PendingPush {
    * ref-only changes.
    */
   consumed?: boolean
+  /**
+   * Who signed this push, when one did and walgit could verify it
+   * (docs/adr/0011). Determined in `pre-receive`, because that is the only hook
+   * git hands the certificate to — the blob lives in the push's quarantine and
+   * is gone by the time the refs move — and carried here for the same reason
+   * the entry is: the transaction that publishes it is a different process.
+   * Absent for every unsigned push, which is most of them.
+   */
+  provenance?: Provenance
   /**
    * The `git-receive-pack` that owns this record; see `invocationId`. Optional
    * only because `publishPush` takes a `PendingPush` as a plain argument and

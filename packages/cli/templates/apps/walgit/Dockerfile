@@ -20,7 +20,15 @@ FROM oven/bun:1.3-alpine
 # not ship. Without it smart-HTTP fails as `git: 'http-backend' is not a git
 # command` — which reaches the client as an empty CGI response, never as that
 # message.
-RUN apk add --no-cache git git-daemon
+#
+# `openssh-keygen` is the push path's signature verifier and nothing more: it is
+# the ~200 KB package carrying `ssh-keygen` alone, with no client, no server and
+# no daemon, and `ssh-keygen -Y check-novalidate -n git` is how walgit reads a
+# push certificate's signer without a key registry (src/push-cert.ts). Its
+# absence is not a build failure — provenance fails open, so an image without it
+# accepts every push and records no Signer, silently. Which is why it is pinned
+# into the image here rather than discovered at runtime.
+RUN apk add --no-cache git git-daemon openssh-keygen
 
 WORKDIR /app
 # Only `aws4fetch` — the Worker-side deps (@cloudflare/containers, wrangler) are

@@ -227,3 +227,181 @@ describe('the pending hand-off is private to one receive-pack', () => {
     expect(readPending(dir, process.pid)).toBeNull()
   })
 })
+
+/**
+ * Provenance on the push path (docs/adr/0011).
+ *
+ * The verifier is injected at `preReceive`'s existing seam, so every case below
+ * runs with no keypair, no `ssh-keygen` and no git — what a real signed push
+ * does end to end is `push.e2e.test.ts`'s.
+ */
+describe('provenance', () => {
+  const scratch = () => fs.mkdtempSync(path.join(os.tmpdir(), 'walgit-signer-'))
+  const KEY = `SHA256:${'A'.repeat(43)}`
+  const OTHER = `SHA256:${'B'.repeat(43)}`
+
+  const AT = '2026-08-30T12:00:00.000Z'
+  const by = (signer: string) => ({ signer, ts: AT })
+
+  /** `pre-receive` for a push carrying one pack, signed by `signer` or not. */
+  const preReceiveSigned = async (store: MemoryStore, signer: string | null) => {
+    const dir = scratch()
+    const quarantine = path.join(dir, 'tmp_objdir-incoming-abc')
+    fs.mkdirSync(path.join(quarantine, 'pack'), { recursive: true })
+    fs.writeFileSync(path.join(quarantine, 'pack', 'pack-1.pack'), 'PACKDATA')
+    await preReceive({
+      store,
+      repoId: 'r',
+      gitDir: dir,
+      quarantineDir: quarantine,
+      now: () => new Date(AT),
+      signer: () => signer,
+    })
+    return readPending(dir)!
+  }
+
+  test('a signed push records the key as the Signer of every ref it moved', async () => {
+    const store = new MemoryStore()
+    const recorded = await preReceiveSigned(store, KEY)
+    expect(recorded.provenance).toEqual(by(KEY))
+
+    const result = await publishPush(store, 'r', recorded, [
+      change('refs/heads/main', ZERO_OID, OID_A),
+      change('refs/heads/topic', ZERO_OID, OID_B),
+    ])
+    expect(result.ok).toBe(true)
+
+    const { index } = await loadIndex(store, 'r')
+    expect(index.provenance).toEqual({
+      'refs/heads/main': by(KEY),
+      'refs/heads/topic': by(KEY),
+    })
+    // The ref map keeps its shape: still ref → sha, so no existing reader of
+    // the Index has anything to change.
+    expect(index.refs).toEqual({ 'refs/heads/main': OID_A, 'refs/heads/topic': OID_B })
+  })
+
+  test('a ref-only push is recorded too', async () => {
+    // The reason this is a field on the Index and not on a WAL entry: a push
+    // that adds no objects appends no entry, so an entry-hung provenance would
+    // be blind to every branch pointed at objects the server already has.
+    const store = new MemoryStore()
+    const dir = scratch()
+    await preReceive({
+      store,
+      repoId: 'r',
+      gitDir: dir,
+      quarantineDir: undefined,
+      now: () => new Date(AT),
+      signer: () => KEY,
+    })
+    const recorded = readPending(dir)!
+    expect(recorded.entry).toBeNull()
+
+    await publishPush(store, 'r', recorded, [change('refs/heads/main', ZERO_OID, OID_A)])
+    const { index } = await loadIndex(store, 'r')
+    expect(index.entries).toEqual([])
+    expect(index.provenance).toEqual({ 'refs/heads/main': by(KEY) })
+  })
+
+  test('an unsigned push records nothing, and leaves index.json as it was', async () => {
+    const store = new MemoryStore()
+    const recorded = await preReceiveSigned(store, null)
+    expect(recorded.provenance).toBeUndefined()
+
+    await publishPush(store, 'r', recorded, [change('refs/heads/main', ZERO_OID, OID_A)])
+    const { index } = await loadIndex(store, 'r')
+    expect(index.provenance).toBeUndefined()
+    // Absent from the serialized object, not present as `{}`: a deployment that
+    // takes no signed pushes writes byte-for-byte what it wrote before.
+    const body = new TextDecoder().decode((await store.get('repos/r/index.json'))!.body)
+    expect(body).not.toContain('provenance')
+  })
+
+  test('a verifier that throws does not fail the push', async () => {
+    const store = new MemoryStore()
+    const dir = scratch()
+    await preReceive({
+      store,
+      repoId: 'r',
+      gitDir: dir,
+      quarantineDir: undefined,
+      signer: () => {
+        throw new Error('ssh-keygen: not found')
+      },
+    })
+    // The push is intact and merely anonymous — which is the whole fail-open
+    // rule: provenance is metadata and never a new way for a push to fail.
+    expect(readPending(dir)!.provenance).toBeUndefined()
+    expect(
+      (
+        await publishPush(store, 'r', readPending(dir)!, [
+          change('refs/heads/main', ZERO_OID, OID_A),
+        ])
+      ).ok,
+    ).toBe(true)
+    expect((await loadIndex(store, 'r')).index.refs['refs/heads/main']).toBe(OID_A)
+  })
+
+  test('a later unsigned push clears the ref it overwrote', async () => {
+    // Otherwise the Index would name a key beside a sha that key never signed —
+    // stating something false, which is worse than stating nothing.
+    const store = new MemoryStore()
+    await publishPush(store, 'r', { entry: null, provenance: by(KEY) }, [
+      change('refs/heads/main', ZERO_OID, OID_A),
+    ])
+    expect((await loadIndex(store, 'r')).index.provenance).toEqual({ 'refs/heads/main': by(KEY) })
+
+    await publishPush(store, 'r', { entry: null }, [change('refs/heads/main', OID_A, OID_B)])
+    expect((await loadIndex(store, 'r')).index.provenance).toBeUndefined()
+  })
+
+  test('a second signer over the same ref replaces the first', async () => {
+    const store = new MemoryStore()
+    await publishPush(store, 'r', { entry: null, provenance: by(KEY) }, [
+      change('refs/heads/main', ZERO_OID, OID_A),
+    ])
+    await publishPush(store, 'r', { entry: null, provenance: by(OTHER) }, [
+      change('refs/heads/main', OID_A, OID_B),
+    ])
+    expect((await loadIndex(store, 'r')).index.provenance).toEqual({ 'refs/heads/main': by(OTHER) })
+  })
+
+  test('deleting a ref takes its Signer with it', async () => {
+    const store = new MemoryStore()
+    await publishPush(store, 'r', { entry: null, provenance: by(KEY) }, [
+      change('refs/heads/main', ZERO_OID, OID_A),
+      change('refs/heads/topic', ZERO_OID, OID_B),
+    ])
+    await publishPush(store, 'r', { entry: null, provenance: by(KEY) }, [
+      change('refs/heads/topic', OID_B, ZERO_OID),
+    ])
+
+    const { index } = await loadIndex(store, 'r')
+    expect(index.refs).toEqual({ 'refs/heads/main': OID_A })
+    // In step with `refs`, so the map cannot grow forever with refs nothing can
+    // look up.
+    expect(index.provenance).toEqual({ 'refs/heads/main': by(KEY) })
+  })
+
+  test('a multi-transaction push keeps its Signer past the first transaction', async () => {
+    // git updates refs one transaction at a time unless the client asked for
+    // `--atomic`, and only the first carries the pack. The rest are the same
+    // push and are signed by the same key.
+    const store = new MemoryStore()
+    const recorded = await preReceiveSigned(store, KEY)
+
+    await publishPush(store, 'r', recorded, [change('refs/heads/main', ZERO_OID, OID_A)])
+    // What `hook-main` hands the second transaction once the pack is consumed.
+    await publishPush(store, 'r', { entry: null, provenance: recorded.provenance }, [
+      change('refs/heads/topic', ZERO_OID, OID_B),
+    ])
+
+    const { index } = await loadIndex(store, 'r')
+    expect(index.entries).toHaveLength(1)
+    expect(index.provenance).toEqual({
+      'refs/heads/main': by(KEY),
+      'refs/heads/topic': by(KEY),
+    })
+  })
+})
