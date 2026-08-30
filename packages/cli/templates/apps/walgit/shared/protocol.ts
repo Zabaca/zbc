@@ -66,6 +66,22 @@ export const EXPIRE_PATH = '/_walgit/expire'
 /** One repository's ref state, for the event stream's handshake. Internal. */
 export const REFS_PATH = '/_walgit/refs'
 
+/**
+ * One repository's push provenance: ref → the Signer that moved it, and when
+ * (docs/adr/0011).
+ *
+ * Unlike `REFS_PATH` beside it, this one is for CLIENTS — an agent asking the
+ * host who pushed — so it is gated by the ordinary read credential rather than
+ * by `INTERNAL_HEADER`. Deliberately not on the ref-event stream: ADR-0009
+ * froze that wire to "a ref moved, and to what", and provenance is separate
+ * state with a different lifetime and a different reader.
+ *
+ * The repository is a query parameter rather than a path segment because
+ * `SMART_HTTP` is the three git endpoints and no more; widening that grammar
+ * to carry a fourth would change what the Worker counts as a clone.
+ */
+export const PROVENANCE_PATH = '/_walgit/provenance'
+
 /** Where a subscriber connects. A WebSocket upgrade, and nothing else. */
 export const EVENTS_PATH = '/_walgit/events'
 

@@ -46,6 +46,23 @@ describe('classifyRequest', () => {
     expect(classifyRequest('GET', '/_walgit/health', '').kind).toBe('health')
   })
 
+  test('a provenance read is its own kind, and names the repository it asked about', () => {
+    // Not `other`: that is the unroutable bucket, and folding a request walgit
+    // answers into it would hide both the demand for the feature and any
+    // refusal it produces.
+    expect(classifyRequest('GET', '/_walgit/provenance', '?repo=alpha')).toEqual({
+      kind: 'provenance',
+      repo: 'alpha',
+    })
+  })
+
+  test('a provenance read records no repository it would not serve', () => {
+    // The query string is attacker-controlled and unbounded, unlike a path
+    // segment the smart-HTTP grammar already constrained.
+    expect(classifyRequest('GET', '/_walgit/provenance', '?repo=../etc').repo).toBe('')
+    expect(classifyRequest('GET', '/_walgit/provenance', '').repo).toBe('')
+  })
+
   test('dumb-HTTP and unknown paths are other, and name no repository', () => {
     expect(classifyRequest('GET', '/alpha.git/info/refs', '')).toEqual({
       kind: 'other',

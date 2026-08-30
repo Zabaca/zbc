@@ -15,6 +15,7 @@ import {
   EXPIRE_PATH,
   HEALTH_PATH,
   INTERNAL_HEADER,
+  PROVENANCE_PATH,
   REFS_PATH,
   REJECT_HEADER,
   SERVED_HEADER,
@@ -25,6 +26,7 @@ import type { InstructionsPolicy } from './instructions'
 import { renderInstructions } from './instructions'
 import type { ResolvedRepo } from './repo'
 import { resolveRepo } from './repo'
+import type { Provenance } from './wal-index'
 
 export type BackendRequest = {
   repo: ResolvedRepo
@@ -86,6 +88,17 @@ export type HttpHandlerDeps = {
    * instance with no store — or no event stream — simply does not answer.
    */
   readRefs?: (repoId: string) => Promise<Record<string, string>>
+  /**
+   * One repository's push provenance — ref → the Signer that moved it, and when
+   * (docs/adr/0011). Read from the Index for the same reason `readRefs` is: the
+   * Index is where a push records it, and the disk holds no copy at all.
+   *
+   * Optional like every other reader here, and absent means the endpoint does
+   * not exist rather than answering an empty map — an instance with no store
+   * has no authoritative answer, and inventing "nobody signed anything" out of
+   * a missing log is the one wrong answer this feature can give.
+   */
+  readProvenance?: (repoId: string) => Promise<Record<string, Provenance>>
 }
 
 /**
@@ -172,13 +185,8 @@ function createRouter(deps: HttpHandlerDeps): (req: Request) => Promise<Response
     if (url.pathname === REFS_PATH) {
       if (!deps.readRefs || request.method !== 'GET') return NOT_FOUND()
       if (request.headers.get(INTERNAL_HEADER) !== '1') return NOT_FOUND()
-      const requested = url.searchParams.get('repo') ?? ''
-      let repoId: string
-      try {
-        repoId = resolveRepo(deps.reposDir, requested).repoId
-      } catch {
-        return NOT_FOUND()
-      }
+      const repoId = requestedRepoId(deps.reposDir, url)
+      if (repoId === null) return NOT_FOUND()
       const refs = await deps.readRefs(repoId)
       return new Response(`${JSON.stringify({ repo: repoId, refs })}\n`, {
         headers: { 'content-type': 'application/json; charset=utf-8' },
@@ -197,6 +205,25 @@ function createRouter(deps: HttpHandlerDeps): (req: Request) => Promise<Response
 
     if (!deps.public && !authorizedBy(request.headers.get('authorization'), deps.tokens)) {
       return UNAUTHORIZED()
+    }
+
+    // Push provenance, read back (docs/adr/0011). Placed HERE — below the
+    // credential gate and above the git endpoints — because that position is
+    // the requirement: the read is behind exactly the credential a clone of
+    // this repository needs, so a public instance answers anyone and a
+    // token-gated one answers nobody else, with no second authorization model
+    // to keep in agreement with the first.
+    if (url.pathname === PROVENANCE_PATH) {
+      if (!deps.readProvenance || request.method !== 'GET') return NOT_FOUND()
+      const repoId = requestedRepoId(deps.reposDir, url)
+      if (repoId === null) return NOT_FOUND()
+      // A repository nobody has signed a push to reads as an empty map, not a
+      // 404 and not an error: signing is opt-in, so "no Signer recorded" is the
+      // ordinary answer here and has to be a cheap one to consume.
+      const provenance = await deps.readProvenance(repoId)
+      return new Response(`${JSON.stringify({ repo: repoId, provenance })}\n`, {
+        headers: { 'content-type': 'application/json; charset=utf-8' },
+      })
     }
 
     const route = SMART_HTTP.exec(url.pathname)
@@ -222,6 +249,22 @@ function createRouter(deps: HttpHandlerDeps): (req: Request) => Promise<Response
     }
 
     return deps.runBackend({ repo, pathInfo: url.pathname, request })
+  }
+}
+
+/**
+ * The repository a `?repo=` reader names, or `null` when it names none walgit
+ * would serve.
+ *
+ * Through `resolveRepo`, which is the same gate a path segment goes through —
+ * a name accepted here and refused there would be a repository half the service
+ * can see, which is exactly what `REPO_ID` exists to stop.
+ */
+function requestedRepoId(reposDir: string, url: URL): string | null {
+  try {
+    return resolveRepo(reposDir, url.searchParams.get('repo') ?? '').repoId
+  } catch {
+    return null
   }
 }
 
