@@ -50,19 +50,6 @@ A superseded WAL object recorded in the Index as scheduled for deletion, with th
 A WAL object under a repository's prefix that the Index does not name — almost always a pack uploaded by a push that then lost the compare-and-swap, since rejecting at `reference-transaction` does not unwind the upload. Discovered by diffing the prefix against the Index rather than recorded at rejection time, and collected only once provably older than the slowest plausible restore.
 _Avoid_: garbage (says nothing about why it is there), leaked object
 
-## Provenance (ADR-0011)
-
-**Signer**:
-The key that signed a push, named by its fingerprint. Not a user and not an account — neither exists here. Established by verifying the push certificate git sends with `push --signed`, which is a `receive-pack` capability rather than an SSH one and works over smart-HTTP like everything else.
-_Avoid_: user, account, identity (each implies a registry this host does not have)
-
-**Provenance**:
-The recorded fact that a Signer pushed a given ref update. Latest-state per ref in the Index, written by the same compare-and-swap that publishes the push — not hung off a WAL Entry, because a ref-only push appends none, and not left on disk, because the certificate arrives as a blob in the Cache and the Cache is wiped on restart.
-_Avoid_: audit log (there is no history here; the history of content is the commit graph)
-
-**Claim** (not built):
-Reserved for the trust-on-first-use assertion that a Signer owns a repository, if ownership is ever added. Deliberately not "owner", which implies a permission system rather than a first-mover fact.
-
 ## Ref events (ADR-0009)
 
 **Ref Event**:
@@ -103,6 +90,13 @@ _Avoid_: identity, attribution log, audit trail
 **Provenance Read**:
 `GET /_walgit/provenance?repo=<id>` — the whole of reading Provenance back: one repository, the Index's map as it stands, `{}` when nothing has been signed. Behind exactly the credential a clone of that repository needs, so a public deployment answers anyone and a token-gated one answers nobody else; there is no second authorization model. Deliberately not a Ref Event — that wire is latest-state and says only that a ref moved and to what (ADR-0009), while Provenance has a different lifetime and a different reader.
 _Avoid_: the provenance API, the audit endpoint
+
+**Advertised capability**:
+What the two agent-facing documents say a deployment can do, rendered from the thing that enforces it and never written as prose. Signing joins the size caps, the retention window and the stream under this rule: with no `WALGIT_PUSH_CERT_SEED`, neither `GET /` nor `/llms.txt` mentions signing, keys or Provenance at all. Sharper here than for a cap, because a client asking to sign a host that does not advertise `push-cert` is refused by its OWN git — the agent finds out only after it has written the push.
+_Avoid_: feature flag (there is no flag; the seed IS the capability)
+
+**Claim** (not built):
+Reserved for the trust-on-first-use assertion that a Signer owns a repository, if ownership is ever added. Deliberately not "owner", which implies a permission system rather than a first-mover fact.
 
 **Fail open**:
 The rule the whole capability is built to: a missing, malformed or unverifiable certificate, a bad nonce, or a verifier that is absent or throws records no Signer and **accepts the push**. Provenance is metadata and must never become a new way for a push to fail — anonymous pushing is first-class and stays that way.

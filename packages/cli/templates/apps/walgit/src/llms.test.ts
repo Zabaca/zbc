@@ -12,6 +12,7 @@
 import { describe, expect, test } from 'bun:test'
 
 import { flagEnabled } from '../shared/policy'
+import { pushCertSeed, signedPushEnabled } from '../shared/provenance'
 import { MAX_REFS_PER_ENTRY, MAX_WATCH_ENTRIES } from '../shared/events'
 import { renderLlms, wantsLlms } from '../shared/llms'
 import { renderInstructions } from './instructions'
@@ -24,6 +25,7 @@ const FACTS = {
   events: false,
   publicAccess: true,
   appendOnly: true,
+  signedPushes: false,
 }
 
 describe('wantsLlms', () => {
@@ -86,6 +88,45 @@ describe('renderLlms', () => {
     expect(renderLlms({ ...FACTS, events: false })).not.toContain('merge-tree')
   })
 
+  test('signing is described only where a seed turns it on', () => {
+    const on = renderLlms({ ...FACTS, signedPushes: true })
+    expect(on).toContain('--signed=if-asked')
+    expect(on).toContain('_walgit/provenance')
+    // With no seed the host does not advertise `push-cert` at all, so every
+    // word of it goes — the flag, the config, the endpoint and the vocabulary.
+    const off = renderLlms({ ...FACTS, signedPushes: false })
+    for (const claim of [
+      '--signed',
+      'signingkey',
+      'push certificate',
+      'fingerprint',
+      'Signer',
+      'provenance',
+    ]) {
+      expect(off).not.toContain(claim)
+    }
+  })
+
+  test('recommends the form that is correct against every host', () => {
+    const doc = renderLlms({ ...FACTS, signedPushes: true })
+    expect(doc).toContain('--signed=if-asked')
+    // `=yes` appears only as the thing NOT to use, and the sentence saying so
+    // is what stops an agent copying it out of the surrounding prose.
+    expect(doc.replace(/\s+/g, ' ')).toContain('Use `--signed=if-asked`, not `--signed=yes`.')
+  })
+
+  test('says what a fingerprint is taken to mean, and what it is not', () => {
+    const doc = renderLlms({ ...FACTS, signedPushes: true }).replace(/\s+/g, ' ')
+    // The identity is a key. Saying so is what stops a reader treating a
+    // fingerprint as an account this host does not have.
+    expect(doc).toContain('not a person and not an account')
+    expect(doc).toContain('no list of allowed signers')
+    // And the half a reader is likeliest to assume wrongly: signing buys
+    // nothing, so an anonymous push is not a second-class one.
+    expect(doc).toContain('Unsigned pushes are ordinary')
+    expect(doc).toContain('buys no access')
+  })
+
   test('is markdown a model can skim by its headings', () => {
     const doc = renderLlms({ ...FACTS, events: true })
     const headings = doc.split('\n').filter((l) => l.startsWith('#'))
@@ -125,9 +166,13 @@ describe('flagEnabled is the one predicate both halves use', () => {
  */
 describe('the two documents earn their separation', () => {
   test('the long version is substantially longer than the terse one', () => {
+    // Every capability on, which is the only version of this test worth
+    // having: the budget has to hold for the deployment that claims the most,
+    // and each feature so far has arrived believing it was "just three lines".
     const facts = {
       ...FACTS,
       events: true,
+      signedPushes: true,
       retentionHours: 24,
       maxPushBytes: 99 * 1024 * 1024,
       maxRepoBytes: 250 * 1024 * 1024,
@@ -137,6 +182,7 @@ describe('the two documents earn their separation', () => {
       publicAccess: true,
       appendOnly: true,
       events: true,
+      signedPushes: true,
       retentionHours: 24,
       maxPushBytes: facts.maxPushBytes,
       maxRepoBytes: facts.maxRepoBytes,
@@ -161,5 +207,32 @@ describe('the two documents earn their separation', () => {
     const doc = renderLlms({ ...FACTS, events: true })
     expect(doc).toContain(`${MAX_WATCH_ENTRIES} repositories`)
     expect(doc).toContain(`${MAX_REFS_PER_ENTRY} refs`)
+  })
+})
+
+/**
+ * The seed is the capability, and both halves read it the same way.
+ *
+ * `WALGIT_PUSH_CERT_SEED` is what the container writes onto every repository
+ * as `receive.certNonceSeed`, which is the only thing that makes
+ * `git-receive-pack` advertise `push-cert`. If the Worker read it with a
+ * second predicate, a document could offer signing on a host whose git refuses
+ * it — the `WALGIT_APPEND_ONLY` drift again, with a worse failure mode,
+ * because the agent finds out only after writing the push.
+ */
+describe('signedPushEnabled is the one reading of the seed', () => {
+  test('a configured seed is the capability, whatever it spells', () => {
+    expect(signedPushEnabled('a-long-random-seed')).toBe(true)
+    // Not a boolean variable: `0` and `false` are perfectly good seeds, and
+    // reading them as "off" would silently disable a configured deployment.
+    expect(signedPushEnabled('false')).toBe(true)
+    expect(pushCertSeed('  spaced  ')).toBe('spaced')
+  })
+
+  test('unset and blank are both "this deployment does not take one"', () => {
+    expect(signedPushEnabled(undefined)).toBe(false)
+    expect(signedPushEnabled('')).toBe(false)
+    expect(signedPushEnabled('   ')).toBe(false)
+    expect(pushCertSeed('')).toBeNull()
   })
 })

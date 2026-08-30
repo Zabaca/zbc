@@ -22,7 +22,7 @@
 
 import { MAX_REFS_PER_ENTRY, MAX_WATCH_ENTRIES } from './events'
 import { describeBytes } from './policy'
-import { EVENTS_PATH } from './protocol'
+import { EVENTS_PATH, PROVENANCE_PATH } from './protocol'
 
 export interface LlmsFacts {
   /** The hostname the request arrived on — every command below uses it. */
@@ -37,6 +37,16 @@ export interface LlmsFacts {
   publicAccess: boolean
   /** Whether refs may only move forward here. */
   appendOnly: boolean
+  /**
+   * Whether this deployment takes a signed push and records who made it.
+   *
+   * From the nonce seed, the same value the container writes onto every
+   * repository as `receive.certNonceSeed`. With no seed the capability is not
+   * advertised on the wire and a client asking to sign is refused by its own
+   * git, so a manual describing it here would be describing a flag that
+   * cannot work on this host.
+   */
+  signedPushes: boolean
 }
 
 /** Only GET or HEAD on the one path. Nothing else is this document. */
@@ -86,6 +96,75 @@ export function renderLlms(facts: LlmsFacts): string {
       `- **One repository may not exceed ${describeBytes(facts.maxRepoBytes)}** in total.`,
     )
   }
+
+  /**
+   * Signing, argued rather than merely offered.
+   *
+   * The terse document gives an agent the flag and the endpoint; this is where
+   * the two questions it will actually have get answered — what the host takes
+   * a fingerprint to MEAN, and whether not signing costs anything. Both
+   * answers are deliberately small, and saying so is the point: walgit
+   * verifies a signature and records the key, and does nothing else with it
+   * (docs/adr/0011). A manual that implied more would be describing an
+   * ownership model this host does not have.
+   */
+  const signing = facts.signedPushes
+    ? `
+## Say who pushed
+
+A push here can carry a **push certificate**: a small signed document naming
+the refs it moves and a nonce this host issued. walgit verifies the signature
+itself, records the fingerprint of the key that made it, and refuses nothing on
+the strength of it.
+
+\`\`\`sh
+git -c gpg.format=ssh -c user.signingkey=~/.ssh/id_ed25519.pub \\
+    push --signed=if-asked https://${host}/$NAME.git HEAD:refs/heads/main
+\`\`\`
+
+Use \`--signed=if-asked\`, not \`--signed=yes\`. It signs where the host takes a
+certificate and pushes normally where it does not, so one command is correct
+everywhere and an agent never has to branch on which host it is talking to.
+\`--signed=yes\` against a host without the capability is refused by your own git
+before anything reaches the network.
+
+The key costs nothing to provision: if you already push to GitHub over SSH, the
+key you push with is the key that signs. There is nothing to register here —
+walgit keeps no list of allowed signers, which is exactly why it can accept a
+key it has never seen.
+
+### Read it back
+
+\`\`\`sh
+curl https://${host}${PROVENANCE_PATH}?repo=$NAME
+{"repo":"$NAME","provenance":{"refs/heads/main":{"signer":"SHA256:BMBE…","ts":"2026-08-30T19:00:00.000Z"}}}
+\`\`\`
+
+One entry per ref that a signed push last moved, behind the same credential a
+clone of that repository needs. A repository nobody has signed a push to
+answers with an empty object — that is the ordinary case, not an error.
+
+### What a fingerprint means here, and what it does not
+
+The identity is the **key**, not a person and not an account: neither exists on
+this host. What walgit claims when it records a Signer is exactly one thing —
+*this key signed this push, over this nonce, for these refs* — and the nonce is
+what stops the certificate being replayed onto another push.
+
+It claims nothing about who holds the key. Two pushes with the same fingerprint
+came from the same key; whether that is the same agent is between you and
+whoever published the key. Matching a fingerprint against one you already trust
+— from a GitHub profile, a prior message, your own \`~/.ssh\` — is the reader's
+job, and it is the only thing that turns a fingerprint into a person.
+
+**Unsigned pushes are ordinary.** Signing is not authentication and buys no
+access: an unsigned push lands exactly as a signed one does, to the same names,
+with the same rules. Nothing here is refused for being anonymous, no name is
+owned by the key that first pushed it, and a repository with a recorded Signer
+is still world-writable by anyone. If provenance ever starts refusing things,
+it will say so on this page first.
+`
+    : ''
 
   const events = facts.events
     ? `
@@ -186,7 +265,7 @@ git clone https://${host}/$NAME.git
 \`\`\`
 
 Handing work to another agent is the URL and nothing else. There is no owner to ask, no invitation to send and no review to pass.
-${events}
+${signing}${events}
 ## If a push is refused
 
 Read the message. A refusal names what it refused and what to do instead — it is not a transport failure, and retrying the same push unchanged will not help. The usual cause is a name already held by an unrelated history: push to a new one.

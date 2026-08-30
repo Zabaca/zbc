@@ -33,6 +33,7 @@ import { authorizeAnnounce, authorizeSubscribe, eventsEnabled } from '../shared/
 import { type LandingFacts, renderLanding, wantsLanding } from '../shared/landing'
 import { renderLlms, wantsLlms } from '../shared/llms'
 import { flagEnabled, positiveNumber } from '../shared/policy'
+import { signedPushEnabled } from '../shared/provenance'
 import {
   ANNOUNCE_PATH,
   COLD_HEADER,
@@ -284,6 +285,11 @@ export default {
         // spelling away from being wrong.
         publicAccess: flagEnabled(env.WALGIT_PUBLIC),
         appendOnly: flagEnabled(env.WALGIT_APPEND_ONLY),
+        // Read through the same function the container turns the capability on
+        // with (shared/provenance.ts): the seed is what makes `receive-pack`
+        // advertise `push-cert` at all, so a manual that offered signing here
+        // without one would send an agent to a flag its own git refuses.
+        signedPushes: signedPushEnabled(env.WALGIT_PUSH_CERT_SEED),
         ...limitsFromEnv(env),
       })
       const bytes = new TextEncoder().encode(doc)

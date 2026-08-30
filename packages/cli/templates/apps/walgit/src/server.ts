@@ -20,6 +20,7 @@ import { createHttpHandler } from './http'
 import { runGitHttpBackend } from './git-backend'
 import type { InstructionsPolicy } from './instructions'
 import { limitsFromEnv } from './limits'
+import { signedPushEnabled } from './push-cert'
 import type { ObjectStore } from './store'
 import { storeFromEnv } from './store-env'
 import { syncRepo } from './sync'
@@ -65,6 +66,11 @@ const instructions: InstructionsPolicy = {
   // announcing nowhere and `GET /` promising a socket would be the same defect
   // as a stated cap nothing enforces.
   events: announceConfigFromEnv() !== null,
+  // The seed IS the capability (src/push-cert.ts): with none, `receive-pack`
+  // never advertises `push-cert` and a client asking to sign is refused by its
+  // own git. So the same read that turns it on is the one the page speaks
+  // from, and an instance without a seed says nothing about signing at all.
+  signedPushes: signedPushEnabled(),
 }
 
 const store = storeFromEnv()

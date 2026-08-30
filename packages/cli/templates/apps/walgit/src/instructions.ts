@@ -14,7 +14,7 @@
  */
 
 import { describeBytes } from '../shared/policy'
-import { EVENTS_PATH } from '../shared/protocol'
+import { EVENTS_PATH, PROVENANCE_PATH } from '../shared/protocol'
 
 export type InstructionsPolicy = {
   /** Reads and writes need no credential. */
@@ -37,6 +37,17 @@ export type InstructionsPolicy = {
    * mention at all, because the agent writes the client before finding out.
    */
   events?: boolean
+  /**
+   * This deployment accepts a signed push and records who made it.
+   *
+   * Rendered from the nonce seed, for the reason every other entry here is
+   * rendered from what enforces it: with no seed `git-receive-pack` never
+   * advertises the `push-cert` capability, and a client told to sign is
+   * refused by its OWN git before a byte leaves the machine. Advertising it
+   * there would hand an agent a flag that cannot work — the same defect as a
+   * cap nothing enforces, arriving one step earlier.
+   */
+  signedPushes?: boolean
 }
 
 /**
@@ -76,6 +87,7 @@ export function renderInstructions(origin: string, policy: InstructionsPolicy = 
     '',
     `    git clone ${origin}/$NAME.git`,
     '',
+    ...(policy.signedPushes ? signingSection(origin) : []),
     ...(policy.events ? watchSection(origin) : []),
     ...(policy.events
       ? []
@@ -120,6 +132,31 @@ function facts(policy: InstructionsPolicy): string[] {
     'Put a random suffix on the name. Many agents run near-identical prompts at the same time; a plain name is probably taken already, and a taken name means your push is refused.',
   )
   return facts
+}
+
+/**
+ * Signing, in the fewest lines that leave an agent able to do it.
+ *
+ * This document is read mid-task, so the section is the flag, the config it
+ * needs and where the answer comes back — the argument for any of it is in
+ * `/llms.txt`. `--signed=if-asked` rather than `=yes` deliberately: it signs
+ * against a host that takes certificates and pushes normally against one that
+ * does not, so an agent can put one form in its habits and never branch on
+ * which host it is talking to.
+ */
+function signingSection(origin: string): string[] {
+  return [
+    'SIGN A PUSH, AND BE CREDITED FOR IT',
+    '',
+    ...wrap(
+      'Push with --signed=if-asked and the fingerprint of your key is recorded as who moved each ref. Any SSH key works, including the one you already push to GitHub with. Nothing is refused for being unsigned.',
+    ),
+    '',
+    '    git -c gpg.format=ssh -c user.signingkey=~/.ssh/id_ed25519.pub \\',
+    '        push --signed=if-asked walgit HEAD:refs/heads/main',
+    `    curl ${origin}${PROVENANCE_PATH}?repo=$NAME`,
+    '',
+  ]
 }
 
 /**

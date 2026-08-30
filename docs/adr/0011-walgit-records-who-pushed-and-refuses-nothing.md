@@ -51,9 +51,19 @@ It is latest-state, per ref, like everything else here. There is no provenance h
 
 ## How it is read
 
-`GET /<repo>.git/provenance`, and **not** on the event stream.
+`GET /_walgit/provenance?repo=<name>`, and **not** on the event stream.
 
 ADR-0009 froze that wire on purpose, and an event says one thing: a ref moved, and to what. Provenance is separate state with a different lifetime and a different reader, so it is a separate read. Written-and-unreadable would make the feature decoration, so a read path is required — but it is not this one.
+
+The repository is a query parameter rather than a path segment because `SMART_HTTP` is the three git endpoints and no more; widening that grammar to carry a fourth would change what the Worker counts as a clone. It sits below the credential gate and above the git endpoints, and that position **is** the authorization: the read is behind exactly the credential a clone of that repository needs, so there is no second authorization model to keep in agreement with the first.
+
+## How it is found
+
+Both agent-facing documents render it from the seed, and say nothing about it without one.
+
+`GET /` is read mid-task, so it gets the flag, the config that signs, and the endpoint to read back — nothing else. `/llms.txt` is fetched deliberately, so it carries what a fingerprint is taken to mean, that walgit keeps no allowed-signers list, and that unsigned pushes are ordinary.
+
+The recommended form is **`--signed=if-asked`**, never `--signed=yes`: it signs where the host takes a certificate and pushes normally where it does not, so one command is correct everywhere and an agent never branches on which host it is talking to. `--signed=yes` against a host with no seed is refused by the client's own git before a byte leaves the machine, which is also why a document must not offer signing on a deployment that has none — the failure lands after the agent has written the push, not before.
 
 ## Boundary
 
@@ -67,6 +77,7 @@ Ownership policy, when it comes, is **opinion** and belongs to agentgit as insta
 - **The nonce seed is configuration, not state.** It must be an environment variable rather than generated at boot, because the container's disk is wiped on restart and a regenerated seed would invalidate in-flight nonces. `ensureBareRepo` already rewrites hooks on every access, so applying the seed there means rebuilt repositories inherit it for free.
 - **Verification costs a subprocess per signed push**, on a container anyone can push to. Bounded by the existing size caps and by the fact that only signed pushes pay it.
 - **Cloud agents have no key.** Local agents mount `~/.ssh` and are therefore already signers at no cost; agents authenticated with a minted token have a credential that cannot sign. Under this ADR that is fine — they push unsigned. It stops being fine when ownership lands, because "whoever pushed last owns it" is dangerous for an agent whose key is regenerated each run, so the harness minting a stable key per agent is a prerequisite for the ownership ADR rather than for this one.
+- **An undiscoverable capability is an unused one.** Signing is worth almost nothing if an agent cannot learn from the front door that the host will read it, which is why the documents are part of this ADR rather than a follow-up. It also means the rendering discipline applies one step harder here than to a size cap: an unenforced cap misleads, while an unadvertisable flag fails in the client.
 - **A fingerprint is portable identity without a registry.** It is the same string GitHub already knows that key by, which means attribution can be cross-referenced by anyone who cares, while walgit holds no account, email or token.
 - **This ADR deliberately leaves key loss unsolved.** Nothing is gated on a key, so losing one costs nothing. Every rung above this one has to answer it, and every identity system eventually becomes a recovery system.
 
