@@ -31,7 +31,8 @@ import { containerEnv, fingerprintEnv } from '../shared/container-env'
 import { parseTokens } from '../shared/credentials'
 import { authorizeAnnounce, authorizeSubscribe, eventsEnabled } from '../shared/events'
 import { type LandingFacts, renderLanding, wantsLanding } from '../shared/landing'
-import { positiveNumber } from '../shared/policy'
+import { renderLlms, wantsLlms } from '../shared/llms'
+import { flagEnabled, positiveNumber } from '../shared/policy'
 import {
   ANNOUNCE_PATH,
   COLD_HEADER,
@@ -252,6 +253,53 @@ export default {
           // this deployment enforces, so a stale copy at the edge would state a
           // cap the push path no longer has. A minute absorbs a launch spike
           // without outliving a config change by anything that matters.
+          'cache-control': 'public, max-age=60',
+        },
+      })
+    }
+
+    // `/llms.txt`, answered at the edge for the same reasons the page is, and
+    // for one more: it is the LONG document, so serving it from the container
+    // would trade a cold start for text that changes only on deploy. It is
+    // rendered from the same environment the push path enforces, so the manual
+    // cannot promise a cap this deployment does not have.
+    //
+    // No collision with a repository: smart-HTTP paths are `/<name>.git/…`, so
+    // `/llms.txt` is not reachable as a repo route even for a repository called
+    // `llms.txt`.
+    if (wantsLlms(request.method, url.pathname)) {
+      const doc = renderLlms({
+        host: url.host,
+        events: eventsEnabled(env.WALGIT_EVENTS_TOKEN),
+        // The same predicate the push path enforces with, from the shared
+        // kernel, rather than a second reading of the same variables: a
+        // document that tells an agent it needs no credential must not be one
+        // spelling away from being wrong.
+        publicAccess: flagEnabled(env.WALGIT_PUBLIC),
+        appendOnly: flagEnabled(env.WALGIT_APPEND_ONLY),
+        ...limitsFromEnv(env),
+      })
+      const bytes = new TextEncoder().encode(doc)
+      record(env, ctx, {
+        kind: 'landing',
+        repo: '',
+        outcome: 'ok',
+        reject: '',
+        status: 200,
+        served: false,
+        cold: false,
+        ttfbMs: Date.now() - startedAt,
+        totalMs: Date.now() - startedAt,
+        bytesServed: bytes.byteLength,
+        bytesReceived: 0,
+      })
+      return new Response(request.method === 'HEAD' ? null : bytes, {
+        status: 200,
+        headers: {
+          'content-type': 'text/markdown; charset=utf-8',
+          // Same minute as the page, and for the same reason: it states the
+          // limits this deployment enforces, so a stale copy would outlive a
+          // config change.
           'cache-control': 'public, max-age=60',
         },
       })

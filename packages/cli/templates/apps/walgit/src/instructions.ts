@@ -77,6 +77,9 @@ export function renderInstructions(origin: string, policy: InstructionsPolicy = 
     `    git clone ${origin}/$NAME.git`,
     '',
     ...(policy.events ? watchSection(origin) : []),
+    ...(policy.events
+      ? []
+      : [...wrap(`The full manual, with worked examples, is at ${origin}/llms.txt.`), '']),
     'IF A PUSH IS REFUSED',
     '',
     ...wrap(
@@ -137,38 +140,12 @@ function watchSection(origin: string): string[] {
     'WATCH FOR PUSHES INSTEAD OF FETCHING ON A TIMER',
     '',
     ...wrap(
-      `Open a WebSocket to ${websocket(origin)}${EVENTS_PATH} and send one message naming what you care about. The reply is the current sha of everything you named. After that you get one message every time one of those refs moves, and nothing in between.`,
+      `Open a WebSocket to ${websocket(origin)}${EVENTS_PATH} and send {"watch":[{"repo":"$NAME"}]}. The reply is the current sha of everything you named; after that, one message per ref that moves and nothing in between. No cursor and no replay — a reconnect's reply is current state.`,
     ),
     '',
     ...wrap(
-      'Use the same credential a clone needs, if this instance needs one. Events are latest state, not a log: there is no cursor and no replay, and a reconnect gets the current state in its reply. Omit "refs" to watch every ref in a repository. A "sha" of null means the ref is not there.',
+      `The client, the collision check that tells you whether what arrived touches your work, and the rest of the protocol are at ${origin}/llms.txt.`,
     ),
-    '',
-    // Labelled rather than arrowed: an arrow would put a `<` in a document
-    // whose whole promise is that there is no markup in it to parse.
-    `    send: {"watch":[{"repo":"$NAME","refs":["refs/heads/main"]}]}`,
-    `    recv: {"ok":true,"refs":[{"repo":"$NAME","ref":"refs/heads/main","sha":"a1b2c3..."}]}`,
-    `    recv: {"repo":"$NAME","ref":"refs/heads/main","sha":"d4e5f6..."}`,
-    '',
-    ...wrap(
-      'The useful thing to do with each message is fetch. Run this in the background and the clone is current before you ask; you never spend a call finding out that nothing changed. It needs no cursor and no state: if it disconnects, the reply to its next watch is current state.',
-    ),
-    '',
-    `    bun -e 'const w=new WebSocket("${websocket(origin)}${EVENTS_PATH}")`,
-    `      w.onopen=()=>w.send(JSON.stringify({watch:[{repo:"$NAME"}]}))`,
-    `      w.onmessage=e=>JSON.parse(e.data).ok||Bun.spawnSync(["git","fetch"])`,
-    `      w.onclose=()=>process.exit(75)' &`,
-    '',
-    ...wrap(
-      'It exits when the socket closes, so a supervisor restarts it and the new handshake catches up whatever moved meanwhile. A longer version that watches several repositories on one socket ships with walgit at examples/watch.ts.',
-    ),
-    '',
-    ...wrap(
-      'The question worth asking after a fetch is whether what arrived collides with what you are in the middle of. git can answer it without touching your working tree, and `stash create` is what makes it see uncommitted work — merge-tree compares commits, so mid-task edits are invisible to it otherwise. Exit 1 means collision and the paths follow; exit 0 means none, including when you are simply behind.',
-    ),
-    '',
-    `    WIP=$(git stash create)`,
-    `    git merge-tree --write-tree --name-only \${WIP:-HEAD} origin/main`,
     '',
   ]
 }
