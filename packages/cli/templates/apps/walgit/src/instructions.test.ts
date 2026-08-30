@@ -112,3 +112,27 @@ describe('the watch section carries a runnable client', () => {
     expect(text).not.toContain('git","fetch"')
   })
 })
+
+/**
+ * The collision check.
+ *
+ * An event is only worth more than a timer if it answers the question the
+ * fetch was being run for, so `GET /` carries the two commands that answer it.
+ */
+describe('the watch section says how to tell if it landed on your work', () => {
+  test('with events on, the stash-create form is given', () => {
+    const text = renderInstructions('https://walgit.example', { ...PUBLIC, events: true })
+    expect(text).toContain('git stash create')
+    expect(text).toContain('merge-tree --write-tree --name-only')
+    // The reason for `stash create` rather than HEAD is the whole point, and a
+    // reader who does not know it will use the version that misses their work.
+    // Compared with the wrapping flattened: the text is wrapped for a terminal,
+    // so a sentence is not a substring of it.
+    expect(text.replace(/\s+/g, ' ')).toContain('merge-tree compares commits')
+  })
+
+  test('with events off, no collision check is described', () => {
+    const text = renderInstructions('https://walgit.example', { ...PUBLIC, events: false })
+    expect(text).not.toContain('merge-tree')
+  })
+})
