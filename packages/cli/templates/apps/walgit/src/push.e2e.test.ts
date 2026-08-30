@@ -543,9 +543,11 @@ describe('size limits', () => {
  * advertises it only when the receiving repository has `receive.certNonceSeed`,
  * so the seed is the whole feature (src/push-cert.ts, docs/adr/0011).
  *
- * What is deliberately NOT asserted: anything about the certificate. Nothing
- * reads it yet, and a signed push is required to land exactly as an unsigned
- * one does — same entry, same index, same acknowledgement.
+ * A signed push is required to land exactly as an unsigned one does — same
+ * entry, same index, same acknowledgement — and to additionally name the key
+ * that made it, as the Index's `signers` map (docs/adr/0011). The verification
+ * itself runs for real here: a real key, a real certificate, and a real
+ * `ssh-keygen -Y check-novalidate -n git` inside `pre-receive`.
  */
 describe('signed pushes', () => {
   let signingKey: string
@@ -594,11 +596,23 @@ describe('signed pushes', () => {
     const pushed = await pushSigned(dir)
     expect(pushed.status).toBe(0)
 
-    // Landed in the log, not merely acknowledged: the point of stopping at the
-    // capability is that a signed push is not a special path.
+    // Landed in the log, not merely acknowledged: a signed push is not a
+    // special path.
     const { index } = await loadIndex(store, repoId)
     expect(index.refs['refs/heads/main']).toBe(oid)
     expect(index.entries).toHaveLength(1)
+
+    // …and is attributed. The fingerprint is the pushing key's own, read out of
+    // the certificate by walgit's own verification — git's verdict on an SSH
+    // signature is `GIT_PUSH_CERT_STATUS=N`, so anything derived from it would
+    // name nobody (shared/provenance.ts).
+    const fingerprint = Bun.spawnSync(['ssh-keygen', '-lf', `${signingKey}.pub`])
+      .stdout.toString()
+      .split(/\s+/)
+      .find((word) => word.startsWith('SHA256:'))
+    expect(fingerprint).toBeDefined()
+    expect(index.provenance!['refs/heads/main']!.signer).toBe(fingerprint!)
+    expect(Date.parse(index.provenance!['refs/heads/main']!.ts)).not.toBeNaN()
   })
 
   test('the repository advertises it because the seed is on the repository', async () => {
@@ -644,5 +658,8 @@ describe('signed pushes', () => {
       (await git(unseeded.dir, 'rev-parse', 'HEAD')).out.trim(),
     )
     expect(index.entries).toHaveLength(2)
+    // No certificate, so no Signer, and the field never appears — anonymous
+    // stays first-class right down to the bytes of index.json.
+    expect(index.provenance).toBeUndefined()
   })
 })

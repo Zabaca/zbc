@@ -23,14 +23,17 @@ import * as path from 'node:path'
 import { ZERO_OID } from '../shared/protocol'
 import { walKey } from './keys'
 import { writePending, type PendingPush } from './pending'
+import { certSigner } from './push-cert'
 import type { ObjectStore } from './store'
 import { ulid } from './ulid'
 import {
+  applyProvenance,
   applyRefChanges,
   commitIndex,
   loadIndex,
   nextIndex,
   sha256,
+  type Provenance,
   type RefChange,
   type WalEntry,
   type WalIndex,
@@ -77,6 +80,13 @@ export interface PreReceiveContext {
   gitDir: string
   quarantineDir: string | undefined
   now?: () => Date
+  /**
+   * Who signed this push, injected the way `announce`'s `fetchImpl` is: the
+   * default reads git's own environment and shells out to `ssh-keygen`, so
+   * every decision on this path stays testable without a keypair, a subprocess
+   * or a running git.
+   */
+  signer?: () => string | null
 }
 
 /**
@@ -90,11 +100,24 @@ export interface PreReceiveContext {
  */
 export async function preReceive(ctx: PreReceiveContext): Promise<void> {
   const now = ctx.now ?? (() => new Date())
+  // Read before anything else on this path can fail, and behind a catch of its
+  // own: the certificate is only readable while the push's quarantine exists,
+  // and provenance must never be the reason a push does not land. A signer that
+  // throws is a push with no Signer, not a push with an error.
+  let signer: string | null = null
+  try {
+    signer = (ctx.signer ?? certSigner)()
+  } catch {
+    signer = null
+  }
+  const provenance: Provenance | null = signer ? { signer, ts: now().toISOString() } : null
   const found = ctx.quarantineDir ? quarantinePack(ctx.quarantineDir) : null
   if (!found) {
     // A ref-only push (a delete, or a branch pointed at an object the server
-    // already has) is legitimate and still has to publish its ref change.
-    writePending(ctx.gitDir, { entry: null })
+    // already has) is legitimate and still has to publish its ref change — and
+    // its provenance: a branch pointed at objects the repository already has
+    // moves a ref, and is signed like any other push.
+    writePending(ctx.gitDir, { entry: null, ...(provenance ? { provenance } : {}) })
     return
   }
 
@@ -118,7 +141,7 @@ export async function preReceive(ctx: PreReceiveContext): Promise<void> {
     sha256: sha256(packBody),
     ts: now().toISOString(),
   }
-  writePending(ctx.gitDir, { entry })
+  writePending(ctx.gitDir, { entry, ...(provenance ? { provenance } : {}) })
 }
 
 export type PublishResult =
@@ -167,9 +190,18 @@ export async function publishPush(
     // A ref-only push bumps no sequence number and appends no entry: there is
     // no log record to append, only new ref state. Keeping seq contiguous with
     // the entry list is what lets a restore trust `entries` by itself.
+    //
+    // Provenance rides on BOTH branches, which is why it is a field on the
+    // Index and not on a WAL entry: a ref-only push has no entry to hang it
+    // from and is exactly as signed as any other.
+    const provenance = pending.provenance ?? null
     const next = pending.entry
-      ? nextIndex(index, pending.entry, changes)
-      : { ...index, refs: applyRefChanges(index.refs, changes) }
+      ? nextIndex(index, pending.entry, changes, provenance)
+      : {
+          ...index,
+          refs: applyRefChanges(index.refs, changes),
+          provenance: applyProvenance(index.provenance, changes, provenance),
+        }
 
     const result = await commitIndex(store, next, etag)
     if (result.ok) return { ok: true, index: next }

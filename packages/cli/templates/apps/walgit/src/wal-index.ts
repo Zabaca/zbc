@@ -83,6 +83,39 @@ export interface WalIndex {
    * second request.
    */
   deletion?: RepoDeletion
+  /**
+   * Push provenance: ref → who signed the push that moved it to the sha `refs`
+   * currently holds, and when (docs/adr/0011).
+   *
+   * A second map beside `refs` rather than a widening of it, for three reasons
+   * that each rule out the alternatives. It is not hung off a `WalEntry`: a
+   * ref-only push appends none, so provenance would be blind to a whole class
+   * of push. It is not kept on the certificate blob: that lives on the Cache,
+   * which is wiped on restart. And it is not a richer value inside `refs`,
+   * because every existing reader of the Index — reconcile, materialize, the
+   * event handshake — would then have to change to keep reading a sha.
+   *
+   * Latest-state per ref, like everything else here: there is no provenance
+   * history, because the audit trail of *content* is the commit graph and a
+   * second ledger would be a second thing to keep true.
+   *
+   * Optional and absent when empty, so an unsigned deployment's index.json is
+   * byte-for-byte what it was before this field existed.
+   */
+  provenance?: Record<string, Provenance>
+}
+
+/** Who moved a ref, and when it landed. */
+export interface Provenance {
+  /**
+   * The SSH key fingerprint that signed the push, as `ssh-keygen` spells it:
+   * `SHA256:` and 43 characters of base64. A key, never a user or an account —
+   * neither exists here, and naming it either would imply a registry walgit
+   * deliberately does not have.
+   */
+  signer: string
+  /** ISO instant the push was received. */
+  ts: string
 }
 
 /** A ref change as `reference-transaction` reports it on stdin. */
@@ -175,13 +208,44 @@ export function applyRefChanges(
 }
 
 /**
+ * Apply one push's provenance: the Signer of every ref it moved.
+ *
+ * The map answers exactly one question — *who moved this ref to the sha it
+ * holds now* — and both clearing rules follow from that being the question:
+ *
+ *   - A deleted ref loses its entry, because the ref it described is gone.
+ *     Keeping it would grow the map forever with refs nothing can look up.
+ *   - An UNSIGNED push over a signed ref loses it too. The alternative is worse
+ *     than useless: the ref would keep naming whoever last signed for it while
+ *     pointing at a sha that key never signed, which is the Index stating
+ *     something false rather than stating nothing.
+ *
+ * `undefined` when the result is empty, so the field is absent from an index no
+ * signed push has touched instead of appearing as `{}`.
+ */
+export function applyProvenance(
+  current: Record<string, Provenance> | undefined,
+  changes: readonly RefChange[],
+  provenance: Provenance | null,
+): Record<string, Provenance> | undefined {
+  const next = { ...current }
+  for (const c of changes) {
+    if (provenance === null || c.newOid === ZERO_OID) delete next[c.ref]
+    else next[c.ref] = provenance
+  }
+  return Object.keys(next).length === 0 ? undefined : next
+}
+
+/**
  * Build the successor index for one push: bump seq, append the entry, apply the
- * ref changes. Pure, so the caller can validate before anything is written.
+ * ref changes and the push's Signer. Pure, so the caller can validate before
+ * anything is written.
  */
 export function nextIndex(
   current: WalIndex,
   entry: Omit<WalEntry, 'seq'>,
   changes: readonly RefChange[],
+  provenance: Provenance | null = null,
 ): WalIndex {
   const seq = current.seq + 1
   return {
@@ -189,6 +253,7 @@ export function nextIndex(
     seq,
     entries: [...current.entries, { ...entry, seq }],
     refs: applyRefChanges(current.refs, changes),
+    provenance: applyProvenance(current.provenance, changes, provenance),
   }
 }
 
