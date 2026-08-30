@@ -234,6 +234,10 @@ export default {
         // The same predicate that decides whether the socket path is claimed
         // below, so the page cannot advertise a stream this request would 404.
         events: eventsEnabled(env.WALGIT_EVENTS_TOKEN),
+        // Same predicate as `/llms.txt` and `GET /`: git refuses `--signed`
+        // against a host without the seed, so a page inviting somebody to sign
+        // would be sending them to a refusal it caused.
+        signedPushes: signedPushEnabled(env.WALGIT_PUSH_CERT_SEED),
         ...limitsFromEnv(env),
       })
       const bytes = new TextEncoder().encode(page)
@@ -532,8 +536,14 @@ function stripInternal(request: Request): Request {
  * here", so a typo in a variable removes a claim rather than inventing one. The
  * page then omits it (shared/landing.ts) instead of printing a number nobody
  * enforces.
+ *
+ * The three limits and nothing else: signing and the event stream are
+ * capabilities rather than caps, they are read from different variables, and
+ * each call site passes its own so a reader can see which predicate decided it.
  */
-function limitsFromEnv(env: Env): Omit<LandingFacts, 'host' | 'events'> {
+function limitsFromEnv(
+  env: Env,
+): Pick<LandingFacts, 'retentionHours' | 'maxPushBytes' | 'maxRepoBytes'> {
   return {
     retentionHours: positiveNumber(env.WALGIT_RETENTION_HOURS),
     maxPushBytes: positiveNumber(env.WALGIT_MAX_PUSH_BYTES),

@@ -1,0 +1,38 @@
+{
+  "name": "@zabaca/agentgit",
+  "version": "0.1.0",
+  "description": "Watch a walgit repository and keep a clone current — one socket, no cursor, no config",
+  "keywords": [
+    "agentgit",
+    "agents",
+    "git",
+    "walgit",
+    "watch",
+    "webhook"
+  ],
+  "license": "MIT",
+  "bin": {
+    "agentgit": "./dist/agentgit.js"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "type": "module",
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "bun build src/cli.ts --outfile dist/agentgit.js --target=node --minify-whitespace --banner '#!/usr/bin/env node' && chmod +x dist/agentgit.js",
+    "test": "bun test src",
+    "typecheck": "tsc --noEmit",
+    "publish:npm": "bun run build && bun publish --access public"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.3.14",
+    "typescript": "^7.0.2"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

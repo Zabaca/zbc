@@ -1,0 +1,23 @@
+{
+  // Typed against `@types/bun`, which carries node's own declarations, and
+  // built for node: `npx` has to work, so nothing here may reach for a bun
+  // global. That is a rule the types do NOT enforce — `bun build --target=node`
+  // would happily bundle `Bun.spawnSync` — so it is enforced by the suite
+  // running the built binary under node rather than under bun.
+  //
+  // @types/node is deliberately absent. Installing it here hoists it into the
+  // workspace and changes how `packages/cli/templates/apps/walgit` resolves
+  // node's own modules, which broke that package's typecheck.
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "lib": ["ES2023", "DOM"],
+    "types": ["bun"],
+    "strict": true,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "verbatimModuleSyntax": true
+  },
+  "include": ["src"]
+}

@@ -4,7 +4,7 @@ A git host for agents, at `agentgit.zabaca.com`. No account, no token, no key: `
 
 One context of four — see [`CONTEXT-MAP.md`](../../CONTEXT-MAP.md).
 
-**agentgit is a deployment, not a fork.** Every capability the service has is instance configuration in `packages/infra/environments/production/`, pointed at the [walgit](../walgit/CONTEXT.md) package unchanged: public access, append-only, both size caps, the retention window, the routes. This package holds what is agentgit's own and could not ship to a walgit consumer — nothing today but this glossary and, when it exists, the Daemon.
+**agentgit is a deployment, not a fork.** Every capability the service has is instance configuration in `packages/infra/environments/production/`, pointed at the [walgit](../walgit/CONTEXT.md) package unchanged: public access, append-only, both size caps, the retention window, the routes. This package holds what is agentgit's own and could not ship to a walgit consumer: this glossary, the published Client, and — when it exists — the Daemon.
 
 The rule that keeps the two apart: **walgit may gain capabilities, never opinions.** A change that cannot be expressed as instance configuration is a change that does not belong in walgit — and the first time one genuinely cannot be (per-agent tenancy is the likely candidate), that is the signal to reconsider this arrangement rather than bend it.
 
@@ -28,9 +28,15 @@ _Avoid_: temporary repo (understates that it is the primary use), test repo
 One agent pushing work for another agent to fetch, with no shared filesystem and no human in between. The second half of the stated case alongside scratch work, and the reason push notification matters here more than on a host built for people.
 
 **Watcher**:
-Whatever holds a Ref Event socket and acts on what comes down it — in practice a few lines an agent runs in its own background, fetching on each event so its clone is current before anything asks. Not a product and not an install: the reference version is printed on `GET /` and a longer one ships with walgit at `examples/watch.ts`. Measured against the live service, it needs no cursor, no state file and no keepalive, because a reconnect's handshake is the entire recovery.
-_Avoid_: client library, SDK — the service's strongest line is that there is neither
+Whatever holds a Ref Event socket and acts on what comes down it — fetching on each event so a clone is current before anything asks. Two things are Watchers: the Client below, and the handful of lines an agent writes itself. Measured against the live service, neither needs a cursor, a state file or a keepalive, because a reconnect's handshake is the entire recovery.
+_Avoid_: SDK — a Watcher is a process, not a library. Nothing imports one.
+
+**Client**:
+`@zabaca/agentgit`, the published Watcher — `bunx @zabaca/agentgit watch` inside a clone, host and repository and ref all read from the remote and the branch. It lives in this package rather than in walgit because its npm name is agentgit's; what it _does_ is pure mechanism, which is why it works against any Deployment and hardcodes no host.
+
+The glossary used to say a Watcher was "not a product and not an install", and that a client library was the thing the service most conspicuously lacked. Publishing this narrows that claim rather than abandoning it: what the service still has no SDK for is the protocol — nothing imports agentgit, nothing links against it, and `GET /` and `/llms.txt` still print the four lines it replaces. The claim that had to go was the stronger one, that an agent should be made to write those four lines. Assembling a known-correct client from a manual is work, and work an agent does badly is work the service should have done once.
+_Avoid_: "the SDK", "the library" — it is a command.
 
 **Daemon** (considered, not built — [ADR-0009](../../docs/adr/0009-walgit-ref-events-are-latest-state.md)):
-The host-side version of a Watcher: one socket per machine, fetching into a store every worktree shares. It was the original endgame and is now the fallback plan, because the spike showed the protocol needs no client machinery worth installing. What would justify it is sharing rather than capability — ten agents on one machine hold ten sockets and fetch the same objects ten times — and nobody has yet been hurt by that. If it is ever built it lives here, never in the walgit app template.
+The host-side version of a Watcher: one socket per machine, fetching into a store every worktree shares. It was the original endgame and is now the fallback plan, because the spike showed the protocol needs no client machinery worth installing — and the Client has since taken the convenience half of the job without taking the sharing half. What would justify it is sharing rather than capability — ten agents on one machine hold ten sockets and fetch the same objects ten times — and nobody has yet been hurt by that. If it is ever built it lives here, never in the walgit app template.
 _Avoid_: agent (means something else entirely in this repository — see `packages/agent/CONTEXT.md`)
