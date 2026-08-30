@@ -25,7 +25,9 @@
 
 import {
   HEALTH_PATH,
+  PROVENANCE_PATH,
   REJECT_HEADER,
+  REPO_ID,
   SERVED_HEADER,
   SMART_HTTP,
   normalizeReject,
@@ -53,6 +55,12 @@ export type RequestKind =
   // the page versus how many clients read the protocol.
   | 'landing'
   | 'health'
+  // Someone asking who pushed (docs/adr/0011). Its own kind rather than
+  // `other`, because `other` is the unroutable bucket and a provenance read is
+  // a request walgit answers — folding the two together would hide both the
+  // demand for the feature and any refusal it produces, and would lose the
+  // repository name with them.
+  | 'provenance'
   | 'other'
 
 export type Outcome = 'ok' | 'reject'
@@ -76,6 +84,17 @@ export function classifyRequest(method: string, pathname: string, search: string
   if (pathname === HEALTH_PATH) return { kind: 'health', repo: '' }
   if (pathname === '/' && (method === 'GET' || method === 'HEAD')) {
     return { kind: 'instructions', repo: '' }
+  }
+  // The repository is in the query string here, not the path — the one endpoint
+  // that names one without going through `SMART_HTTP`. Read anyway, because a
+  // provenance read with no repository attached is a row an operator cannot act
+  // on, and the name is already recorded for every clone of the same repo. Only
+  // a name walgit would actually serve is kept: the query string is
+  // attacker-controlled and unbounded, and a datapoint is not the place to find
+  // that out.
+  if (pathname === PROVENANCE_PATH) {
+    const requested = new URLSearchParams(search).get('repo') ?? ''
+    return { kind: 'provenance', repo: REPO_ID.test(requested) ? requested : '' }
   }
 
   const route = SMART_HTTP.exec(pathname)

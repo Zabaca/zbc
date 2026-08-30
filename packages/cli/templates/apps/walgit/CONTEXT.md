@@ -87,5 +87,9 @@ _Avoid_: user, account, identity, owner (the last is reserved for a permission s
 The recorded fact that a Signer moved a given ref — an optional map in the Index, ref → `{ signer, ts }`, written by the same compare-and-swap that publishes the push. Latest-state per ref like everything else here: there is no provenance history, because the audit trail of *content* is the commit graph.
 _Avoid_: identity, attribution log, audit trail
 
+**Provenance Read**:
+`GET /_walgit/provenance?repo=<id>` — the whole of reading Provenance back: one repository, the Index's map as it stands, `{}` when nothing has been signed. Behind exactly the credential a clone of that repository needs, so a public deployment answers anyone and a token-gated one answers nobody else; there is no second authorization model. Deliberately not a Ref Event — that wire is latest-state and says only that a ref moved and to what (ADR-0009), while Provenance has a different lifetime and a different reader.
+_Avoid_: the provenance API, the audit endpoint
+
 **Fail open**:
 The rule the whole capability is built to: a missing, malformed or unverifiable certificate, a bad nonce, or a verifier that is absent or throws records no Signer and **accepts the push**. Provenance is metadata and must never become a new way for a push to fail — anonymous pushing is first-class and stays that way.

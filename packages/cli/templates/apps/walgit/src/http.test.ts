@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import { INTERNAL_HEADER, REJECT_HEADER, SERVED_HEADER } from '../shared/protocol'
 import { createHttpHandler } from './http'
+import type { Provenance } from './wal-index'
 
 const handler = () =>
   createHttpHandler({
@@ -259,5 +260,125 @@ describe('the internal refs endpoint', () => {
       }),
     )
     expect(res.status).toBe(404)
+  })
+})
+
+describe('the provenance read', () => {
+  const signed = {
+    'refs/heads/main': {
+      signer: 'SHA256:BMBEMXbMBsnjXwgNs+86IiJrPgYlZEsWxaKZW/2/1dw',
+      ts: '2026-08-30T19:00:00.000Z',
+    },
+  }
+
+  const provenanceHandler = (
+    overrides: {
+      readProvenance?: (repoId: string) => Promise<Record<string, Provenance>>
+      tokens?: string[]
+      public?: boolean
+    } = {},
+  ) =>
+    createHttpHandler({
+      reposDir: '/srv/repos',
+      tokens: overrides.tokens ?? ['s3cret'],
+      public: overrides.public,
+      ensureRepo: (repo) => repo,
+      runBackend: async () => new Response('backend ran'),
+      readProvenance: 'readProvenance' in overrides ? overrides.readProvenance : async () => signed,
+    })
+
+  const ask = (h: (req: Request) => Promise<Response>, repo = 'alpha', auth = 'Bearer s3cret') =>
+    h(
+      new Request(`https://walgit.test/_walgit/provenance?repo=${repo}`, {
+        headers: auth ? { authorization: auth } : {},
+      }),
+    )
+
+  test('names the Signer recorded for each ref that has one', async () => {
+    const res = await ask(provenanceHandler())
+    expect(res.status).toBe(200)
+    expect(res.headers.get('content-type')).toBe('application/json; charset=utf-8')
+    expect(await res.json()).toEqual({ repo: 'alpha', provenance: signed })
+  })
+
+  test('reads the repository the caller asked for, not a fixed one', async () => {
+    const asked: string[] = []
+    const res = await ask(
+      provenanceHandler({
+        readProvenance: async (repoId) => {
+          asked.push(repoId)
+          return {}
+        },
+      }),
+      'beta',
+    )
+    expect(asked).toEqual(['beta'])
+    expect(await res.json()).toEqual({ repo: 'beta', provenance: {} })
+  })
+
+  test('a repository nobody signed a push to answers empty, not an error', async () => {
+    // The ordinary case on a host where signing is opt-in: the Index carries no
+    // `provenance` field at all. A 404 or a 500 here would make every consumer
+    // special-case the common answer.
+    const res = await ask(provenanceHandler({ readProvenance: async () => ({}) }))
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual({ repo: 'alpha', provenance: {} })
+  })
+
+  test('demands exactly the credential a clone of the repository demands', async () => {
+    const missing = await ask(provenanceHandler(), 'alpha', '')
+    expect(missing.status).toBe(401)
+    expect(missing.headers.get(REJECT_HEADER)).toBe('unauthorized')
+    // The same challenge git is sent, so the same client can satisfy it.
+    expect(missing.headers.get('www-authenticate')).toBe('Basic realm="walgit"')
+
+    expect((await ask(provenanceHandler(), 'alpha', 'Bearer wrong')).status).toBe(401)
+
+    // And the form CI actually sends, which is the same one `authorizedBy`
+    // accepts for a clone — there is no second authorization model here.
+    const basic = `Basic ${Buffer.from('walgit:s3cret').toString('base64')}`
+    expect((await ask(provenanceHandler(), 'alpha', basic)).status).toBe(200)
+  })
+
+  test('a public instance answers anyone, like every other read on it', async () => {
+    const res = await ask(provenanceHandler({ tokens: [], public: true }), 'alpha', '')
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual({ repo: 'alpha', provenance: signed })
+  })
+
+  test('is not the internal refs endpoint: no INTERNAL_HEADER is needed or accepted as one', async () => {
+    // `/_walgit/refs` is the Worker's; this one is a client's. Carrying the
+    // internal marker neither helps nor substitutes for the credential.
+    const res = await provenanceHandler()(
+      new Request('https://walgit.test/_walgit/provenance?repo=alpha', {
+        headers: { [INTERNAL_HEADER]: '1' },
+      }),
+    )
+    expect(res.status).toBe(401)
+  })
+
+  test('does not exist without a store to read the Index from', async () => {
+    // Absent reader means no authoritative answer. Answering `{}` out of a
+    // missing log would report "nobody signed anything", which is the one
+    // wrong answer this endpoint can give.
+    const res = await ask(provenanceHandler({ readProvenance: undefined }))
+    expect(res.status).toBe(404)
+  })
+
+  test('is a read; nothing else is routed there', async () => {
+    const res = await provenanceHandler()(
+      new Request('https://walgit.test/_walgit/provenance?repo=alpha', {
+        method: 'POST',
+        headers: { authorization: 'Bearer s3cret' },
+      }),
+    )
+    expect(res.status).toBe(404)
+  })
+
+  test('a bad repo name is refused by the same gate a path goes through', async () => {
+    for (const repo of ['..%2f..%2fetc', '', '.hidden']) {
+      const res = await ask(provenanceHandler(), repo)
+      expect(res.status).toBe(404)
+    }
   })
 })

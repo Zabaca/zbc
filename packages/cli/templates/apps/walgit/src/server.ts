@@ -149,6 +149,14 @@ try {
     // without a store, in which case there is nothing authoritative to read
     // and the endpoint should not exist.
     readRefs: store ? async (repoId) => (await loadIndex(store, repoId)).index.refs : undefined,
+    // Who signed the pushes that put those refs where they are (docs/adr/0011).
+    // Absent when the Index has none, which is every repository on a deployment
+    // where nobody signs — the field is optional precisely so an unsigned
+    // instance's index.json is unchanged, and `?? {}` is where that costs the
+    // reader nothing.
+    readProvenance: store
+      ? async (repoId) => (await loadIndex(store, repoId)).index.provenance ?? {}
+      : undefined,
   })
 } catch (err) {
   // Refusing to boot beats booting a half-configured git host — either an open
