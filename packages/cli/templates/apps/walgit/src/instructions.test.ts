@@ -71,20 +71,19 @@ describe('renderInstructions', () => {
     expect(renderInstructions('https://walgit.example', {})).not.toContain('NaN')
   })
 
-  test('with events on, the stream is described with its wire format', () => {
+  test('with events on, the socket is named in the scheme a socket dials', () => {
     const text = renderInstructions('https://walgit.example', PUBLIC)
     expect(text).toContain('WATCH FOR PUSHES INSTEAD OF FETCHING ON A TIMER')
     // The socket is dialled on the origin the agent reached us on, as a socket
     // scheme — an agent copying `https://` into a WebSocket gets nothing.
     expect(text).toContain('wss://walgit.example/_walgit/events')
-    // The send/recv transcript moved to /llms.txt. What stays is the socket,
-    // the one message that starts it, and a sentence saying what comes back —
-    // an agent reading THIS document is orienting, not implementing.
-    expect(text).toContain('{"watch":[{"repo":"$NAME"}]}')
-    expect(text.replace(/\s+/g, ' ')).toContain('the current sha of everything you named')
-    // Latest state, stated as such: an agent told about a cursor would build a
-    // client this server cannot serve.
-    expect(text.replace(/\s+/g, ' ').toLowerCase()).toContain('no cursor and no replay')
+    // The wire moved to /llms.txt when a client was published. What this
+    // document owes an agent is the socket's address in a scheme a socket can
+    // dial, and one command that already speaks it — an agent reading THIS is
+    // orienting, not implementing, and every line it keeps is context the agent
+    // wanted for the task it interrupted.
+    expect(text.replace(/\s+/g, ' ')).toContain('bunx @zabaca/agentgit watch')
+    expect(text).not.toContain('{"watch"')
   })
 
   test('a plain-http origin dials a plain-ws socket', () => {
@@ -131,9 +130,17 @@ describe('the watch section hands off rather than carrying everything', () => {
  * fetch was being run for, so `GET /` carries the two commands that answer it.
  */
 describe('the collision check is named but not spelled out here', () => {
+  // What `GET /` owes an agent is that the check exists and one command that
+  // runs it. The commands themselves stay in the long document: this is read
+  // mid-task, and every line costs context the agent wanted for the task.
   test('with events on, it is described in one clause and located', () => {
     const text = renderInstructions('https://walgit.example', { ...PUBLIC, events: true })
-    expect(text.replace(/\s+/g, ' ')).toContain('whether what arrived touches your work')
+    const flat = text.replace(/\s+/g, ' ')
+    expect(flat).toContain('collides with your uncommitted work')
+    // The published client, and the two facts that decide whether an agent
+    // reaches for it: no install, and no argument.
+    expect(flat).toContain('bunx @zabaca/agentgit watch')
+    expect(flat).toContain('--once')
     expect(text).toContain('/llms.txt')
     // The commands are in the long document; repeating them here would put the
     // page back where it was before the split.

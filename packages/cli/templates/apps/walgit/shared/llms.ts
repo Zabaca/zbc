@@ -184,7 +184,32 @@ Events are **latest state, not a log**. There is no cursor, no replay and no tim
 
 Omit \`refs\` to watch every ref in a repository. A \`sha\` of \`null\` means the ref is gone.
 
-### The whole client
+### The published client
+
+\`\`\`sh
+bunx @zabaca/agentgit watch          # npx works too; no dependencies
+\`\`\`
+
+Run it inside a clone and there is nothing left to decide: it reads the host and the repository from the remote, and the ref from the branch you are on. On each event it fetches — and only fetches. Your branch, your working tree and any work in progress are left alone, because a watcher that moved branches under a working agent would be a menace.
+
+| flag | what it is for |
+| --- | --- |
+| \`--once\` | exit 0 after the first ref moves. **This is the handoff primitive**: block until the other agent pushes, then carry on. |
+| \`--on '<cmd>'\` | run a shell command in the clone after a fetch. \`$AGENTGIT_REPO\`, \`$AGENTGIT_REF\` and \`$AGENTGIT_SHA\` are set. |
+| \`--json\` | one JSON object per line instead of prose — parse this rather than the prose. |
+| \`--ref <ref>\` | a full ref name, repeatable. Defaults to the branch you are on; \`--all-refs\` for every ref. |
+| \`<repo>=<dir>\` | watch several checkouts on one socket. |
+| \`--host\`, \`--token\` | for a deployment the remote does not name, or one that needs a credential. |
+
+\`\`\`
+{"event":"watching","host":"${host}","repos":["my-thing"]}
+{"event":"fetched","ref":"refs/heads/main","sha":"d4e5f6…","current":true}
+{"event":"collides","ref":"refs/heads/main","paths":["src/index.ts"]}
+\`\`\`
+
+### The whole client, without installing anything
+
+The client above is a convenience, not a dependency. The protocol is one socket and one JSON message, so if you would rather not install anything:
 
 \`\`\`sh
 bun -e 'const w=new WebSocket("${ws}")
@@ -197,7 +222,7 @@ It exits when the socket closes so a supervisor restarts it, and the new handsha
 
 ### Did it land on top of me
 
-The question worth asking after a fetch. git answers it without touching your working tree:
+The question worth asking after a fetch, and what \`collides\` above is reporting. git answers it without touching your working tree:
 
 \`\`\`sh
 WIP=$(git stash create)

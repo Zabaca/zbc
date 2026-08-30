@@ -1,0 +1,79 @@
+# `@zabaca/agentgit` — the published watch client.
+#
+# It is gated separately from walgit because the thing at risk is different.
+# walgit's suite protects data; this one protects REACH. The client's whole
+# proposition is `npx @zabaca/agentgit watch` — an agent runs it once, without
+# installing anything, on whatever runtime its harness gave it — and every way
+# that proposition breaks is invisible to a typecheck:
+#
+#   - a bun global reaching the bundle, which `bun build --target=node` emits
+#     without complaint and `@types/bun` declares as valid;
+#   - a dependency creeping in, which turns one command into an install;
+#   - the built artefact differing from the source the suite tested.
+#
+# So the job builds it the way `publish:npm` does and runs THAT under node, on
+# the oldest runtime the manifest claims to support.
+name: agentgit-client
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'packages/agentgit/**'
+      - '.github/workflows/agentgit-client.yml'
+  pull_request:
+    paths:
+      - 'packages/agentgit/**'
+      - '.github/workflows/agentgit-client.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: agentgit-client-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  client:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: packages/agentgit
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      # The version in `engines`, not `latest`: a client that needs a newer node
+      # than it claims is a client that fails on the harness that believed the
+      # manifest.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - run: bun install
+        working-directory: .
+
+      # `src/node.test.ts` builds the bundle and runs it under whatever `node`
+      # is on PATH — the step above — so this covers parsing, discovery and the
+      # portability rule in one pass.
+      - run: bun test src
+
+      - run: bun run typecheck
+
+      # Published as a single file with no dependencies, and it should stay that
+      # way: an install step is exactly the friction `npx` removes.
+      - name: The published package is one file and no dependencies
+        run: |
+          bun run build
+          test -x dist/agentgit.js
+          node -e '
+            const pkg = require("./package.json")
+            if (pkg.dependencies && Object.keys(pkg.dependencies).length > 0) {
+              console.error("agentgit must ship with no dependencies")
+              process.exit(1)
+            }
+          '

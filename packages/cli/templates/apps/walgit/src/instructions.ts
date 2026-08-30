@@ -176,12 +176,14 @@ function watchSection(origin: string): string[] {
   return [
     'WATCH FOR PUSHES INSTEAD OF FETCHING ON A TIMER',
     '',
+    '    bunx @zabaca/agentgit watch',
+    '',
     ...wrap(
-      `Open a WebSocket to ${websocket(origin)}${EVENTS_PATH} and send {"watch":[{"repo":"$NAME"}]}. The reply is the current sha of everything you named; after that, one message per ref that moves and nothing in between. No cursor and no replay — a reconnect's reply is current state.`,
+      'Run it inside a clone: it reads the host, repository and ref from the remote, fetches on every push, and says when what arrived collides with your uncommitted work. --once blocks until the next push; npx works too.',
     ),
     '',
     ...wrap(
-      `The client, the collision check that tells you whether what arrived touches your work, and the rest of the protocol are at ${origin}/llms.txt.`,
+      `It holds one socket, ${websocket(origin)}${EVENTS_PATH}, opened outbound so a sandbox needs no address. The wire format, the four lines that speak it directly, and the collision check are at ${origin}/llms.txt.`,
     ),
     '',
   ]
