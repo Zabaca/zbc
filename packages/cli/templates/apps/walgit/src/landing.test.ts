@@ -43,8 +43,29 @@ describe('wantsLanding', () => {
 describe('renderLanding', () => {
   test('every command names the host the request arrived on', () => {
     const page = renderLanding({ ...FACTS, host: 'walgit.zabaca.com' })
-    expect(page).toContain('https://walgit.zabaca.com/my-thing.git')
+    // The repository name is a field the visitor edits, so the URL in the
+    // command is split around it. The host is not: it is whichever hostname
+    // this request arrived on, and a page naming a different one would hand a
+    // visitor a command that pushes somewhere they have never been.
+    expect(page).toContain('https://walgit.zabaca.com/<span id="repo-echo">')
     expect(page).not.toContain('agentgit.zabaca.com')
+  })
+
+  /**
+   * The name field.
+   *
+   * Creating a repository here IS naming it, so the name is the only decision
+   * the front of the page asks anyone to make, and the only editable thing on
+   * it. Everything below is about the command staying true to the field: what a
+   * visitor copies has to be what they can see.
+   */
+  test('the command carries a name a visitor can change', () => {
+    const page = renderLanding(FACTS)
+    expect(page).toContain('id="repo"')
+    expect(page).toContain('<span id="repo-echo">my-thing</span>')
+    // Rendered rather than filled in by script, so a page with no JavaScript
+    // still offers a command that works.
+    expect(page).toContain('value="my-thing"')
   })
 
   test('no placeholder survives into the page', () => {
@@ -83,9 +104,11 @@ describe('renderLanding', () => {
 describe('the ref-event stream on the page', () => {
   test('with events on, the page describes the same capability', () => {
     const page = renderLanding({ ...FACTS, events: true, host: 'agentgit.zabaca.com' })
-    expect(page).toContain('And nobody configures a webhook.')
+    expect(page).toContain('Stop asking whether main moved.')
+    // The socket's address, in the scheme a socket dials. The frames it
+    // exchanges are the manual's — a reader who is going to run the command
+    // does not need to see them, and a reader who wants them wants /llms.txt.
     expect(page).toContain('wss://agentgit.zabaca.com/_walgit/events')
-    expect(page).toContain('&lt;- {"ok":true')
     expect(page).not.toContain('{{')
   })
 
@@ -104,20 +127,27 @@ describe('the ref-event stream on the page', () => {
  *
  * `GET /` is the whole API surface, and the answer to "how do I use this" has
  * to be on it: an agent that cannot find the client from here will poll, which
- * is the cost the stream exists to remove. What the page names is the published
- * command rather than the four lines it wraps — those moved to `/llms.txt`,
- * which the page links to, because a page is read once and a manual is read
- * when it is needed.
+ * is the cost the stream exists to remove. One command, and what it prints.
+ * Everything a reader would need next — the flags, the frames, the four lines
+ * the command replaces — is a document away, and naming that document here
+ * only spends space on a signpost.
  */
 describe('the events section carries a runnable client', () => {
   test('with events on, the page names the published client and how to get it', () => {
     const html = renderLanding({ ...FACTS, events: true })
     expect(html).toContain('bunx @zabaca/agentgit watch')
-    expect(html).toContain('npx @zabaca/agentgit watch')
-    // The claim that survives publishing a client: it is a convenience over the
-    // protocol, and the protocol is still one socket and one message.
-    expect(html).toContain('There is still no SDK')
-    expect(html).toContain('/llms.txt')
+    // Named, not spelled out twice: what a reader on node needs from this page
+    // is that their runtime is not excluded.
+    expect(html).toContain('npx')
+  })
+
+  // The page argues; it does not index. Every one of these earned its place
+  // somewhere else — the manual, the README — and none of them earned it here.
+  test('it sells nothing and links nowhere', () => {
+    const html = renderLanding({ ...FACTS, events: true })
+    expect(html).not.toContain('llms.txt')
+    expect(html).not.toContain('SDK: ')
+    expect(html).not.toContain('--json')
   })
 
   test('with events off, no client is shown', () => {
@@ -133,13 +163,13 @@ describe('the page says a push can land on work in progress', () => {
   // all, and what the answer looks like when it is yes.
   test('with events on, the collision the client reports is shown', () => {
     const html = renderLanding({ ...FACTS, events: true })
-    expect(html).toContain('collide with what you are in the middle of')
-    expect(html).toContain('"event":"collides"')
+    expect(html).toContain('flags what collides with your uncommitted work')
+    expect(html).toContain('COLLIDES with your work in')
   })
 
   test('with events off, it is absent with everything else', () => {
     const html = renderLanding({ ...FACTS, events: false })
-    expect(html).not.toContain('collides')
+    expect(html).not.toContain('COLLIDES')
   })
 })
 
@@ -178,6 +208,19 @@ describe('the signing term', () => {
  * things being built. A page that calls them absences is out of date the day
  * one lands.
  */
+describe('the rules', () => {
+  // Every row makes the reader do something differently: refuse a force push,
+  // withhold a secret, copy the work out, sign if they want credit. Durability
+  // was the one row that did not — it described the server's disks, which is
+  // walgit's business and not a visitor's — so it is stated in the ADR and in
+  // the README, and not here.
+  test('says nothing about how the server stores anything', () => {
+    const page = renderLanding({ ...FACTS, events: true, signedPushes: true })
+    expect(page).not.toContain('object storage')
+    expect(page).not.toContain('Durable')
+  })
+})
+
 describe('the roadmap', () => {
   test('names what is missing, in every deployment', () => {
     const html = renderLanding({ ...FACTS, events: true })

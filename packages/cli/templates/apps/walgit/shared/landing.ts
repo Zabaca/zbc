@@ -129,8 +129,18 @@ function permanence(facts: LandingFacts): string {
 }
 
 /**
- * The one argument the two commands in the hero do not already make, and the
- * client that acts on it.
+ * The one argument the two commands in the hero do not already make.
+ *
+ * One section and one illustration, and both were arrived at by deleting. The
+ * client used to be a section of its own — but "there is no webhook" and "here
+ * is the command that needs no webhook" are the same claim, and splitting them
+ * made a reader finish the argument, scroll, and start again.
+ *
+ * Then the illustration was two panels: the JSON on the wire, and a terminal
+ * running the client. Also one too many. A reader who is going to run the
+ * command does not need to see the frames it exchanges, and a reader who wants
+ * the frames wants `/llms.txt`, not a homepage. So the panel shows the command
+ * and the socket it opens, together, and the wire lives in the manual.
  *
  * Absent entirely when the deployment serves no stream, for the same reason
  * every limit on this page is rendered rather than written: a section
@@ -143,51 +153,34 @@ function eventsSection(facts: LandingFacts): string {
   return `
     <section class="split">
       <div class="split-say">
-        <h2>And nobody configures a webhook.</h2>
-        <p>The last wall is finding out that something moved. On a forge that is a webhook: repository admin, a public HTTPS endpoint, a secret, a handler to keep running. An agent in a sandbox has no address to deliver one to — no ingress, no stable hostname, often nothing listening at all — so it is not a setup problem, it is a direction problem.</p>
-        <p><strong>So the connection goes the other way.</strong> The agent opens a socket outbound and names the refs it cares about. The reply is the current sha of every one of them, and after that one message per ref that moves and nothing in between — no cursor, no replay, no timer.</p>
+        <h2>Stop asking whether main moved.</h2>
+        <p>Every check costs a fetch, a tool call and a slice of context, and almost every answer is <em>nothing changed</em>. A webhook would fix it, except an agent in a sandbox has no address to deliver one to.</p>
+        <p><strong>So the agent opens the socket instead:</strong> current state on connect, then one message per ref that moves.</p>
+        <p><strong>One command.</strong> It fetches, and flags what collides with your uncommitted work.</p>
       </div>
-      <div class="split-show panel">
-        <div class="panel-head">
-          <span><span class="pulse"></span>${socket}</span>
-        </div>
-        <pre class="tx"><span class="p">-&gt;</span> {"watch":[{"repo":"study-42",
-        "refs":["refs/heads/main"]}]}
 
-<span class="ok">&lt;- {"ok":true,"refs":[{"repo":"study-42",
-        "ref":"refs/heads/main","sha":"a1b2c3…"}]}</span>
+      <div class="split-show">
+        <div>
+          <div class="term term-solo">
+            <pre id="watch-cmd"><span class="p">$</span> bunx @zabaca/agentgit watch</pre>
+            <button class="copy" id="copy-watch" type="button" aria-live="polite" aria-label="Copy the watch command">Copy</button>
+          </div>
+          <p class="under"><span>npx</span> too · <span>--once</span> waits for the handoff</p>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head">
+            <span><span class="pulse"></span>${socket}</span>
+          </div>
+          <pre class="tx"><span class="p">$</span> bunx @zabaca/agentgit watch
+<span class="c">watching study-42 for refs/heads/main</span>
+<span class="ok">study-42 main: origin/main is 809eb587</span>
 
 <span class="c"># the other agent pushes. no webhook, no polling.</span>
 
-<span class="ok">&lt;- {"repo":"study-42","ref":"refs/heads/main",
-        "sha":"d4e5f6…"}</span><span class="caret"></span></pre>
-        <div class="panel-foot">Opened from the inside, so a sandbox needs no address.</div>
-      </div>
-    </section>
-
-    <section>
-      <h2>The whole client.</h2>
-      <p>Run it in a clone and there is nothing left to decide: the remote names the host and the repository, and the branch you are on names the ref. It fetches, and nothing else — your branch, your working tree and any work in progress are left alone.</p>
-      <div class="term term-solo">
-        <pre id="watch-cmd"><span class="p">$</span> bunx @zabaca/agentgit watch</pre>
-        <button class="copy" id="copy-watch" type="button" aria-label="Copy the watch command">Copy</button>
-      </div>
-      <p class="under">Or <span>npx @zabaca/agentgit watch</span> · no dependencies · <span>--once</span> exits when the handoff lands</p>
-      <p>And the question it answers that a fetch alone does not: <strong>does what just arrived collide with what you are in the middle of?</strong> Uncommitted work is exactly the case worth warning about, and it is the case a plain merge check cannot see — so it is checked against your working tree, and reported when it changes rather than on every push.</p>
-      <div class="panel">
-        <div class="panel-head">
-          <span>a push lands on work in progress</span>
-          <span>real output</span>
-        </div>
-        <pre class="tx"><span class="p">$</span> bunx @zabaca/agentgit watch --json
-<span class="c">{"event":"watching","host":"${facts.host}","repos":["study-42"]}</span>
-<span class="ok">{"event":"fetched","ref":"refs/heads/main","sha":"d4e5f6…","current":true}</span>
-<span class="no">{"event":"collides","ref":"refs/heads/main","paths":["src/index.ts"]}</span></pre>
-        <div class="panel-foot">
-          There is still no SDK: the protocol is one socket and one message, and
-          this is a convenience over it. The four lines it replaces are on
-          <a href="/llms.txt">/llms.txt</a>, along with <code>git merge-tree</code>
-          and <code>git stash create</code>, which are what it runs.
+<span class="ok">study-42 main: origin/main is ef759899</span>
+<span class="no">study-42 main: COLLIDES with your work in src/index.ts</span><span class="caret"></span></pre>
+          <div class="panel-foot">Opened from the inside, so a sandbox needs no address.</div>
         </div>
       </div>
     </section>
@@ -238,7 +231,7 @@ const PAGE = `<!doctype html>
     --rule-2: #423831;
     --bone:   #ede6de;
     --muted:  #a79b90;
-    --faint:  #756a62;
+    --faint:  #8f847a;   /* AA on all three grounds: 5.18 / 4.83 / 5.37 */
     --copper: #c56a3e;      /* fresh metal */
     --verdi:  #4e9e8b;      /* what copper becomes with age */
 
@@ -249,6 +242,9 @@ const PAGE = `<!doctype html>
   * { box-sizing: border-box; }
 
   html { -webkit-text-size-adjust: 100%; }
+
+  /* Surfaces the browser would otherwise paint from no design system at all. */
+  ::selection { background: var(--copper); color: var(--sunk); }
 
   body {
     background: var(--ground);
@@ -276,6 +272,25 @@ const PAGE = `<!doctype html>
   }
 
   /* ── hero ─────────────────────────────────────────────── */
+
+  /* Visible only once focused. Three focusables and one landmark make this
+     cheap rather than essential, but a keyboard user should never have to tab
+     through the page furniture to reach the command. */
+  .skip {
+    position: absolute;
+    clip-path: inset(50%);
+    left: 0;
+    top: 0;
+    background: var(--copper);
+    color: var(--sunk);
+    font-size: .72rem;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    text-decoration: none;
+    padding: .8rem 1.1rem;
+    z-index: 2;
+  }
+  .skip:focus { clip-path: none; color: var(--sunk); }
 
   .badge {
     display: inline-block;
@@ -314,12 +329,70 @@ const PAGE = `<!doctype html>
 
   .cta { margin: 0 0 1rem; max-width: 44rem; }
 
-  .cta-label {
+  /* The name is the only thing about the first push a visitor gets to decide,
+     so it is the only editable thing on the page. Typing here rewrites the
+     command below it, and the copy button reads the command rather than this
+     field, so what lands on the clipboard is what is on screen.
+     
+     It stands where "give this to your agent" used to: naming the repository
+     IS creating it, so that instruction was a caption on the one step that
+     already explains itself. */
+  .repo-field {
+    display: inline-flex;
+    align-items: center;
+    gap: .6rem;
+    margin: 0 0 .75rem;
     font-size: .68rem;
     letter-spacing: .13em;
     text-transform: uppercase;
-    color: var(--faint);
-    margin: 0 0 .6rem;
+    color: var(--muted);
+    cursor: text;
+  }
+
+  /* A box, not an underline. The first version of this was a bottom rule and a
+     small copper word, which read as a label rather than as something to type
+     in — the one control on the page has to look like one. */
+  .repo-field input {
+    caret-color: var(--copper);
+    font-family: var(--mono);
+    font-size: .86rem;
+    letter-spacing: 0;
+    text-transform: none;
+    color: var(--copper);
+    background: var(--sunk);
+    border: 1px solid var(--rule-2);
+    border-left: 2px solid var(--copper);
+    padding: .5rem .7rem;
+    width: 15rem;
+    max-width: 48vw;
+    min-height: 44px;
+  }
+  .repo-field input::placeholder { color: var(--faint); }
+
+  /* Why a character disappeared. The field filters as you type rather than
+     refusing on submit — there is no submit — so the only place left to say
+     what happened is beside the field, at the moment it happens. */
+  .repo-note {
+    font-size: .66rem;
+    letter-spacing: .08em;
+    text-transform: none;
+    color: var(--copper);
+    opacity: 0;
+    transition: opacity .18s ease;
+  }
+  .repo-note[data-shown] { opacity: 1; }
+  .repo-field input:hover { border-color: var(--faint); border-left-color: var(--copper); }
+  /* The border shift is the resting-to-active cue; the outline is the
+     accessible one. An earlier version set outline:0 here, which also
+     defeated the global :focus-visible rule and left the page's only text
+     input invisible to the keyboard. */
+  .repo-field input:focus { border-color: var(--copper); background: var(--ground); }
+
+  /* The one token in the command that the field above rewrites, coloured so
+     the connection between the two is visible before anybody types. */
+  #repo-echo {
+    color: var(--copper);
+    border-bottom: 1px dashed var(--rule-2);
   }
 
   .term {
@@ -370,13 +443,6 @@ const PAGE = `<!doctype html>
   }
   .under span { color: var(--muted); }
 
-  .yours {
-    font-size: .74rem;
-    color: var(--faint);
-    margin: 0;
-  }
-  .yours code { color: var(--verdi); }
-
   /* ── panels ───────────────────────────────────────────── */
 
   .panel { border: 1px solid var(--rule-2); background: var(--raised); }
@@ -386,6 +452,10 @@ const PAGE = `<!doctype html>
     align-items: center;
     justify-content: space-between;
     gap: 1rem;
+    /* The socket URL is one token with no space to break at, and uppercase
+       plus tracking makes it longer than a 320px screen. Without this the
+       whole page pans rather than the header wrapping. */
+    overflow-wrap: anywhere;
     padding: .7rem 1rem;
     border-bottom: 1px solid var(--rule-2);
     font-size: .66rem;
@@ -456,16 +526,33 @@ const PAGE = `<!doctype html>
     margin: 0 0 1.25rem;
   }
   section p strong { color: var(--bone); font-weight: 400; }
+  /* The answer the reader keeps paying for and keeps not needing. Italic
+     rather than quoted: it is the thing the tool says, not a thing anyone said. */
+  section p em { font-style: italic; color: var(--faint); }
 
   /* The one argument, and the wire beside it rather than under it: the prose
      and the thing it describes are read together or not at all. */
   .split {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr);
     gap: 0 2.5rem;
     align-items: start;
   }
-  .split-say p { max-width: 44ch; margin-bottom: 1rem; }
+  /* A grid item defaults to min-width:auto, so a track cannot shrink below its
+     content's min-content width — and .tx is white-space:pre with 53-character
+     lines. Without this the TRACK grew instead of the pre scrolling, and the
+     whole page panned sideways on every phone. */
+  .split > *,
+  .split-show > *,
+  .term > * { min-width: 0; }
+  .claims li, .road li { min-width: 0; }
+  .split-say p { max-width: 46ch; margin-bottom: 1rem; }
+  /* The command and the socket it opens are one column: the argument reads
+     down the left, and everything a reader would actually run or watch happens
+     on the right, in the order it happens. */
+  .split-show { display: grid; gap: 1.75rem; align-content: start; }
+  .split-show .term-solo { margin: 0 0 .5rem; max-width: 100%; }
+  .split-show .under { margin: 0; letter-spacing: .07em; }
   .split-show .tx { font-size: .7rem; }
 
   /* ── the terms ────────────────────────────────────────── */
@@ -562,7 +649,7 @@ const PAGE = `<!doctype html>
   footer code { text-transform: none; color: var(--verdi); }
 
   @media (max-width: 62rem) {
-    .split { grid-template-columns: 1fr; gap: 2rem 0; }
+    .split { grid-template-columns: minmax(0, 1fr); gap: 2rem 0; }
     .split-say p { max-width: 58ch; }
   }
 
@@ -580,9 +667,10 @@ const PAGE = `<!doctype html>
 </style>
 </head>
 <body>
+<a class="skip" href="#start">Skip to the command</a>
 <div class="wrap">
 
-  <main>
+  <main id="start">
     <span class="badge">Open source — run your own</span>
 
     <h1>Git for AI agents<span class="dot">.</span></h1>
@@ -590,23 +678,28 @@ const PAGE = `<!doctype html>
     <p class="lede">Your agent writes code all day and has nowhere of its own to put it. <em>Push to a name and the repository exists</em> — no account, no key, no API besides git itself.</p>
 
     <div class="cta">
-      <p class="cta-label">Give this to your agent</p>
+      <label class="repo-field" for="repo">
+        <span>Name it</span>
+        <input id="repo" name="repo" type="text" value="my-thing" placeholder="my-thing"
+               spellcheck="false"
+               autocomplete="off" autocapitalize="off" maxlength="64"
+               aria-describedby="repo-help">
+        <span class="repo-note" id="repo-note" role="status" aria-live="polite"></span>
+      </label>
       <div class="term">
-        <pre id="cmd"><span class="c"># there is no SDK. there is no signup.</span>
-<span class="p">$</span> git remote add agentgit https://{{HOST}}/my-thing.git
+        <pre id="cmd"><span class="c"># there is no signup.</span>
+<span class="p">$</span> git remote add agentgit https://{{HOST}}/<span id="repo-echo">my-thing</span>.git
 <span class="p">$</span> git push agentgit main</pre>
-        <button class="copy" id="copy" type="button" aria-label="Copy the two commands">Copy</button>
+        <button class="copy" id="copy" type="button" aria-live="polite" aria-label="Copy the two commands">Copy</button>
       </div>
     </div>
-    <p class="under">No account · <span>No token</span> · No key · <span>Handing work over is the URL</span></p>
-    <p class="yours">Yours for the taking: <code id="mine">{{HOST}}/visitor-…</code></p>
+    <p class="under" id="repo-help">No account · <span>No token</span> · No key · <span>The name is the repository</span></p>
 {{EVENTS}}
     <section>
-      <h2>The terms, in full.</h2>
+      <h2>The rules.</h2>
       <ul class="claims">
         <li><span class="k">Append-only</span><span class="v"><b>Nothing you push can be destroyed.</b> Anyone may add; no one may rewrite or delete. A push that would rewrite history is refused in <code>pre-receive</code>, before anything is uploaded, by a message naming what to do instead.</span></li>
         <li><span class="k">Public</span><span class="v"><b>Every repository is world-readable and world-writable.</b> Sharing is a URL, not an invitation. Privacy is not free yet.</span></li>
-        <li><span class="k">Durable</span><span class="v"><b>A push is in object storage before it is acknowledged.</b> The server's disks are a cache; losing the machine loses nothing.</span></li>
 {{THIRD_CLAIM}}{{SIGNING_CLAIM}}
       </ul>
     </section>
@@ -643,7 +736,6 @@ const PAGE = `<!doctype html>
   <footer>
     <span>agentgit</span>
     <span>Open source</span>
-    <span>Agents: <code>/llms.txt</code></span>
     <span>Run your own: <code>zbc add walgit</code></span>
   </footer>
 </div>
@@ -652,11 +744,64 @@ const PAGE = `<!doctype html>
   (function () {
     "use strict";
 
-    // A repo name that is yours for this visit.
+    // The name, which is the whole of creating a repository here.
+    //
+    // Prefilled with a random suffix rather than left blank, because the advice
+    // this page would otherwise have to give in a sentence — many agents run
+    // near-identical prompts at the same time, and a plain name is probably
+    // taken — is better given as the default anyone starts from.
+    var field = document.getElementById("repo");
+    var echo = document.getElementById("repo-echo");
+
     var chars = "abcdefghjkmnpqrstuvwxyz23456789";
-    var id = "";
-    for (var i = 0; i < 8; i++) id += chars[Math.floor(Math.random() * chars.length)];
-    document.getElementById("mine").textContent = "{{HOST}}/visitor-" + id + ".git";
+    var suffix = "";
+    for (var i = 0; i < 6; i++) suffix += chars[Math.floor(Math.random() * chars.length)];
+
+    // Exactly the grammar the host accepts (shared/protocol.ts): one flat
+    // segment, starting alphanumeric. Filtering as it is typed rather than
+    // refusing on submit — there is no submit, and a command that cannot work
+    // should never appear on screen to be copied.
+    var clean = function (value) {
+      return value.replace(/[^A-Za-z0-9._-]/g, "").replace(/^[^A-Za-z0-9]+/, "").slice(0, 64);
+    };
+
+    var render = function () {
+      echo.textContent = clean(field.value) || "my-thing";
+    };
+
+    field.value = "my-thing-" + suffix;
+    render();
+    var note = document.getElementById("repo-note");
+    var noteTimer;
+    var say = function (message) {
+      note.textContent = message;
+      note.setAttribute("data-shown", "1");
+      clearTimeout(noteTimer);
+      noteTimer = setTimeout(function () {
+        note.removeAttribute("data-shown");
+      }, 2600);
+    };
+
+    field.addEventListener("input", function () {
+      var caret = field.selectionStart;
+      var cleaned = clean(field.value);
+      if (cleaned !== field.value) {
+        field.value = cleaned;
+        // Typing a character the host would refuse should not also move the
+        // caret to the end of what was already typed.
+        field.setSelectionRange(caret - 1, caret - 1);
+        // And it should not vanish without a word. Silence here reads as a
+        // broken keyboard rather than as a rule.
+        say("letters, numbers, dot, dash, underscore");
+      }
+      render();
+    });
+    // An empty field shows my-thing in the command; leaving it empty should
+    // leave the field agreeing with the command rather than blank.
+    field.addEventListener("blur", function () {
+      if (clean(field.value) === "") field.value = "my-thing";
+      render();
+    });
 
     // What a copy button copies is read out of the block it sits next to,
     // rather than repeated here: a command written twice is a command that
