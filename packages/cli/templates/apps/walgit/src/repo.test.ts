@@ -65,6 +65,40 @@ describe('ensureBareRepo', () => {
     expect(fs.readFileSync(path.join(second.dir, 'description'), 'utf8')).toBe('mine')
   })
 
+  test('carries the push-certificate seed onto every repository it touches', () => {
+    const root = scratch()
+    const config = (dir: string, key: string) =>
+      spawnSync('git', ['--git-dir', dir, 'config', '--get', key]).stdout.toString().trim()
+
+    // Nothing is advertised until the instance configures a seed.
+    const before = ensureBareRepo(resolveRepo(root, 'alpha'))
+    expect(config(before.dir, 'receive.certNonceSeed')).toBe('')
+
+    process.env.WALGIT_PUSH_CERT_SEED = 'a-long-random-seed'
+    try {
+      // The seed reaches a repository that already existed, which is the case
+      // that matters: the disk is a cache, so most repositories are older than
+      // whatever the container currently boots with.
+      const after = ensureBareRepo(resolveRepo(root, 'alpha'))
+      expect(config(after.dir, 'receive.certNonceSeed')).toBe('a-long-random-seed')
+
+      // …and a second access does not fight `config.lock` over a value that is
+      // already there. `ensureConfig` reads before it writes, so the steady
+      // state writes nothing at all — the property that lets a materialize and
+      // a push provision the same repository at the same moment.
+      const again = ensureBareRepo(resolveRepo(root, 'alpha'))
+      expect(config(again.dir, 'receive.certNonceSeed')).toBe('a-long-random-seed')
+
+      // Unsetting the variable withdraws the capability rather than leaving
+      // older repositories certifying pushes on a seed nothing configures.
+      delete process.env.WALGIT_PUSH_CERT_SEED
+      const cleared = ensureBareRepo(resolveRepo(root, 'alpha'))
+      expect(config(cleared.dir, 'receive.certNonceSeed')).toBe('')
+    } finally {
+      delete process.env.WALGIT_PUSH_CERT_SEED
+    }
+  })
+
   test('sweeps the hand-off record a killed receive-pack left behind', async () => {
     const root = scratch()
     const repo = ensureBareRepo(resolveRepo(root, 'alpha'))

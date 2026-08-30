@@ -44,6 +44,10 @@ export const CONTAINER_ENV = [
   // stranger fabricating events (shared/events.ts).
   'WALGIT_EVENTS_URL',
   'WALGIT_EVENTS_TOKEN',
+  // Signed pushes. The seed is what `git-receive-pack` derives its nonce from,
+  // and receive-pack runs inside the container — so this is the variable that
+  // decides whether the capability is advertised at all (src/push-cert.ts).
+  'WALGIT_PUSH_CERT_SEED',
 ] as const
 
 export type ContainerEnvName = (typeof CONTAINER_ENV)[number]

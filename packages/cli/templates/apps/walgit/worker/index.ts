@@ -84,6 +84,13 @@ export interface Env {
    */
   WALGIT_EVENTS_TOKEN?: string
   WALGIT_EVENTS_URL?: string
+  /**
+   * The nonce seed that makes signed pushes possible (src/push-cert.ts). Unset
+   * is the default and means the container never advertises the capability, so
+   * a client asking for `--signed=yes` is refused by its own git. A secret:
+   * the nonce it derives is what makes a push certificate un-replayable.
+   */
+  WALGIT_PUSH_CERT_SEED?: string
   WALGIT_EVENTS: DurableObjectNamespace<WalgitEvents>
 }
 

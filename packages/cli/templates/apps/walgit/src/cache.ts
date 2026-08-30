@@ -22,6 +22,7 @@ import { appendOnlyEnabled } from './append-only'
 import { limitsFromEnv } from './limits'
 import { git, gitOrThrow } from './git'
 import { installHooks } from './hooks'
+import { pushCertSeed } from './push-cert'
 import { sweepPending } from './pending'
 import type { ResolvedRepo } from './repo'
 
@@ -132,6 +133,23 @@ export function ensureBareRepo(repo: ResolvedRepo): ResolvedRepo {
     clearConfig(repo.dir, 'receive.maxInputSize')
   } else {
     ensureConfig(repo.dir, 'receive.maxInputSize', String(Math.floor(maxPushBytes) * 2))
+  }
+  // Signed pushes exist on this repository exactly when a nonce seed does.
+  // `receive.certNonceSeed` is what makes `git-receive-pack` advertise the
+  // `push-cert` capability at all, so this one key is the whole of "the host
+  // accepts a signed push" (src/push-cert.ts, docs/adr/0011).
+  //
+  // Written here rather than at creation for the reason the whole file works
+  // this way: the disk is a cache, and a repository materialized from the log
+  // after a restart is a repository this line has to reach. Cleared when the
+  // variable is, so turning the capability off stops the advertisement on the
+  // next access instead of leaving repositories that predate the change
+  // certifying pushes nothing else knows about.
+  const seed = pushCertSeed()
+  if (seed === null) {
+    clearConfig(repo.dir, 'receive.certNonceSeed')
+  } else {
+    ensureConfig(repo.dir, 'receive.certNonceSeed', seed)
   }
   // The hooks ARE the push path. Re-installed on every access for the same
   // reason as the config above: a repo that arrived here by any other route

@@ -534,3 +534,115 @@ describe('size limits', () => {
     expect((await loadIndex(store, repoId)).index.entries).toHaveLength(1)
   })
 })
+
+/**
+ * Signed pushes: the capability, and nothing beyond it.
+ *
+ * A push certificate is a `receive-pack` capability rather than a transport
+ * one, which is why it works here at all — smart-HTTP, no SSH anywhere. git
+ * advertises it only when the receiving repository has `receive.certNonceSeed`,
+ * so the seed is the whole feature (src/push-cert.ts, docs/adr/0011).
+ *
+ * What is deliberately NOT asserted: anything about the certificate. Nothing
+ * reads it yet, and a signed push is required to land exactly as an unsigned
+ * one does — same entry, same index, same acknowledgement.
+ */
+describe('signed pushes', () => {
+  let signingKey: string
+
+  beforeAll(() => {
+    // A real key, because git shells out to `ssh-keygen -Y sign` and a fake one
+    // would be caught there rather than here. Ed25519 and no passphrase: this
+    // is a client-side detail of the test, not a claim about what walgit takes.
+    signingKey = path.join(scratch, 'signing-key')
+    const keygen = Bun.spawnSync([
+      'ssh-keygen',
+      '-t',
+      'ed25519',
+      '-N',
+      '',
+      '-C',
+      'walgit-test',
+      '-f',
+      signingKey,
+    ])
+    if (keygen.exitCode !== 0) throw new Error(`ssh-keygen failed: ${keygen.stderr.toString()}`)
+  })
+
+  afterEach(() => {
+    delete process.env.WALGIT_PUSH_CERT_SEED
+  })
+
+  /** The same push every test here makes; only the seed differs. */
+  const pushSigned = (dir: string) =>
+    git(
+      dir,
+      '-c',
+      'gpg.format=ssh',
+      '-c',
+      `user.signingkey=${signingKey}.pub`,
+      'push',
+      '--signed=yes',
+      'origin',
+      'HEAD:refs/heads/main',
+    )
+
+  test('with the seed set, a signed push is accepted and lands like any other', async () => {
+    process.env.WALGIT_PUSH_CERT_SEED = 'a-long-random-seed'
+    const { dir, oid } = await clientWithCommit('signed', 'signed push\n')
+
+    const pushed = await pushSigned(dir)
+    expect(pushed.status).toBe(0)
+
+    // Landed in the log, not merely acknowledged: the point of stopping at the
+    // capability is that a signed push is not a special path.
+    const { index } = await loadIndex(store, repoId)
+    expect(index.refs['refs/heads/main']).toBe(oid)
+    expect(index.entries).toHaveLength(1)
+  })
+
+  test('the repository advertises it because the seed is on the repository', async () => {
+    process.env.WALGIT_PUSH_CERT_SEED = 'a-long-random-seed'
+    const { dir } = await clientWithCommit('seeded', 'seeded\n')
+    expect((await pushSigned(dir)).status).toBe(0)
+
+    const configured = (
+      await git(scratch, '--git-dir', bareDir(), 'config', '--get', 'receive.certNonceSeed')
+    ).out.trim()
+    expect(configured).toBe('a-long-random-seed')
+  })
+
+  test('without the seed the client refuses, in git’s own words, and nothing is uploaded', async () => {
+    const { dir } = await clientWithCommit('unseeded', 'unseeded\n')
+
+    const pushed = await pushSigned(dir)
+    expect(pushed.status).not.toBe(0)
+    // Refused by the pusher's own git against the capability advertisement —
+    // this is what agentgit says today, and what a deployment that has not
+    // turned provenance on must keep saying.
+    expect(pushed.out).toContain('the receiving end does not support --signed push')
+
+    const { index } = await loadIndex(store, repoId)
+    expect(index.entries).toHaveLength(0)
+    expect(index.refs['refs/heads/main']).toBeUndefined()
+  })
+
+  test('an unsigned push is unchanged, seed or no seed', async () => {
+    // The promise the whole goal rests on: anonymous stays first-class. The
+    // same push has to behave identically on a host that takes certificates and
+    // one that does not.
+    const unseeded = await clientWithCommit('plain-unseeded', 'plain\n')
+    expect((await git(unseeded.dir, 'push', 'origin', 'HEAD:refs/heads/main')).status).toBe(0)
+
+    process.env.WALGIT_PUSH_CERT_SEED = 'a-long-random-seed'
+    fs.writeFileSync(path.join(unseeded.dir, 'README'), 'plain again\n')
+    await git(unseeded.dir, 'commit', '--quiet', '-am', 'plain again')
+    expect((await git(unseeded.dir, 'push', 'origin', 'HEAD:refs/heads/main')).status).toBe(0)
+
+    const { index } = await loadIndex(store, repoId)
+    expect(index.refs['refs/heads/main']).toBe(
+      (await git(unseeded.dir, 'rev-parse', 'HEAD')).out.trim(),
+    )
+    expect(index.entries).toHaveLength(2)
+  })
+})
