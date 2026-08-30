@@ -47,6 +47,17 @@ describe('containerEnv', () => {
     })
   })
 
+  test('the push-certificate seed reaches the container', () => {
+    // `git-receive-pack` runs INSIDE the container, and it is the only thing
+    // that ever reads this. A seed that stops at the Worker is a deployment
+    // that thinks it takes signed pushes and refuses every one of them, with
+    // the refusal coming from the client's own git — nothing on this side would
+    // log anything at all.
+    expect(containerEnv({ WALGIT_PUSH_CERT_SEED: 'seed' })).toEqual({
+      WALGIT_PUSH_CERT_SEED: 'seed',
+    })
+  })
+
   test('every forwarded name is one src/ actually reads', () => {
     // A name added here and nowhere else is a variable that looks configured
     // and does nothing.

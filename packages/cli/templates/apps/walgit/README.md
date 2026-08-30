@@ -455,7 +455,8 @@ Optional instance configuration (plain env, not secrets): `WALGIT_APPEND_ONLY`,
 `WALGIT_MAX_PUSH_BYTES`, `WALGIT_MAX_REPO_BYTES`, `WALGIT_RETENTION_HOURS`,
 `WALGIT_PUBLIC` — each unset means the behaviour is off and `GET /` does not
 claim it. `WALGIT_EVENTS_URL` and `WALGIT_EVENTS_TOKEN` (a secret) turn on the
-ref-event stream below.
+ref-event stream below, and `WALGIT_PUSH_CERT_SEED` (a secret) turns on signed
+pushes.
 
 The container sleeps when idle and the next request wakes it — one regime,
 median 1.77 s, spread 0.93–6.45 s, and a ten-minute idle measures the same. Its
@@ -532,6 +533,30 @@ every race and every client would read `fatal: pack exceeds maximum allowed
 size` instead of walgit's message. At twice the cap the hook owns every refusal
 a real client can provoke, and git still bounds a pack far enough past the cap
 that a bug in the hook is the likelier explanation.
+
+## Signed pushes
+
+`WALGIT_PUSH_CERT_SEED` makes the host willing to receive `git push
+--signed=yes`. A push certificate is a claim about *who moved this ref*, signed
+by the pusher and carrying a nonce this server issued — and it is a
+`receive-pack` capability, not a transport feature, so it works over smart-HTTP
+with no SSH anywhere ([ADR-0011](../../../../../docs/adr/0011-walgit-records-who-pushed-and-refuses-nothing.md)).
+
+git advertises the capability if and only if the receiving repository has
+`receive.certNonceSeed` set, which `ensureBareRepo` writes from that variable on
+every access — so a repository rebuilt from the log inherits it. With no seed
+configured a client asking for `--signed=yes` is refused by its **own** git
+(`fatal: the receiving end does not support --signed push`) before a byte
+reaches the network, which is the right answer for a deployment that has not
+turned this on.
+
+The seed is configuration and is never generated: the nonce is derived from it,
+a client holds one across the round trip, and the container's disk is wiped on
+every restart — a seed minted at boot would reject every certificate in flight.
+
+Nothing is verified or recorded yet. A signed push lands exactly as an unsigned
+one does, and an unsigned push is unaffected either way — `--signed=if-asked` is
+therefore safe to pass unconditionally, to this host or any other.
 
 ## Ref events
 
