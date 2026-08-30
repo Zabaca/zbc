@@ -91,5 +91,12 @@ _Avoid_: identity, attribution log, audit trail
 `GET /_walgit/provenance?repo=<id>` — the whole of reading Provenance back: one repository, the Index's map as it stands, `{}` when nothing has been signed. Behind exactly the credential a clone of that repository needs, so a public deployment answers anyone and a token-gated one answers nobody else; there is no second authorization model. Deliberately not a Ref Event — that wire is latest-state and says only that a ref moved and to what (ADR-0009), while Provenance has a different lifetime and a different reader.
 _Avoid_: the provenance API, the audit endpoint
 
+**Advertised capability**:
+What the two agent-facing documents say a deployment can do, rendered from the thing that enforces it and never written as prose. Signing joins the size caps, the retention window and the stream under this rule: with no `WALGIT_PUSH_CERT_SEED`, neither `GET /` nor `/llms.txt` mentions signing, keys or Provenance at all. Sharper here than for a cap, because a client asking to sign a host that does not advertise `push-cert` is refused by its OWN git — the agent finds out only after it has written the push.
+_Avoid_: feature flag (there is no flag; the seed IS the capability)
+
+**Claim** (not built):
+Reserved for the trust-on-first-use assertion that a Signer owns a repository, if ownership is ever added. Deliberately not "owner", which implies a permission system rather than a first-mover fact.
+
 **Fail open**:
 The rule the whole capability is built to: a missing, malformed or unverifiable certificate, a bad nonce, or a verifier that is absent or throws records no Signer and **accepts the push**. Provenance is metadata and must never become a new way for a push to fail — anonymous pushing is first-class and stays that way.

@@ -36,26 +36,25 @@ import * as path from 'node:path'
 import {
   fingerprintIn,
   PUSH_CERT_NAMESPACE,
+  pushCertSeed as seedFrom,
   splitPushCertificate,
   type SplitCertificate,
 } from '../shared/provenance'
 import { git } from './git'
 
 /**
- * The configured seed, or `null` for "this deployment does not take signed
- * pushes".
+ * The seed this deployment configures, or `null` when it configures none.
  *
- * Blank reads as unset, the same collapse `containerEnv` makes at the seam and
- * `positiveNumber` makes for the size caps: a variable cleared to an empty
- * string is a capability turned off, not a capability seeded with nothing. git
- * would take `""` as a seed and derive perfectly usable nonces from it, so the
- * two spellings have to collapse here rather than at the config write.
+ * The reading itself lives in `shared/provenance.ts`: the Worker renders both
+ * agent-facing documents from the same answer and cannot import this module at
+ * all (it spawns a subprocess, and `shared/` has no runtime — ADR-0010). A
+ * document that advertised signed pushes from a second reading of the variable
+ * would be one spelling away from promising a capability the push path does
+ * not have, which is the exact drift `flagEnabled` was extracted to end. What
+ * stays here is only where the container finds it.
  */
 export function pushCertSeed(env: Record<string, string | undefined> = process.env): string | null {
-  const raw = env.WALGIT_PUSH_CERT_SEED
-  if (raw === undefined) return null
-  const seed = raw.trim()
-  return seed === '' ? null : seed
+  return seedFrom(env.WALGIT_PUSH_CERT_SEED)
 }
 
 /** Does this instance take signed pushes? The seed, read as a yes/no. */

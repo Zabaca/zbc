@@ -44,3 +44,16 @@ export function describeBytes(bytes: number): string {
 }
 
 const round = (n: number) => String(Math.round(n * 100) / 100)
+
+/**
+ * Is a boolean-ish walgit variable on?
+ *
+ * `1` or `true`, and nothing else. It lives here because BOTH halves have to
+ * agree on it exactly: the container enforces append-only from this answer and
+ * the Worker tells agents about it from the same one, and a Worker that read
+ * only `1` would quietly stop mentioning a rule the push path was still
+ * enforcing for `true` (docs/adr/0010).
+ */
+export function flagEnabled(raw: string | undefined): boolean {
+  return raw === '1' || raw === 'true'
+}

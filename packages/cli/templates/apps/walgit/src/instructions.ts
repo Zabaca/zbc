@@ -14,7 +14,7 @@
  */
 
 import { describeBytes } from '../shared/policy'
-import { EVENTS_PATH } from '../shared/protocol'
+import { EVENTS_PATH, PROVENANCE_PATH } from '../shared/protocol'
 
 export type InstructionsPolicy = {
   /** Reads and writes need no credential. */
@@ -37,6 +37,17 @@ export type InstructionsPolicy = {
    * mention at all, because the agent writes the client before finding out.
    */
   events?: boolean
+  /**
+   * This deployment accepts a signed push and records who made it.
+   *
+   * Rendered from the nonce seed, for the reason every other entry here is
+   * rendered from what enforces it: with no seed `git-receive-pack` never
+   * advertises the `push-cert` capability, and a client told to sign is
+   * refused by its OWN git before a byte leaves the machine. Advertising it
+   * there would hand an agent a flag that cannot work — the same defect as a
+   * cap nothing enforces, arriving one step earlier.
+   */
+  signedPushes?: boolean
 }
 
 /**
@@ -76,7 +87,11 @@ export function renderInstructions(origin: string, policy: InstructionsPolicy = 
     '',
     `    git clone ${origin}/$NAME.git`,
     '',
+    ...(policy.signedPushes ? signingSection(origin) : []),
     ...(policy.events ? watchSection(origin) : []),
+    ...(policy.events
+      ? []
+      : [...wrap(`The full manual, with worked examples, is at ${origin}/llms.txt.`), '']),
     'IF A PUSH IS REFUSED',
     '',
     ...wrap(
@@ -120,6 +135,31 @@ function facts(policy: InstructionsPolicy): string[] {
 }
 
 /**
+ * Signing, in the fewest lines that leave an agent able to do it.
+ *
+ * This document is read mid-task, so the section is the flag, the config it
+ * needs and where the answer comes back — the argument for any of it is in
+ * `/llms.txt`. `--signed=if-asked` rather than `=yes` deliberately: it signs
+ * against a host that takes certificates and pushes normally against one that
+ * does not, so an agent can put one form in its habits and never branch on
+ * which host it is talking to.
+ */
+function signingSection(origin: string): string[] {
+  return [
+    'SIGN A PUSH, AND BE CREDITED FOR IT',
+    '',
+    ...wrap(
+      'Push with --signed=if-asked and the fingerprint of your key is recorded as who moved each ref. Any SSH key works, including the one you already push to GitHub with. Nothing is refused for being unsigned.',
+    ),
+    '',
+    '    git -c gpg.format=ssh -c user.signingkey=~/.ssh/id_ed25519.pub \\',
+    '        push --signed=if-asked walgit HEAD:refs/heads/main',
+    `    curl ${origin}${PROVENANCE_PATH}?repo=$NAME`,
+    '',
+  ]
+}
+
+/**
  * The stream, described where an agent will actually read about it.
  *
  * Written as the answer to "is my main still current?", because that is the
@@ -137,38 +177,12 @@ function watchSection(origin: string): string[] {
     'WATCH FOR PUSHES INSTEAD OF FETCHING ON A TIMER',
     '',
     ...wrap(
-      `Open a WebSocket to ${websocket(origin)}${EVENTS_PATH} and send one message naming what you care about. The reply is the current sha of everything you named. After that you get one message every time one of those refs moves, and nothing in between.`,
+      `Open a WebSocket to ${websocket(origin)}${EVENTS_PATH} and send {"watch":[{"repo":"$NAME"}]}. The reply is the current sha of everything you named; after that, one message per ref that moves and nothing in between. No cursor and no replay — a reconnect's reply is current state.`,
     ),
     '',
     ...wrap(
-      'Use the same credential a clone needs, if this instance needs one. Events are latest state, not a log: there is no cursor and no replay, and a reconnect gets the current state in its reply. Omit "refs" to watch every ref in a repository. A "sha" of null means the ref is not there.',
+      `The client, the collision check that tells you whether what arrived touches your work, and the rest of the protocol are at ${origin}/llms.txt.`,
     ),
-    '',
-    // Labelled rather than arrowed: an arrow would put a `<` in a document
-    // whose whole promise is that there is no markup in it to parse.
-    `    send: {"watch":[{"repo":"$NAME","refs":["refs/heads/main"]}]}`,
-    `    recv: {"ok":true,"refs":[{"repo":"$NAME","ref":"refs/heads/main","sha":"a1b2c3..."}]}`,
-    `    recv: {"repo":"$NAME","ref":"refs/heads/main","sha":"d4e5f6..."}`,
-    '',
-    ...wrap(
-      'The useful thing to do with each message is fetch. Run this in the background and the clone is current before you ask; you never spend a call finding out that nothing changed. It needs no cursor and no state: if it disconnects, the reply to its next watch is current state.',
-    ),
-    '',
-    `    bun -e 'const w=new WebSocket("${websocket(origin)}${EVENTS_PATH}")`,
-    `      w.onopen=()=>w.send(JSON.stringify({watch:[{repo:"$NAME"}]}))`,
-    `      w.onmessage=e=>JSON.parse(e.data).ok||Bun.spawnSync(["git","fetch"])`,
-    `      w.onclose=()=>process.exit(75)' &`,
-    '',
-    ...wrap(
-      'It exits when the socket closes, so a supervisor restarts it and the new handshake catches up whatever moved meanwhile. A longer version that watches several repositories on one socket ships with walgit at examples/watch.ts.',
-    ),
-    '',
-    ...wrap(
-      'The question worth asking after a fetch is whether what arrived collides with what you are in the middle of. git can answer it without touching your working tree, and `stash create` is what makes it see uncommitted work — merge-tree compares commits, so mid-task edits are invisible to it otherwise. Exit 1 means collision and the paths follow; exit 0 means none, including when you are simply behind.',
-    ),
-    '',
-    `    WIP=$(git stash create)`,
-    `    git merge-tree --write-tree --name-only \${WIP:-HEAD} origin/main`,
     '',
   ]
 }

@@ -98,3 +98,37 @@ const FINGERPRINT = /SHA256:[A-Za-z0-9+/]{43}/
 export function fingerprintIn(verifierOutput: string): string | null {
   return FINGERPRINT.exec(verifierOutput)?.[0] ?? null
 }
+
+/**
+ * The configured seed, or `null` for "this deployment does not take signed
+ * pushes".
+ *
+ * Blank reads as unset, the same collapse `containerEnv` makes at the seam and
+ * `positiveNumber` makes for the size caps: a variable cleared to an empty
+ * string is a capability turned off, not a capability seeded with nothing. git
+ * would take `""` as a seed and derive perfectly usable nonces from it, so the
+ * two spellings have to collapse here rather than at the config write.
+ *
+ * It takes the raw variable rather than an environment, like `flagEnabled` and
+ * `positiveNumber` beside it, because the two halves do not have the same
+ * environment to hand it: the container has `process.env` and the Worker has a
+ * binding object. What they must share is the reading, and that is this.
+ */
+export function pushCertSeed(raw: string | undefined): string | null {
+  if (raw === undefined) return null
+  const seed = raw.trim()
+  return seed === '' ? null : seed
+}
+
+/**
+ * Does this deployment take signed pushes? The seed, read as a yes/no.
+ *
+ * This is what both agent-facing documents render from, and rendering from it
+ * is the whole discipline: with no seed, `git-receive-pack` never advertises
+ * `push-cert` and a client asking to sign is refused by its own git — so a
+ * page that offered signing there would send an agent to a flag that cannot
+ * work, which is the same defect as a stated cap nothing enforces.
+ */
+export function signedPushEnabled(raw: string | undefined): boolean {
+  return pushCertSeed(raw) !== null
+}

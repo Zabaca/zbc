@@ -8,6 +8,7 @@ const PUBLIC = {
   maxPushBytes: 99 * 1024 * 1024,
   maxRepoBytes: 250 * 1024 * 1024,
   events: true,
+  signedPushes: true,
 }
 
 describe('renderInstructions', () => {
@@ -39,6 +40,13 @@ describe('renderInstructions', () => {
     expect(text).not.toContain('WebSocket')
     expect(text).not.toContain('watch')
     expect(text).not.toContain('_walgit/events')
+    // Signing is the same rule one step earlier: with no nonce seed the host
+    // never advertises `push-cert`, so an agent told to sign is refused by its
+    // OWN git — a flag that cannot work is worse than one never mentioned.
+    expect(text).not.toContain('--signed')
+    expect(text).not.toContain('signingkey')
+    expect(text).not.toContain('fingerprint')
+    expect(text).not.toContain('_walgit/provenance')
     // …and says what an unconfigured instance actually does instead.
     expect(text).toContain('requires a credential')
   })
@@ -69,13 +77,14 @@ describe('renderInstructions', () => {
     // The socket is dialled on the origin the agent reached us on, as a socket
     // scheme — an agent copying `https://` into a WebSocket gets nothing.
     expect(text).toContain('wss://walgit.example/_walgit/events')
-    // The three messages, in the order a client sees them.
-    expect(text).toContain('{"watch":[{"repo":"$NAME","refs":["refs/heads/main"]}]}')
-    expect(text).toContain('"ok":true')
-    expect(text).toContain('"sha":"d4e5f6..."')
+    // The send/recv transcript moved to /llms.txt. What stays is the socket,
+    // the one message that starts it, and a sentence saying what comes back —
+    // an agent reading THIS document is orienting, not implementing.
+    expect(text).toContain('{"watch":[{"repo":"$NAME"}]}')
+    expect(text.replace(/\s+/g, ' ')).toContain('the current sha of everything you named')
     // Latest state, stated as such: an agent told about a cursor would build a
     // client this server cannot serve.
-    expect(text.replace(/\s+/g, ' ')).toContain('no cursor and no replay')
+    expect(text.replace(/\s+/g, ' ').toLowerCase()).toContain('no cursor and no replay')
   })
 
   test('a plain-http origin dials a plain-ws socket', () => {
@@ -98,12 +107,14 @@ describe('renderInstructions', () => {
  * do with it. Without this, an agent that finds the stream still has to invent
  * the loop — and inventing it is how you get a poller.
  */
-describe('the watch section carries a runnable client', () => {
-  test('with events on, a background client is spelled out', () => {
+describe('the watch section hands off rather than carrying everything', () => {
+  test('with events on, it names the socket and points at the manual', () => {
     const text = renderInstructions('https://walgit.example', { ...PUBLIC, events: true })
     expect(text).toContain('wss://walgit.example/_walgit/events')
-    expect(text).toContain('Bun.spawnSync(["git","fetch"])')
-    expect(text).toContain('examples/watch.ts')
+    expect(text).toContain('https://walgit.example/llms.txt')
+    // The client itself lives in the long document now. This page is read
+    // mid-task, and every line it keeps is context an agent wanted elsewhere.
+    expect(text).not.toContain('Bun.spawnSync')
   })
 
   test('with events off, nothing about a client is claimed', () => {
@@ -119,20 +130,62 @@ describe('the watch section carries a runnable client', () => {
  * An event is only worth more than a timer if it answers the question the
  * fetch was being run for, so `GET /` carries the two commands that answer it.
  */
-describe('the watch section says how to tell if it landed on your work', () => {
-  test('with events on, the stash-create form is given', () => {
+describe('the collision check is named but not spelled out here', () => {
+  test('with events on, it is described in one clause and located', () => {
     const text = renderInstructions('https://walgit.example', { ...PUBLIC, events: true })
-    expect(text).toContain('git stash create')
-    expect(text).toContain('merge-tree --write-tree --name-only')
-    // The reason for `stash create` rather than HEAD is the whole point, and a
-    // reader who does not know it will use the version that misses their work.
-    // Compared with the wrapping flattened: the text is wrapped for a terminal,
-    // so a sentence is not a substring of it.
-    expect(text.replace(/\s+/g, ' ')).toContain('merge-tree compares commits')
+    expect(text.replace(/\s+/g, ' ')).toContain('whether what arrived touches your work')
+    expect(text).toContain('/llms.txt')
+    // The commands are in the long document; repeating them here would put the
+    // page back where it was before the split.
+    expect(text).not.toContain('merge-tree')
   })
 
-  test('with events off, no collision check is described', () => {
+  test('with events off, neither the stream nor the check is mentioned', () => {
     const text = renderInstructions('https://walgit.example', { ...PUBLIC, events: false })
     expect(text).not.toContain('merge-tree')
+    expect(text).not.toContain('_walgit/events')
+    // But the manual is still worth finding.
+    expect(text).toContain('/llms.txt')
+  })
+})
+
+/**
+ * Signing, in the terse document.
+ *
+ * Three things and no argument: that a push may be signed, the config that
+ * signs it, and where the answer is read back. The reasoning — what a
+ * fingerprint is taken to mean, and that anonymous stays first-class — is in
+ * `/llms.txt`, because an agent reading THIS page is mid-task.
+ */
+describe('the signing section says it is possible, and not why', () => {
+  test('names the flag, the config and the read-back endpoint', () => {
+    const text = renderInstructions('https://walgit.example', PUBLIC)
+    expect(text).toContain('SIGN A PUSH, AND BE CREDITED FOR IT')
+    // `if-asked`, never `yes`: one form is correct against every host, and an
+    // agent that learns `--signed=yes` here fails against hosts without a seed.
+    expect(text).toContain('--signed=if-asked')
+    expect(text).not.toContain('--signed=yes')
+    expect(text).toContain('gpg.format=ssh')
+    expect(text).toContain('https://walgit.example/_walgit/provenance?repo=$NAME')
+  })
+
+  test('says the one thing an agent must not have to look up: nothing is refused', () => {
+    const text = renderInstructions('https://walgit.example', PUBLIC).replace(/\s+/g, ' ')
+    expect(text).toContain('Nothing is refused for being unsigned.')
+  })
+
+  test('with no seed, the capability does not exist on the page', () => {
+    const text = renderInstructions('https://walgit.example', { ...PUBLIC, signedPushes: false })
+    expect(text).not.toContain('SIGN A PUSH')
+    expect(text).not.toContain('--signed')
+    expect(text).not.toContain('_walgit/provenance')
+  })
+
+  test('the argument stays in the long document', () => {
+    const text = renderInstructions('https://walgit.example', PUBLIC)
+    // The page is read mid-task; a paragraph on what a key does and does not
+    // prove is exactly the kind of line the split exists to move.
+    expect(text).not.toContain('push certificate')
+    expect(text).not.toContain('allowed signers')
   })
 })
