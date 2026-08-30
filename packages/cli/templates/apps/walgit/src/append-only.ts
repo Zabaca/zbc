@@ -22,13 +22,13 @@
 import * as crypto from 'node:crypto'
 
 import { git } from './git'
+import { flagEnabled } from '../shared/policy'
 import { ZERO_OID } from '../shared/protocol'
 import type { RefChange } from './wal-index'
 
 /** The env flag an instance sets to make its repositories append-only. */
 export function appendOnlyEnabled(env: Record<string, string | undefined> = process.env): boolean {
-  const value = env.WALGIT_APPEND_ONLY
-  return value === '1' || value === 'true'
+  return flagEnabled(env.WALGIT_APPEND_ONLY)
 }
 
 /**

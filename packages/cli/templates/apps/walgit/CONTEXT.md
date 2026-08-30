@@ -50,6 +50,19 @@ A superseded WAL object recorded in the Index as scheduled for deletion, with th
 A WAL object under a repository's prefix that the Index does not name — almost always a pack uploaded by a push that then lost the compare-and-swap, since rejecting at `reference-transaction` does not unwind the upload. Discovered by diffing the prefix against the Index rather than recorded at rejection time, and collected only once provably older than the slowest plausible restore.
 _Avoid_: garbage (says nothing about why it is there), leaked object
 
+## Provenance (ADR-0011)
+
+**Signer**:
+The key that signed a push, named by its fingerprint. Not a user and not an account — neither exists here. Established by verifying the push certificate git sends with `push --signed`, which is a `receive-pack` capability rather than an SSH one and works over smart-HTTP like everything else.
+_Avoid_: user, account, identity (each implies a registry this host does not have)
+
+**Provenance**:
+The recorded fact that a Signer pushed a given ref update. Latest-state per ref in the Index, written by the same compare-and-swap that publishes the push — not hung off a WAL Entry, because a ref-only push appends none, and not left on disk, because the certificate arrives as a blob in the Cache and the Cache is wiped on restart.
+_Avoid_: audit log (there is no history here; the history of content is the commit graph)
+
+**Claim** (not built):
+Reserved for the trust-on-first-use assertion that a Signer owns a repository, if ownership is ever added. Deliberately not "owner", which implies a permission system rather than a first-mover fact.
+
 ## Ref events (ADR-0009)
 
 **Ref Event**:

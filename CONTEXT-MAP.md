@@ -58,6 +58,7 @@ each keeps its own glossary.
   ([ADR-0007](./docs/adr/0007-walgit-object-storage-holds-the-log.md),
   [ADR-0008](./docs/adr/0008-walgit-runs-on-a-cloudflare-container-without-ssh.md),
   [ADR-0009](./docs/adr/0009-walgit-ref-events-are-latest-state.md),
-  [ADR-0010](./docs/adr/0010-walgit-shared-kernel.md)), which stay at the root
-  because they were taken here and predate the split.
+  [ADR-0010](./docs/adr/0010-walgit-shared-kernel.md),
+  [ADR-0011](./docs/adr/0011-walgit-records-who-pushed-and-refuses-nothing.md)),
+  which stay at the root because they were taken here and predate the split.
 - Agent-context decisions: [`packages/agent/docs/adr/`](./packages/agent/docs/adr/)
