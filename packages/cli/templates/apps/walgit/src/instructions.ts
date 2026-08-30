@@ -163,6 +163,13 @@ function watchSection(origin: string): string[] {
       'It exits when the socket closes, so a supervisor restarts it and the new handshake catches up whatever moved meanwhile. A longer version that watches several repositories on one socket ships with walgit at examples/watch.ts.',
     ),
     '',
+    ...wrap(
+      'The question worth asking after a fetch is whether what arrived collides with what you are in the middle of. git can answer it without touching your working tree, and `stash create` is what makes it see uncommitted work — merge-tree compares commits, so mid-task edits are invisible to it otherwise. Exit 1 means collision and the paths follow; exit 0 means none, including when you are simply behind.',
+    ),
+    '',
+    `    WIP=$(git stash create)`,
+    `    git merge-tree --write-tree --name-only \${WIP:-HEAD} origin/main`,
+    '',
   ]
 }
 

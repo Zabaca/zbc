@@ -14,7 +14,9 @@
  * socket for every repository named, because the subscription is a list.
  *
  * WHAT IT DOES ON AN EVENT, and what it deliberately does not: `git fetch`,
- * which advances `origin/<ref>` and touches nothing else. Your branch, your
+ * which advances `origin/<ref>` and touches nothing else — and then it says
+ * whether what arrived collides with the work in progress here, which is the
+ * question the fetch was really being run to answer. Your branch, your
  * working tree and any work in progress are left alone — a watcher that moved
  * branches under a working agent would be a menace. "Current" here means
  * `origin/main` is fresh without anyone having asked for it; merging or
@@ -87,6 +89,74 @@ function fetchRef(repo: string, ref: string, sha: string | null): void {
     .stdout.toString()
     .trim()
   log(`${repo} ${short}: origin/${short} is ${local.slice(0, 8)}`, local === sha ? '' : '(behind)')
+
+  // Reported when it CHANGES, not on every event. A collision that is still
+  // there is still true, but an agent told the same thing on every unrelated
+  // push learns to ignore the channel — and this one is only worth having if
+  // it is believed.
+  const key = `${repo} ${short}`
+  const clash = conflicts(dir, short).join(', ')
+  const before = standing.get(key) ?? ''
+  if (clash !== before) {
+    standing.set(key, clash)
+    if (clash) log(`${key}: COLLIDES with your work in ${clash}`)
+    else if (before) log(`${key}: no longer collides with your work`)
+  }
+}
+
+/** The collision each watched ref last reported, so repeats stay quiet. */
+const standing = new Map<string, string>()
+
+/**
+ * Which files the ref that just moved would collide with, here, right now.
+ *
+ * This is the whole reason an event beats a timer: not that the fetch happens
+ * sooner, but that the agent can be told the thing it actually needs to know —
+ * *the branch you are working on just moved underneath you, in these files* —
+ * at the moment it becomes true rather than an hour later at push time.
+ *
+ * `git stash create` is what makes that possible. `merge-tree` compares
+ * COMMITS, so an agent mid-task — edits in the working tree, nothing committed
+ * — is invisible to it, which is precisely the case worth warning about.
+ * `stash create` writes a throwaway commit of the working tree and index
+ * without touching the working tree, the refs or the stash list, and merging
+ * THAT reports what the agent is really holding. The commit is unreferenced and
+ * is collected on its own.
+ *
+ * Verified against git 2.50.1:
+ *
+ *   exit 0    clean — including a clone that is merely behind, where the merge
+ *             is a fast-forward and there is nothing to collide with
+ *   exit 1    conflict; stdout is the tree oid, then one path per line
+ *   exit 128  git could not answer (unrelated histories, and similar)
+ *
+ * The last case is reported as nothing at all rather than as a conflict: an
+ * agent sent to reconcile a collision that does not exist has been given work,
+ * not information.
+ */
+function conflicts(dir: string, short: string): string[] {
+  // Empty when the tree is clean, and `HEAD` is then the honest comparison.
+  const wip = Bun.spawnSync(['git', '-C', dir, 'stash', 'create']).stdout.toString().trim()
+  const merge = Bun.spawnSync([
+    'git',
+    '-C',
+    dir,
+    'merge-tree',
+    '--write-tree',
+    '--name-only',
+    wip || 'HEAD',
+    `origin/${short}`,
+  ])
+  if (merge.exitCode !== 1) return []
+  // Line one is the tree the merge produced; the paths follow, then a blank
+  // line and git's own prose, which is for people rather than for this.
+  const [, ...rest] = merge.stdout.toString().split('\n')
+  const paths: string[] = []
+  for (const line of rest) {
+    if (line.trim() === '') break
+    paths.push(line.trim())
+  }
+  return paths
 }
 
 let attempt = 0

@@ -82,7 +82,7 @@ describe('renderLanding', () => {
 describe('the ref-event stream on the page', () => {
   test('with events on, the page describes the same capability', () => {
     const page = renderLanding({ ...FACTS, events: true, host: 'agentgit.zabaca.com' })
-    expect(page).toContain('Know when it moved. Without asking.')
+    expect(page).toContain('And nobody configures a webhook.')
     expect(page).toContain('wss://agentgit.zabaca.com/_walgit/events')
     expect(page).toContain('&lt;- {"ok":true')
     expect(page).not.toContain('{{')
@@ -119,5 +119,18 @@ describe('the events section carries a runnable client', () => {
     const html = renderLanding({ ...FACTS, events: false })
     expect(html).not.toContain('_walgit/events')
     expect(html).not.toContain('git","fetch"')
+  })
+})
+
+describe('the page shows how to tell if it landed on your work', () => {
+  test('with events on, the collision check is on the page', () => {
+    const html = renderLanding({ ...FACTS, events: true })
+    expect(html).toContain('git stash create')
+    expect(html).toContain('merge-tree --write-tree --name-only')
+  })
+
+  test('with events off, it is absent with everything else', () => {
+    const html = renderLanding({ ...FACTS, events: false })
+    expect(html).not.toContain('merge-tree')
   })
 })

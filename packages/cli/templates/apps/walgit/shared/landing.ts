@@ -117,42 +117,141 @@ function permanence(facts: LandingFacts): string {
  * when the deployment serves no stream, so nobody writes a client against a
  * section rather than against a socket.
  */
-function eventsSection(facts: LandingFacts): string {
-  if (!facts.events) return ''
-  return `    <section>
-      <h2>Know when it moved. Without asking.</h2>
-      <p>An agent in a sandbox has no address to deliver a webhook to, so the connection goes the other way: <strong>open a WebSocket, say which refs you care about, and walgit talks down it.</strong> The reply is the current sha of everything you named — so the socket also answers the first question, and there is no fetch before it.</p>
-      <p>After that, one message per ref that moves and nothing in between. No cursor, no replay, no timer: it is latest state, and a reconnect simply asks again.</p>
-      <div class="panel">
-        <div class="panel-head">
-          <span><span class="pulse"></span>wss://${facts.host}${EVENTS_PATH}</span>
-          <span>on the wire</span>
-        </div>
-        <pre class="tx"><span class="p">-&gt;</span> {"watch":[{"repo":"my-thing","refs":["refs/heads/main"]}]}
-<span class="ok">&lt;- {"ok":true,"refs":[{"repo":"my-thing","ref":"refs/heads/main","sha":"a1b2c3…"}]}</span>
+/**
+ * The three acts, and the one terminal that plays them.
+ *
+ * It is one story, so it gets one illustration: the argument scrolls on the
+ * left, a terminal holds its place on the right, and what it is showing
+ * changes as each act is reached. The agent cannot sign up, so it pushes; it
+ * has to hand work over, so it sends a URL; it has to know when that moved, so
+ * it opens a socket.
+ *
+ * The third act exists only where the deployment serves the stream, for the
+ * same reason every limit on this page is rendered rather than written: an act
+ * describing a socket that answers 404 is a lie told at the top of the funnel.
+ * Assembled here rather than in the template because a static block cannot drop
+ * its middle third.
+ */
+function storySection(facts: LandingFacts): string {
+  const socket = `wss://${facts.host}${EVENTS_PATH}`
 
-<span class="c"># somebody else pushes</span>
-<span class="ok">&lt;- {"repo":"my-thing","ref":"refs/heads/main","sha":"d4e5f6…"}</span></pre>
-      </div>
+  const webhookAct = `
+        <section class="act">
+          <h2>And nobody configures a webhook.</h2>
+          <p>The last wall is finding out that something moved. On a forge that is a webhook: repository admin, a public HTTPS endpoint, a secret, a handler to keep running. An agent in a sandbox has no address to deliver one to — no ingress, no stable hostname, often nothing listening at all — so it is not a setup problem, it is a direction problem.</p>
+          <p><strong>So the connection goes the other way.</strong> The agent opens a socket outbound and names the refs it cares about. The reply is the current sha of every one of them, and after that one message per ref that moves and nothing in between — no cursor, no replay, no timer.</p>
+        </section>`
+
+  const wireScene = `
+          <div class="scene panel" data-scene="2">
+            <div class="panel-head">
+              <span><span class="pulse"></span>${socket}</span>
+              <span>on the wire</span>
+            </div>
+            <pre class="tx" data-play><span class="ln" style="--i:0"><span class="p">-&gt;</span> {"watch":[{"repo":"study-42","refs":["refs/heads/main"]}]}
+</span><span class="ln" style="--i:1"><span class="ok">&lt;- {"ok":true,"refs":[{"repo":"study-42","ref":"refs/heads/main","sha":"a1b2c3…"}]}</span>
+</span><span class="ln" style="--i:2">
+<span class="c"># the other agent pushes. no webhook, no polling.</span>
+</span><span class="ln" style="--i:3"><span class="ok">&lt;- {"repo":"study-42","ref":"refs/heads/main","sha":"d4e5f6…"}</span><span class="caret"></span></span></pre>
+            <div class="panel-foot">Opened from the inside, so a sandbox needs no address.</div>
+          </div>`
+
+  const client = `
+    <section>
+      <h2>The whole client.</h2>
       <p>The useful thing to do with each message is fetch, which is a background process small enough to paste. No cursor, no state file, no keepalive — if it drops, the reply to its next <code>watch</code> is current state.</p>
       <div class="panel">
         <div class="panel-head">
           <span>keep a clone current</span>
-          <span>the whole client</span>
+          <span>four lines</span>
         </div>
-        <pre class="tx">bun -e 'const w=new WebSocket("wss://${facts.host}${EVENTS_PATH}")
+        <pre class="tx">bun -e 'const w=new WebSocket("${socket}")
   w.onopen=()=&gt;w.send(JSON.stringify({watch:[{repo:"my-thing"}]}))
   w.onmessage=e=&gt;JSON.parse(e.data).ok||Bun.spawnSync(["git","fetch"])
   w.onclose=()=&gt;process.exit(75)' &amp;</pre>
       </div>
+      <p>And the question worth asking once it lands: <strong>does what just arrived collide with what you are in the middle of?</strong> git answers that without touching your working tree — <code>stash create</code> is what makes it see uncommitted work, since <code>merge-tree</code> compares commits and mid-task edits are invisible to it otherwise.</p>
+      <div class="panel">
+        <div class="panel-head">
+          <span>did it land on top of me</span>
+          <span>exit 1 = yes, and which files</span>
+        </div>
+        <pre class="tx">WIP=$(git stash create)
+git merge-tree --write-tree --name-only \${WIP:-HEAD} origin/main</pre>
+      </div>
     </section>
 `
+
+  return `    <div class="story">
+      <div class="acts">
+        <section class="act">
+          <h2>Your agent cannot sign up.</h2>
+          <p>Every forge starts with an account: an email, a password, a second factor, a key to generate and register. All of it assumes a person, and an agent has none of it — so the work stops and waits for a human, or it stays on a disk that gets thrown away with the sandbox.</p>
+          <p>Agents are getting their own identities everywhere else. They have their own inboxes now, and it turned out that mattered more than anyone expected. <strong>Here, the push is the signup.</strong> The first push to a name creates the repository, and the agent's remote is its own from the first second.</p>
+        </section>
+
+        <section class="act">
+          <h2>A handoff is a URL.</h2>
+          <p>Agents work in parallel and hand things to each other. On a forge that means an owner, an invitation, a permission model and a review before anything can move — machinery built so people can safely disagree about a shared branch.</p>
+          <p>This is built the other way: <strong>anyone can push, and refs only move forward.</strong> One agent pushes, sends another the URL, and the second is working. Nothing to grant, nobody to add. Append-only is what makes that safe to do — a rewrite or a deletion is refused, so nothing anyone builds on can be pulled out from under them.</p>
+        </section>
+${facts.events ? webhookAct : ''}
+      </div>
+
+      <div class="stage">
+        <div class="scenes">
+          <div class="scene panel on" data-scene="0">
+            <div class="panel-head">
+              <span>the part where it stops</span>
+              <span>every time</span>
+            </div>
+            <pre class="tx" data-play><span class="ln" style="--i:0"><span class="you">&gt;</span> <span class="say">save this somewhere I won't lose it</span>
+</span><span class="ln" style="--i:1">
+<span class="p">●</span> Bash(git push -u origin main)
+</span><span class="ln" style="--i:2">  <span class="no">remote: Repository not found.
+  fatal: repository 'https://github.com/you/thing.git/' not found</span>
+</span><span class="ln" style="--i:3">
+<span class="p">●</span> I can't create the repository myself — that needs a
+  GitHub account, and signing up needs an email and a
+  second factor I don't have.
+</span><span class="ln" style="--i:4">
+  Can you create it and add me? I'll wait.<span class="caret"></span></span></pre>
+            <div class="panel-foot">Here, instead: <code>git push https://${facts.host}/thing.git main</code></div>
+          </div>
+
+          <div class="scene panel" data-scene="1">
+            <div class="panel-head">
+              <span>two agents, no accounts</span>
+              <span>the whole ceremony</span>
+            </div>
+            <pre class="tx" data-play><span class="ln" style="--i:0"><span class="c"># agent one, on some machine</span>
+<span class="p">$</span> git push https://${facts.host}/study-42.git main
+<span class="ok"> * [new branch]      main -&gt; main</span>
+</span><span class="ln" style="--i:1">
+<span class="c"># the handoff. this is the entire handoff.</span>
+<span class="say">  https://${facts.host}/study-42.git</span>
+</span><span class="ln" style="--i:2">
+<span class="c"># agent two, somewhere else, ten seconds later</span>
+<span class="p">$</span> git clone https://${facts.host}/study-42.git
+<span class="ok">Cloning into 'study-42'... done.</span>
+</span><span class="ln" style="--i:3"><span class="p">$</span> git push origin HEAD:refs/heads/review
+<span class="ok"> * [new branch]      review -&gt; review</span><span class="caret"></span></span></pre>
+            <div class="panel-foot">No owner, no invitation, nothing to grant.</div>
+          </div>
+${facts.events ? wireScene : ''}
+        </div>
+        <ul class="stage-mark" aria-hidden="true">
+          <li class="on"></li><li></li>${facts.events ? '<li></li>' : ''}
+        </ul>
+      </div>
+    </div>
+${facts.events ? client : ''}`
 }
 
 export function renderLanding(facts: LandingFacts): string {
   return PAGE.replaceAll('{{HOST}}', facts.host)
     .replace('{{THIRD_CLAIM}}', thirdClaim(facts))
-    .replace('{{EVENTS}}', eventsSection(facts))
+    .replace('{{EVENTS}}', storySection(facts))
     .replace('{{PERMANENCE}}', permanence(facts))
 }
 
@@ -409,6 +508,74 @@ const PAGE = `<!doctype html>
   }
   section p strong { color: var(--bone); font-weight: 400; }
 
+  /* ── the three acts, and the one terminal that plays them ─────────────── */
+
+  .story {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.08fr);
+    gap: 0 3rem;
+    align-items: start;
+    margin-top: 4.5rem;
+  }
+  .acts .act { margin-top: 0; padding: 4.5rem 0; }
+  .acts .act:first-child { padding-top: 0; }
+  .acts .act p { max-width: 46ch; }
+
+  .stage { position: sticky; top: 5rem; }
+  /* One grid cell for every scene, so the frame is as tall as the tallest and
+     never resizes under the reader when the act changes. */
+  .scenes { display: grid; }
+  .scenes > .scene { grid-area: 1 / 1; }
+
+  .scene {
+    opacity: 0;
+    visibility: hidden;
+    transform: translateY(.5rem);
+    transition: opacity .35s ease, transform .35s ease, visibility 0s linear .35s;
+  }
+  .scene.on {
+    opacity: 1;
+    visibility: visible;
+    transform: none;
+    transition: opacity .35s ease, transform .35s ease, visibility 0s;
+  }
+
+  .stage-mark { display: flex; gap: .4rem; margin: .9rem 0 0; padding: 0; list-style: none; }
+  .stage-mark li { height: 2px; width: 2.2rem; background: var(--rule-2); transition: background .3s ease; }
+  .stage-mark li.on { background: var(--copper); }
+
+  /* A transcript arrives a line at a time when its scene does, because a
+     terminal is something that happens rather than something that is. Lines
+     are visible until script arms them, so no-JS reads the whole thing. */
+  .tx.armed > span.ln { opacity: 0; }
+  .tx.play > span.ln { animation: ln .26s ease-out both; animation-delay: calc(var(--i) * 220ms); }
+  @keyframes ln {
+    from { opacity: 0; transform: translateY(.28rem); }
+    to   { opacity: 1; transform: none; }
+  }
+  .tx .caret {
+    display: inline-block;
+    width: .52em; height: 1em;
+    background: var(--copper);
+    vertical-align: -.14em;
+    animation: blink 1.05s steps(1) infinite;
+  }
+  @keyframes blink { 50% { opacity: 0; } }
+  .tx .you { color: var(--copper); }
+  .tx .say { color: var(--bone); }
+
+  @media (max-width: 62rem) {
+    /* No room for two columns, so the terminal stops holding its place: every
+       scene is simply shown, in order, under the acts. */
+    .story { grid-template-columns: 1fr; gap: 0; }
+    .acts .act { padding: 2.75rem 0 1.25rem; }
+    .acts .act p { max-width: 58ch; }
+    .stage { position: static; }
+    .scenes { display: block; }
+    .scenes > .scene { opacity: 1; visibility: visible; transform: none; margin-bottom: 1.5rem; }
+    .stage-mark { display: none; }
+  }
+
   .not {
     border-left: 2px solid var(--copper);
     padding-left: 1.2rem;
@@ -429,6 +596,9 @@ const PAGE = `<!doctype html>
 
   @media (prefers-reduced-motion: reduce) {
     .log li { animation: none; }
+    .tx.armed > span.ln, .tx.play > span.ln { opacity: 1; animation: none; }
+    .tx .caret { animation: none; }
+    .scene { transition: none; }
     * { transition: none !important; }
   }
 
@@ -465,7 +635,7 @@ const PAGE = `<!doctype html>
 
     <h1>Git for AI agents<span class="dot">.</span></h1>
 
-    <p class="lede"><em>Push to a name and the repository exists.</em> Nothing to create first, and no API besides git itself.</p>
+    <p class="lede">Your agent writes code all day and has nowhere of its own to put it. <em>Push to a name and the repository exists</em> — no account, no key, no API besides git itself.</p>
 
     <div class="cta">
       <p class="cta-label">Give this to your agent</p>
@@ -477,12 +647,6 @@ const PAGE = `<!doctype html>
       </div>
     </div>
     <p class="under">No account · <span>No token</span> · No key</p>
-
-    <ul class="claims">
-      <li><span class="k">Append-only</span><span class="v"><b>Nothing you push can be destroyed.</b> Anyone may add; no one may rewrite or delete.</span></li>
-      <li><span class="k">Public</span><span class="v"><b>Every repository is world-readable and world-writable.</b> Privacy is not free yet.</span></li>
-{{THIRD_CLAIM}}
-    </ul>
 
     <div class="panel">
       <div class="panel-head">
@@ -512,19 +676,17 @@ remote: Nothing was uploaded; the repository is unchanged.
       </div>
     </div>
 
-    <section>
-      <h2>Push anything. Destroy nothing.</h2>
-      <p>Anyone can write to any repository here, which sounds reckless until you know the second half: <strong>refs only ever move forward.</strong> A non-fast-forward update is refused, a ref deletion is refused, and a new branch is always welcome.</p>
-      <p>So a stranger who finds your repository can build on it and cannot take anything away from it. That is not a compromise between openness and safety — it is what makes the openness affordable.</p>
+{{EVENTS}}    <section>
+      <h2>The terms, in full.</h2>
+      <ul class="claims">
+        <li><span class="k">Append-only</span><span class="v"><b>Nothing you push can be destroyed.</b> Anyone may add; no one may rewrite or delete.</span></li>
+        <li><span class="k">Public</span><span class="v"><b>Every repository is world-readable and world-writable.</b> Sharing is a URL, not an invitation. Privacy is not free yet.</span></li>
+        <li><span class="k">Durable</span><span class="v"><b>A push is in object storage before it is acknowledged.</b> The server's disks are a cache; losing the machine loses nothing.</span></li>
+{{THIRD_CLAIM}}
+      </ul>
     </section>
 
-    <section>
-      <h2>The disk is a cache.</h2>
-      <p>Every push is written to a write-ahead log in object storage <strong>before it is acknowledged</strong>, and that log is the source of truth. The bare repositories on the server are a cache — deletable at any moment, rebuilt from the log the next time someone asks.</p>
-      <p>Which means losing the machine loses nothing. A repository nobody has touched for a while is simply gone from disk, and reappears, whole, on the next clone.</p>
-    </section>
-
-{{EVENTS}}    <section class="not">
+    <section class="not">
       <h2>What it is not.</h2>
       <p>Not a forge: no pull requests, no code review, no CI, no issues. Not private: everything here is readable by everyone, and that is the free tier's defining property rather than an oversight. {{PERMANENCE}}</p>
       <p>Not a place for anything you cannot lose.</p>
@@ -547,6 +709,54 @@ remote: Nothing was uploaded; the repository is unchanged.
     var id = "";
     for (var i = 0; i < 8; i++) id += chars[Math.floor(Math.random() * chars.length)];
     document.getElementById("mine").textContent = "{{HOST}}/visitor-" + id + ".git";
+
+    // The stage: whichever act is nearest the middle of the screen decides what
+    // the terminal is showing. Nothing here changes what the page SAYS — with
+    // no script, or with reduced motion asked for, every scene is visible and
+    // every transcript is whole, which is why the CSS hides them only once this
+    // has run.
+    var still = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    var acts = [].slice.call(document.querySelectorAll(".acts .act"));
+    var scenes = [].slice.call(document.querySelectorAll(".scene"));
+    var marks = [].slice.call(document.querySelectorAll(".stage-mark li"));
+    var wide = window.matchMedia && window.matchMedia("(min-width: 62.01rem)").matches;
+
+    if (!still && wide && acts.length && acts.length === scenes.length && "IntersectionObserver" in window) {
+      document.querySelectorAll("[data-play]").forEach(function (el) { el.classList.add("armed"); });
+
+      var show = function (i) {
+        scenes.forEach(function (scene, n) { scene.classList.toggle("on", n === i); });
+        marks.forEach(function (mark, n) { mark.classList.toggle("on", n === i); });
+        var tx = scenes[i].querySelector("[data-play]");
+        // Played once each: a transcript that restarted every time it came back
+        // would read as a loop rather than as something that happened.
+        if (tx) tx.classList.add("play");
+      };
+      show(0);
+
+      var current = 0;
+      var pick = function () {
+        var middle = window.innerHeight / 2;
+        var best = current;
+        var bestGap = Infinity;
+        acts.forEach(function (act, i) {
+          var box = act.getBoundingClientRect();
+          var gap = Math.abs(box.top + box.height / 2 - middle);
+          if (gap < bestGap) { bestGap = gap; best = i; }
+        });
+        if (best !== current) { current = best; show(best); }
+      };
+
+      var ticking = false;
+      var onScroll = function () {
+        if (ticking) return;
+        ticking = true;
+        requestAnimationFrame(function () { pick(); ticking = false; });
+      };
+      window.addEventListener("scroll", onScroll, { passive: true });
+      window.addEventListener("resize", onScroll, { passive: true });
+      pick();
+    }
 
     // Copy the two commands, without the prompt marks or the comment.
     var btn = document.getElementById("copy");
