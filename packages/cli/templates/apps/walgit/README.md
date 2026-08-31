@@ -50,7 +50,7 @@ by layer:
 | `src/delete-repo.ts`                                 | remove a whole repository: tombstone, wait, then index-first deletion                                                                            |
 | `src/expire.ts`                                      | decide WHICH repositories go: idle since their last push, past the window                                                                        |
 | `src/limits.ts`                                      | the push-size and repository-total caps, refused in `pre-receive` before anything is uploaded                                                    |
-| `src/signers.ts`                                     | the Signer List a repository holds, resolved and refused in `pre-receive` beside the size caps                                                   |
+| `src/signers.ts`                                     | the Signer List a repository holds, resolved in `pre-receive` beside the size caps and re-asked at the publish                                   |
 | `src/usage.ts`                                       | what the log says this service holds, folded out of the indexes                                                                                  |
 | `src/instructions.ts`                                | the plain-text `GET /` — the whole API surface, rendered from the limits actually enforced                                                       |
 | `src/verify.ts`, `src/cli.ts`                        | the operator CLI: inspect, rebuild, verify, reclaim                                                                                              |

@@ -397,6 +397,20 @@ export function describeSigner(signer: string | null, env: PushCertEnv = process
 export type SignerGateVerdict = { ok: true } | { ok: false; kind: GateRefusal; message: string }
 
 /**
+ * Which of the gate's two askings this is. It changes two sentences and no
+ * verdict — the answer is the same function of the same three inputs either
+ * way, and only what has already happened to the pusher's objects differs.
+ *
+ * `pre-receive` runs before the upload, so its refusal can truthfully end
+ * "nothing was uploaded; the repository is unchanged". The publish runs after
+ * the upload, on a push a moving list overtook mid-flight — and possibly after
+ * an earlier transaction of that same push has already published a ref — so
+ * both halves of that sentence would be a lie. A refusal that lies about what
+ * it did with your objects is worse than one that says nothing.
+ */
+export type GateStage = 'pre-receive' | 'publish'
+
+/**
  * May this push land, given who signed it and the list this name already holds?
  *
  * Pure over its three inputs, with no git, no store and no subprocess in reach:
@@ -407,6 +421,15 @@ export type SignerGateVerdict = { ok: true } | { ok: false; kind: GateRefusal; m
  * of the grant rule: a push may move the list and a branch together, and the
  * list it installs applies from the following push. The founding push needs no
  * exception written for it, because an unclaimed name refuses nothing.
+ *
+ * **Asked twice, of two readings of the Index.** `pre-receive` asks it before
+ * the pack uploads, which is where a refusal is free — nothing has been written
+ * and no Orphan is left behind. The compare-and-swap that publishes asks it
+ * again, against the Index it is committing onto, which is where the answer is
+ * TRUE: a name that was free when the push was judged can be claimed while its
+ * pack uploads, and under append-only that write would be permanent. Being pure
+ * over its three inputs is what lets it be asked in both places without either
+ * caller knowing anything about the other. See `publishPush` in `src/push.ts`.
  *
  * **The Index is what enforces, and the ref is what is authoritative** — the
  * gap ADR-0012 leaves to this slice, answered rather than hidden. The derived
@@ -432,13 +455,14 @@ export function checkSignerAllowed(
   signer: PushSigner,
   claimed: readonly string[] | null,
   changes: readonly RefChange[],
+  stage: GateStage = 'pre-receive',
 ): SignerGateVerdict {
   if (claimed === null || claimed.length === 0) return { ok: true }
   if (signer.kind === 'signed' && claimed.includes(signer.fingerprint)) return { ok: true }
   return {
     ok: false,
     kind: signer.kind === 'signed' ? 'not-listed' : signer.kind,
-    message: heldMessage(repoId, signer, changes),
+    message: heldMessage(repoId, signer, changes, stage),
   }
 }
 
@@ -452,7 +476,12 @@ export function checkSignerAllowed(
  * name is held, here is a free one to use instead, and here is how to be added
  * to this one.
  */
-function heldMessage(repoId: string, signer: PushSigner, changes: readonly RefChange[]): string {
+function heldMessage(
+  repoId: string,
+  signer: PushSigner,
+  changes: readonly RefChange[],
+  stage: GateStage,
+): string {
   const why =
     signer.kind === 'signed'
       ? [
@@ -481,10 +510,29 @@ function heldMessage(repoId: string, signer: PushSigner, changes: readonly RefCh
             'nonce; if it keeps failing, `ssh-keygen -Y check-novalidate` is what walgit',
             'runs.',
           ]
+  // Why a refusal arrived at the END of a push that was allowed to start. The
+  // pusher's own git told them nothing was wrong for as long as the upload
+  // took, and an agent handed the ordinary refusal after that would go looking
+  // for what it did differently this time. Nothing: the list moved.
+  //
+  // "moved" and not "was claimed", because both ways of moving reach this: a
+  // free name claimed mid-push, and a list that dropped this key mid-push. An
+  // agent told it was squatted when it was in fact revoked goes looking for a
+  // stranger instead of asking to be re-listed.
+  const late =
+    stage === 'publish'
+      ? [
+          `${repoId}'s Signer List moved while this push's objects were uploading, so the`,
+          'refusal arrives at the end of the push rather than at the start. The list that',
+          'judges it is the one standing now.',
+          '',
+        ]
+      : []
   const refs = describeRefs(changes)
   return [
     `walgit: refused — ${repoId} is held by a Signer List.`,
     '',
+    ...late,
     ...(refs === null ? [] : [`This push would have written ${refs}.`]),
     ...why,
     '',
@@ -497,7 +545,18 @@ function heldMessage(repoId: string, signer: PushSigner, changes: readonly RefCh
     '    whose `signers` file gains the line `ssh-keygen -lf <your-key>` prints.',
     '    A grant governs the NEXT push, so retry once theirs has landed.',
     '',
-    'Nothing was uploaded; the repository is unchanged.',
+    // The publish wording is careful about two things the `pre-receive` one can
+    // state flatly. The pack DID upload, so "nothing was uploaded" would be a
+    // lie; and git updates refs one at a time unless the client asked for
+    // `--atomic`, so an earlier part of this same push may already have
+    // published — "the repository is unchanged" would be a lie too.
+    ...(stage === 'publish'
+      ? [
+          'Nothing named above was written. git updates refs one at a time unless the',
+          'client asked for --atomic, so any ref an earlier part of this push already',
+          'published stays; objects nothing ends up referencing are collected.',
+        ]
+      : ['Nothing was uploaded; the repository is unchanged.']),
   ].join('\n')
 }
 

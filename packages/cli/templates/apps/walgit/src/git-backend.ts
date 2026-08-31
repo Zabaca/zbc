@@ -55,11 +55,40 @@ export async function runGitHttpBackend(req: BackendRequest): Promise<Response> 
     stderr: 'pipe',
   })
 
+  // git's own diagnostics, and every hook's. Drained rather than dropped for
+  // two reasons that are really one: a 64 KiB pipe nobody reads eventually
+  // blocks the child mid-push, and a refusal reached at `reference-transaction`
+  // has nowhere else to go. Only `pre-receive` output rides the sideband to the
+  // client — a `prepared` hook that exits non-zero makes git die with "ref
+  // updates aborted by hook", and its stderr is the CGI's, not the connection's.
+  // So this is the one place a publish-time refusal is readable at all.
+  void drainToStderr(child.stderr)
+
   const { headers, rest } = await readCgiHeaders(child.stdout)
   const status = Number(headers.get('status')?.slice(0, 3) ?? 200)
   headers.delete('status')
 
   return new Response(concatStream(rest, child.stdout), { status, headers })
+}
+
+/**
+ * Copy the child's stderr to ours, and swallow every failure doing it.
+ *
+ * Deliberately not awaited: the response streams, and a push is a long request
+ * whose diagnostics arrive throughout it. A failure here is a child that is
+ * already gone, which leaves nothing to log and must never touch the push.
+ */
+async function drainToStderr(stream: ReadableStream<Uint8Array>): Promise<void> {
+  const reader = stream.getReader()
+  try {
+    for (;;) {
+      const { done, value } = await reader.read()
+      if (done) return
+      process.stderr.write(value)
+    }
+  } catch {
+    return
+  }
 }
 
 /** Read up to the CGI header terminator, returning the leftover first chunk. */

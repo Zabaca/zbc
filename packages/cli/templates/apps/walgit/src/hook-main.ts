@@ -22,7 +22,14 @@ import { appendOnlyEnabled, checkAppendOnly } from './append-only'
 import { configuredThreshold, isCompactionDue } from './compact'
 import { checkSize, limitsEnforced, limitsFromEnv, liveBytes } from './limits'
 import { clearPending, invocationId, markConsumed, readPending, sweepPending } from './pending'
-import { establishSigner, parseRefChanges, preReceive, publishPush, quarantinePack } from './push'
+import {
+  establishSigner,
+  parseRefChanges,
+  preReceive,
+  publishPush,
+  quarantinePack,
+  type PublishResult,
+} from './push'
 import {
   checkSignerAllowed,
   checkSignerList,
@@ -80,7 +87,11 @@ async function main(): Promise<number> {
     // accepted before any of this existed. Its one exception is confined to a
     // repository that holds a Signer List, where `null` refuses, because
     // otherwise breaking verification would be how one bypasses the gate.
-    const signer = establishSigner()
+    //
+    // Described here rather than at the one call that judges it, because the
+    // publish judges it a second time and the certificate is gone by then: the
+    // three-way answer rides down through the pending record.
+    const signer = describeSigner(establishSigner())
     const changes = parseRefChanges(stdin).filter((c) => c.ref.startsWith('refs/'))
 
     const quarantineDir = process.env.GIT_QUARANTINE_PATH || process.env.GIT_OBJECT_DIRECTORY
@@ -104,10 +115,15 @@ async function main(): Promise<number> {
     // The list that judges is the one that stood BEFORE this push, which is
     // what makes a grant govern the next push rather than its own. Off entirely
     // without the flag, and on an unclaimed name it refuses nothing.
+    //
+    // Asked here and asked AGAIN at the compare-and-swap that publishes: this
+    // answer is read before the pack uploads, so it can be stale by the time
+    // the push lands. Here is where a refusal is free; there is where it is
+    // true. See `publishPush`.
     if (signerListsEnabled()) {
       const verdict = checkSignerAllowed(
         repoId,
-        describeSigner(signer),
+        signer,
         (await index()).claim?.signers ?? null,
         changes,
       )
@@ -221,18 +237,22 @@ async function main(): Promise<number> {
     // the rest anonymous; dropping the list would lose a claim outright
     // whenever git happened to move the list ref in a later transaction than
     // the one that published the pack. `applyClaim` is what keeps carrying it
-    // in every transaction from writing it in the wrong one.
+    // in every transaction from writing it in the wrong one. The Signer rides
+    // along for the third reason: the publish re-asks the ownership question,
+    // and a later transaction dropping it would be judged as an anonymous push.
     const toPublish = pending.consumed
-      ? { entry: null, provenance: pending.provenance, claim: pending.claim }
+      ? {
+          entry: null,
+          provenance: pending.provenance,
+          claim: pending.claim,
+          signer: pending.signer,
+        }
       : pending
-    const result = await publishPush(store, repoId, toPublish, changes)
+    const result = await publishPush(store, repoId, toPublish, changes, {
+      signerLists: signerListsEnabled(),
+    })
     if (!result.ok) {
-      process.stderr.write(
-        result.reason === 'ref-conflict'
-          ? `walgit: ${result.ref} moved under this push (index has ${result.actual}, ` +
-              `push expected ${result.expected}) — fetch and retry\n`
-          : 'walgit: the write-ahead log stayed contended — retry the push\n',
-      )
+      process.stderr.write(`${publishRefusal(result)}\n`)
       return 1
     }
     if (toPublish.entry) markConsumed(gitDir, invocation)
@@ -288,6 +308,30 @@ try {
 } catch (err) {
   process.stderr.write(`walgit: ${(err as Error).message}\n`)
   process.exit(1)
+}
+
+/**
+ * What a refused publish says, in the words its own reason earned.
+ *
+ * The ownership refusal carries its message from the gate rather than being
+ * reworded here, because it IS the gate's refusal — reached late, but the same
+ * one, and an agent that met it in `pre-receive` yesterday must not have to
+ * recognise a second spelling of it today. Calling it a ref conflict would be
+ * worse than terse: it would send the pusher to fetch and rebase, which cannot
+ * help, and would hide that the name is now held.
+ */
+function publishRefusal(result: Extract<PublishResult, { ok: false }>): string {
+  switch (result.reason) {
+    case 'ref-conflict':
+      return (
+        `walgit: ${result.ref} moved under this push (index has ${result.actual}, ` +
+        `push expected ${result.expected}) — fetch and retry`
+      )
+    case 'not-allowed':
+      return result.message
+    case 'contended':
+      return 'walgit: the write-ahead log stayed contended — retry the push'
+  }
 }
 
 /**
