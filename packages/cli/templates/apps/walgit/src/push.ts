@@ -74,6 +74,30 @@ export function quarantinePack(quarantineDir: string): { pack: string; idx: stri
   }
 }
 
+/**
+ * The Signer this push establishes, or `null` for "nobody, as far as walgit can
+ * tell" — computed once, by the caller, before anything is written.
+ *
+ * The reader is injected the way `announce`'s `fetchImpl` is: the default reads
+ * git's own environment and shells out to `ssh-keygen`, so every decision
+ * downstream of this stays testable without a keypair, a subprocess or a
+ * running git.
+ *
+ * The catch is unconditional and it is the fail-open rule itself: a reader that
+ * throws is a push with no Signer, not a push with an error (docs/adr/0011).
+ * `certSigner` already swallows its own failures, so today this guards the seam
+ * rather than the default — but the guarantee belongs to the seam, not to
+ * whoever happens to be plugged into it, and the caller is `hook-main`, where an
+ * escaping throw is fatal to the push.
+ */
+export function establishSigner(signer: () => string | null = certSigner): string | null {
+  try {
+    return signer()
+  } catch {
+    return null
+  }
+}
+
 export interface PreReceiveContext {
   store: ObjectStore
   repoId: string
@@ -81,12 +105,17 @@ export interface PreReceiveContext {
   quarantineDir: string | undefined
   now?: () => Date
   /**
-   * Who signed this push, injected the way `announce`'s `fetchImpl` is: the
-   * default reads git's own environment and shells out to `ssh-keygen`, so
-   * every decision on this path stays testable without a keypair, a subprocess
-   * or a running git.
+   * Who signed this push, as `establishSigner` already answered it — a value
+   * and not a thunk. The hook settles the question above this call because a
+   * verdict that turns on the Signer has to be able to run before the upload;
+   * by the time this function runs there is nothing left to ask.
+   *
+   * Required, and `null` has to be written out. Optional, it would read as
+   * "unsigned" to the compiler and as "forgotten" to nobody — a call site that
+   * dropped it would record no Provenance for a push that carried a perfectly
+   * good certificate, and typecheck.
    */
-  signer?: () => string | null
+  signer: string | null
 }
 
 /**
@@ -97,19 +126,15 @@ export interface PreReceiveContext {
  * is right in the common case and merely cosmetic when it is wrong: the ULID
  * keeps the key unique, and `index.json` carries the authoritative key for
  * every entry, so a mis-numbered key is never followed by anything.
+ *
+ * The Signer arrives already established (`ctx.signer`) rather than being read
+ * here: the hook has to hold it before it reaches this function, because a
+ * verdict that needs it and is reached after the upload would leave an Orphan
+ * behind every push it refused.
  */
 export async function preReceive(ctx: PreReceiveContext): Promise<void> {
   const now = ctx.now ?? (() => new Date())
-  // Read before anything else on this path can fail, and behind a catch of its
-  // own: the certificate is only readable while the push's quarantine exists,
-  // and provenance must never be the reason a push does not land. A signer that
-  // throws is a push with no Signer, not a push with an error.
-  let signer: string | null = null
-  try {
-    signer = (ctx.signer ?? certSigner)()
-  } catch {
-    signer = null
-  }
+  const signer = ctx.signer
   const provenance: Provenance | null = signer ? { signer, ts: now().toISOString() } : null
   const found = ctx.quarantineDir ? quarantinePack(ctx.quarantineDir) : null
   if (!found) {

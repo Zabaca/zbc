@@ -11,7 +11,7 @@ import {
   writePending,
   type PendingPush,
 } from './pending'
-import { parseRefChanges, preReceive, publishPush } from './push'
+import { establishSigner, parseRefChanges, preReceive, publishPush } from './push'
 import { ZERO_OID } from '../shared/protocol'
 import { loadIndex, type RefChange } from './wal-index'
 
@@ -158,7 +158,7 @@ describe('preReceive', () => {
     fs.writeFileSync(path.join(quarantine, 'pack', 'pack-1.keep'), '')
 
     const store = new MemoryStore()
-    await preReceive({ store, repoId: 'r', gitDir: dir, quarantineDir: quarantine })
+    await preReceive({ store, repoId: 'r', gitDir: dir, quarantineDir: quarantine, signer: null })
 
     const keys = await store.list('repos/r/wal/')
     expect(keys).toHaveLength(2)
@@ -177,7 +177,7 @@ describe('preReceive', () => {
   test('a push with no objects records a pending with no entry', async () => {
     const dir = scratch()
     const store = new MemoryStore()
-    await preReceive({ store, repoId: 'r', gitDir: dir, quarantineDir: undefined })
+    await preReceive({ store, repoId: 'r', gitDir: dir, quarantineDir: undefined, signer: null })
 
     expect(readPending(dir)!.entry).toBeNull()
     expect(await store.list('repos/r/wal/')).toEqual([])
@@ -191,7 +191,7 @@ describe('the pending hand-off is private to one receive-pack', () => {
     const dir = scratchDir()
     const other = 424242
     const store = new MemoryStore()
-    await preReceive({ store, repoId: 'r', gitDir: dir, quarantineDir: undefined })
+    await preReceive({ store, repoId: 'r', gitDir: dir, quarantineDir: undefined, signer: null })
 
     // The other push's record exists and is intact...
     writePending(dir, { entry: null }, other)
@@ -231,9 +231,9 @@ describe('the pending hand-off is private to one receive-pack', () => {
 /**
  * Provenance on the push path (docs/adr/0011).
  *
- * The verifier is injected at `preReceive`'s existing seam, so every case below
- * runs with no keypair, no `ssh-keygen` and no git — what a real signed push
- * does end to end is `push.e2e.test.ts`'s.
+ * The Signer is established above the upload (`establishSigner`) and handed to
+ * `preReceive`, so every case below runs with no keypair, no `ssh-keygen` and
+ * no git — what a real signed push does end to end is `push.e2e.test.ts`'s.
  */
 describe('provenance', () => {
   const scratch = () => fs.mkdtempSync(path.join(os.tmpdir(), 'walgit-signer-'))
@@ -255,7 +255,7 @@ describe('provenance', () => {
       gitDir: dir,
       quarantineDir: quarantine,
       now: () => new Date(AT),
-      signer: () => signer,
+      signer,
     })
     return readPending(dir)!
   }
@@ -293,7 +293,7 @@ describe('provenance', () => {
       gitDir: dir,
       quarantineDir: undefined,
       now: () => new Date(AT),
-      signer: () => KEY,
+      signer: KEY,
     })
     const recorded = readPending(dir)!
     expect(recorded.entry).toBeNull()
@@ -318,17 +318,30 @@ describe('provenance', () => {
     expect(body).not.toContain('provenance')
   })
 
+  test('establishing the Signer passes the answer through, and defaults to none', () => {
+    expect(establishSigner(() => KEY)).toBe(KEY)
+    expect(establishSigner(() => null)).toBeNull()
+    // No argument, no certificate in the environment: the ordinary unsigned
+    // push, which is what the hook gets on a deployment that takes no signed
+    // pushes at all.
+    expect(establishSigner()).toBeNull()
+  })
+
   test('a verifier that throws does not fail the push', async () => {
     const store = new MemoryStore()
     const dir = scratch()
+    // The catch that fails open lives at the seam the hook calls, above the
+    // upload — so this is the whole of what a throwing verifier costs.
+    const signer = establishSigner(() => {
+      throw new Error('ssh-keygen: not found')
+    })
+    expect(signer).toBeNull()
     await preReceive({
       store,
       repoId: 'r',
       gitDir: dir,
       quarantineDir: undefined,
-      signer: () => {
-        throw new Error('ssh-keygen: not found')
-      },
+      signer,
     })
     // The push is intact and merely anonymous — which is the whole fail-open
     // rule: provenance is metadata and never a new way for a push to fail.
