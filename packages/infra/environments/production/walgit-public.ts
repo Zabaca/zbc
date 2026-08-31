@@ -138,11 +138,11 @@ export default cloudflareModule.instance({
     //
     // The one thing that does NOT propagate this way is a new NAME: a variable
     // reaches the container only if `CONTAINER_ENV` in
-    // packages/walgit/worker/container-env.ts lists it. Adding an entry here
+    // packages/walgit/shared/container-env.ts lists it. Adding an entry here
     // and not there deploys a variable the container never sees.
     workerVars: [
       // Not secrets, and none of them reach the client — but every one of them
-      // reaches the CONTAINER only because worker/container-env.ts forwards it
+      // reaches the CONTAINER only because shared/container-env.ts forwards it
       // by name.
       { name: 'WALGIT_S3_BUCKET', from: 'walgit-public-wal', output: 'bucketName' },
       {
@@ -155,6 +155,60 @@ export default cloudflareModule.instance({
       // hand a stranger: a push may create or fast-forward a ref and may never
       // delete or rewrite one, so nothing anybody pushed can be destroyed.
       { name: 'WALGIT_APPEND_ONLY', value: '1' },
+      // ── ownership ────────────────────────────────────────────────────────
+      //
+      // A repository may name the keys allowed to push to it, on
+      // `refs/walgit/signers`, and while it holds that list a push signed by
+      // anything else is refused. Reads are untouched. The mechanism, the
+      // format and the argument are docs/adr/0012; what belongs here is why
+      // agentgit runs it and what that costs whoever operates it.
+      //
+      // HERE rather than in the package, which is the whole reason this line
+      // exists. It ships OFF in packages/walgit and stays off for every other
+      // deployment; whether a name may refuse a stranger is an opinion about
+      // what this host is for, and CONTEXT-MAP puts opinions in the instance —
+      // walgit may gain capabilities, never opinions. Same argument as
+      // `WALGIT_APPEND_ONLY` above it, and it answers what append-only leaves
+      // open: nothing here can be deleted, which is what makes the URL safe to
+      // hand a stranger and equally what makes a stranger's write into your
+      // name permanent.
+      //
+      // Set BESIDE `WALGIT_PUSH_CERT_SEED` above and never without it. The
+      // seed is what makes `git-receive-pack` advertise certificates at all,
+      // so with no seed every push to a claimed name is refused as unsigned
+      // and no client can sign its way out. It is its own flag rather than a
+      // consequence of the seed because the seed went live on 2026-08-30, and
+      // ownership implied by it would have arrived here as a side effect.
+      //
+      // ON BEFORE ANYONE WRITES A LIST, AND LEFT ON. The ref is authoritative
+      // but the Index carries the copy `pre-receive` enforces from, and that
+      // copy is maintained only while this is set (src/signers.ts). A list
+      // pushed while it was off enforces nothing until it is pushed again, and
+      // turning it back off silently un-enforces every claim on the host. This
+      // is not a knob to toggle.
+      //
+      // A var rather than a secret, unlike the seed: a boolean nobody gains
+      // anything by knowing. Like every var here it reaches the container only
+      // because shared/container-env.ts names it.
+      //
+      // UN-CLAIMING IS IDLE EXPIRY, and only on a deployment like this one.
+      // `WALGIT_RETENTION_HOURS` below collects a repository 24 hours after
+      // its last push, so a name frees itself and a claim is a lease. On a
+      // walgit with no retention window a list is permanent, and for a company
+      // running its own host that is the correct answer rather than a defect —
+      // which is why the package does not couple the two. The coupling belongs
+      // here, in the deployment that holds both.
+      //
+      // There is no recovery path for a lost key and none is coming. What
+      // bounds it is a list naming TWO keys, revocation by a commit that
+      // removes a line, and the 24-hour window above.
+      //
+      // The one way this reaches UNCLAIMED names: a push writing an empty or
+      // unreadable list is now refused everywhere, because an empty list would
+      // hand the name to the next stranger and an unreadable one would leave
+      // an agent believing it holds a name it does not. Those are refusals
+      // about writing a list, not about who may push.
+      { name: 'WALGIT_SIGNER_LISTS', value: '1' },
       // 99 MiB, and the number is measured rather than round. A chunked body
       // is uploaded IN FULL before the edge can answer, so a cap above the
       // chunked cutoff would be enforced only after ~37 s of upload, reported
