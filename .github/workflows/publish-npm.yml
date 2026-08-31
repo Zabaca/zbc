@@ -129,12 +129,23 @@ jobs:
           VERSION="${{ steps.state.outputs.version }}"
           # The publish command's exit code is not the same as the registry
           # holding the version; check the thing consumers will actually resolve.
-          for i in 1 2 3 4 5; do
+          #
+          # Five seconds apart for five tries was enough for a package npm
+          # already knew, and not for a new one. @zabaca/agentgit@0.1.0
+          # published cleanly and this step failed the build: the tarball was
+          # already served, `npm access` already listed the package, and only
+          # the packument — the document `npm view` and `npx` read — was still
+          # propagating. It took minutes, not seconds.
+          #
+          # So the window is now three minutes with a widening gap, and a
+          # failure here means the version is genuinely absent rather than
+          # merely young.
+          for wait in 5 5 10 10 15 15 20 30 30 40 0; do
             if npm view "${{ matrix.package }}@${VERSION}" version >/dev/null 2>&1; then
               echo "${{ matrix.package }}@${VERSION} is live"
               exit 0
             fi
-            sleep 5
+            sleep "${wait}"
           done
-          echo "::error::publish reported success but ${{ matrix.package }}@${VERSION} does not resolve"
+          echo "::error::publish reported success but ${{ matrix.package }}@${VERSION} still does not resolve after three minutes"
           exit 1
