@@ -402,9 +402,11 @@ export type SignerGateVerdict = { ok: true } | { ok: false; kind: GateRefusal; m
  * way, and only what has already happened to the pusher's objects differs.
  *
  * `pre-receive` runs before the upload, so its refusal can truthfully end
- * "nothing was uploaded". The publish runs after it, on a push a claim overtook
- * mid-flight, so the same sentence there would be a lie — and a refusal that
- * lies about what it did with your objects is worse than one that says nothing.
+ * "nothing was uploaded; the repository is unchanged". The publish runs after
+ * the upload, on a push a moving list overtook mid-flight — and possibly after
+ * an earlier transaction of that same push has already published a ref — so
+ * both halves of that sentence would be a lie. A refusal that lies about what
+ * it did with your objects is worse than one that says nothing.
  */
 export type GateStage = 'pre-receive' | 'publish'
 
@@ -511,12 +513,18 @@ function heldMessage(
   // Why a refusal arrived at the END of a push that was allowed to start. The
   // pusher's own git told them nothing was wrong for as long as the upload
   // took, and an agent handed the ordinary refusal after that would go looking
-  // for what it did differently this time. Nothing: the name changed hands.
+  // for what it did differently this time. Nothing: the list moved.
+  //
+  // "moved" and not "was claimed", because both ways of moving reach this: a
+  // free name claimed mid-push, and a list that dropped this key mid-push. An
+  // agent told it was squatted when it was in fact revoked goes looking for a
+  // stranger instead of asking to be re-listed.
   const late =
     stage === 'publish'
       ? [
-          `${repoId} was free when this push was judged, and was claimed while its objects`,
-          'uploaded — so the refusal arrives at the end of the push rather than the start.',
+          `${repoId}'s Signer List moved while this push's objects were uploading, so the`,
+          'refusal arrives at the end of the push rather than at the start. The list that',
+          'judges it is the one standing now.',
           '',
         ]
       : []
@@ -537,10 +545,18 @@ function heldMessage(
     '    whose `signers` file gains the line `ssh-keygen -lf <your-key>` prints.',
     '    A grant governs the NEXT push, so retry once theirs has landed.',
     '',
-    stage === 'publish'
-      ? 'Nothing was published; the repository is unchanged. The objects this push ' +
-        'uploaded are unreferenced, and the host collects them.'
-      : 'Nothing was uploaded; the repository is unchanged.',
+    // The publish wording is careful about two things the `pre-receive` one can
+    // state flatly. The pack DID upload, so "nothing was uploaded" would be a
+    // lie; and git updates refs one at a time unless the client asked for
+    // `--atomic`, so an earlier part of this same push may already have
+    // published — "the repository is unchanged" would be a lie too.
+    ...(stage === 'publish'
+      ? [
+          'Nothing named above was written. git updates refs one at a time unless the',
+          'client asked for --atomic, so any ref an earlier part of this push already',
+          'published stays; objects nothing ends up referencing are collected.',
+        ]
+      : ['Nothing was uploaded; the repository is unchanged.']),
   ].join('\n')
 }
 

@@ -681,9 +681,30 @@ describe('ownership is re-asked at publish', () => {
     // It also says why it is late, and it does not claim nothing was uploaded —
     // the pack went up before the claim landed, and a refusal that lies about
     // what it did with your objects is worse than one that says nothing.
-    expect(message).toContain('was claimed while its objects')
-    expect(message).toContain('Nothing was published')
+    expect(message).toContain("Signer List moved while this push's objects were uploading")
     expect(message).not.toContain('Nothing was uploaded')
+    expect(message).not.toContain('the repository is unchanged')
+  })
+
+  test('the late refusal says the list MOVED, never that the name was claimed', async () => {
+    // Both ways of moving reach this refusal, and only one of them is a claim.
+    // Here the pusher was on the list and a revocation landed mid-push: an
+    // agent told the name had been claimed would go looking for a squatter
+    // instead of asking to be listed again.
+    const store = new MemoryStore()
+    await claim(store, OTHER)
+
+    const revoked = await publishPush(
+      store,
+      'r',
+      { entry: null, signer: signedBy(KEY), provenance: { signer: KEY, ts: AT } },
+      [branch()],
+      gated,
+    )
+
+    const message = (revoked as { message: string }).message
+    expect(message).not.toContain('was free when this push')
+    expect(message).not.toContain('was claimed while')
   })
 
   test('the founding push is not refused by its own re-check', async () => {
