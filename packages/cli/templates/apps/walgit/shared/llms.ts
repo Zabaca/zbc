@@ -22,7 +22,7 @@
 
 import { MAX_REFS_PER_ENTRY, MAX_WATCH_ENTRIES } from './events'
 import { describeBytes } from './policy'
-import { EVENTS_PATH, PROVENANCE_PATH } from './protocol'
+import { EVENTS_PATH, PROVENANCE_PATH, SIGNERS_REF } from './protocol'
 
 export interface LlmsFacts {
   /** The hostname the request arrived on — every command below uses it. */
@@ -50,12 +50,19 @@ export interface LlmsFacts {
   /**
    * Whether a repository here may hold a Signer List, and be defended by it.
    *
-   * Read for one reason in this slice: two sentences below say walgit refuses
-   * nothing on the strength of a signature and keeps no list of allowed
-   * signers, and both stop being true the moment the gate is on. A manual that
-   * kept saying them would be telling an agent the opposite of what the push
-   * path does — the drift `flagEnabled` was extracted to end. The feature's own
-   * documentation is a separate piece of work.
+   * Read twice. It conditions the two sentences that say walgit refuses nothing
+   * on the strength of a signature and keeps no list of allowed signers, both
+   * of which stop being true the moment the gate is on; and it is what renders
+   * `## Hold a name`, the section that teaches claiming, granting, revoking and
+   * reading a list. This is the document ADR-0012 put discovery in, so an agent
+   * that came looking learns a name is holdable before it is refused for
+   * pushing to somebody else's.
+   *
+   * Paired with `signedPushes` at the section, never read alone: with no nonce
+   * seed nothing can sign, so every push to a claimed name is refused as
+   * unsigned and no client can sign its way out. Teaching an agent to claim a
+   * name there would hand it a command that cannot work — the same defect as a
+   * cap nothing enforces.
    */
   signerLists: boolean
 }
@@ -123,8 +130,8 @@ export function renderLlms(facts: LlmsFacts): string {
    * a fingerprint can be what a name is defended by, and there IS a list of
    * allowed signers, written by whoever holds the name. The two sentences are
    * conditioned rather than rewritten because saying "the gate exists" is what
-   * stops this document from lying; teaching an agent to claim, grant and
-   * revoke a name is its own piece of work.
+   * stops this document from lying; how to write one is `## Hold a name`, and
+   * this section points at it rather than repeating it.
    */
   const signing = facts.signedPushes
     ? `
@@ -134,12 +141,10 @@ A push here can carry a **push certificate**: a small signed document naming
 the refs it moves and a nonce this host issued. walgit verifies the signature
 itself and records the fingerprint of the key that made it.${
         facts.signerLists
-          ? ` A repository that has
-written a **Signer List** to \`refs/walgit/signers\` — a commit whose tree holds a
-file named \`signers\`, one \`SHA256:…\` fingerprint per line — then takes pushes
-from those keys only, and refuses everything else with a message saying so. A
-name nobody has written one for refuses nothing, which is every name until
-someone does.`
+          ? ` A name that has
+written a **Signer List** takes pushes from the keys that list names and refuses
+everything else; a name nobody has written one for refuses nothing, which is
+every name until someone does. *Hold a name*, below, is how one is written.`
           : ' Nothing is refused on the strength of it.'
       }
 
@@ -208,6 +213,136 @@ it will say so on this page first.`
 }
 `
     : ''
+
+  /**
+   * The one sentence in the section below that is rendered rather than written:
+   * on a deployment that collects idle repositories, idle expiry IS the way
+   * back from a lost key, and on one that does not there is none. Claiming
+   * either on the wrong deployment is the drift every limit here is rendered
+   * to avoid.
+   */
+  const lostKey =
+    facts.retentionHours === null
+      ? 'A lost key ends the name: nobody can push to it again.'
+      : `Where a key is lost, ${hours(facts.retentionHours)} without a push collects the repository
+and frees the name with it — the only way back.`
+
+  /**
+   * Ownership, taught where an agent went looking for it.
+   *
+   * This is the discovery ADR-0012 chose: `GET /` gains nothing, because it is
+   * read mid-task and has a byte budget, and because ownership's failure lands
+   * on our server in our words at the moment it is relevant. The refusal
+   * teaches whoever hit it; this teaches whoever came looking first.
+   *
+   * Every spelling here is the one `src/signers.ts` refuses with — the ref, the
+   * file name, `ssh-keygen -lf`, "a grant governs the NEXT push", the two ways
+   * a list is refused — so an agent that reads this and an agent that reads a
+   * refusal are not being told about two different files.
+   *
+   * "List two keys" is a subsection rather than a footnote on purpose. The
+   * single-key list is the shape an agent writes by default and the one with no
+   * way back: there is no escrow and no support address here, and the ADR
+   * bounded a lost key with multi-key lists, revocation, and idle expiry where
+   * a deployment has it.
+   */
+  const ownership =
+    facts.signedPushes && facts.signerLists
+      ? `
+## Hold a name
+
+Every name here is free until somebody claims it, and claiming one is a push. A
+repository that has written a **Signer List** to \`${SIGNERS_REF}\` takes
+pushes signed by the keys that list names and refuses everything else, saying
+so. A name nobody has written one for refuses nothing.
+
+The list is a commit whose tree holds a file called \`signers\`: one SSH key
+fingerprint per line, blank lines and \`#\` comments ignored. A fingerprint is
+what \`ssh-keygen -lf <key>\` prints.
+
+\`\`\`
+# laptop
+SHA256:BMBEMXbMBsnjXwgNs+86IiJrPgYlZEsWxaKZW/2/1dw
+# the key that is not on the laptop
+SHA256:oGJ8Ai9nQ5wnTfEEqcnybGDBTBYRhLKlbBLXSpOfZ0Y
+\`\`\`
+
+### Claim one
+
+\`\`\`sh
+set -e -o pipefail
+git init -q claim && cd claim
+ssh-keygen -lf ~/.ssh/id_ed25519.pub | awk '{print $2}'  > signers
+ssh-keygen -lf ~/.ssh/id_backup.pub  | awk '{print $2}' >> signers
+git add signers
+git -c user.email=agent@localhost -c user.name=agent commit -qm claim
+git -c gpg.format=ssh -c user.signingkey=~/.ssh/id_ed25519.pub \\
+    push --signed=if-asked https://${host}/$NAME.git HEAD:${SIGNERS_REF}
+\`\`\`
+
+The first line is load-bearing. A key file that is not there must stop this,
+because the alternative is a half-written list claiming the name with one key —
+or with the wrong one, if the key that signs is the one that was missing.
+
+The list has its own history and nothing in your working repository changes to
+write one. What changes is every push after it: from here on, a push to this
+name — yours included, and to any ref — must carry a signature from a key the
+list names. Only the founding push is free, because **a grant governs the next
+push**: the list that judges a push is the one that stood before it, and before
+the founding push there was none.
+
+### List two keys
+
+There is no recovery for a lost key: no escrow, no proof of identity, no support
+address. A second key — another machine, or one kept where the first is not — is
+the whole of the recovery story, and the one-key list is the shape most agents
+write.
+${lostKey}
+
+### Grant and revoke
+
+Both are a commit on the same ref, pushed by a key the list already names:
+adding a line grants, removing one revokes. A grant governs the NEXT push, so an
+agent that was just added should retry once the granting push has landed. A
+revoked key is refused from its next push onward, and revoking it undoes nothing
+that key already pushed. Nothing here is retroactive.${
+          facts.appendOnly
+            ? ` Refs only move
+forward here, so nothing it pushed can be taken away afterwards either.`
+            : ''
+        }
+
+### Read a list
+
+\`\`\`sh
+# is this name claimed at all? the ref exists, or it does not.
+git ls-remote https://${host}/$NAME.git ${SIGNERS_REF}
+
+# the keys themselves. a clone does not fetch refs/walgit/*, so ask for it.
+git fetch -q https://${host}/$NAME.git ${SIGNERS_REF} && git cat-file -p FETCH_HEAD:signers
+
+# or read the copy the refusal reads, without a repository to fetch into.
+curl https://${host}${PROVENANCE_PATH}?repo=$NAME
+{"repo":"$NAME","provenance":{…},"claim":{"signers":["SHA256:BMBE…"],"ts":"2026-08-30T19:00:00.000Z"}}
+\`\`\`
+
+The ref is the authority and \`claim\` is a copy of it, kept so that the refusal
+in \`pre-receive\` never has to read a git object. \`claim\` is **omitted** for a
+name nobody has claimed, which is most of them.
+
+Reads are gated by none of this. A claimed repository, its list and its
+provenance stay as readable as they were, to anyone who can read the rest.
+
+### Two lists that are refused
+
+An **empty** list, and one walgit **cannot read**, are refused on claimed and
+unclaimed names alike — deleting the ref is the empty case spelled differently.
+An empty list would hand the name to the next stranger, which is a way to lose
+it rather than a way to release it; an unreadable one would leave you believing
+you hold a name the host still thinks is free. To hand a name on, push a list
+naming the other key. To stop using it, stop pushing.
+`
+      : ''
 
   const events = facts.events
     ? `
@@ -333,7 +468,7 @@ git clone https://${host}/$NAME.git
 \`\`\`
 
 Handing work to another agent is the URL and nothing else. There is no owner to ask, no invitation to send and no review to pass.
-${signing}${events}
+${signing}${ownership}${events}
 ## If a push is refused
 
 Read the message. A refusal names what it refused and what to do instead — it is not a transport failure, and retrying the same push unchanged will not help. The usual cause is a name already held by an unrelated history: push to a new one.

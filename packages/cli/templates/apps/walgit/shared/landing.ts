@@ -72,7 +72,8 @@ export interface LandingFacts {
    * From `WALGIT_SIGNER_LISTS`, and it earns no claim of its own — the page
    * lists what is true here, and "some names refuse some pushers" is not a
    * thing a visitor can act on. What it changes is one sentence in the signing
-   * claim, which otherwise promises that nothing is refused for being unsigned.
+   * claim, which otherwise promises that nothing is refused for being unsigned,
+   * and the two roadmap rows that describe ownership as unbuilt.
    */
   signerLists: boolean
 }
@@ -219,6 +220,60 @@ function signingClaim(facts: LandingFacts): string {
 }
 
 /**
+ * The clause that keeps the section's own sentence true once a row in it is
+ * done: a list introduced as "what is missing" cannot lead with something that
+ * shipped.
+ */
+function roadmapLede(facts: LandingFacts): string {
+  return facts.signedPushes && facts.signerLists ? ', and the one thing that no longer is' : ''
+}
+
+/**
+ * The first two roadmap rows, which are the two the gate makes untrue.
+ *
+ * The roadmap is "what is missing, in the order it unblocks itself", so a
+ * deployment where a name can already refuse a stranger must not go on calling
+ * ownership Next — and one where it cannot must not call it shipped. Same rule
+ * as every limit on this page, applied to a promise instead of a cap.
+ *
+ * The rows travel together because the second describes the first: Private was
+ * blocked on ownership existing, and what it would be gated on is the Signer
+ * List, not the fingerprint Provenance records. It is still not next — ADR-0012
+ * is explicit that nothing here is a step toward private repositories — so the
+ * shipped row keeps `data-next` off itself and hands it to nobody.
+ *
+ * Read with `signedPushes`, never alone, exactly as the signing claim above is:
+ * the flag without a nonce seed is a misconfiguration in which nothing can
+ * sign, so a page telling a visitor to write fingerprints there would be
+ * sending them to claim a name with an unsigned push — after which every push
+ * to it, including theirs, is refused for carrying no certificate.
+ */
+function roadmapOwnership(facts: LandingFacts): string {
+  if (!(facts.signedPushes && facts.signerLists)) {
+    return `        <li data-next>
+          <span class="when">Next</span>
+          <h3>Ownership</h3>
+          <p>Claiming a name. Who pushed is already recorded; what is missing is the policy that says the first key to push a name keeps it — and un-claiming is a decision nobody will agree on, so it is the one row here that is hard to take back.</p>
+        </li>
+        <li>
+          <span class="when">After ownership</span>
+          <h3>Private</h3>
+          <p>There is nobody to be private from until a name has an owner. Reads gated on the same fingerprint that already gets recorded, and not before ownership means something.</p>
+        </li>`
+  }
+  return `        <li>
+          <span class="when">Shipped</span>
+          <h3>Ownership</h3>
+          <p>A name can refuse a stranger. Write the fingerprints you trust to <code>refs/walgit/signers</code> and the repository takes pushes signed by those keys only; a name nobody has written one for still takes anyone's. List two keys — a lost one has no way back.</p>
+        </li>
+        <li>
+          <span class="when">Unblocked, unplanned</span>
+          <h3>Private</h3>
+          <p>A name that holds a Signer List is the first thing here anyone could be private <em>from</em>. Reads are still gated on nothing: a claimed repository, its list and its history are as readable as everything else, and holding a name is not a step toward closing it.</p>
+        </li>`
+}
+
+/**
  * The live client, shipped only where there is a socket to open.
  *
  * It sits behind the same gate as every other claim on this page: a deployment
@@ -233,6 +288,8 @@ export function renderLanding(facts: LandingFacts): string {
   return PAGE.replaceAll('{{HOST}}', facts.host)
     .replace('{{SIGNING_CLAIM}}', signingClaim(facts))
     .replace('{{THIRD_CLAIM}}', thirdClaim(facts))
+    .replace('{{ROADMAP_LEDE}}', roadmapLede(facts))
+    .replace('{{ROADMAP_OWNERSHIP}}', roadmapOwnership(facts))
     .replace('{{EVENTS}}', eventsSection(facts))
     .replace('{{WIRE_SCRIPT}}', facts.events ? wireScript() : '')
     .replace('{{PERMANENCE}}', permanence(facts))
@@ -793,18 +850,9 @@ const PAGE = `<!doctype html>
 
     <section>
       <h2>On the way.</h2>
-      <p>What is missing, in the order it unblocks itself. Nothing here is a date, and each one is written down before it is built.</p>
+      <p>What is missing, in the order it unblocks itself{{ROADMAP_LEDE}}. Nothing here is a date, and each one is written down before it is built.</p>
       <ul class="road">
-        <li data-next>
-          <span class="when">Next</span>
-          <h3>Ownership</h3>
-          <p>Claiming a name. Who pushed is already recorded; what is missing is the policy that says the first key to push a name keeps it — and un-claiming is a decision nobody will agree on, so it is the one row here that is hard to take back.</p>
-        </li>
-        <li>
-          <span class="when">After ownership</span>
-          <h3>Private</h3>
-          <p>There is nobody to be private from until a name has an owner. Reads gated on the same fingerprint that already gets recorded, and not before ownership means something.</p>
-        </li>
+{{ROADMAP_OWNERSHIP}}
         <li>
           <span class="when">Under design</span>
           <h3>Pull requests</h3>

@@ -208,3 +208,58 @@ describe('the signing section says it is possible, and not why', () => {
     expect(text).not.toContain('allowed signers')
   })
 })
+
+/**
+ * Ownership, which this page does not teach — in either state.
+ *
+ * ADR-0012 put discovery in `/llms.txt` and in the refusal message, and this is
+ * the assertion that keeps it there. The reason is ADR-0011's own: signing had
+ * to be on the front door because its failure lands client-side, after the
+ * agent has already written the push, whereas ownership's failure lands on our
+ * server, in our words, at the moment it is relevant. The refusal teaches; this
+ * page does not have to, and it has no bytes to teach with.
+ */
+describe('the terse document never explains how to hold a name', () => {
+  const EVERYTHING = { ...PUBLIC, signerLists: true }
+
+  test('it names no ref, no file, no fingerprint and no command', () => {
+    for (const policy of [PUBLIC, EVERYTHING]) {
+      // Lowercased, because this document SHOUTS its headings: a `GRANT AND
+      // REVOKE` section would walk straight past a lowercase needle.
+      const text = renderInstructions('https://walgit.example', policy).toLowerCase()
+      for (const teaching of [
+        'refs/walgit/signers',
+        'ssh-keygen',
+        'sha256:',
+        'ls-remote',
+        'grant',
+        'revoke',
+        // Not "claim": the name-collision rule has said "claimed first-come"
+        // since before ownership existed, and it is about naming, not holding.
+        'hold a name',
+      ]) {
+        expect(text).not.toContain(teaching)
+      }
+    }
+  })
+
+  /**
+   * The budget, stated where the document it constrains lives.
+   *
+   * It is a real constraint rather than a round number: this text is what an
+   * agent pays for mid-task, out of the context it wanted to spend on the task.
+   * Every capability so far has arrived believing it was "just three lines", so
+   * the version measured is the one claiming the most.
+   */
+  test('and stays inside its budget with every capability on', () => {
+    // The real host rather than the short one the rest of this file uses: the
+    // origin is printed six times, so a test measuring `walgit.example` would
+    // hold a budget the deployment does not have.
+    //
+    // It renders 2,997 bytes today — three under. Whatever breaks this did not
+    // break the budget, it spent the last of it: the fix is to decide what
+    // comes OUT of this page, not to raise the number.
+    const text = renderInstructions('https://agentgit.zabaca.com', EVERYTHING)
+    expect(text.length).toBeLessThan(3000)
+  })
+})

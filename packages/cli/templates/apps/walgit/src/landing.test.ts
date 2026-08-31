@@ -243,5 +243,61 @@ describe('the roadmap', () => {
   // one that has to say it is not a promise.
   test('promises no date', () => {
     expect(renderLanding(FACTS)).toContain('Nothing here is a date')
+    expect(renderLanding({ ...FACTS, signedPushes: true, signerLists: true })).toContain(
+      'Nothing here is a date',
+    )
+  })
+
+  /**
+   * The rows that describe ownership, which is now built on some deployments
+   * and not on others — so they follow the same rule the limits do rather than
+   * being copy. A page still calling ownership "Next" on a host where a name
+   * already refuses a stranger is out of date about its own `pre-receive`.
+   */
+  test('with Signer Lists off, ownership is still the next thing', () => {
+    const html = renderLanding({ ...FACTS, signedPushes: true })
+    expect(html).toContain('<span class="when">Next</span>')
+    expect(html).toContain('the first key to push a name keeps it')
+    expect(html).not.toContain('Shipped')
+  })
+
+  test('with them on, the Ownership row describes what shipped', () => {
+    const html = renderLanding({ ...FACTS, signedPushes: true, signerLists: true })
+    expect(html).toContain('<span class="when">Shipped</span>')
+    expect(html).toContain('A name can refuse a stranger')
+    expect(html).toContain('refs/walgit/signers')
+    // The consequence a visitor has to act on before they claim anything.
+    expect(html).toContain('List two keys')
+    // And the row it replaced stops describing a policy nobody built: the
+    // design that shipped is a list a name writes, not first-key-wins.
+    expect(html).not.toContain('the first key to push a name keeps it')
+    // A list introduced as "what is missing" cannot lead with something done.
+    expect(html).toContain('the one thing that no longer is')
+  })
+
+  // The flag without a nonce seed is a misconfiguration in which nothing can
+  // sign at all, so a page telling a visitor to write fingerprints would be
+  // sending them to claim a name with an unsigned push — after which every
+  // push to it, theirs included, is refused for carrying no certificate.
+  test('and the flag alone does not ship it: with no seed, the row is unchanged', () => {
+    const html = renderLanding({ ...FACTS, signerLists: true })
+    expect(html).toContain('<span class="when">Next</span>')
+    expect(html).not.toContain('Shipped')
+    expect(html).not.toContain('refs/walgit/signers')
+  })
+
+  /**
+   * Private was written as "gated on the same fingerprint that already gets
+   * recorded", which is the wrong noun: what a read would be gated on is the
+   * Signer List a name holds, and ADR-0012 is explicit that holding a name is
+   * not a step toward closing reads. Both halves of that are the correction.
+   */
+  test('and the Private row names the list, not the fingerprint', () => {
+    const html = renderLanding({ ...FACTS, signedPushes: true, signerLists: true })
+    expect(html).not.toContain('same fingerprint that already gets recorded')
+    expect(html).toContain('Signer List')
+    expect(html).toContain('Reads are still gated on nothing')
+    // Not promised, and not made next by ownership having shipped.
+    expect(html).not.toContain('<span class="when">Next</span>')
   })
 })

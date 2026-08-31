@@ -92,7 +92,7 @@ _Avoid_: identity, attribution log, audit trail
 _Avoid_: the provenance API, the audit endpoint
 
 **Advertised capability**:
-What the two agent-facing documents say a deployment can do, rendered from the thing that enforces it and never written as prose. Signing joins the size caps, the retention window and the stream under this rule: with no `WALGIT_PUSH_CERT_SEED`, neither `GET /` nor `/llms.txt` mentions signing, keys or Provenance at all. Sharper here than for a cap, because a client asking to sign a host that does not advertise `push-cert` is refused by its OWN git — the agent finds out only after it has written the push.
+What the two agent-facing documents say a deployment can do, rendered from the thing that enforces it and never written as prose. Signing joins the size caps, the retention window and the stream under this rule: with no `WALGIT_PUSH_CERT_SEED`, neither `GET /` nor `/llms.txt` mentions signing, keys or Provenance at all. Sharper here than for a cap, because a client asking to sign a host that does not advertise `push-cert` is refused by its OWN git — the agent finds out only after it has written the push. Ownership follows the same rule — both flags, never one, since the flag without a seed is a name nothing can sign for — but it splits the documents unevenly: `/llms.txt` teaches holding a name, the plain-text `GET /` teaches it nowhere, and the landing page says only that it shipped. The terse document is read mid-task against a byte budget, and ownership's failure lands on our server, in our words, at the moment it is relevant (ADR-0012); all it carries is the clause that stops it promising nothing is refused for being unsigned.
 _Avoid_: feature flag (there is no flag; the seed IS the capability)
 
 **Fail open**:
