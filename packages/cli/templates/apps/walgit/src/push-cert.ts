@@ -62,6 +62,37 @@ export function signedPushEnabled(env: Record<string, string | undefined> = proc
   return pushCertSeed(env) !== null
 }
 
+/**
+ * How old a nonce may be and still count as this server's, in seconds.
+ *
+ * Written to `receive.certNonceSlop` beside the seed (`src/cache.ts`), and the
+ * one number that makes signed pushes work over smart-HTTP at all.
+ *
+ * git mints the nonce as an HMAC over the repository path and *the unix second
+ * it was minted in*, and a push is two requests: the advertisement mints one,
+ * the push validates it in a second process that minted its own. The two agree
+ * as strings only when both landed inside the same second, which is a property
+ * of the network rather than of the pusher — so git falls through to its
+ * stateless-RPC path, recomputes the HMAC for the timestamp inside the client's
+ * nonce, and then asks how stale it is. `receive.certNonceSlop` is the answer
+ * it measures against, it defaults to 0, and a round trip that crosses a second
+ * boundary therefore reads as `SLOP`: intermittently anonymous on an unclaimed
+ * name, and intermittently *refused* on a claimed one.
+ *
+ * Five minutes, because the gap it has to cover is a client signing its
+ * certificate, a real network, and a container that may have been asleep when
+ * the advertisement arrived — and because the window is exactly the replay
+ * window for a captured certificate, so it is bounded rather than generous.
+ * Inside it, a replayed certificate is a push of the ref updates it names, made
+ * again: usually a no-op, because `publishPush` compare-and-swaps each ref
+ * against the old oid the certificate carries and the ref has since moved past
+ * it — but a ref that was moved and then moved back is at that old oid again,
+ * and the replay lands. Bounding it is what keeps that a five-minute race
+ * against an attacker who already captured the request rather than a standing
+ * one.
+ */
+export const PUSH_CERT_NONCE_SLOP_SECONDS = 300
+
 // ── Reading the certificate, and verifying it ───────────────────────────────
 
 /**
@@ -71,7 +102,8 @@ export function signedPushEnabled(env: Record<string, string | undefined> = proc
  * omitted ones are omitted for one reason each: `_SIGNER`, `_KEY` and `_STATUS`
  * are git's own GPG verdict, which is `N` for every SSH signature (see
  * `shared/provenance.ts`); `_NONCE` is the value whose verdict `_NONCE_STATUS`
- * already is.
+ * already is; and `_NONCE_SLOP` says by how many seconds a stale nonce missed a
+ * window git has already judged it against (`PUSH_CERT_NONCE_SLOP_SECONDS`).
  */
 export interface PushCertEnv {
   /** Blob object name of the certificate, readable with `git cat-file`. */
@@ -132,10 +164,18 @@ export function certificatePresented(env: PushCertEnv = process.env): boolean {
  * host's push to a ref on another. git already decided that question — its
  * verdict is `GIT_PUSH_CERT_NONCE_STATUS`, and only `OK` is one.
  *
- * `SLOP` is deliberately not accepted. It means the nonce is ours but older
- * than `receive.certNonceSlop` allows, which git tolerates for clients that sat
- * on an advertisement; walgit does not, because provenance is optional metadata
- * and the strict reading costs a signed push nothing but a retry.
+ * `SLOP` is deliberately not accepted, and that is only defensible because the
+ * window it is measured against is configured: it means the nonce is ours but
+ * older than `receive.certNonceSlop`, which `ensureBareRepo` writes beside the
+ * seed as `PUSH_CERT_NONCE_SLOP_SECONDS`. Accepting `SLOP` as it stands would
+ * accept a nonce of any age, since git reports the same word for one issued
+ * five minutes ago and one issued last week. git does hand the staleness over
+ * as `GIT_PUSH_CERT_NONCE_SLOP`, so a second bound could be enforced here — it
+ * is not, because two windows that have to agree are one more thing to get
+ * wrong than the one git already enforces before this code runs.
+ *
+ * Left unconfigured the window is zero, and this line then refuses every signed
+ * push whose round trip crossed a second boundary.
  */
 export function readPushCertificate(
   env: PushCertEnv = process.env,
