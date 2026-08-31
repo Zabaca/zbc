@@ -15,6 +15,7 @@ import { flagEnabled } from '../shared/policy'
 import { pushCertSeed, signedPushEnabled } from '../shared/provenance'
 import { MAX_REFS_PER_ENTRY, MAX_WATCH_ENTRIES } from '../shared/events'
 import { renderLlms, wantsLlms } from '../shared/llms'
+import { SIGNERS_REF } from '../shared/protocol'
 import { renderInstructions } from './instructions'
 
 const FACTS = {
@@ -148,6 +149,115 @@ describe('renderLlms', () => {
     const headings = doc.split('\n').filter((l) => l.startsWith('#'))
     expect(headings.length).toBeGreaterThan(5)
     expect(doc.startsWith('# ')).toBe(true)
+  })
+})
+
+/**
+ * Holding a name, taught here and nowhere else.
+ *
+ * ADR-0012 put discovery in this document and in the refusal itself: `GET /` is
+ * read mid-task against a byte budget, and ownership's failure lands on our
+ * server, in our words, at the moment it is relevant. So this is the only place
+ * an agent can learn a name is holdable BEFORE it is refused for pushing to
+ * somebody else's — which is the whole reason the section exists.
+ */
+describe('the section that teaches a name can be held', () => {
+  const HELD = { ...FACTS, signedPushes: true, signerLists: true }
+
+  test('claiming, granting, revoking and reading are each one command or one commit', () => {
+    const doc = renderLlms(HELD)
+    expect(doc).toContain('## Hold a name')
+    expect(doc).toContain(SIGNERS_REF)
+    // The file, spelled the way `src/signers.ts` refuses with — the manual and
+    // the refusal must not describe two different files.
+    expect(doc).toContain('a file called `signers`')
+    expect(doc).toContain('ssh-keygen -lf')
+    // A key file that is not there must stop the recipe: the alternative is a
+    // half-written list that claims the name with one key, which is the exact
+    // shape the subsection below it exists to talk an agent out of.
+    expect(doc).toContain('set -e -o pipefail')
+    // Reading a list is git, not an endpoint anyone had to invent — but
+    // `ls-remote` answers "claimed?" and never "by whom", and a clone does not
+    // fetch `refs/walgit/*`, so the command that prints the keys is here too.
+    expect(doc).toContain('git ls-remote')
+    expect(doc).toContain('git cat-file -p FETCH_HEAD:signers')
+    expect(doc).toContain('"claim":{"signers"')
+    const flat = doc.replace(/\s+/g, ' ')
+    expect(flat).toContain('adding a line grants, removing one revokes')
+    // The rule that decides whether a just-granted agent should retry.
+    expect(flat).toContain('A grant governs the NEXT push')
+  })
+
+  // The step the recipe would otherwise break silently: the document's own
+  // earlier example pushes a branch unsigned, and that push is refused from the
+  // moment the list lands. An agent told how to claim a name and not told this
+  // has been handed a working command and a broken one.
+  test('says what claiming a name costs every push after it', () => {
+    const flat = renderLlms(HELD).replace(/\s+/g, ' ')
+    expect(flat).toContain('must carry a signature from a key the list names')
+    expect(flat).toContain('Only the founding push is free')
+  })
+
+  test('says a list may hold more than one key, and what one key costs', () => {
+    const flat = renderLlms(HELD).replace(/\s+/g, ' ')
+    expect(flat).toContain('List two keys')
+    expect(flat).toContain('There is no recovery for a lost key')
+    expect(flat).toContain('the one-key list is the shape most agents write')
+  })
+
+  // The one rendered sentence in the section: idle expiry is a way back from a
+  // lost key on a deployment that collects, and there is none on one that does
+  // not. Claiming either on the wrong deployment is the drift this file exists
+  // to catch, arriving in the sentence with the highest cost of being wrong.
+  test('and that the way back is idle expiry, only where a deployment has one', () => {
+    const collecting = renderLlms({ ...HELD, retentionHours: 24 }).replace(/\s+/g, ' ')
+    expect(collecting).toContain('24 hours without a push collects the repository')
+    const forever = renderLlms(HELD)
+    expect(forever).toContain('A lost key ends the name')
+    expect(forever).not.toContain('collects the repository')
+  })
+
+  // Revocation is where the section is most tempted to promise append-only,
+  // which is its own flag: on a deployment that permits rewrites, a listed key
+  // can delete what a revoked one pushed, so the guarantee is not the host's to
+  // make. The revocation half is true either way and is stated either way.
+  test('promises append-only about a revoked key only where it is enforced', () => {
+    const flat = (appendOnly: boolean) => renderLlms({ ...HELD, appendOnly }).replace(/\s+/g, ' ')
+    expect(flat(true)).toContain('nothing it pushed can be taken away afterwards')
+    expect(flat(false)).not.toContain('nothing it pushed can be taken away afterwards')
+    for (const on of [true, false]) {
+      expect(flat(on)).toContain('revoking it undoes nothing that key already pushed')
+    }
+  })
+
+  test('names the two lists that are refused, on any repository', () => {
+    const flat = renderLlms(HELD).replace(/\s+/g, ' ')
+    expect(flat).toContain('refused on claimed and unclaimed names alike')
+    expect(flat).toContain('deleting the ref is the empty case')
+  })
+
+  test('with the flag off, nothing in the document mentions holding a name', () => {
+    const doc = renderLlms({
+      ...FACTS,
+      events: true,
+      signedPushes: true,
+      retentionHours: 24,
+      maxPushBytes: 1024,
+      maxRepoBytes: 2048,
+    })
+    expect(doc).not.toContain('Hold a name')
+    expect(doc).not.toContain(SIGNERS_REF)
+    expect(doc).not.toContain('Signer List')
+  })
+
+  // `WALGIT_SIGNER_LISTS` without `WALGIT_PUSH_CERT_SEED` is a misconfiguration
+  // the gate deliberately does not paper over: nothing can sign, so every push
+  // to a claimed name is refused as unsigned. Teaching an agent to claim one
+  // there would hand it a command that cannot work.
+  test('and with no seed to sign against, it is not taught either', () => {
+    const doc = renderLlms({ ...FACTS, signerLists: true })
+    expect(doc).not.toContain('Hold a name')
+    expect(doc).not.toContain(SIGNERS_REF)
   })
 })
 
