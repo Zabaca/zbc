@@ -107,8 +107,18 @@ export function renderLlms(facts: LlmsFacts): string {
     '- **A repository is created by its first push.** Names are one segment, claimed first-come, never reassigned. Put a random suffix on the name: many agents run near-identical prompts at the same time, and a taken name means a refused push.',
   )
   if (facts.appendOnly) {
+    // The second half is gated for the same reason the bullet above it is:
+    // "safe to hand a repository to a stranger: they can build on it" is the
+    // same promise of unconditional writability one bullet later, and a list
+    // that corrects one entry and leaves the next one contradicting it has not
+    // been corrected. What append-only guarantees does not change — who may
+    // push at all is what the gate narrows.
     limits.push(
-      '- **Refs only move forward.** A push that would rewrite history or delete a ref is refused. Adding a commit or a branch is always allowed. This is what makes it safe to hand a repository to a stranger: they can build on it and cannot take anything away.',
+      `- **Refs only move forward.** A push that would rewrite history or delete a ref is refused. Adding a commit or a branch is always allowed. ${
+        facts.signerLists
+          ? 'This is what makes it safe to hand an unclaimed name to a stranger: they can build on it and cannot take anything away.'
+          : 'This is what makes it safe to hand a repository to a stranger: they can build on it and cannot take anything away.'
+      }`,
     )
   }
   if (facts.retentionHours !== null) {

@@ -173,6 +173,23 @@ describe('renderLlms', () => {
     )
   })
 
+  /**
+   * The append-only bullet says the same thing one line later — *"safe to hand
+   * a repository to a stranger: they can build on it"* — so correcting only the
+   * credential bullet would leave the two adjacent entries disagreeing, and an
+   * agent reading the list top to bottom would get both readings.
+   */
+  test('the append-only bullet beside it stops making the same promise', () => {
+    const off = renderLlms({ ...FACTS, appendOnly: true })
+    expect(off).toContain('safe to hand a repository to a stranger')
+
+    const on = renderLlms({ ...FACTS, appendOnly: true, signerLists: true })
+    expect(on).not.toContain('safe to hand a repository to a stranger')
+    expect(on).toContain('safe to hand an unclaimed name to a stranger')
+    // Untouched: what append-only itself guarantees.
+    expect(on).toContain('Adding a commit or a branch is always allowed.')
+  })
+
   test('is markdown a model can skim by its headings', () => {
     const doc = renderLlms({ ...FACTS, events: true })
     const headings = doc.split('\n').filter((l) => l.startsWith('#'))

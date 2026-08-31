@@ -259,6 +259,23 @@ describe('the Public term states what pre-receive actually refuses', () => {
   })
 
   /**
+   * `Anyone may add` is the same promise in three words, one term above. A
+   * page that corrects `Public` and leaves `Append-only` alone has put two
+   * answers to one question four lines apart — which is worse than the single
+   * wrong answer it started with.
+   */
+  test('and the term above it stops making the same promise in three words', () => {
+    expect(renderLanding(FACTS)).toContain('Anyone may add; no one may rewrite or delete.')
+    const held = renderLanding({ ...FACTS, signerLists: true })
+    expect(held).not.toContain('Anyone may add')
+    expect(held).toContain('Whoever the name takes a push from may add')
+    // What append-only guarantees is untouched: it is who may push that the
+    // gate narrows, so the promise itself is word for word what it was.
+    expect(held).toContain('<b>Nothing you push can be destroyed.</b>')
+    expect(held).toContain('no one may rewrite or delete')
+  })
+
+  /**
    * Read from the flag ALONE, unlike the section and the roadmap below, which
    * are paired with `signedPushes`. Those two send a visitor off to claim a
    * name and must not do it where nothing can sign; this one only says what is
@@ -470,15 +487,28 @@ describe('the roadmap', () => {
     expect(renderLanding({ ...FACTS, signedPushes: true }).split('<h3>').length - 1).toBe(4)
   })
 
-  // The flag without a nonce seed is a misconfiguration in which nothing can
-  // sign at all, so a page telling a visitor to write fingerprints would be
-  // sending them to claim a name with an unsigned push — after which every
-  // push to it, theirs included, is refused for carrying no certificate.
-  test('and the flag alone does not ship it: with no seed, the row is unchanged', () => {
+  /**
+   * The row reads the flag ALONE, like the two terms and unlike the section.
+   *
+   * It is a statement about whether the capability EXISTS, not an invitation to
+   * use it — and on a deployment with the flag and no seed it exists and
+   * refuses everyone. Reading it with the seed put two answers on one page: a
+   * `Public` term saying a name can be claimed, four lines above a roadmap row
+   * calling claiming a name the next thing to build.
+   *
+   * The section that teaches claiming still needs both, and does not render
+   * here — so this state says a name can be claimed and never says how, which
+   * is the correct thing to tell somebody who cannot do it.
+   */
+  test('the flag alone retires the row, even where nothing can sign', () => {
     const html = renderLanding({ ...FACTS, signerLists: true })
-    expect(html).toContain('<span class="when">Next</span>')
+    expect(html).not.toContain('<span class="when">Next</span>')
+    expect(html).not.toContain('the first key to push a name keeps it')
     expect(html).not.toContain('Shipped')
+    // And still sends nobody to claim anything on a host where no push can be
+    // signed: no ref, no command, no section.
     expect(html).not.toContain('refs/walgit/signers')
+    expect(html).not.toContain('A name a stranger cannot take')
   })
 
   /**

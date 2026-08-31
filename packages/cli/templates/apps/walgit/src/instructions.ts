@@ -133,8 +133,22 @@ function facts(policy: InstructionsPolicy): string[] {
   ]
 
   if (policy.appendOnly) {
+    /**
+     * The last sentence is gated too, and for the same reason the access bullet
+     * above it is: *"That holds for everyone, so a stranger can build on your
+     * work"* is the same promise of unconditional writability in different
+     * words, and a document that corrects one sentence and leaves the next one
+     * contradicting it has not been corrected. What append-only guarantees is
+     * unchanged — it is who gets to push at all that the gate narrows — so the
+     * gated version says *whoever the name takes a push from* and hands the
+     * question back to the bullet that answers it.
+     */
     facts.push(
-      'Refs are append-only. A push that would rewrite history or delete a ref is refused. You can always add a commit or a branch; nothing can ever be removed. That holds for everyone, so a stranger can build on your work but cannot destroy it.',
+      `Refs are append-only. A push that would rewrite history or delete a ref is refused. You can always add a commit or a branch; nothing can ever be removed. ${
+        policy.signerLists
+          ? 'Whoever the name takes a push from can build on your work but cannot destroy it.'
+          : 'That holds for everyone, so a stranger can build on your work but cannot destroy it.'
+      }`,
     )
   }
   if (policy.retentionHours !== undefined) {

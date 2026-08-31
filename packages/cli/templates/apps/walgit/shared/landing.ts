@@ -39,7 +39,7 @@
  */
 
 import { describeBytes } from './policy'
-import { EVENTS_PATH } from './protocol'
+import { EVENTS_PATH, SIGNERS_REF } from './protocol'
 
 export interface LandingFacts {
   /** The hostname the request arrived on — every command on the page uses it. */
@@ -206,6 +206,26 @@ function eventsSection(facts: LandingFacts): string {
 }
 
 /**
+ * Append-only, whose second clause makes the same promise `Public` does.
+ *
+ * *"Anyone may add"* is unconditional writability in three words, so correcting
+ * the term below it and leaving this one alone would put two answers to the
+ * same question four lines apart. What append-only guarantees is untouched by
+ * the gate — it is who may push at all that narrows — so the gated version
+ * hands that question to the term that answers it.
+ */
+function appendOnlyClaim(facts: LandingFacts): string {
+  return claim(
+    'Append-only',
+    '<b>Nothing you push can be destroyed.</b> ' +
+      (facts.signerLists
+        ? 'Whoever the name takes a push from may add; no one may rewrite or delete.'
+        : 'Anyone may add; no one may rewrite or delete.') +
+      ' A push that would rewrite history is refused in <code>pre-receive</code>, before anything is uploaded, by a message naming what to do instead.',
+  )
+}
+
+/**
  * What anyone may do to a repository here, which the gate changes.
  *
  * Rendered rather than written for the reason every limit on this page is: the
@@ -254,14 +274,20 @@ function publicClaim(facts: LandingFacts): string {
  * The right column is the claim and then its consequence, in the order they
  * happen: the commands that write the list, then the refusal a stranger reads.
  *
- * **The recipe is the whole of it, not the last line of it.** A Signer List is
- * a commit whose tree is one file, so the push has to come from a repository
- * that has one — and the obvious abbreviation, showing only the `git push`,
- * hands a reader a command that pushes their PROJECT's `HEAD` at
- * `refs/walgit/signers` and is refused as an unreadable list. It is the same
- * recipe `/llms.txt` gives (`shared/llms.ts`), compressed; `set -e` and the
- * second key live there, because this panel is the argument and that document
- * is the manual.
+ * **The recipe is the whole of it, not the last line of it**, and every line it
+ * does show has to run. Three abbreviations were each tried and each is wrong:
+ * showing only the `git push` hands a reader a command that pushes their
+ * PROJECT's `HEAD` at the signers ref and is refused as an unreadable list;
+ * dropping `-c user.email`/`-c user.name` aborts in a fresh container with
+ * *"Please tell me who you are"*; and dropping `-c gpg.format=ssh` is the worst
+ * of the three, because this section only renders where the host advertises
+ * `push-cert`, so `--signed=if-asked` really does sign — with git's default
+ * OpenPGP format, from a key whose fingerprint is not the one just written into
+ * `signers`. A reader who has a PGP key would claim the name and then be locked
+ * out of it by their own next push.
+ *
+ * What is left to `/llms.txt` (`shared/llms.ts`) is `set -e` and the second
+ * key: this panel is the argument, and that document is the manual.
  *
  * **The transcript is an excerpt, and says so.** Every line of it is a line
  * `heldMessage` (`src/signers.ts`) actually writes, and `landing.test.ts`
@@ -288,7 +314,7 @@ function ownershipSection(facts: LandingFacts): string {
       <div class="split-say">
         <h2>A name a stranger cannot take.</h2>
         <p>Nothing you push can be destroyed — and that cuts both ways. Anyone who knows the name can add a branch to the repository your agent is working in, and then <em>neither of you can ever remove it</em>. Append-only defends their write as carefully as it defends yours.</p>
-        <p><strong>So a name can refuse a stranger.</strong> Write the fingerprints you trust to <code>refs/walgit/signers</code>. From the next push on, the repository takes pushes signed by those keys and refuses everything else — and every name nobody has claimed still takes anyone's.</p>
+        <p><strong>So a name can refuse a stranger.</strong> Write the fingerprints you trust to <code>${SIGNERS_REF}</code>. From the next push on, the repository takes pushes signed by those keys and refuses everything else — and every name nobody has claimed still takes anyone's.</p>
         <p><strong>List two keys.</strong> There is no escrow here and no support address: one key, lost, is the end of the name.</p>
       </div>
 
@@ -299,10 +325,14 @@ function ownershipSection(facts: LandingFacts): string {
 <span class="p">$</span> git init -q claim &amp;&amp; cd claim
 <span class="p">$</span> ssh-keygen -lf ~/.ssh/id_ed25519.pub \\
       | awk '{print $2}' > signers
-<span class="p">$</span> git add signers &amp;&amp; git commit -qm claim
-<span class="p">$</span> git push --signed=if-asked \\
+<span class="p">$</span> git add signers
+<span class="p">$</span> git -c user.email=agent@localhost \\
+      -c user.name=agent commit -qm claim
+<span class="p">$</span> git -c gpg.format=ssh \\
+      -c user.signingkey=~/.ssh/id_ed25519.pub \\
+      push --signed=if-asked \\
       https://${facts.host}/$NAME.git \\
-      HEAD:refs/walgit/signers</pre>
+      HEAD:${SIGNERS_REF}</pre>
           </div>
           <p class="under">List a second key · the full recipe is in <span>/llms.txt</span></p>
         </div>
@@ -366,14 +396,16 @@ function signingClaim(facts: LandingFacts): string {
  * ADR-0012 is explicit that nothing here is a step toward private repositories
  * — so the row keeps `data-next` off itself and hands it to nobody.
  *
- * Read with `signedPushes`, never alone, exactly as the section above is: the
- * flag without a nonce seed is a misconfiguration in which nothing can sign, so
- * a page telling a visitor to write fingerprints there would be sending them to
- * claim a name with an unsigned push — after which every push to it, including
- * theirs, is refused for carrying no certificate.
+ * Read from `signerLists` ALONE, like the two terms above and unlike the
+ * section, which teaches claiming and needs the seed too. The row is a
+ * statement about whether the capability EXISTS, not an invitation to use it —
+ * and on a deployment with the flag and no seed it exists and refuses
+ * everyone. Gating it on the seed put two answers on one page: a `Public` term
+ * saying a name can be claimed, above a roadmap row calling claiming a name the
+ * next thing to build.
  */
 function roadmapOwnership(facts: LandingFacts): string {
-  if (!(facts.signedPushes && facts.signerLists)) {
+  if (!facts.signerLists) {
     return `        <li data-next>
           <span class="when">Next</span>
           <h3>Ownership</h3>
@@ -418,6 +450,7 @@ function wireScript(): string {
  */
 export function renderLanding(facts: LandingFacts): string {
   return PAGE.replaceAll('{{HOST}}', () => facts.host)
+    .replace('{{APPEND_ONLY_CLAIM}}', () => appendOnlyClaim(facts))
     .replace('{{PUBLIC_CLAIM}}', () => publicClaim(facts))
     .replace('{{SIGNING_CLAIM}}', () => signingClaim(facts))
     .replace('{{THIRD_CLAIM}}', () => thirdClaim(facts))
@@ -981,7 +1014,7 @@ const PAGE = `<!doctype html>
     <section>
       <h2>The rules.</h2>
       <ul class="claims">
-        <li><span class="k">Append-only</span><span class="v"><b>Nothing you push can be destroyed.</b> Anyone may add; no one may rewrite or delete. A push that would rewrite history is refused in <code>pre-receive</code>, before anything is uploaded, by a message naming what to do instead.</span></li>
+{{APPEND_ONLY_CLAIM}}
 {{PUBLIC_CLAIM}}
 {{THIRD_CLAIM}}{{SIGNING_CLAIM}}
       </ul>

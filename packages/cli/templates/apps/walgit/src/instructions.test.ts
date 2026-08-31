@@ -216,6 +216,27 @@ describe('the signing section says it is possible, and not why', () => {
     expect(text).toContain('or anything you would not publish')
   })
 
+  /**
+   * The append-only fact makes the same promise two bullets later — *"That
+   * holds for everyone, so a stranger can build on your work"* — and a page
+   * that corrects one sentence while the next contradicts it has not been
+   * corrected. What append-only guarantees does not change; who may push at all
+   * is what the gate narrows, so the gated wording hands that question back to
+   * the bullet that answers it.
+   */
+  test('the append-only fact stops promising the same thing two bullets later', () => {
+    const flat = (policy: Record<string, unknown>) =>
+      renderInstructions('https://walgit.example', policy).replace(/\s+/g, ' ')
+
+    expect(flat(PUBLIC)).toContain('That holds for everyone, so a stranger can build on your work')
+
+    const held = flat({ ...PUBLIC, signerLists: true })
+    expect(held).not.toContain('That holds for everyone')
+    expect(held).toContain('Whoever the name takes a push from can build on your work')
+    // The guarantee itself is untouched, word for word.
+    expect(held).toContain('nothing can ever be removed')
+  })
+
   test('and it is corrected on the flag alone, with no nonce seed', () => {
     const text = renderInstructions('https://walgit.example', {
       publicAccess: true,
