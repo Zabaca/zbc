@@ -79,6 +79,10 @@ _Avoid_: backpressure, throttling, debounce (each implies a reader being watched
 The small signed document a `git push --signed` carries: the pusher's claimed key, the pushee, the nonce this host issued, and every ref the push moves — with an SSH signature over all of it. A `receive-pack` capability, not a transport one, which is why it works with no SSH anywhere. Advertised if and only if the receiving repository has `receive.certNonceSeed`, so that one config key is the whole of "this deployment takes signed pushes".
 _Avoid_: the signature (the certificate is the document; the signature is one field of it), the token
 
+**Nonce Window**:
+How stale the nonce in a Push Certificate may be and still be this host's — `receive.certNonceSlop`, written beside the seed at 300 seconds. Not a tuning knob: git derives the nonce from the second it was minted in, and a push over smart-HTTP is two requests that mint one each, so with git's default of zero only a round trip that stayed inside a single second reports `OK` and every other one reports `SLOP`. Unset, the capability works by luck — anonymous where it should be attributed, and refusing the owner on a name held by a Signer List. It is also the replay window for a captured certificate, so it is bounded rather than generous.
+_Avoid_: nonce timeout, clock skew allowance (it measures the round trip, not a clock disagreement), grace period
+
 **Signer**:
 The key that signed a push, named by its fingerprint (`SHA256:…`). A key, never a user or an account — neither exists here, and either word would imply a registry walgit deliberately does not have.
 _Avoid_: user, account, identity, owner (the last is reserved for a permission system that does not exist)

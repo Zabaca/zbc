@@ -89,11 +89,20 @@ describe('ensureBareRepo', () => {
       const again = ensureBareRepo(resolveRepo(root, 'alpha'))
       expect(config(again.dir, 'receive.certNonceSeed')).toBe('a-long-random-seed')
 
+      // The window the nonce is judged against travels with the seed. git
+      // defaults it to 0, which only a round trip that stayed inside one unix
+      // second can satisfy — so without this a slow signed push establishes no
+      // Signer, and a claimed name refuses its own owner (src/push-cert.ts).
+      expect(config(after.dir, 'receive.certNonceSlop')).toBe('300')
+
       // Unsetting the variable withdraws the capability rather than leaving
       // older repositories certifying pushes on a seed nothing configures.
       delete process.env.WALGIT_PUSH_CERT_SEED
       const cleared = ensureBareRepo(resolveRepo(root, 'alpha'))
       expect(config(cleared.dir, 'receive.certNonceSeed')).toBe('')
+      // …and the window goes with it, rather than being left on a repository
+      // whose instance no longer takes certificates at all.
+      expect(config(cleared.dir, 'receive.certNonceSlop')).toBe('')
     } finally {
       delete process.env.WALGIT_PUSH_CERT_SEED
     }

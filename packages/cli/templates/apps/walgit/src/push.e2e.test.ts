@@ -35,6 +35,8 @@ let store: FileStore
 let repoCounter = 0
 let repoId: string
 let origin: string
+/** How long the server holds a POST before serving it. Reset by `beforeEach`. */
+let postDelayMs = 0
 
 const git = async (cwd: string, ...args: string[]) => {
   // Asynchronous, not spawnSync: the server under test is in this process, so a
@@ -83,16 +85,26 @@ beforeAll(() => {
   // The hooks are spawned by git, not by us: this is how they find the store.
   process.env.WALGIT_STORE_DIR = storeDir
 
+  const handler = createHttpHandler({
+    reposDir,
+    tokens: [TOKEN],
+    ensureRepo: ensureBareRepo,
+    syncRepo: (repo) => syncRepo(store, repo),
+    runBackend: runGitHttpBackend,
+  })
+
   server = Bun.serve({
     port: 0,
     idleTimeout: 0,
-    fetch: createHttpHandler({
-      reposDir,
-      tokens: [TOKEN],
-      ensureRepo: ensureBareRepo,
-      syncRepo: (repo) => syncRepo(store, repo),
-      runBackend: runGitHttpBackend,
-    }),
+    fetch: async (request) => {
+      // A push is two requests — the advertisement that mints the push-cert
+      // nonce, then the POST that validates it — and how far apart they land is
+      // what a slow network, a starved CPU or a cold container vary. Holding
+      // the POST here is how a test makes that gap a decision rather than a
+      // coin flip; nothing in the server under test knows this wrapper exists.
+      if (postDelayMs > 0 && request.method === 'POST') await Bun.sleep(postDelayMs)
+      return handler(request)
+    },
   })
 })
 
@@ -102,6 +114,7 @@ beforeEach(() => {
   repoCounter += 1
   repoId = `alpha${repoCounter}`
   origin = `http://walgit:${TOKEN}@127.0.0.1:${server.port}/${repoId}.git`
+  postDelayMs = 0
   delete process.env.WALGIT_FAULT
   delete process.env.WALGIT_STALL_MS
 })
@@ -613,6 +626,30 @@ describe('signed pushes', () => {
     expect(fingerprint).toBeDefined()
     expect(index.provenance!['refs/heads/main']!.signer).toBe(fingerprint!)
     expect(Date.parse(index.provenance!['refs/heads/main']!.ts)).not.toBeNaN()
+  })
+
+  test('is still attributed when the round trip crosses a second boundary', async () => {
+    // The fault this test exists for: git mints the nonce from the *unix
+    // second* the advertisement was served in, and over smart-HTTP the push is
+    // a second process that can only agree by accident. Without a window
+    // configured, a push whose POST lands a second later reads as `SLOP` and
+    // establishes no Signer — fail-open here, and the owner's own push refused
+    // on a claimed name (docs/adr/0012). A real network, a starved CPU or a
+    // container waking up all produce that gap; this produces it on purpose.
+    process.env.WALGIT_PUSH_CERT_SEED = 'a-long-random-seed'
+    const { dir, oid } = await clientWithCommit('slow-signed', 'slow signed push\n')
+
+    // Longer than a second, so the boundary is crossed on every run rather than
+    // on the unlucky ones: what was intermittent is now certain.
+    postDelayMs = 1500
+    const pushed = await pushSigned(dir)
+    expect(pushed.status).toBe(0)
+
+    const { index } = await loadIndex(store, repoId)
+    expect(index.refs['refs/heads/main']).toBe(oid)
+    // Attributed to the pushing key, exactly as the same push is when it is
+    // fast. A delayed round trip is a slow push, not an anonymous one.
+    expect(index.provenance?.['refs/heads/main']?.signer).toBe(fingerprintOf(`${signingKey}.pub`))
   })
 
   test('the repository advertises it because the seed is on the repository', async () => {
