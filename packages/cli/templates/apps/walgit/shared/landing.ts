@@ -168,18 +168,18 @@ function eventsSection(facts: LandingFacts): string {
           <p class="under"><span>npx</span> too · <span>--once</span> waits for the handoff</p>
         </div>
 
-        <div class="panel">
+        <div class="panel wire" id="wire">
           <div class="panel-head">
             <span><span class="pulse"></span>${socket}</span>
           </div>
-          <pre class="tx"><span class="p">$</span> bunx @zabaca/agentgit watch
-<span class="c">watching study-42 for refs/heads/main</span>
-<span class="ok">study-42 main: origin/main is 809eb587</span>
-
+          <pre class="tx" id="wire-tx"><span class="ln" style="--d:0ms"><span class="p">$</span> bunx @zabaca/agentgit watch
+</span><span class="ln" style="--d:220ms"><span class="c">watching study-42 for refs/heads/main</span>
+</span><span class="ln" style="--d:400ms"><span class="ok">study-42 main: origin/main is 809eb587</span>
+</span><span class="ln" style="--d:1150ms">
 <span class="c"># the other agent pushes. no webhook, no polling.</span>
-
+</span><span class="ln" style="--d:2050ms">
 <span class="ok">study-42 main: origin/main is ef759899</span>
-<span class="no">study-42 main: COLLIDES with your work in src/index.ts</span><span class="caret"></span></pre>
+</span><span class="ln" style="--d:2400ms"><span class="no">study-42 main: COLLIDES with your work in src/index.ts</span><span class="caret"></span></span></pre>
           <div class="panel-foot">Opened from the inside, so a sandbox needs no address.</div>
         </div>
       </div>
@@ -205,13 +205,60 @@ function signingClaim(facts: LandingFacts): string {
   )
 }
 
+/**
+ * The live client, shipped only where there is a socket to open.
+ *
+ * It sits behind the same gate as every other claim on this page: a deployment
+ * that serves no stream must not ship a client for one, or the page would carry
+ * code describing a capability its own Worker answers 404 for.
+ */
+function wireScript(): string {
+  return `${WIRE_CLIENT}`
+}
+
 export function renderLanding(facts: LandingFacts): string {
   return PAGE.replaceAll('{{HOST}}', facts.host)
     .replace('{{SIGNING_CLAIM}}', signingClaim(facts))
     .replace('{{THIRD_CLAIM}}', thirdClaim(facts))
     .replace('{{EVENTS}}', eventsSection(facts))
+    .replace('{{WIRE_SCRIPT}}', facts.events ? wireScript() : '')
     .replace('{{PERMANENCE}}', permanence(facts))
 }
+
+const WIRE_CLIENT = `
+    // ── the transcript plays itself ────────────────────────────────────
+    //
+    // A recording rather than a live socket, and that was a deliberate
+    // retreat. The panel DID open a real WebSocket to this host and stream
+    // genuine pushes — verified, a push landed here four seconds after git
+    // returned — but a repository nobody is pushing to sits silent for
+    // exactly as long as anyone is reading it. The honest live version proved
+    // the connection was open and nothing else, and what a visitor needs to
+    // see is the thing ARRIVE.
+    //
+    // So the timing is the content: three lines land together, then a wait
+    // while the comment says another agent is pushing, then the new sha and
+    // the collision. The pause is the argument, because nothing polled during
+    // it.
+    //
+    // The lines are in the HTML and visible before this runs. Script only
+    // takes them away to give them back in order, so no JavaScript, a script
+    // that fails, or a request for less motion all leave the whole transcript
+    // on screen.
+    var tx = document.getElementById("wire-tx");
+    if (!tx || !("IntersectionObserver" in window)) return;
+    if (window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+
+    tx.classList.add("armed");
+    var io = new IntersectionObserver(function (entries) {
+      if (!entries[0] || !entries[0].isIntersecting) return;
+      io.disconnect();
+      // Played once. A transcript that restarted every time it came back into
+      // view would read as a loop rather than as something that happened.
+      tx.classList.add("play");
+    }, { threshold: 0.35 });
+    io.observe(tx);
+`
 
 const PAGE = `<!doctype html>
 <html lang="en">
@@ -471,6 +518,32 @@ const PAGE = `<!doctype html>
     margin-right: .5rem;
     vertical-align: baseline;
   }
+  /* The socket's address is a URL, not a label. Uppercasing it was both wrong
+     — the path is case-sensitive — and wide enough that tracking broke it
+     mid-token. Set as itself it fits on one line. */
+  .wire .panel-head > span:first-child {
+    text-transform: none;
+    letter-spacing: .02em;
+    font-size: .7rem;
+    color: var(--muted);
+  }
+
+  /* The transcript arrives a line at a time, on a schedule the markup carries
+     as --d. The long gap before the last two lines is the point of the whole
+     panel: nothing polled during it, and then the push simply showed up.
+
+     Lines are visible until script arms them, so the no-JavaScript reading is
+     the complete transcript rather than an empty box. */
+  .tx .ln { display: block; }
+  .tx.armed > .ln { opacity: 0; }
+  .tx.play > .ln {
+    animation: land .34s cubic-bezier(.2, .7, .3, 1) both;
+    animation-delay: var(--d, 0ms);
+  }
+  @keyframes land {
+    from { opacity: 0; transform: translateY(.3rem); }
+    to   { opacity: 1; transform: none; }
+  }
 
   .panel-foot {
     border-top: 1px solid var(--rule-2);
@@ -661,7 +734,8 @@ const PAGE = `<!doctype html>
   }
 
   @media (prefers-reduced-motion: reduce) {
-    .tx .caret { animation: none; }
+    .tx .caret, .pulse, .tx .ln { animation: none; }
+    .tx.armed > .ln, .tx.play > .ln { opacity: 1; transform: none; }
     * { transition: none !important; }
   }
 </style>
@@ -841,6 +915,8 @@ const PAGE = `<!doctype html>
 
     copy(document.getElementById("copy"));
     copy(document.getElementById("copy-watch"));
+
+{{WIRE_SCRIPT}}
   })();
 </script>
 </body>
