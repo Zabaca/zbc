@@ -47,6 +47,17 @@ export interface LlmsFacts {
    * cannot work on this host.
    */
   signedPushes: boolean
+  /**
+   * Whether a repository here may hold a Signer List, and be defended by it.
+   *
+   * Read for one reason in this slice: two sentences below say walgit refuses
+   * nothing on the strength of a signature and keeps no list of allowed
+   * signers, and both stop being true the moment the gate is on. A manual that
+   * kept saying them would be telling an agent the opposite of what the push
+   * path does — the drift `flagEnabled` was extracted to end. The feature's own
+   * documentation is a separate piece of work.
+   */
+  signerLists: boolean
 }
 
 /** Only GET or HEAD on the one path. Nothing else is this document. */
@@ -107,6 +118,13 @@ export function renderLlms(facts: LlmsFacts): string {
    * verifies a signature and records the key, and does nothing else with it
    * (docs/adr/0011). A manual that implied more would be describing an
    * ownership model this host does not have.
+   *
+   * Unless it does. Where Signer Lists are on, both of those answers change —
+   * a fingerprint can be what a name is defended by, and there IS a list of
+   * allowed signers, written by whoever holds the name. The two sentences are
+   * conditioned rather than rewritten because saying "the gate exists" is what
+   * stops this document from lying; teaching an agent to claim, grant and
+   * revoke a name is its own piece of work.
    */
   const signing = facts.signedPushes
     ? `
@@ -114,8 +132,16 @@ export function renderLlms(facts: LlmsFacts): string {
 
 A push here can carry a **push certificate**: a small signed document naming
 the refs it moves and a nonce this host issued. walgit verifies the signature
-itself, records the fingerprint of the key that made it, and refuses nothing on
-the strength of it.
+itself and records the fingerprint of the key that made it.${
+        facts.signerLists
+          ? ` A repository that has
+written a **Signer List** to \`refs/walgit/signers\` — a commit whose tree holds a
+file named \`signers\`, one \`SHA256:…\` fingerprint per line — then takes pushes
+from those keys only, and refuses everything else with a message saying so. A
+name nobody has written one for refuses nothing, which is every name until
+someone does.`
+          : ' Nothing is refused on the strength of it.'
+      }
 
 \`\`\`sh
 git -c gpg.format=ssh -c user.signingkey=~/.ssh/id_ed25519.pub \\
@@ -129,9 +155,15 @@ everywhere and an agent never has to branch on which host it is talking to.
 before anything reaches the network.
 
 The key costs nothing to provision: if you already push to GitHub over SSH, the
-key you push with is the key that signs. There is nothing to register here —
+key you push with is the key that signs. There is nothing to register here${
+        facts.signerLists
+          ? `: a
+key walgit has never seen is accepted anywhere a Signer List does not say
+otherwise, and the list is a file in a repository rather than an account here.`
+          : ` —
 walgit keeps no list of allowed signers, which is exactly why it can accept a
-key it has never seen.
+key it has never seen.`
+      }
 
 ### Read it back
 
@@ -157,12 +189,23 @@ whoever published the key. Matching a fingerprint against one you already trust
 — from a GitHub profile, a prior message, your own \`~/.ssh\` — is the reader's
 job, and it is the only thing that turns a fingerprint into a person.
 
-**Unsigned pushes are ordinary.** Signing is not authentication and buys no
+${
+  facts.signerLists
+    ? `**Unsigned pushes are ordinary, until a name says otherwise.** Signing is not
+authentication and buys no access by itself: an unsigned push lands exactly as a
+signed one does, to the same names, with the same rules, on every name nobody
+has claimed — which is every name until someone writes a Signer List for one. A
+name that has written one takes pushes from the keys that list names and refuses
+everything else, saying so in the refusal. Reads are never gated, a claimed
+repository stays world-readable, and no name is owned by the key that merely
+pushed to it first — only by the list it wrote.`
+    : `**Unsigned pushes are ordinary.** Signing is not authentication and buys no
 access: an unsigned push lands exactly as a signed one does, to the same names,
 with the same rules. Nothing here is refused for being anonymous, no name is
 owned by the key that first pushed it, and a repository with a recorded Signer
 is still world-writable by anyone. If provenance ever starts refusing things,
-it will say so on this page first.
+it will say so on this page first.`
+}
 `
     : ''
 

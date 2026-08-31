@@ -18,15 +18,21 @@ import * as path from 'node:path'
 import { SIGNERS_REF, ZERO_OID } from '../shared/protocol'
 import { git, gitOrThrow } from './git'
 import {
+  checkSignerAllowed,
   checkSignerList,
+  describeSigner,
   gitSignersSource,
   MAX_SIGNER_LIST_BYTES,
   parseSignerList,
   signerListsEnabled,
+  type PushSigner,
+  type GateRefusal,
+  type ListRefusal,
   type SignersFile,
   type SignersSource,
 } from './signers'
-import type { RefChange } from './wal-index'
+import { FileStore } from './store'
+import { commitIndex, emptyIndex, type RefChange } from './wal-index'
 
 const KEY_A = 'SHA256:BMBEMXbMBsnjXwgNs+86IiJrPgYlZEsWxaKZW/2/1dw'
 const KEY_B = 'SHA256:0000MXbMBsnjXwgNs+86IiJrPgYlZEsWxaKZW/2/1dw'
@@ -52,6 +58,9 @@ const source =
   () =>
     file
 const holding = (text: string) => source({ found: true, text })
+
+/** A push walgit verified, and the key it named. */
+const signed = (fingerprint: string) => ({ kind: 'signed' as const, fingerprint })
 
 describe('the flag', () => {
   test('is off unless the instance sets it', () => {
@@ -176,7 +185,7 @@ describe('checkSignerList', () => {
     expect(verdict).toEqual({ ok: true, signers: [KEY_B] })
   })
 
-  const refused: [name: string, changes: RefChange[], read: SignersSource, kind: string][] = [
+  const refused: [name: string, changes: RefChange[], read: SignersSource, kind: ListRefusal][] = [
     [
       'a list naming no keys',
       [change(SIGNERS_REF)],
@@ -215,7 +224,7 @@ describe('checkSignerList', () => {
       const verdict = checkSignerList('alpha', changes, read)
       expect(verdict.ok).toBe(false)
       if (verdict.ok) return
-      expect(verdict.kind).toBe(kind as 'empty-list' | 'unreadable-list')
+      expect(verdict.kind).toBe(kind)
     })
   }
 
@@ -405,6 +414,207 @@ describe('the refusal', () => {
   })
 })
 
+describe('describeSigner', () => {
+  test('a Signer walgit established is the key it named', () => {
+    expect(describeSigner(KEY_A, {})).toEqual({ kind: 'signed', fingerprint: KEY_A })
+  })
+
+  test('no Signer and no certificate is an unsigned push', () => {
+    expect(describeSigner(null, {})).toEqual({ kind: 'unsigned', signable: false })
+    expect(describeSigner(null, { GIT_PUSH_CERT: '  ' })).toEqual({
+      kind: 'unsigned',
+      signable: false,
+    })
+  })
+
+  test('no Signer but a certificate that arrived is an unverified one', () => {
+    // Every way verification can fail collapses to `null` upstream — a bad
+    // nonce, a bad signature, an `ssh-keygen` that is missing or throws — and
+    // they all land here, because git set the blob whatever became of it.
+    expect(describeSigner(null, { GIT_PUSH_CERT: 'c0ffee' })).toEqual({ kind: 'unverified' })
+    expect(
+      describeSigner(null, { GIT_PUSH_CERT: 'c0ffee', GIT_PUSH_CERT_NONCE_STATUS: 'SLOP' }),
+    ).toEqual({ kind: 'unverified' })
+  })
+
+  test('an unsigned push knows whether it could have been signed at all', () => {
+    expect(describeSigner(null, { WALGIT_PUSH_CERT_SEED: 'a-real-seed' })).toEqual({
+      kind: 'unsigned',
+      signable: true,
+    })
+  })
+
+  test('the certificate is never consulted when a Signer was established', () => {
+    // The env read is second and narrow on purpose: who signed is
+    // `establishSigner`'s answer and nothing here revisits it.
+    expect(describeSigner(KEY_A, { GIT_PUSH_CERT: '' })).toEqual({
+      kind: 'signed',
+      fingerprint: KEY_A,
+    })
+  })
+})
+
+/**
+ * The gate: while a repository HAS a list, a push not signed by a listed key is
+ * refused.
+ *
+ * Pure over three inputs and nothing else — the Signer this push established,
+ * the list as it stood BEFORE this push, and the ref changes — so every case is
+ * a table entry with no keypair, no subprocess and no server anywhere near it.
+ */
+describe('checkSignerAllowed', () => {
+  const unsigned = { kind: 'unsigned' as const, signable: true }
+  const unverified = { kind: 'unverified' as const }
+  const branch = [change('refs/heads/main')]
+
+  const cases: [
+    name: string,
+    signer: PushSigner,
+    claimed: string[] | null,
+    kind: GateRefusal | null,
+  ][] = [
+    // An unclaimed name refuses nothing, which is what makes the founding
+    // push need no exception written for it.
+    ['an unsigned push to an unclaimed name', unsigned, null, null],
+    ['an unverifiable push to an unclaimed name', unverified, null, null],
+    ['a stranger’s signed push to an unclaimed name', signed(KEY_B), null, null],
+    // A claimed one refuses everything but a key it names.
+    ['a push by the only listed key', signed(KEY_A), [KEY_A], null],
+    ['a push by the second of two listed keys', signed(KEY_B), [KEY_A, KEY_B], null],
+    ['a push by a key the list does not name', signed(KEY_B), [KEY_A], 'not-listed'],
+    ['an unsigned push to a claimed name', unsigned, [KEY_A], 'unsigned'],
+    ['an unverifiable push to a claimed name', unverified, [KEY_A], 'unverified'],
+  ]
+
+  for (const [name, signer, claimed, kind] of cases) {
+    test(`${kind === null ? 'allows' : `refuses (${kind})`} ${name}`, () => {
+      const verdict = checkSignerAllowed('alpha', signer, claimed, branch)
+      expect(verdict.ok).toBe(kind === null)
+      if (verdict.ok || kind === null) return
+      expect(verdict.kind).toBe(kind)
+    })
+  }
+
+  test('breaking verification is not a way around the gate', () => {
+    // Fail open's one exception, and the reason it has to exist: if an
+    // unestablished Signer landed here the way it lands everywhere else, then
+    // corrupting your own certificate would be the bypass (docs/adr/0012).
+    for (const signer of [unsigned, unverified]) {
+      expect(checkSignerAllowed('alpha', signer, [KEY_A], branch).ok).toBe(false)
+    }
+  })
+
+  test('a list naming nobody reads as unclaimed, not as a name nobody can push to', () => {
+    // `checkSignerList` refuses writing one, so reaching this means the Index
+    // disagrees with what this code can produce. Of the two readings of that,
+    // only "the name is open" has a way back.
+    expect(checkSignerAllowed('alpha', unsigned, [], branch)).toEqual({ ok: true })
+  })
+
+  test('a grant governs the NEXT push, not its own', () => {
+    // The whole of the rule is that `claimed` is the list as it stood BEFORE
+    // this push, so a push that adds a key and a branch at once is still judged
+    // by the list it is replacing.
+    const grantAndBranch = [change(SIGNERS_REF), change('refs/heads/main')]
+    expect(checkSignerAllowed('alpha', signed(KEY_B), [KEY_A], grantAndBranch).ok).toBe(false)
+    // …and once it has landed, the same push by the same key is allowed.
+    expect(checkSignerAllowed('alpha', signed(KEY_B), [KEY_A, KEY_B], grantAndBranch).ok).toBe(true)
+  })
+
+  test('a revoked key is refused on its next push', () => {
+    // The mirror image, and the same one line of code: revoking is a commit
+    // that removes a line, and the list that judges is whatever stood last.
+    expect(checkSignerAllowed('alpha', signed(KEY_B), [KEY_A, KEY_B], branch).ok).toBe(true)
+    expect(checkSignerAllowed('alpha', signed(KEY_B), [KEY_A], branch).ok).toBe(false)
+  })
+
+  test('the list ref is not its own exception: a stranger cannot rewrite the list', () => {
+    // If it were, the gate would defend everything about a name except the one
+    // ref that decides who holds it.
+    expect(checkSignerAllowed('alpha', signed(KEY_B), [KEY_A], [change(SIGNERS_REF)]).ok).toBe(
+      false,
+    )
+  })
+})
+
+describe('the refusal a stranger reads', () => {
+  const refusalFor = (signer: PushSigner, changes = [change('refs/heads/main')]): string => {
+    const verdict = checkSignerAllowed('alpha', signer, [KEY_A], changes)
+    if (verdict.ok) throw new Error('expected a refusal')
+    return verdict.message
+  }
+
+  test('says the name is held, and names a free one to use instead', () => {
+    // The two things the pusher can act on. The free name is generated the same
+    // way the append-only refusal generates one, and is random rather than
+    // incrementing so a wave of agents is not handed the same "free" name.
+    const message = refusalFor({ kind: 'unsigned', signable: true })
+    expect(message).toStartWith('walgit: refused — alpha is held by a Signer List.')
+    expect(message).toMatch(/alpha-[0-9a-f]{8}\.git/)
+  })
+
+  test('says how to be added to the list, and that a grant governs the next push', () => {
+    // For most agents this refusal is the entire documentation of the feature —
+    // ownership's failure lands on our server, in our words, at the moment it
+    // is relevant (docs/adr/0012).
+    const message = refusalFor({ kind: 'unsigned', signable: true })
+    expect(message).toContain(SIGNERS_REF)
+    expect(message).toContain('ssh-keygen -lf')
+    expect(message).toContain('NEXT push')
+  })
+
+  test('names the refs the push would have written', () => {
+    expect(refusalFor({ kind: 'unsigned', signable: true })).toContain('refs/heads/main')
+    const many = ['a', 'b', 'c', 'd'].map((n) => change(`refs/heads/${n}`))
+    // Truncated past three, because past three the list stops being read — but
+    // the count still says the refusal took all of them.
+    expect(refusalFor({ kind: 'unsigned', signable: true }, many)).toContain(
+      'refs/heads/a, refs/heads/b, refs/heads/c and 1 more',
+    )
+  })
+
+  test('tells an unsigned push to sign, and quotes the key it refused otherwise', () => {
+    const unsigned = refusalFor({ kind: 'unsigned', signable: true })
+    expect(unsigned).toContain('carries no signature')
+    expect(unsigned).toContain('--signed=yes')
+
+    const stranger = refusalFor({ kind: 'signed', fingerprint: KEY_B })
+    expect(stranger).toContain(KEY_B)
+    expect(stranger).not.toContain('carries no signature')
+  })
+
+  test('tells an unverifiable push to retry, not to sign something it already signed', () => {
+    // Different failure, different fix: an agent told "sign your push" when it
+    // did sign will re-send the same failing signature forever.
+    const message = refusalFor({ kind: 'unverified' })
+    expect(message).toContain('could not verify')
+    expect(message).toContain('fresh')
+    expect(message).not.toContain('carries no signature')
+  })
+
+  test('names the misconfiguration when the host cannot take a signature at all', () => {
+    // Flag on, no nonce seed: `git-receive-pack` never advertises the
+    // capability, so "push with --signed=yes" is advice the pusher's own git
+    // refuses and the name is unpushable by everyone, its holder included. The
+    // verdict is unchanged — failing open here would be the bypass — but the
+    // refusal says whose problem it is instead of proposing a retry loop.
+    const message = refusalFor({ kind: 'unsigned', signable: false })
+    expect(message).toContain('WALGIT_PUSH_CERT_SEED')
+    expect(message).toContain('misconfiguration')
+    expect(message).not.toContain('git push --signed=yes origin')
+  })
+
+  test('says nothing was uploaded, because the gate runs before the upload', () => {
+    expect(refusalFor({ kind: 'unsigned', signable: true })).toContain('Nothing was uploaded')
+  })
+
+  test('does not suggest a new branch, which is the advice a stranger cannot take', () => {
+    // The reason the gate is judged above append-only: "push to a new branch"
+    // is true of a rewrite and useless to someone who may not push here at all.
+    expect(refusalFor({ kind: 'unsigned', signable: true })).not.toContain('push to a new branch')
+  })
+})
+
 /**
  * The one property the pure verdict cannot hold on its own: the refusal has to
  * be reached BEFORE the pack is uploaded.
@@ -460,12 +670,29 @@ describe('the refusal reaches the pusher before the pack reaches the store', () 
 
   afterAll(() => fs.rmSync(work, { recursive: true, force: true }))
 
-  const preReceiveHook = async (tip: string) => {
+  /**
+   * Run the real `pre-receive` against a store that starts out holding
+   * `claimed` — the Signer List this name already has, or nothing.
+   */
+  const preReceiveHook = async (
+    tip: string,
+    { ref = SIGNERS_REF, claimed = null }: { ref?: string; claimed?: string[] | null } = {},
+  ) => {
     store = fs.mkdtempSync(path.join(os.tmpdir(), 'walgit-hookstore-'))
+    if (claimed) {
+      // Published the way a claiming push publishes it — through the store's
+      // own compare-and-swap — because the hook reads it through the store, and
+      // a hand-written file is missing the bookkeeping that read needs.
+      await commitIndex(
+        new FileStore(store),
+        { ...emptyIndex('alpha'), claim: { signers: claimed, ts: '2026-08-30T12:00:00.000Z' } },
+        null,
+      )
+    }
     const child = Bun.spawn(
       [process.execPath, path.join(import.meta.dir, 'hook-main.ts'), 'pre-receive'],
       {
-        stdin: new TextEncoder().encode(`${ZERO_OID} ${tip} ${SIGNERS_REF}\n`),
+        stdin: new TextEncoder().encode(`${ZERO_OID} ${tip} ${ref}\n`),
         stdout: 'pipe',
         stderr: 'pipe',
         env: {
@@ -501,5 +728,35 @@ describe('the refusal reaches the pusher before the pack reaches the store', () 
     // Not "an orphan that gets collected later" — never written at all, which
     // is what the refusal's own last line promises the pusher.
     expect(uploaded).toEqual([])
+  })
+
+  test('a stranger is refused against a claim the store already holds', async () => {
+    // The gate's own wiring: the list comes out of `index.json`, not out of a
+    // git object, and the hook process is where that is decided. Unsigned here,
+    // because a real certificate needs a real `git push` — which is
+    // `push.e2e.test.ts`'s scenario.
+    const { code, stderr, uploaded } = await preReceiveHook(good, { claimed: [KEY_A] })
+    expect(code).toBe(1)
+    expect(stderr).toContain('alpha is held by a Signer List')
+    expect(stderr).toContain('carries no signature')
+    expect(uploaded).toEqual([])
+  })
+
+  test('and refused BEFORE the list it pushed is even read', async () => {
+    // A stranger pushing a malformed list gets the refusal that is about them,
+    // not the one that is about their file: "your list has a typo on line 1" is
+    // an invitation to fix it and try again, and the retry cannot work either.
+    const { code, stderr } = await preReceiveHook(bad, { claimed: [KEY_A] })
+    expect(code).toBe(1)
+    expect(stderr).toContain('is held by a Signer List')
+    expect(stderr).not.toContain('is not a key fingerprint')
+  })
+
+  test('an ordinary branch push to an unclaimed name is untouched by any of it', async () => {
+    // Fail open, still, everywhere but a claimed name: this push is unsigned,
+    // writes no list, and lands.
+    const { code, uploaded } = await preReceiveHook(good, { ref: 'refs/heads/main' })
+    expect(code).toBe(0)
+    expect(uploaded.some((name) => name.endsWith('.pack'))).toBe(true)
   })
 })

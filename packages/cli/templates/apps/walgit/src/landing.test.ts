@@ -17,6 +17,7 @@ const FACTS = {
   maxRepoBytes: null,
   events: false,
   signedPushes: false,
+  signerLists: false,
 }
 
 describe('wantsLanding', () => {
@@ -191,6 +192,15 @@ describe('the signing term', () => {
     // The line the whole design turns on. Losing it would make the page read
     // as a host that prefers signed pushes, which it is not.
     expect(page).toContain('Nothing is refused for being unsigned')
+    expect(page).not.toContain('{{')
+  })
+
+  test('and stops saying it once a name can refuse an unsigned push', () => {
+    // The claim list is what is TRUE here, so it cannot go on promising that
+    // nothing is refused for being unsigned while `pre-receive` refuses it.
+    const page = renderLanding({ ...FACTS, signedPushes: true, signerLists: true })
+    expect(page).toContain('Signer List')
+    expect(page).not.toContain('Nothing is refused for being unsigned')
     expect(page).not.toContain('{{')
   })
 

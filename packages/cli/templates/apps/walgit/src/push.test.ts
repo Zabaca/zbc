@@ -554,4 +554,29 @@ describe('the Signer List', () => {
     // account for.
     expect(recorded.provenance!.ts).toBe(recorded.claim!.ts)
   })
+
+  test('two pushes racing for a free name: the loser gets a plain ref conflict', async () => {
+    // Claiming is pushing a ref, so the race is the one every push already
+    // runs, resolved by the same compare-and-swap. Both computed their update
+    // against a name with no list, so the second one's `oldOid` no longer
+    // matches what the Index holds — and it is told that, in the words any
+    // contended ref gets. There is no claim-specific race, and inventing one
+    // would be a second answer to a question already answered.
+    const store = new MemoryStore()
+    const alice = { entry: null, claim: claimOf(KEY) }
+    const bob = { entry: null, claim: claimOf(OTHER) }
+
+    expect((await publishPush(store, 'r', alice, [listMove()])).ok).toBe(true)
+    const lost = await publishPush(store, 'r', bob, [listMove()])
+    expect(lost).toEqual({
+      ok: false,
+      reason: 'ref-conflict',
+      ref: SIGNERS_REF,
+      expected: ZERO_OID,
+      actual: LIST_OID,
+    })
+
+    // And the winner's list is the one that stands: the loser published nothing.
+    expect((await loadIndex(store, 'r')).index.claim).toEqual(claimOf(KEY))
+  })
 })

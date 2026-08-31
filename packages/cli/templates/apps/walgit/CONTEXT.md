@@ -113,3 +113,14 @@ A repository with no Signer List, which is every repository until someone writes
 
 **Empty list** / **unreadable list**:
 The two ways writing a list is refused, on claimed and unclaimed names alike, because both are about losing a name rather than defending one. An empty list — including a deletion of the ref — would leave the name claimable by the next stranger, so a compromised key could give it away rather than merely keep it. An unreadable one — not a commit, no `signers` file, a line that is not a fingerprint, or a file too large to read without risking a silent truncation — would leave an agent believing it holds a name it does not.
+
+**The gate**:
+The verdict that makes a Signer List mean anything: while a repository has one, a push not signed by a listed key is refused. Pure over three inputs — the Signer this push established, the list as it stood before it, and the ref changes — and reached in `pre-receive` before the pack is uploaded, so a refused push costs no object-store write. It leads the push's verdicts, ahead of append-only and the size caps, because every one of those is about WHAT was pushed and this one is about whether the pusher may push here at all.
+Its flag is `WALGIT_SIGNER_LISTS`, and it is turned on beside `WALGIT_PUSH_CERT_SEED`, never without it: the seed is what makes `git-receive-pack` advertise certificates at all, so with no seed every push to a claimed name is refused as unsigned and no client can sign its way out. The gate does not check for the seed, because refusing an unestablished Signer is exactly what stops breaking verification from being the way around it.
+_Avoid_: authorization, permission check, access control (there are no accounts, no roles and nothing to grant but a line in a file)
+
+**Not listed** / **unsigned** / **unverified**:
+The three ways the gate refuses, and they are three rather than one because the thing to go and do differs: a key the list does not name, a push carrying no certificate, and a certificate walgit could not turn into a key. The last two are Fail open's one exception — told to sign, an agent that already signed re-sends the same failing signature forever.
+
+**A grant governs the next push**:
+The list that judges a push is the one that stood before it, so a push may move the list and a branch together and the list it installs applies from the following push. The founding push needs no exception written for it: an unclaimed name refuses nothing. The same sentence is why a revoked key is refused on its next push and keeps everything it already pushed — append-only still means append-only, and nothing here is retroactive.

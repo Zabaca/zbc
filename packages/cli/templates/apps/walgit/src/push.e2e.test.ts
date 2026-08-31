@@ -663,3 +663,204 @@ describe('signed pushes', () => {
     expect(index.provenance).toBeUndefined()
   })
 })
+
+/** `ssh-keygen -lf` prints `<bits> SHA256:… <comment> (ED25519)`. */
+function fingerprintOf(pub: string): string {
+  const printed = Bun.spawnSync(['ssh-keygen', '-lf', pub]).stdout.toString()
+  const found = printed.split(/\s+/).find((word) => word.startsWith('SHA256:'))
+  if (!found) throw new Error(`no fingerprint in ${JSON.stringify(printed)}`)
+  return found
+}
+
+/**
+ * Signer Lists, against a real `git push` (docs/adr/0012).
+ *
+ * Every verdict is decided by a pure function and tested as one in
+ * `signers.test.ts`; what cannot be tested there is the WIRING — that the list
+ * a real push writes reaches `index.json`, that the list `index.json` holds
+ * reaches the refusal, that a real certificate over a real nonce is what the
+ * gate matches against, and that a grant landed by one push is what judges the
+ * next. Two real keys, two identities, one repository.
+ */
+describe('Signer Lists', () => {
+  let alicePub = ''
+  let bobPub = ''
+  let aliceFp = ''
+  let bobFp = ''
+
+  const keypair = (name: string): string => {
+    const file = path.join(scratch, `signer-${name}`)
+    const keygen = Bun.spawnSync(['ssh-keygen', '-t', 'ed25519', '-N', '', '-C', name, '-f', file])
+    if (keygen.exitCode !== 0) throw new Error(`ssh-keygen failed: ${keygen.stderr.toString()}`)
+    return `${file}.pub`
+  }
+
+  beforeAll(() => {
+    alicePub = keypair('alice')
+    bobPub = keypair('bob')
+    aliceFp = fingerprintOf(alicePub)
+    bobFp = fingerprintOf(bobPub)
+  })
+
+  beforeEach(() => {
+    // The seed is what makes `git-receive-pack` advertise certificates at all,
+    // so a claimed name needs it; the flag is what makes walgit judge them.
+    process.env.WALGIT_PUSH_CERT_SEED = 'a-long-random-seed'
+    process.env.WALGIT_SIGNER_LISTS = '1'
+  })
+
+  afterEach(() => {
+    delete process.env.WALGIT_PUSH_CERT_SEED
+    delete process.env.WALGIT_SIGNER_LISTS
+  })
+
+  const pushAs = (dir: string, pub: string, ...refspecs: string[]) =>
+    git(
+      dir,
+      '-c',
+      'gpg.format=ssh',
+      '-c',
+      `user.signingkey=${pub}`,
+      'push',
+      '--signed=yes',
+      'origin',
+      ...refspecs,
+    )
+
+  /**
+   * A working copy of the list itself, with no history in common with the
+   * repository's branches — because the list is its own ref and an agent
+   * writing one has no reason to have cloned anything.
+   */
+  async function listWorkdir(name: string): Promise<string> {
+    const dir = path.join(scratch, `${repoId}-${name}`)
+    fs.mkdirSync(dir, { recursive: true })
+    await git(dir, 'init', '--quiet', '--initial-branch=signers')
+    await git(dir, 'config', 'user.email', 'walgit@example.test')
+    await git(dir, 'config', 'user.name', 'walgit')
+    await git(dir, 'remote', 'add', 'origin', origin)
+    return dir
+  }
+
+  /** Commit a `signers` file naming exactly `keys`. */
+  async function writeList(dir: string, keys: string[], message: string): Promise<void> {
+    fs.writeFileSync(path.join(dir, 'signers'), keys.map((k) => `${k}\n`).join(''))
+    await git(dir, 'add', 'signers')
+    await git(dir, 'commit', '--quiet', '-m', message)
+  }
+
+  test('claim a free name, refuse a stranger, grant, and be granted', async () => {
+    // 1. Alice claims a free name. Nothing judges this push — an unclaimed
+    //    name refuses nothing, which is why the founding push needs no
+    //    exception written for it.
+    const list = await listWorkdir('list')
+    await writeList(list, [aliceFp], 'claim')
+    expect((await pushAs(list, alicePub, 'HEAD:refs/walgit/signers')).status).toBe(0)
+
+    // The ref is authoritative and the Index carries the derived copy the
+    // refusal reads, written by the compare-and-swap that published the ref.
+    const claimed = await loadIndex(store, repoId)
+    expect(claimed.index.claim!.signers).toEqual([aliceFp])
+    expect(claimed.index.refs['refs/walgit/signers']).toBeDefined()
+
+    // 2. Alice pushes a branch, signed by the key she listed. It lands.
+    const alice = await clientWithCommit('alice', 'alice\n')
+    expect((await pushAs(alice.dir, alicePub, 'HEAD:refs/heads/main')).status).toBe(0)
+
+    // 3. Bob is a stranger. His signed push is refused, in words he can act on.
+    const bob = await clientWithCommit('bob', 'bob\n')
+    const refused = await pushAs(bob.dir, bobPub, 'HEAD:refs/heads/bob')
+    expect(refused.status).not.toBe(0)
+    expect(refused.out).toContain(`${repoId} is held by a Signer List`)
+    expect(refused.out).toContain(bobFp)
+    expect(refused.out).toMatch(new RegExp(`${repoId}-[0-9a-f]{8}\\.git`))
+
+    // …and so is an unsigned one, which is fail-open's one exception: if
+    // breaking verification landed the push, breaking it would BE the bypass.
+    const unsigned = await git(bob.dir, 'push', 'origin', 'HEAD:refs/heads/bob')
+    expect(unsigned.status).not.toBe(0)
+    expect(unsigned.out).toContain('carries no signature')
+
+    // Neither push cost an object-store write, which is the whole reason the
+    // verdict sits above the upload rather than below it.
+    const mid = await loadIndex(store, repoId)
+    expect(mid.index.refs['refs/heads/bob']).toBeUndefined()
+    expect(mid.index.entries).toHaveLength(claimed.index.entries.length + 1)
+    expect(await findOrphans(store, repoId)).toEqual([])
+
+    // 4. Alice grants Bob: a commit that adds a line. Her own push is judged by
+    //    the list as it stood before it, which still names only her.
+    await writeList(list, [aliceFp, bobFp], 'grant bob')
+    expect((await pushAs(list, alicePub, 'HEAD:refs/walgit/signers')).status).toBe(0)
+    expect((await loadIndex(store, repoId)).index.claim!.signers).toEqual([aliceFp, bobFp])
+
+    // 5. Bob's next push lands — a grant governs the next push, and this is it.
+    expect((await pushAs(bob.dir, bobPub, 'HEAD:refs/heads/bob')).status).toBe(0)
+    expect((await loadIndex(store, repoId)).index.refs['refs/heads/bob']).toBe(bob.oid)
+
+    // 6. Revoking is a commit that removes a line. Bob is refused again — and
+    //    everything he already pushed stays, because append-only still means
+    //    append-only and nothing here is retroactive.
+    await writeList(list, [aliceFp], 'revoke bob')
+    expect((await pushAs(list, alicePub, 'HEAD:refs/walgit/signers')).status).toBe(0)
+
+    fs.writeFileSync(path.join(bob.dir, 'README'), 'bob again\n')
+    await git(bob.dir, 'commit', '--quiet', '-am', 'bob again')
+    const revoked = await pushAs(bob.dir, bobPub, 'HEAD:refs/heads/bob')
+    expect(revoked.status).not.toBe(0)
+    expect(revoked.out).toContain('is held by a Signer List')
+
+    const final = await loadIndex(store, repoId)
+    expect(final.index.refs['refs/heads/bob']).toBe(bob.oid)
+    expect(final.index.claim!.signers).toEqual([aliceFp])
+    expect(await findOrphans(store, repoId)).toEqual([])
+  })
+
+  test('a push that writes the list and a branch at once is judged by the list before it', async () => {
+    // The grant rule, in the one shape that could get it wrong: git shows
+    // `pre-receive` both refs at once and publishes them across several
+    // compare-and-swaps, so a gate reading the list this push installs would
+    // let a stranger claim a name out from under the one who holds it.
+    const list = await listWorkdir('atomic')
+    await writeList(list, [aliceFp], 'claim')
+    expect((await pushAs(list, alicePub, 'HEAD:refs/walgit/signers')).status).toBe(0)
+
+    await writeList(list, [bobFp], 'bob takes the name')
+    const stolen = await pushAs(list, bobPub, 'HEAD:refs/walgit/signers', 'HEAD:refs/heads/bob')
+    expect(stolen.status).not.toBe(0)
+    expect(stolen.out).toContain('is held by a Signer List')
+
+    const { index } = await loadIndex(store, repoId)
+    expect(index.claim!.signers).toEqual([aliceFp])
+    expect(index.refs['refs/heads/bob']).toBeUndefined()
+  })
+
+  test('an unclaimed name refuses nothing, flag or no flag', async () => {
+    // Fail open is unchanged everywhere the exception does not reach, and
+    // "everywhere" is every repository until someone writes a list. Both of
+    // the pushes refused above land here, on a name with no list.
+    const anonymous = await clientWithCommit('anon', 'anon\n')
+    expect((await git(anonymous.dir, 'push', 'origin', 'HEAD:refs/heads/main')).status).toBe(0)
+
+    const stranger = await clientWithCommit('stranger', 'stranger\n')
+    expect((await pushAs(stranger.dir, bobPub, 'HEAD:refs/heads/stranger')).status).toBe(0)
+
+    const { index } = await loadIndex(store, repoId)
+    expect(index.claim).toBeUndefined()
+    expect(index.refs['refs/heads/stranger']).toBe(stranger.oid)
+  })
+
+  test('with the flag off, a claimed name refuses nobody', async () => {
+    // The capability ships off, and off has to mean off: a repository that
+    // already holds a list on a deployment that has not turned ownership on
+    // behaves exactly as it did before any of this existed.
+    const list = await listWorkdir('flagless')
+    await writeList(list, [aliceFp], 'claim')
+    expect((await pushAs(list, alicePub, 'HEAD:refs/walgit/signers')).status).toBe(0)
+
+    delete process.env.WALGIT_SIGNER_LISTS
+    const stranger = await clientWithCommit('unenforced', 'unenforced\n')
+    expect((await git(stranger.dir, 'push', 'origin', 'HEAD:refs/heads/main')).status).toBe(0)
+    expect((await loadIndex(store, repoId)).index.refs['refs/heads/main']).toBe(stranger.oid)
+  })
+})

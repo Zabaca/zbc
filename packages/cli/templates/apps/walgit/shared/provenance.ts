@@ -5,7 +5,9 @@
  * naming the pusher, the pushee, the nonce this server issued and every ref the
  * push moves, followed by an armoured SSH signature over everything above it
  * (docs/adr/0011 in the zbc repository). walgit reads it, records the key that
- * signed it as that ref's **Signer**, and refuses nothing on the strength of it.
+ * signed it as that ref's **Signer**, and refuses nothing on the strength of it
+ * — except where the repository holds a Signer List and the instance enforces
+ * one, which is the gate in `src/signers.ts` and nothing this module decides.
  *
  * Verification cannot use git's own verdict. `git-receive-pack` checks a
  * certificate with GPG unless told otherwise, so an SSH signature reaches the

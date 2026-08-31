@@ -14,18 +14,30 @@
  * reads any non-zero exit as a rewrite — so a blob-valued list could be created
  * once and never edited again. No grants, no revocations.
  *
- * **This module refuses nothing for being unsigned or unlisted.** Enforcement
- * is a later slice; what is decided here is only whether the list a push WRITES
- * is one walgit can record, and the two answers that are not are both about
- * losing a name rather than defending it:
+ * There are two decisions here and they are deliberately separate, because they
+ * are asked of different bytes and answer different questions:
  *
- *   - an EMPTY list would leave the name claimable by the next stranger, so a
- *     compromised key could give a name away rather than merely keep it;
- *   - an UNREADABLE one would leave an agent believing it holds a name it does
- *     not.
+ *   - `checkSignerList` judges the list a push WRITES, and refuses two shapes
+ *     that are both about LOSING a name rather than defending it — an EMPTY
+ *     list, which would leave the name claimable by the next stranger, so a
+ *     compromised key could give a name away rather than merely keep it; and an
+ *     UNREADABLE one, which would leave an agent believing it holds a name it
+ *     does not. Both are refused on claimed and unclaimed repositories alike,
+ *     because both are wrong before ownership means anything.
+ *   - `checkSignerAllowed` is the gate: while a repository HAS a list, a push
+ *     not signed by a listed key is refused. It is pure over the Signer this
+ *     push established, the list as it stood BEFORE this push, and the ref
+ *     changes — no git, no store, no subprocess.
  *
- * Both are refused on claimed and unclaimed repositories alike, because both
- * are wrong before ownership means anything.
+ * **A grant governs the next push.** The list that judges a push is the one
+ * that stood before it, which is what lets a single push move the list and a
+ * branch together: the new list applies from the following push. The founding
+ * push needs no exception, because an unclaimed name refuses nothing.
+ *
+ * The gate is fail-open's one exception, and it is confined to a claimed
+ * repository (docs/adr/0011, docs/adr/0012). Everywhere else an unestablished
+ * Signer is the anonymous push walgit has always accepted; here it refuses,
+ * because otherwise breaking verification would be how one bypasses the gate.
  *
  * Off unless the instance turns it on, like append-only beside it: the package
  * ships every capability off, and this one deliberately does not ride
@@ -36,10 +48,24 @@
 import { isFingerprint } from '../shared/provenance'
 import { flagEnabled } from '../shared/policy'
 import { SIGNERS_REF, ZERO_OID } from '../shared/protocol'
+import { suggestName } from './append-only'
 import { git } from './git'
+import { certificatePresented, signedPushEnabled, type PushCertEnv } from './push-cert'
 import type { RefChange } from './wal-index'
 
-/** The env flag an instance sets to give its repositories Signer Lists. */
+/**
+ * The env flag an instance sets to give its repositories Signer Lists.
+ *
+ * Turn it on beside `WALGIT_PUSH_CERT_SEED`, never without it. The seed is what
+ * makes `git-receive-pack` advertise certificates at all, so with the flag on
+ * and no seed every push to a claimed name is refused as unsigned and no client
+ * can sign its way out — every claimed name on that deployment is unpushable
+ * until the seed is set. Deliberately not enforced here: the gate refuses an
+ * unestablished Signer precisely so that breaking verification is not the way
+ * around it (docs/adr/0012), and an operator who unset the seed has broken
+ * verification for everyone. Failing closed is loud and recoverable; failing
+ * open would hand every claimed name back to the next stranger.
+ */
 export function signerListsEnabled(env: Record<string, string | undefined> = process.env): boolean {
   return flagEnabled(env.WALGIT_SIGNER_LISTS)
 }
@@ -198,10 +224,35 @@ function batchCheckSize(line: string): number | null {
 
 // ── The verdict ─────────────────────────────────────────────────────────────
 
+/**
+ * Every way a Signer List can refuse a push, across both decisions in this
+ * file. One union rather than two so a caller — the hook, a test, a future
+ * counter in front of the container — can name a refusal without knowing which
+ * of the two questions produced it.
+ */
+export type RefusalKind =
+  /** The push is signed, by a key the repository's list does not name. */
+  | 'not-listed'
+  /** The push carried no certificate at all, on a name that requires one. */
+  | 'unsigned'
+  /** It carried one walgit could not turn into a key. */
+  | 'unverified'
+  /** The list this push writes names nobody. */
+  | 'empty-list'
+  /** walgit could not read a list out of what this push wrote. */
+  | 'unreadable-list'
+
+/** The two halves of it: what `checkSignerList` can say, and what the gate can. */
+export type ListRefusal = Extract<RefusalKind, 'empty-list' | 'unreadable-list'>
+export type GateRefusal = Extract<RefusalKind, 'not-listed' | 'unsigned' | 'unverified'>
+
 export type SignerListVerdict =
-  /** `signers` is the list this push writes, or `null` when it writes none. */
-  | { ok: true; signers: string[] | null }
-  | { ok: false; kind: 'empty-list' | 'unreadable-list'; message: string }
+  | {
+      ok: true
+      /** The list this push writes, or `null` when it writes none. */
+      signers: string[] | null
+    }
+  | { ok: false; kind: ListRefusal; message: string }
 
 /**
  * Judge what a push does to a repository's Signer List, and resolve it.
@@ -248,22 +299,18 @@ export function checkSignerList(
   return { ok: true, signers: parsed.signers }
 }
 
-const refuse = (
-  repoId: string,
-  kind: 'empty-list' | 'unreadable-list',
-  why: string,
-): SignerListVerdict => ({ ok: false, kind, message: rejectionMessage(repoId, kind, why) })
+const refuse = (repoId: string, kind: ListRefusal, why: string): SignerListVerdict => ({
+  ok: false,
+  kind,
+  message: rejectionMessage(repoId, kind, why),
+})
 
 /**
  * The message a refused list push reads. Product copy, like the append-only
  * one: it states what walgit found, the format it wanted, and the one thing to
  * do next — an agent that cannot act on a refusal has been told nothing.
  */
-function rejectionMessage(
-  repoId: string,
-  kind: 'empty-list' | 'unreadable-list',
-  why: string,
-): string {
+function rejectionMessage(repoId: string, kind: ListRefusal, why: string): string {
   const what =
     kind === 'empty-list'
       ? [
@@ -293,4 +340,179 @@ function rejectionMessage(
     '',
     'Nothing was uploaded; the repository is unchanged.',
   ].join('\n')
+}
+
+// ── The gate ────────────────────────────────────────────────────────────────
+
+/**
+ * What `pre-receive` could establish about who made this push.
+ *
+ * Three answers where Provenance has two, and the third one is the reason this
+ * type exists. `establishSigner` collapses every failure to `null` because a
+ * `null` Signer is a push that lands (docs/adr/0011); on a claimed name the two
+ * failures need different words, because *sign your push* and *your signature
+ * did not verify* are different things to go and do. An agent handed the first
+ * when the second is true re-sends the same failing signature.
+ */
+export type PushSigner =
+  /** A certificate walgit verified, and the key it named. */
+  | { kind: 'signed'; fingerprint: string }
+  | {
+      /** No certificate at all — the anonymous push walgit has always taken. */
+      kind: 'unsigned'
+      /**
+       * Could this push have been signed at all — does the deployment set a
+       * nonce seed?
+       *
+       * It changes no verdict and one sentence. With no seed `git-receive-pack`
+       * never advertises the capability, so "push with `--signed=yes`" is
+       * advice the pusher's own git refuses, and a claimed name on such a
+       * deployment refuses everyone including whoever holds it. The gate still
+       * refuses — failing open here is precisely the bypass ADR-0012 closes —
+       * but the refusal names the misconfiguration instead of sending an agent
+       * to retry something that cannot work.
+       */
+      signable: boolean
+    }
+  /**
+   * A certificate walgit could not turn into a key: bad nonce, bad signature,
+   * missing or throwing verifier.
+   */
+  | { kind: 'unverified' }
+
+/**
+ * Read the two answers together: the Signer `establishSigner` settled, and —
+ * only when it settled nothing — whether there was a certificate to settle.
+ *
+ * The env read is deliberately second and deliberately narrow. Who signed is
+ * still `establishSigner`'s answer and nothing here revisits it; this only
+ * chooses which sentence an unestablished Signer is told.
+ */
+export function describeSigner(signer: string | null, env: PushCertEnv = process.env): PushSigner {
+  if (signer !== null) return { kind: 'signed', fingerprint: signer }
+  if (certificatePresented(env)) return { kind: 'unverified' }
+  return { kind: 'unsigned', signable: signedPushEnabled(env) }
+}
+
+export type SignerGateVerdict = { ok: true } | { ok: false; kind: GateRefusal; message: string }
+
+/**
+ * May this push land, given who signed it and the list this name already holds?
+ *
+ * Pure over its three inputs, with no git, no store and no subprocess in reach:
+ * the list arrives already resolved from the Index (`WalIndex.claim`), which is
+ * what keeps ownership from depending on the Cache being materialized.
+ *
+ * `claimed` is **the list as it stood BEFORE this push**, and that is the whole
+ * of the grant rule: a push may move the list and a branch together, and the
+ * list it installs applies from the following push. The founding push needs no
+ * exception written for it, because an unclaimed name refuses nothing.
+ *
+ * **The Index is what enforces, and the ref is what is authoritative** — the
+ * gap ADR-0012 leaves to this slice, answered rather than hidden. The derived
+ * copy is maintained only while the flag is on, so a list pushed before it was
+ * turned on, or a list ref moved while it was off, leaves the two disagreeing:
+ * a name the ref says is claimed refuses nothing until its list is pushed
+ * again, and a name whose list moved while the flag was off is judged by the
+ * one the Index still holds. Neither is re-derived from the other, because
+ * re-deriving means reading a git object out of the Cache — and the Cache is
+ * disposable, which would make ownership depend on a node having materialized
+ * it. The rule for an operator is the short one: turn the flag on before anyone
+ * writes a list, and leave it on.
+ *
+ * An unclaimed name is `null`. An empty array is read as unclaimed too, and the
+ * asymmetry with `checkSignerList` — which refuses writing one — is the point:
+ * a list naming nobody cannot be written, so reaching one here means the Index
+ * disagrees with what this code can produce, and the two readings of that are
+ * "the name is open, as it was before anyone claimed it" and "the name is
+ * bricked, for everyone, forever". Only one of those has a way back.
+ */
+export function checkSignerAllowed(
+  repoId: string,
+  signer: PushSigner,
+  claimed: readonly string[] | null,
+  changes: readonly RefChange[],
+): SignerGateVerdict {
+  if (claimed === null || claimed.length === 0) return { ok: true }
+  if (signer.kind === 'signed' && claimed.includes(signer.fingerprint)) return { ok: true }
+  return {
+    ok: false,
+    kind: signer.kind === 'signed' ? 'not-listed' : signer.kind,
+    message: heldMessage(repoId, signer, changes),
+  }
+}
+
+/**
+ * The message a stranger reads, and the only place most agents will ever learn
+ * that Signer Lists exist.
+ *
+ * Ownership's failure lands on our server, in our words, at the moment it is
+ * relevant — which is why the terse front door does not have to carry it
+ * (docs/adr/0012). So this says three things and an agent can act on each: the
+ * name is held, here is a free one to use instead, and here is how to be added
+ * to this one.
+ */
+function heldMessage(repoId: string, signer: PushSigner, changes: readonly RefChange[]): string {
+  const why =
+    signer.kind === 'signed'
+      ? [
+          `Your push is signed by ${signer.fingerprint}, and ${repoId}'s Signer List does`,
+          'not name that key.',
+        ]
+      : signer.kind === 'unsigned'
+        ? signer.signable
+          ? [
+              'Your push carries no signature, so walgit cannot tell whose it is. A name',
+              'that holds a Signer List takes signed pushes only:',
+              '',
+              '    git push --signed=yes origin HEAD:refs/heads/<branch>',
+            ]
+          : [
+              'Your push carries no signature, and this host is not advertising signed',
+              'pushes at all — so no push can satisfy this name, including the one that',
+              'claimed it. That is a misconfiguration here, not something you can fix:',
+              'whoever runs this host has set WALGIT_SIGNER_LISTS without setting',
+              'WALGIT_PUSH_CERT_SEED. Push to a free name, and tell them.',
+            ]
+        : [
+            'Your push carries a certificate walgit could not verify — a stale nonce, or a',
+            'signature it could not check. A claimed name does not fall back to an',
+            'anonymous push, so re-run the same `git push --signed=yes` to get a fresh',
+            'nonce; if it keeps failing, `ssh-keygen -Y check-novalidate` is what walgit',
+            'runs.',
+          ]
+  const refs = describeRefs(changes)
+  return [
+    `walgit: refused — ${repoId} is held by a Signer List.`,
+    '',
+    ...(refs === null ? [] : [`This push would have written ${refs}.`]),
+    ...why,
+    '',
+    `${repoId} names the keys that may push to it on ${SIGNERS_REF} — anyone can`,
+    'read it, and reads are not gated. Any name nobody has claimed is still free.',
+    '',
+    'What you can do instead:',
+    `  - push to a free name:  git remote set-url origin <same-host>/${suggestName(repoId)}.git`,
+    `  - or be added to this one: a listed key pushes a commit on ${SIGNERS_REF}`,
+    '    whose `signers` file gains the line `ssh-keygen -lf <your-key>` prints.',
+    '    A grant governs the NEXT push, so retry once theirs has landed.',
+    '',
+    'Nothing was uploaded; the repository is unchanged.',
+  ].join('\n')
+}
+
+/**
+ * The refs this push would have written, named rather than counted: an agent
+ * pushing several branches at once needs to know the refusal took all of them.
+ * Truncated past three, because past three the list stops being read.
+ *
+ * `null` for a push naming none, which git does not send and which the sentence
+ * is therefore left out of entirely — "this push would have written nothing" is
+ * a line that can only confuse whoever manages to read it.
+ */
+function describeRefs(changes: readonly RefChange[]): string | null {
+  const refs = changes.map((c) => c.ref)
+  if (refs.length === 0) return null
+  if (refs.length <= 3) return refs.join(', ')
+  return `${refs.slice(0, 3).join(', ')} and ${refs.length - 3} more`
 }

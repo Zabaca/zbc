@@ -459,12 +459,25 @@ and `GET /` does not claim it. `WALGIT_EVENTS_URL` and `WALGIT_EVENTS_TOKEN` (a
 secret) turn on the ref-event stream below, and `WALGIT_PUSH_CERT_SEED` (a
 secret) turns on signed pushes.
 
-`WALGIT_SIGNER_LISTS=1` lets a repository record the keys allowed to push to it
+`WALGIT_SIGNER_LISTS=1` lets a repository name the keys allowed to push to it
 (docs/adr/0012 in the zbc repository): a commit on `refs/walgit/signers` whose
-tree holds a `signers` file, one `SHA256:…` fingerprint per line. Today walgit
-**records** that list and refuses nothing on the strength of it — only a push
-writing an empty or unreadable list is refused. Enforcement ships separately, so
-do not turn this on expecting a name to be defended by it yet.
+tree holds a `signers` file, one `SHA256:…` fingerprint per line. While a
+repository has one, a push not signed by a listed key is **refused** — and the
+list that judges a push is the one that stood before it, so a push moving the
+list and a branch together installs a list that applies from the next push. A
+repository with no list refuses nothing, which is every repository until someone
+writes one; reads are never gated, and pushing a list that is empty or that
+walgit cannot read is refused on any repository, claimed or not.
+
+**Turn it on beside `WALGIT_PUSH_CERT_SEED`, never without it.** The seed is
+what makes `git-receive-pack` advertise certificates at all, so with no seed
+every push to a repository holding a list is refused as unsigned and no client
+can sign its way out — that repository is unpushable until the seed is set.
+Turn the flag on *before* anyone writes a list, too: the copy of the list the
+refusal reads out of `index.json` is maintained only while the flag is on, so a
+list pushed while it was off is not enforced until its ref is pushed again.
+
+There is no recovery path for a lost key, and none is planned. List two keys.
 
 The container sleeps when idle and the next request wakes it — one regime,
 median 1.77 s, spread 0.93–6.45 s, and a ten-minute idle measures the same. Its

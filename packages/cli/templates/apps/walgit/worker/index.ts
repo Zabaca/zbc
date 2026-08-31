@@ -246,6 +246,11 @@ export default {
         // against a host without the seed, so a page inviting somebody to sign
         // would be sending them to a refusal it caused.
         signedPushes: signedPushEnabled(env.WALGIT_PUSH_CERT_SEED),
+        // Read through the shared flag helper, like append-only beside it: the
+        // container enforces the gate from this variable and both documents
+        // describe it from the same one, so neither can go on promising that
+        // nothing is refused for being unsigned after the hook stopped agreeing.
+        signerLists: flagEnabled(env.WALGIT_SIGNER_LISTS),
         ...limitsFromEnv(env),
       })
       const bytes = new TextEncoder().encode(page)
@@ -302,6 +307,11 @@ export default {
         // advertise `push-cert` at all, so a manual that offered signing here
         // without one would send an agent to a flag its own git refuses.
         signedPushes: signedPushEnabled(env.WALGIT_PUSH_CERT_SEED),
+        // Read through the shared flag helper, like append-only beside it: the
+        // container enforces the gate from this variable and both documents
+        // describe it from the same one, so neither can go on promising that
+        // nothing is refused for being unsigned after the hook stopped agreeing.
+        signerLists: flagEnabled(env.WALGIT_SIGNER_LISTS),
         ...limitsFromEnv(env),
       })
       const bytes = new TextEncoder().encode(doc)

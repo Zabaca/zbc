@@ -103,6 +103,25 @@ function catBlob(oid: string): string | null {
 }
 
 /**
+ * Did this push offer a certificate at all — whatever became of it?
+ *
+ * Provenance never needed this question: a certificate that cannot be turned
+ * into a key and a push that carried none are both `null`, and `null` is a push
+ * that lands. The gate in `src/signers.ts` does need it, because on a claimed
+ * repository the two are different refusals with different fixes — *sign your
+ * push* and *your signature did not verify, push again* — and an agent told the
+ * first when the second is true will keep re-sending a signature that keeps
+ * failing.
+ *
+ * git sets `GIT_PUSH_CERT` to the certificate's blob whenever one arrived, and
+ * reports what it thinks of the nonce separately, so this stays true for the
+ * stale-nonce case that `readPushCertificate` refuses just below.
+ */
+export function certificatePresented(env: PushCertEnv = process.env): boolean {
+  return (env.GIT_PUSH_CERT ?? '').trim() !== ''
+}
+
+/**
  * The certificate this push carries, split and ready to verify, or `null`.
  *
  * The nonce gate is here rather than after verification because it is a
@@ -122,8 +141,8 @@ export function readPushCertificate(
   env: PushCertEnv = process.env,
   readBlob: BlobReader = catBlob,
 ): SplitCertificate | null {
+  if (!certificatePresented(env)) return null
   const oid = (env.GIT_PUSH_CERT ?? '').trim()
-  if (oid === '') return null
   if ((env.GIT_PUSH_CERT_NONCE_STATUS ?? '').trim() !== 'OK') return null
   const text = readBlob(oid)
   if (text === null) return null
