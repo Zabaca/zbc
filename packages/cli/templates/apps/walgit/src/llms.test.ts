@@ -26,6 +26,7 @@ const FACTS = {
   publicAccess: true,
   appendOnly: true,
   signedPushes: false,
+  signerLists: false,
 }
 
 describe('wantsLlms', () => {
@@ -121,10 +122,25 @@ describe('renderLlms', () => {
     // fingerprint as an account this host does not have.
     expect(doc).toContain('not a person and not an account')
     expect(doc).toContain('no list of allowed signers')
+    expect(doc).toContain('Unsigned pushes are ordinary')
     // And the half a reader is likeliest to assume wrongly: signing buys
     // nothing, so an anonymous push is not a second-class one.
-    expect(doc).toContain('Unsigned pushes are ordinary')
     expect(doc).toContain('buys no access')
+  })
+
+  test('stops saying signing refuses nothing once the gate can refuse', () => {
+    // The manual promised, in this very paragraph, that "if provenance ever
+    // starts refusing things, it will say so on this page first". This is that
+    // page keeping its word: it is not the feature's documentation, only the
+    // removal of the three sentences the gate makes false.
+    const doc = renderLlms({ ...FACTS, signedPushes: true, signerLists: true }).replace(/\s+/g, ' ')
+    expect(doc).toContain('Signer List')
+    expect(doc).toContain('refs/walgit/signers')
+    expect(doc).not.toContain('refuses nothing on the strength of it')
+    expect(doc).not.toContain('no list of allowed signers')
+    expect(doc).not.toContain('no name is owned by the key that first pushed it')
+    // What is still true is still said: reads are not gated by any of it.
+    expect(doc).toContain('world-readable')
   })
 
   test('is markdown a model can skim by its headings', () => {
@@ -173,6 +189,7 @@ describe('the two documents earn their separation', () => {
       ...FACTS,
       events: true,
       signedPushes: true,
+      signerLists: true,
       retentionHours: 24,
       maxPushBytes: 99 * 1024 * 1024,
       maxRepoBytes: 250 * 1024 * 1024,
@@ -183,6 +200,7 @@ describe('the two documents earn their separation', () => {
       appendOnly: true,
       events: true,
       signedPushes: true,
+      signerLists: true,
       retentionHours: 24,
       maxPushBytes: facts.maxPushBytes,
       maxRepoBytes: facts.maxRepoBytes,

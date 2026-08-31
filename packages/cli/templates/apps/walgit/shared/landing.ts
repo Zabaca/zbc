@@ -66,6 +66,15 @@ export interface LandingFacts {
    * the same lie as a page promising a window nothing collects.
    */
   events: boolean
+  /**
+   * May a repository here hold a Signer List, and be defended by it?
+   *
+   * From `WALGIT_SIGNER_LISTS`, and it earns no claim of its own — the page
+   * lists what is true here, and "some names refuse some pushers" is not a
+   * thing a visitor can act on. What it changes is one sentence in the signing
+   * claim, which otherwise promises that nothing is refused for being unsigned.
+   */
+  signerLists: boolean
 }
 
 /**
@@ -200,7 +209,11 @@ function signingClaim(facts: LandingFacts): string {
     '\n' +
     claim(
       'Attributed',
-      "<b>A push signed with your key records that key's fingerprint.</b> Nothing is refused for being unsigned, and there is still no account: the fingerprint is the whole identity. <code>git push --signed=if-asked</code>.",
+      "<b>A push signed with your key records that key's fingerprint.</b> " +
+        (facts.signerLists
+          ? 'Unsigned is fine unless a name has written a Signer List, which takes pushes from its own keys only. There is still no account: the fingerprint is the whole identity.'
+          : 'Nothing is refused for being unsigned, and there is still no account: the fingerprint is the whole identity.') +
+        ' <code>git push --signed=if-asked</code>.',
     )
   )
 }

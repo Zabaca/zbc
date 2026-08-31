@@ -23,9 +23,15 @@ import { configuredThreshold, isCompactionDue } from './compact'
 import { checkSize, limitsEnforced, limitsFromEnv, liveBytes } from './limits'
 import { clearPending, invocationId, markConsumed, readPending, sweepPending } from './pending'
 import { establishSigner, parseRefChanges, preReceive, publishPush, quarantinePack } from './push'
-import { checkSignerList, gitSignersSource, signerListsEnabled } from './signers'
+import {
+  checkSignerAllowed,
+  checkSignerList,
+  describeSigner,
+  gitSignersSource,
+  signerListsEnabled,
+} from './signers'
 import { requireStore, storeFromEnv } from './store-env'
-import { loadIndex, type RefChange } from './wal-index'
+import { loadIndex, type LoadedIndex, type RefChange } from './wal-index'
 
 const hook = process.argv[2]
 const phase = process.argv[3]
@@ -65,19 +71,56 @@ async function main(): Promise<number> {
     // blob lives in the push's quarantine and is gone by the time the refs
     // move — and it is settled at the TOP because a verdict that turns on the
     // Signer has to be reachable before the upload: reached after it, every
-    // push it refused would leave an Orphan behind. Today it only becomes the
-    // Provenance the publish records.
+    // push it refused would leave an Orphan behind. It becomes the Provenance
+    // the publish records, and the gate's input just below.
     //
-    // Fail-open throughout (docs/adr/0011): a certificate that is missing,
-    // stale, malformed or unverifiable, and an `ssh-keygen` that is absent or
-    // throws, are all `null` here — and a `null` Signer is the anonymous push
-    // walgit accepted before any of this existed.
+    // Fail-open still (docs/adr/0011): a certificate that is missing, stale,
+    // malformed or unverifiable, and an `ssh-keygen` that is absent or throws,
+    // are all `null` here — and a `null` Signer is the anonymous push walgit
+    // accepted before any of this existed. Its one exception is confined to a
+    // repository that holds a Signer List, where `null` refuses, because
+    // otherwise breaking verification would be how one bypasses the gate.
     const signer = establishSigner()
     const changes = parseRefChanges(stdin).filter((c) => c.ref.startsWith('refs/'))
 
-    // Before the store is even touched: a push that will be refused must not
-    // cost an object-store write. git's own deny rules run after this hook, so
-    // leaving it to them would upload a pack nothing will ever reference.
+    const quarantineDir = process.env.GIT_QUARANTINE_PATH || process.env.GIT_OBJECT_DIRECTORY
+    const store = requireStore()
+
+    // The Index, read at most once for the whole hook and only by a verdict
+    // that needs it. Two of them do — ownership needs the list this name
+    // already holds, and the size cap needs the repository's current total —
+    // and reading it twice would let them judge one push against two different
+    // states of the log for no reason either could explain.
+    let loaded: LoadedIndex | null = null
+    const index = async () => (loaded ??= await loadIndex(store, repoId)).index
+
+    // Ownership, FIRST, and before the store is written to: while a repository
+    // holds a Signer List, a push not signed by a listed key is refused
+    // (docs/adr/0012). It leads the verdicts because every one below it is
+    // about WHAT was pushed, and telling a stranger their push would rewrite a
+    // branch — advice they cannot act on, because they may not push here at
+    // all — is a refusal that sends them somewhere there is nothing to find.
+    //
+    // The list that judges is the one that stood BEFORE this push, which is
+    // what makes a grant govern the next push rather than its own. Off entirely
+    // without the flag, and on an unclaimed name it refuses nothing.
+    if (signerListsEnabled()) {
+      const verdict = checkSignerAllowed(
+        repoId,
+        describeSigner(signer),
+        (await index()).claim?.signers ?? null,
+        changes,
+      )
+      if (!verdict.ok) {
+        process.stderr.write(`${verdict.message}\n`)
+        return 1
+      }
+    }
+
+    // Append-only, for the same reason at the same moment: a push that will be
+    // refused must not cost an object-store write. git's own deny rules run
+    // after this hook, so leaving it to them would upload a pack nothing will
+    // ever reference.
     if (appendOnlyEnabled()) {
       const verdict = checkAppendOnly(gitDir, repoId, changes)
       if (!verdict.ok) {
@@ -86,16 +129,16 @@ async function main(): Promise<number> {
       }
     }
 
-    // The Signer List this push writes, resolved here for the same reason and
-    // at the same moment (docs/adr/0012). Two of its answers refuse the push —
-    // a list that is empty, and one walgit cannot read — and both have to be
-    // reachable before the upload or every push they refused would leave an
-    // Orphan behind. The third answer is the list itself, which rides down to
-    // the compare-and-swap that publishes the ref move.
+    // The Signer List this push WRITES, resolved here for the same reason and
+    // at the same moment. Two of its answers refuse the push — a list that is
+    // empty, and one walgit cannot read — and both have to be reachable before
+    // the upload or every push they refused would leave an Orphan behind. The
+    // third answer is the list itself, which rides down to the compare-and-swap
+    // that publishes the ref move.
     //
-    // Nothing is refused here for being unsigned or unlisted: that is
-    // enforcement, and it is a later slice. Off entirely without the flag, in
-    // which case `refs/walgit/signers` is an ordinary ref like any other.
+    // Below the gate, deliberately: whether a stranger's list is well-formed is
+    // not the answer a stranger needs. Without the flag `refs/walgit/signers`
+    // is an ordinary ref like any other.
     let signerList: string[] | null = null
     if (signerListsEnabled()) {
       const verdict = checkSignerList(repoId, changes, gitSignersSource(gitDir))
@@ -105,9 +148,6 @@ async function main(): Promise<number> {
       }
       signerList = verdict.signers
     }
-
-    const quarantineDir = process.env.GIT_QUARANTINE_PATH || process.env.GIT_OBJECT_DIRECTORY
-    const store = requireStore()
 
     // Size, for the same reason and at the same moment. The pack is in the
     // quarantine and its size is exact, so the answer costs one stat and (only
@@ -120,8 +160,7 @@ async function main(): Promise<number> {
       const pushBytes = found ? fs.statSync(found.pack).size : 0
       // Skipped for a ref-only push: it adds nothing, so neither cap can move.
       if (pushBytes > 0) {
-        const repoBytes =
-          limits.maxRepoBytes === null ? 0 : liveBytes((await loadIndex(store, repoId)).index)
+        const repoBytes = limits.maxRepoBytes === null ? 0 : liveBytes(await index())
         const verdict = checkSize({ repoId, pushBytes, repoBytes, limits })
         if (!verdict.ok) {
           process.stderr.write(`${verdict.message}\n`)

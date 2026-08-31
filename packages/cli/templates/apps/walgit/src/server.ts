@@ -21,6 +21,7 @@ import { runGitHttpBackend } from './git-backend'
 import type { InstructionsPolicy } from './instructions'
 import { limitsFromEnv } from './limits'
 import { signedPushEnabled } from './push-cert'
+import { signerListsEnabled } from './signers'
 import type { ObjectStore } from './store'
 import { storeFromEnv } from './store-env'
 import { syncRepo } from './sync'
@@ -71,6 +72,10 @@ const instructions: InstructionsPolicy = {
   // own git. So the same read that turns it on is the one the page speaks
   // from, and an instance without a seed says nothing about signing at all.
   signedPushes: signedPushEnabled(),
+  // The same predicate `pre-receive` gates the refusal on, so the page cannot
+  // promise that nothing is refused for being unsigned while the hook refuses
+  // it (src/signers.ts).
+  signerLists: signerListsEnabled(),
 }
 
 const store = storeFromEnv()

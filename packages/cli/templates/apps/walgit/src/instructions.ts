@@ -48,6 +48,17 @@ export type InstructionsPolicy = {
    * cap nothing enforces, arriving one step earlier.
    */
   signedPushes?: boolean
+  /**
+   * A repository here may hold a Signer List, and be defended by it.
+   *
+   * It buys no section — this page has a byte budget and ADR-0012 put
+   * discovery in `/llms.txt` and in the refusal itself, because ownership's
+   * failure lands on our server in our words. What it buys is one clause: the
+   * signing paragraph otherwise promises that nothing is refused for being
+   * unsigned, which the gate makes false, and a page that says the opposite of
+   * the hook is the drift every other entry here exists to prevent.
+   */
+  signerLists?: boolean
 }
 
 /**
@@ -87,7 +98,7 @@ export function renderInstructions(origin: string, policy: InstructionsPolicy = 
     '',
     `    git clone ${origin}/$NAME.git`,
     '',
-    ...(policy.signedPushes ? signingSection(origin) : []),
+    ...(policy.signedPushes ? signingSection(origin, policy.signerLists) : []),
     ...(policy.events ? watchSection(origin) : []),
     ...(policy.events
       ? []
@@ -144,12 +155,15 @@ function facts(policy: InstructionsPolicy): string[] {
  * does not, so an agent can put one form in its habits and never branch on
  * which host it is talking to.
  */
-function signingSection(origin: string): string[] {
+function signingSection(origin: string, signerLists = false): string[] {
   return [
     'SIGN A PUSH, AND BE CREDITED FOR IT',
     '',
     ...wrap(
-      'Push with --signed=if-asked and the fingerprint of your key is recorded as who moved each ref. Any SSH key works, including the one you already push to GitHub with. Nothing is refused for being unsigned.',
+      'Push with --signed=if-asked and the fingerprint of your key is recorded as who moved each ref. Any SSH key works, including the one you already push to GitHub with. ' +
+        (signerLists
+          ? 'Unsigned is fine unless a name holds a Signer List.'
+          : 'Nothing is refused for being unsigned.'),
     ),
     '',
     '    git -c gpg.format=ssh -c user.signingkey=~/.ssh/id_ed25519.pub \\',

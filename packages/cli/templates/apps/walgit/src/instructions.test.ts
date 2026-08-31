@@ -181,6 +181,18 @@ describe('the signing section says it is possible, and not why', () => {
     expect(text).toContain('Nothing is refused for being unsigned.')
   })
 
+  test('…and stops saying it once a name can refuse an unsigned push', () => {
+    // One clause, not a section: the page has a byte budget and ADR-0012 put
+    // discovery in /llms.txt and in the refusal itself. What it cannot do is go
+    // on promising the opposite of what `pre-receive` does.
+    const text = renderInstructions('https://walgit.example', {
+      ...PUBLIC,
+      signerLists: true,
+    }).replace(/\s+/g, ' ')
+    expect(text).toContain('Signer List')
+    expect(text).not.toContain('Nothing is refused for being unsigned.')
+  })
+
   test('with no seed, the capability does not exist on the page', () => {
     const text = renderInstructions('https://walgit.example', { ...PUBLIC, signedPushes: false })
     expect(text).not.toContain('SIGN A PUSH')
