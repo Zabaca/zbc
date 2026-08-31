@@ -1,15 +1,28 @@
-# Publishes @zabaca/zbc to npm when the version field changes.
+# Publishes this repository's npm packages when a version field changes.
 #
-# The other half of a release. `publish-core.yml` splits the vendored subtree and
-# tags `zbc-core-v<version>`; this ships the CLI that the same version names.
-# Both are driven by `packages/cli/package.json`, and until 2026-08-22 only the
-# first was automated — so npm sat at 0.10.2 while the repo reached 0.10.7, and
-# the published package carried NINE of the twenty-three modules the tree
-# actually ships. Anyone installing from npm got a CLI that could not `zbc add
-# vm`. Nothing reported it, because nothing was failing.
+# For @zabaca/zbc this is the other half of a release: `publish-core.yml` splits
+# the vendored subtree and tags `zbc-core-v<version>`; this ships the CLI that
+# the same version names. Both are driven by `packages/cli/package.json`, and
+# until 2026-08-22 only the first was automated — so npm sat at 0.10.2 while the
+# repo reached 0.10.7, and the published package carried NINE of the
+# twenty-three modules the tree actually ships. Anyone installing from npm got a
+# CLI that could not `zbc add vm`. Nothing reported it, because nothing was
+# failing.
 #
-# Triggered on the version file alone, not on the templates, so a module change
-# without a release does not attempt a publish it would only skip.
+# @zabaca/agentgit joined it on 2026-08-30, and for a sharper reason: the
+# agentgit homepage prints `bunx @zabaca/agentgit watch` as the one command it
+# asks anyone to run. A version in the repo that is not on npm is that command
+# failing for every visitor, which is worse than a stale CLI — it is a broken
+# promise on the front page. Its first publish was attempted by hand and
+# REFUSED — npm requires a token with 2FA bypass, which the CI credential has
+# and a personal login does not — so a package this repository ships had no way
+# to reach npm at all until it was in here.
+#
+# Both are triggered on the version file alone, not on the sources, so a change
+# without a release does not attempt a publish it would only skip. The matrix
+# runs every package on any of those triggers, which is deliberate: the
+# already-published check makes the others a no-op, and a version that was
+# missed heals on the next release of anything.
 name: publish-npm
 
 on:
@@ -17,6 +30,11 @@ on:
     branches: [main]
     paths:
       - 'packages/cli/package.json'
+      - 'packages/agentgit/package.json'
+      # Its own path, so adding a package here publishes it on merge rather
+      # than waiting for that package's next version bump. Safe by
+      # construction: every package whose version is already on npm no-ops.
+      - '.github/workflows/publish-npm.yml'
   # 0.10.7 was released before this workflow existed; dispatch is how it, or any
   # other already-tagged version, gets shipped without a further bump.
   workflow_dispatch:
@@ -28,6 +46,29 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+    strategy:
+      # Never cancel a sibling: two packages publishing in one run are
+      # independent, and a failure in one must not leave the other half-shipped.
+      fail-fast: false
+      matrix:
+        include:
+          - package: '@zabaca/zbc'
+            dir: packages/cli
+            # What ships is what this covers. A version-only bump does not touch
+            # `templates/infra`, so core-tests.yml does not fire on a release
+            # commit — publishing without running these would put an untested
+            # tree on npm under a version number consumers pin.
+            test: bun test packages/cli/templates/infra
+            build: ''
+          - package: '@zabaca/agentgit'
+            dir: packages/agentgit
+            # The published artefact is a bundle, and the suite builds it the
+            # way `build` does and runs it under node. That is the only check
+            # that catches a bun global reaching a package whose whole promise
+            # is `npx` — neither the typechecker nor `bun test` alone can.
+            test: bun test packages/agentgit/src
+            build: bun run build
+    name: ${{ matrix.package }}
     steps:
       - uses: actions/checkout@v4
 
@@ -37,30 +78,34 @@ jobs:
 
       - run: bun install
 
-      # What ships is what these cover. A version-only bump does not touch
-      # `templates/infra`, so core-tests.yml does not fire on a release commit —
-      # publishing without running them would put an untested tree on npm under
-      # a version number consumers pin.
-      - name: Test the modules that ship
-        run: bun test packages/cli/templates/infra
+      - name: Test what ships
+        run: ${{ matrix.test }}
 
       - name: Is this version already on npm?
         id: state
         run: |
-          VERSION=$(jq -r .version packages/cli/package.json)
+          VERSION=$(jq -r .version ${{ matrix.dir }}/package.json)
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
-          if npm view "@zabaca/zbc@${VERSION}" version >/dev/null 2>&1; then
+          if npm view "${{ matrix.package }}@${VERSION}" version >/dev/null 2>&1; then
             echo "published=yes" >> "$GITHUB_OUTPUT"
-            echo "@zabaca/zbc@${VERSION} is already on npm — nothing to do"
+            echo "${{ matrix.package }}@${VERSION} is already on npm — nothing to do"
           else
             echo "published=no" >> "$GITHUB_OUTPUT"
           fi
+
+      # Only for a package that has one. Building in the publish step rather
+      # than relying on a committed `dist/` is what keeps the artefact on npm
+      # identical to the source this commit tested.
+      - name: Build the artefact
+        if: steps.state.outputs.published == 'no' && matrix.build != ''
+        working-directory: ${{ matrix.dir }}
+        run: ${{ matrix.build }}
 
       - name: Publish
         if: steps.state.outputs.published == 'no'
         env:
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
-        working-directory: packages/cli
+        working-directory: ${{ matrix.dir }}
         run: |
           # Checked here rather than in an `if:`, because a step's own `env` is
           # not in scope for that step's own condition — written that way first,
@@ -71,7 +116,7 @@ jobs:
           # publish-core.yml's tag step printed "already published — skipping"
           # for two releases and nobody saw it.
           if [ -z "${NPM_TOKEN}" ]; then
-            echo "::error::NPM_TOKEN is not set on this repository, so @zabaca/zbc@${{ steps.state.outputs.version }} cannot be published."
+            echo "::error::NPM_TOKEN is not set on this repository, so ${{ matrix.package }}@${{ steps.state.outputs.version }} cannot be published."
             exit 1
           fi
           printf '//registry.npmjs.org/:_authToken=%s\n' "${NPM_TOKEN}" > ~/.npmrc
@@ -85,11 +130,11 @@ jobs:
           # The publish command's exit code is not the same as the registry
           # holding the version; check the thing consumers will actually resolve.
           for i in 1 2 3 4 5; do
-            if npm view "@zabaca/zbc@${VERSION}" version >/dev/null 2>&1; then
-              echo "@zabaca/zbc@${VERSION} is live"
+            if npm view "${{ matrix.package }}@${VERSION}" version >/dev/null 2>&1; then
+              echo "${{ matrix.package }}@${VERSION} is live"
               exit 0
             fi
             sleep 5
           done
-          echo "::error::publish reported success but @zabaca/zbc@${VERSION} does not resolve"
+          echo "::error::publish reported success but ${{ matrix.package }}@${VERSION} does not resolve"
           exit 1
