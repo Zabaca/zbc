@@ -45,17 +45,27 @@
   // here; `walgit usage` derives those from the log, and a second copy would
   // disagree with it. Analytics Engine keeps the data inside the account.
   "analytics_engine_datasets": [{ "binding": "WALGIT_METRICS", "dataset": "walgit_requests" }],
-  // The expiry sweeper's timer (worker/index.ts's `scheduled`). Hourly, not
-  // daily: the window is `WALGIT_RETENTION_HOURS`, so an hourly sweep bounds
-  // how far past the promise a repository can linger to one hour, and a sweep
-  // with nothing to collect is one delimited LIST plus a container wake.
+  // The expiry sweeper's timer (worker/index.ts's `scheduled`). DAILY, and the
+  // cost it trades away is stated rather than left to be discovered: the window
+  // is `WALGIT_RETENTION_HOURS`, so a daily sweep lets a repository linger up
+  // to a further 24 hours past it — a 24-hour retention collects somewhere
+  // between 24 and 48 hours after the last push. Over-retaining is the safe
+  // direction; nothing is collected EARLY.
+  //
+  // It was hourly, and the reason it is not is the half of the cost the old
+  // comment named without weighing: "a sweep with nothing to collect is one
+  // delimited LIST plus a container wake". A wake is not free the way a LIST
+  // is. `WalgitContainer.sleepAfter` is 20m, so an hourly sweep holds the
+  // container up for at least a third of every hour on a deployment with no
+  // traffic at all, and the sweeper is the only thing asking. Daily makes the
+  // floor a twenty-fourth of that.
   //
   // Safe in every deployment that shares this file, including a preview one:
   // expiry is off unless `WALGIT_RETENTION_HOURS` is set, and the container
   // then exposes no sweep endpoint at all, so the cron logs a 404 and collects
   // nothing. Unlike a route, a Cron Trigger is per-Worker rather than per-zone,
   // so it cannot be stolen by another deployment of this same config.
-  "triggers": { "crons": ["0 * * * *"] },
+  "triggers": { "crons": ["0 4 * * *"] },
   "migrations": [
     { "tag": "v1", "new_sqlite_classes": ["WalgitContainer"] },
     { "tag": "v2", "new_sqlite_classes": ["WalgitEvents"] }
