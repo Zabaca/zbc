@@ -35,6 +35,8 @@ let store: FileStore
 let repoCounter = 0
 let repoId: string
 let origin: string
+/** How long the server holds a POST before serving it. Reset by `beforeEach`. */
+let postDelayMs = 0
 
 const git = async (cwd: string, ...args: string[]) => {
   // Asynchronous, not spawnSync: the server under test is in this process, so a
@@ -74,6 +76,25 @@ async function clientWithCommit(name: string, body: string): Promise<{ dir: stri
 
 const bareDir = () => path.join(reposDir, `${repoId}.git`)
 
+/**
+ * Wait until a `pre-receive` has recorded a pending push in the bare repo.
+ *
+ * The record is written immediately before the `WALGIT_STALL_MS` sleep, so its
+ * appearance means the push under test is past every `pre-receive` verdict and
+ * holding with its pack already uploaded. Waiting on that rather than on a
+ * clock is what lets a race be DRIVEN instead of hoped for. `post-receive`
+ * clears the record, so a finished push leaves nothing to mistake for one.
+ */
+async function pendingWritten(timeoutMs = 10_000): Promise<void> {
+  const dir = path.join(bareDir(), 'walgit-pending')
+  const deadline = Date.now() + timeoutMs
+  while (Date.now() < deadline) {
+    if (fs.existsSync(dir) && fs.readdirSync(dir).length > 0) return
+    await Bun.sleep(20)
+  }
+  throw new Error(`no pending push was recorded in ${dir}`)
+}
+
 beforeAll(() => {
   reposDir = fs.mkdtempSync(path.join(os.tmpdir(), 'walgit-e2e-repos-'))
   storeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'walgit-e2e-store-'))
@@ -83,16 +104,26 @@ beforeAll(() => {
   // The hooks are spawned by git, not by us: this is how they find the store.
   process.env.WALGIT_STORE_DIR = storeDir
 
+  const handler = createHttpHandler({
+    reposDir,
+    tokens: [TOKEN],
+    ensureRepo: ensureBareRepo,
+    syncRepo: (repo) => syncRepo(store, repo),
+    runBackend: runGitHttpBackend,
+  })
+
   server = Bun.serve({
     port: 0,
     idleTimeout: 0,
-    fetch: createHttpHandler({
-      reposDir,
-      tokens: [TOKEN],
-      ensureRepo: ensureBareRepo,
-      syncRepo: (repo) => syncRepo(store, repo),
-      runBackend: runGitHttpBackend,
-    }),
+    fetch: async (request) => {
+      // A push is two requests — the advertisement that mints the push-cert
+      // nonce, then the POST that validates it — and how far apart they land is
+      // what a slow network, a starved CPU or a cold container vary. Holding
+      // the POST here is how a test makes that gap a decision rather than a
+      // coin flip; nothing in the server under test knows this wrapper exists.
+      if (postDelayMs > 0 && request.method === 'POST') await Bun.sleep(postDelayMs)
+      return handler(request)
+    },
   })
 })
 
@@ -102,6 +133,7 @@ beforeEach(() => {
   repoCounter += 1
   repoId = `alpha${repoCounter}`
   origin = `http://walgit:${TOKEN}@127.0.0.1:${server.port}/${repoId}.git`
+  postDelayMs = 0
   delete process.env.WALGIT_FAULT
   delete process.env.WALGIT_STALL_MS
 })
@@ -615,6 +647,30 @@ describe('signed pushes', () => {
     expect(Date.parse(index.provenance!['refs/heads/main']!.ts)).not.toBeNaN()
   })
 
+  test('is still attributed when the round trip crosses a second boundary', async () => {
+    // The fault this test exists for: git mints the nonce from the *unix
+    // second* the advertisement was served in, and over smart-HTTP the push is
+    // a second process that can only agree by accident. Without a window
+    // configured, a push whose POST lands a second later reads as `SLOP` and
+    // establishes no Signer — fail-open here, and the owner's own push refused
+    // on a claimed name (docs/adr/0012). A real network, a starved CPU or a
+    // container waking up all produce that gap; this produces it on purpose.
+    process.env.WALGIT_PUSH_CERT_SEED = 'a-long-random-seed'
+    const { dir, oid } = await clientWithCommit('slow-signed', 'slow signed push\n')
+
+    // Longer than a second, so the boundary is crossed on every run rather than
+    // on the unlucky ones: what was intermittent is now certain.
+    postDelayMs = 1500
+    const pushed = await pushSigned(dir)
+    expect(pushed.status).toBe(0)
+
+    const { index } = await loadIndex(store, repoId)
+    expect(index.refs['refs/heads/main']).toBe(oid)
+    // Attributed to the pushing key, exactly as the same push is when it is
+    // fast. A delayed round trip is a slow push, not an anonymous one.
+    expect(index.provenance?.['refs/heads/main']?.signer).toBe(fingerprintOf(`${signingKey}.pub`))
+  })
+
   test('the repository advertises it because the seed is on the repository', async () => {
     process.env.WALGIT_PUSH_CERT_SEED = 'a-long-random-seed'
     const { dir } = await clientWithCommit('seeded', 'seeded\n')
@@ -713,6 +769,18 @@ describe('Signer Lists', () => {
     delete process.env.WALGIT_PUSH_CERT_SEED
     delete process.env.WALGIT_SIGNER_LISTS
   })
+
+  /**
+   * How long a racing push is held between `pre-receive` and its publish, and
+   * how long the tests that drive that race are allowed to take.
+   *
+   * The stall only has to outlast one local push, because `pendingWritten`
+   * — not a clock — is what decides when the interleaved push is sent; it is
+   * generous because a stall that expired early would turn a real failure into
+   * a flake that looks like one.
+   */
+  const RACE_STALL_MS = 3_000
+  const RACE_TIMEOUT_MS = 30_000
 
   const pushAs = (dir: string, pub: string, ...refspecs: string[]) =>
     git(
@@ -835,6 +903,23 @@ describe('Signer Lists', () => {
     expect(index.refs['refs/heads/bob']).toBeUndefined()
   })
 
+  test('a founding push may write the list and a branch at once, and both land', async () => {
+    // The grant rule from the side that has to keep working, and the one shape
+    // where a publish-time re-check could break it: git publishes the two refs
+    // in separate compare-and-swaps, so by the second the Index already holds
+    // the list THIS push installed. Judged by it, the push would refuse its own
+    // branch — here, a claim Alice signs that lists only Bob's key.
+    const list = await listWorkdir('founding-both')
+    await writeList(list, [bobFp], 'alice claims the name for bob')
+
+    const pushed = await pushAs(list, alicePub, 'HEAD:refs/walgit/signers', 'HEAD:refs/heads/notes')
+    expect(pushed.status).toBe(0)
+
+    const { index } = await loadIndex(store, repoId)
+    expect(index.claim!.signers).toEqual([bobFp])
+    expect(index.refs['refs/heads/notes']).toBeDefined()
+  })
+
   test('an unclaimed name refuses nothing, flag or no flag', async () => {
     // Fail open is unchanged everywhere the exception does not reach, and
     // "everywhere" is every repository until someone writes a list. Both of
@@ -849,6 +934,84 @@ describe('Signer Lists', () => {
     expect(index.claim).toBeUndefined()
     expect(index.refs['refs/heads/stranger']).toBe(stranger.oid)
   })
+
+  test(
+    'a push judged against a free name is refused by the claim that lands while it uploads',
+    async () => {
+      // The window this closes, driven rather than waited for: Bob's push is
+      // judged against a name with no list, so nothing refuses him; his pack
+      // uploads; Alice claims the name while it does; and his ref transaction
+      // would then publish onto a name that is no longer free. Under append-only
+      // that branch could never be removed, which is the whole of why it must not
+      // land — and the founding push is the one moment ADR-0012 says needs no
+      // exception, so this is the one shape that could still slip through it.
+      const bob = await clientWithCommit('racer', 'racer\n')
+      const list = await listWorkdir('racer-list')
+      await writeList(list, [aliceFp], 'claim')
+
+      // Hold Bob's `pre-receive` open past the upload — the same knob the
+      // pending-file race uses.
+      process.env.WALGIT_STALL_MS = String(RACE_STALL_MS)
+      const racing = pushAs(bob.dir, bobPub, 'HEAD:refs/heads/bob')
+      await pendingWritten()
+      // From here the knob is off for everyone else: Alice's claim must not stall
+      // behind the push it is racing.
+      delete process.env.WALGIT_STALL_MS
+
+      expect((await pushAs(list, alicePub, 'HEAD:refs/walgit/signers')).status).toBe(0)
+      expect((await loadIndex(store, repoId)).index.claim!.signers).toEqual([aliceFp])
+
+      // git kills the connection on a `prepared` hook that exits non-zero — it
+      // dies with "ref updates aborted by hook" over its own stderr rather than
+      // the sideband `pre-receive` gets — so the client is told the push failed
+      // and walgit's words are the server's to log. The verdict itself is
+      // asserted in `push.test.ts`, where it can be read.
+      const refused = await racing
+      expect(refused.status).not.toBe(0)
+
+      // Nothing of Bob's was published: not the ref, and not a WAL entry. The
+      // claim that beat him is the one that stands.
+      const { index } = await loadIndex(store, repoId)
+      expect(index.refs['refs/heads/bob']).toBeUndefined()
+      expect(index.claim!.signers).toEqual([aliceFp])
+      expect(localRefs(bareDir())['refs/heads/bob']).toBeUndefined()
+
+      // This refusal is reached AFTER the upload, which the `pre-receive`
+      // placement exists to avoid and which this race makes unavoidable — the
+      // earlier answer is precisely the one that went stale. The accepted cost is
+      // an orphaned pack, and it is recoverable rather than silent garbage.
+      expect((await findOrphans(store, repoId)).some((k) => k.endsWith('.pack'))).toBe(true)
+    },
+    RACE_TIMEOUT_MS,
+  )
+
+  test(
+    'the claim that lands mid-push does not refuse a key it names',
+    async () => {
+      // The mirror, and the reason the re-check asks the gate rather than
+      // refusing anything that raced a claim: a list moving under a push is not
+      // by itself a refusal. Whoever it names is unaffected.
+      const list = await listWorkdir('grant-race')
+      await writeList(list, [aliceFp, bobFp], 'claim naming both')
+      expect((await pushAs(list, alicePub, 'HEAD:refs/walgit/signers')).status).toBe(0)
+
+      const bob = await clientWithCommit('granted-racer', 'granted\n')
+      process.env.WALGIT_STALL_MS = String(RACE_STALL_MS)
+      const racing = pushAs(bob.dir, bobPub, 'HEAD:refs/heads/bob')
+      await pendingWritten()
+      delete process.env.WALGIT_STALL_MS
+
+      // The list moves while Bob's pack is in flight, and still names his key.
+      await writeList(list, [bobFp, aliceFp], 'reorder')
+      expect((await pushAs(list, alicePub, 'HEAD:refs/walgit/signers')).status).toBe(0)
+
+      expect((await racing).status).toBe(0)
+      const { index } = await loadIndex(store, repoId)
+      expect(index.refs['refs/heads/bob']).toBe(bob.oid)
+      expect(index.claim!.signers).toEqual([bobFp, aliceFp])
+    },
+    RACE_TIMEOUT_MS,
+  )
 
   test('with the flag off, a claimed name refuses nobody', async () => {
     // The capability ships off, and off has to mean off: a repository that

@@ -50,7 +50,7 @@ by layer:
 | `src/delete-repo.ts`                                 | remove a whole repository: tombstone, wait, then index-first deletion                                                                            |
 | `src/expire.ts`                                      | decide WHICH repositories go: idle since their last push, past the window                                                                        |
 | `src/limits.ts`                                      | the push-size and repository-total caps, refused in `pre-receive` before anything is uploaded                                                    |
-| `src/signers.ts`                                     | the Signer List a repository holds, resolved and refused in `pre-receive` beside the size caps                                                   |
+| `src/signers.ts`                                     | the Signer List a repository holds, resolved in `pre-receive` beside the size caps and re-asked at the publish                                   |
 | `src/usage.ts`                                       | what the log says this service holds, folded out of the indexes                                                                                  |
 | `src/instructions.ts`                                | the plain-text `GET /` — the whole API surface, rendered from the limits actually enforced                                                       |
 | `src/verify.ts`, `src/cli.ts`                        | the operator CLI: inspect, rebuild, verify, reclaim                                                                                              |
@@ -575,9 +575,26 @@ The seed is configuration and is never generated: the nonce is derived from it,
 a client holds one across the round trip, and the container's disk is wiped on
 every restart — a seed minted at boot would reject every certificate in flight.
 
-Nothing is verified or recorded yet. A signed push lands exactly as an unsigned
-one does, and an unsigned push is unaffected either way — `--signed=if-asked` is
-therefore safe to pass unconditionally, to this host or any other.
+`receive.certNonceSlop` is written beside the seed, at **300 seconds**, and it
+is not optional. git derives the nonce from the seed and _the unix second it was
+minted in_, and a push over smart-HTTP is two requests: the advertisement mints
+a nonce, and the push is a second process that minted its own. The two match as
+strings only when both landed inside the same second, so git falls back to
+asking how stale the client's nonce is — against a window that defaults to zero.
+Unset, every round trip that crosses a second boundary reports
+`GIT_PUSH_CERT_NONCE_STATUS=SLOP`, walgit establishes no Signer, and a
+repository held by a Signer List refuses its own owner. The window is also the
+replay window for a captured certificate, which is why it is five minutes and
+not five hours.
+
+An unsigned push is unaffected either way — `--signed=if-asked` is therefore safe
+to pass unconditionally, to this host or any other. What walgit does with a
+certificate it can verify is
+[ADR-0011](../../../../../docs/adr/0011-walgit-records-who-pushed-and-refuses-nothing.md)
+(record the Signer, refuse nothing) and
+[ADR-0012](../../../../../docs/adr/0012-a-name-can-refuse-a-stranger.md) (a
+repository holding a Signer List refuses a push it cannot attribute to a listed
+key).
 
 ## Ref events
 

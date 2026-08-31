@@ -16,6 +16,7 @@
 import * as fs from 'node:fs'
 import * as path from 'node:path'
 
+import type { PushSigner } from './signers'
 import type { Claim, Provenance, WalEntry } from './wal-index'
 
 /**
@@ -41,6 +42,21 @@ export interface PendingPush {
    * Absent for every unsigned push, which is most of them.
    */
   provenance?: Provenance
+  /**
+   * What `pre-receive` established about who made this push — all three answers,
+   * where `provenance` above records only the one that names a key.
+   *
+   * Carried because the publish re-asks the ownership question against the
+   * Index it is about to commit onto, and a refusal reached there has to read
+   * like the one `pre-receive` makes: *sign your push* and *your signature did
+   * not verify* are different things to go and do, and the certificate that
+   * distinguishes them is in the quarantine, which is gone by then.
+   *
+   * Optional only so a caller with a record to hand-build — a test, a later
+   * transaction of a multi-transaction push — need not restate what it can be
+   * read back from; `pre-receive` always writes it. See `pendingSigner`.
+   */
+  signer?: PushSigner
   /**
    * The Signer List this push writes, resolved in `pre-receive` from the commit
    * sitting in the quarantine (docs/adr/0012), and carried here for the reason

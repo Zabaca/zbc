@@ -22,7 +22,7 @@ import { appendOnlyEnabled } from './append-only'
 import { limitsFromEnv } from './limits'
 import { git, gitOrThrow } from './git'
 import { installHooks } from './hooks'
-import { pushCertSeed } from './push-cert'
+import { PUSH_CERT_NONCE_SLOP_SECONDS, pushCertSeed } from './push-cert'
 import { sweepPending } from './pending'
 import type { ResolvedRepo } from './repo'
 
@@ -145,11 +145,20 @@ export function ensureBareRepo(repo: ResolvedRepo): ResolvedRepo {
   // variable is, so turning the capability off stops the advertisement on the
   // next access instead of leaving repositories that predate the change
   // certifying pushes nothing else knows about.
+  //
+  // `receive.certNonceSlop` travels with the seed and is not optional beside
+  // it: git's nonce carries the second it was minted in, a push is two requests
+  // that mint one each, and with the default slop of 0 only a round trip that
+  // stayed inside a single second reports `OK`. Every other one reports `SLOP`,
+  // establishes no Signer, and — on a name held by a Signer List — refuses the
+  // owner's own push (src/push-cert.ts, docs/adr/0012).
   const seed = pushCertSeed()
   if (seed === null) {
     clearConfig(repo.dir, 'receive.certNonceSeed')
+    clearConfig(repo.dir, 'receive.certNonceSlop')
   } else {
     ensureConfig(repo.dir, 'receive.certNonceSeed', seed)
+    ensureConfig(repo.dir, 'receive.certNonceSlop', String(PUSH_CERT_NONCE_SLOP_SECONDS))
   }
   // The hooks ARE the push path. Re-installed on every access for the same
   // reason as the config above: a repo that arrived here by any other route
