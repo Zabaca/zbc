@@ -193,6 +193,43 @@ describe('the signing section says it is possible, and not why', () => {
     expect(text).not.toContain('Nothing is refused for being unsigned.')
   })
 
+  /**
+   * The access bullet, which is the other promise the gate falsifies — and the
+   * one an agent reads first, before it has decided to sign anything.
+   *
+   * Read from `signerLists` ALONE, unlike the clause above it: `pre-receive`
+   * refuses on this flag by itself (`signerListsEnabled`, `src/hook-main.ts`),
+   * so on a deployment that sets it with no nonce seed a claimed name refuses
+   * EVERY push — which makes unconditional writability more wrong, not less.
+   */
+  test('the access bullet stops promising a write nobody can make', () => {
+    const text = renderInstructions('https://walgit.example', {
+      ...PUBLIC,
+      signerLists: true,
+    }).replace(/\s+/g, ' ')
+    expect(text).not.toContain('world-readable and world-writable')
+    expect(text).toContain('Anyone may push, with no credential, unless a name holds a Signer List')
+    // The half that was NOT traded away for the correction. This page renders
+    // three bytes under its budget, so the sentence had to be bought — and the
+    // clause that catches the case an agent has not thought of is not where a
+    // warning about secrets goes looking for savings.
+    expect(text).toContain('or anything you would not publish')
+  })
+
+  test('and it is corrected on the flag alone, with no nonce seed', () => {
+    const text = renderInstructions('https://walgit.example', {
+      publicAccess: true,
+      signerLists: true,
+    }).replace(/\s+/g, ' ')
+    expect(text).not.toContain('world-readable and world-writable')
+    expect(text).toContain('unless a name holds a Signer List')
+    // Without teaching any of it: no ref, no command, no way in. ADR-0012 put
+    // that in /llms.txt and in the refusal, and the seedless deployment could
+    // not act on it anyway.
+    expect(text).not.toContain('refs/walgit/signers')
+    expect(text).not.toContain('--signed')
+  })
+
   test('with no seed, the capability does not exist on the page', () => {
     const text = renderInstructions('https://walgit.example', { ...PUBLIC, signedPushes: false })
     expect(text).not.toContain('SIGN A PUSH')
@@ -256,9 +293,13 @@ describe('the terse document never explains how to hold a name', () => {
     // origin is printed six times, so a test measuring `walgit.example` would
     // hold a budget the deployment does not have.
     //
-    // It renders 2,997 bytes today — three under. Whatever breaks this did not
+    // It renders 2,992 bytes today — eight under. Whatever breaks this did not
     // break the budget, it spent the last of it: the fix is to decide what
-    // comes OUT of this page, not to raise the number.
+    // comes OUT of this page, not to raise the number. The five bytes it
+    // regained were bought, not found: the access bullet dropped its opening
+    // summary — "Everything here is public." said in five words what
+    // "world-readable" says three words later — to pay for the Signer List
+    // clause without touching the warning about secrets.
     const text = renderInstructions('https://agentgit.zabaca.com', EVERYTHING)
     expect(text.length).toBeLessThan(3000)
   })

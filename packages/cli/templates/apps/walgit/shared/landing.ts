@@ -69,11 +69,19 @@ export interface LandingFacts {
   /**
    * May a repository here hold a Signer List, and be defended by it?
    *
-   * From `WALGIT_SIGNER_LISTS`, and it earns no claim of its own — the page
-   * lists what is true here, and "some names refuse some pushers" is not a
-   * thing a visitor can act on. What it changes is one sentence in the signing
-   * claim, which otherwise promises that nothing is refused for being unsigned,
-   * and the two roadmap rows that describe ownership as unbuilt.
+   * From `WALGIT_SIGNER_LISTS`, and read at two different strengths.
+   *
+   * **Alone** it corrects the `Public` term, because that term states what
+   * `pre-receive` refuses and `pre-receive` refuses on this flag by itself: a
+   * deployment that sets it with no nonce seed refuses EVERY push to a claimed
+   * name, so "world-writable" is more wrong there, not less.
+   *
+   * **With `signedPushes`** it renders the ownership section and rewrites the
+   * roadmap, because both of those tell a visitor to go and claim a name — and
+   * without a seed nothing can sign, so they would be sending them to claim it
+   * with an unsigned push, after which every push to it is refused. It also
+   * changes one sentence in the signing claim, which otherwise promises that
+   * nothing is refused for being unsigned.
    */
   signerLists: boolean
 }
@@ -198,6 +206,127 @@ function eventsSection(facts: LandingFacts): string {
 }
 
 /**
+ * What anyone may do to a repository here, which the gate changes.
+ *
+ * Rendered rather than written for the reason every limit on this page is: the
+ * sentence it replaces — *"Every repository is world-readable and
+ * world-writable"* — is a promise `pre-receive` stopped keeping the moment a
+ * name could hold a Signer List, and a claim the page cannot back is the same
+ * defect as a window nothing collects.
+ *
+ * Read from `signerLists` ALONE, unlike the section below it and unlike the
+ * roadmap: those two teach an agent to claim a name and must not do it where
+ * no push can be signed, whereas this states what is refused — and the hook
+ * refuses on this flag by itself. A deployment that sets it with no nonce seed
+ * refuses EVERY push to a claimed name, which makes unconditional writability
+ * more wrong, not less.
+ *
+ * Reads are untouched and the card still says so, because ADR-0012 is emphatic
+ * that none of this is a step toward private repositories: *"Privacy is not
+ * free yet"* was true before the gate and is true after it.
+ */
+function publicClaim(facts: LandingFacts): string {
+  return claim(
+    'Public',
+    facts.signerLists
+      ? '<b>Every repository is world-readable, and world-writable until its name is claimed.</b> Sharing is a URL, not an invitation. Privacy is not free yet.'
+      : '<b>Every repository is world-readable and world-writable.</b> Sharing is a URL, not an invitation. Privacy is not free yet.',
+  )
+}
+
+/**
+ * Holding a name, argued as a section rather than stated as a term.
+ *
+ * It is the second argument on this page, and it is here for the same reason
+ * the events section is: the two commands in the hero already show that there
+ * was no signup and that a URL is the whole handoff, and neither shows the
+ * thing append-only creates. *Nothing you push can be destroyed* is the term a
+ * reader meets in `The rules.` as a protection; this section is the half of it
+ * that is a cost — a stranger's branch in your name is as permanent as your
+ * own — and the answer to it. A term could state the rule; only a section can
+ * make the case, and the case is what a reader needs before they will spend a
+ * push on it.
+ *
+ * Placed BEFORE `The rules.`, beside the events argument rather than after the
+ * summary of it, so the two arguments read together and the terms below read as
+ * what both of them settle.
+ *
+ * The right column is the claim and then its consequence, in the order they
+ * happen: the commands that write the list, then the refusal a stranger reads.
+ *
+ * **The recipe is the whole of it, not the last line of it.** A Signer List is
+ * a commit whose tree is one file, so the push has to come from a repository
+ * that has one — and the obvious abbreviation, showing only the `git push`,
+ * hands a reader a command that pushes their PROJECT's `HEAD` at
+ * `refs/walgit/signers` and is refused as an unreadable list. It is the same
+ * recipe `/llms.txt` gives (`shared/llms.ts`), compressed; `set -e` and the
+ * second key live there, because this panel is the argument and that document
+ * is the manual.
+ *
+ * **The transcript is an excerpt, and says so.** Every line of it is a line
+ * `heldMessage` (`src/signers.ts`) actually writes, and `landing.test.ts`
+ * checks them against the real refusal rather than against themselves — the
+ * page and the hook describing two different refusals is the drift every
+ * rendered claim here exists to prevent, and this one is worse than a wrong cap
+ * because the refusal is the only documentation the agent hitting it has. The
+ * elision is marked with a `…` line so nobody reads the panel as the whole
+ * message: what it cuts is the remedy block, which is long, and which the
+ * section beside it has already given.
+ *
+ * Gated on `signedPushes` as well as `signerLists`, exactly as the roadmap rows
+ * are and for the same reason: the flag without a nonce seed is a
+ * misconfiguration in which nothing can sign, so inviting a visitor to claim a
+ * name there would be sending them to claim it with an unsigned push — after
+ * which every push to it, theirs included, is refused for carrying no
+ * certificate.
+ */
+function ownershipSection(facts: LandingFacts): string {
+  if (!(facts.signedPushes && facts.signerLists)) return ''
+
+  return `
+    <section class="split">
+      <div class="split-say">
+        <h2>A name a stranger cannot take.</h2>
+        <p>Nothing you push can be destroyed — and that cuts both ways. Anyone who knows the name can add a branch to the repository your agent is working in, and then <em>neither of you can ever remove it</em>. Append-only defends their write as carefully as it defends yours.</p>
+        <p><strong>So a name can refuse a stranger.</strong> Write the fingerprints you trust to <code>refs/walgit/signers</code>. From the next push on, the repository takes pushes signed by those keys and refuses everything else — and every name nobody has claimed still takes anyone's.</p>
+        <p><strong>List two keys.</strong> There is no escrow here and no support address: one key, lost, is the end of the name.</p>
+      </div>
+
+      <div class="split-show">
+        <div>
+          <div class="term term-solo">
+            <pre><span class="c"># a repository whose tree is one file: signers.</span>
+<span class="p">$</span> git init -q claim &amp;&amp; cd claim
+<span class="p">$</span> ssh-keygen -lf ~/.ssh/id_ed25519.pub \\
+      | awk '{print $2}' > signers
+<span class="p">$</span> git add signers &amp;&amp; git commit -qm claim
+<span class="p">$</span> git push --signed=if-asked \\
+      https://${facts.host}/$NAME.git \\
+      HEAD:refs/walgit/signers</pre>
+          </div>
+          <p class="under">List a second key · the full recipe is in <span>/llms.txt</span></p>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head">
+            <span>what a stranger reads</span>
+          </div>
+          <pre class="tx"><span class="ln"><span class="p">$</span> git push agentgit HEAD:refs/heads/main
+</span><span class="ln"><span class="no">walgit: refused — study-42 is held by a Signer List.</span>
+</span><span class="ln"><span class="c">Your push carries no signature, so walgit cannot tell</span>
+</span><span class="ln"><span class="c">whose it is. A name that holds a Signer List takes</span>
+</span><span class="ln"><span class="c">signed pushes only:</span>
+</span><span class="ln"><span class="c">    git push --signed=yes origin HEAD:refs/heads/&lt;branch&gt;</span>
+</span><span class="ln"><span class="c">…</span>
+</span><span class="ln"><span class="ok">Nothing was uploaded; the repository is unchanged.</span></span></pre>
+          <div class="panel-foot">Refused in <code>pre-receive</code>, before anything is uploaded. The message names a free name to use instead, and how to be added to this one.</div>
+        </div>
+      </div>
+    </section>
+`
+}
+
+/**
  * The signing term, present only where a push can actually be signed.
  *
  * Stated as a term rather than argued as a section: it changes nothing about
@@ -220,33 +349,28 @@ function signingClaim(facts: LandingFacts): string {
 }
 
 /**
- * The clause that keeps the section's own sentence true once a row in it is
- * done: a list introduced as "what is missing" cannot lead with something that
- * shipped.
- */
-function roadmapLede(facts: LandingFacts): string {
-  return facts.signedPushes && facts.signerLists ? ', and the one thing that no longer is' : ''
-}
-
-/**
  * The first two roadmap rows, which are the two the gate makes untrue.
  *
  * The roadmap is "what is missing, in the order it unblocks itself", so a
  * deployment where a name can already refuse a stranger must not go on calling
- * ownership Next — and one where it cannot must not call it shipped. Same rule
- * as every limit on this page, applied to a promise instead of a cap.
+ * ownership Next. Same rule as every limit on this page, applied to a promise
+ * instead of a cap.
  *
- * The rows travel together because the second describes the first: Private was
- * blocked on ownership existing, and what it would be gated on is the Signer
- * List, not the fingerprint Provenance records. It is still not next — ADR-0012
- * is explicit that nothing here is a step toward private repositories — so the
- * shipped row keeps `data-next` off itself and hands it to nobody.
+ * Where it shipped the row does not become a `Shipped` row — it LEAVES. This
+ * list is what is missing, and a section above now states ownership as a rule
+ * of the host; carrying it in both places would be the page describing one
+ * capability twice, once as a fact and once as an achievement. Only Private
+ * stays, because Private is genuinely still missing and the row was wrong about
+ * what it is blocked on: what a read would be gated on is the Signer List a
+ * name holds, not the fingerprint Provenance records. It is not next either —
+ * ADR-0012 is explicit that nothing here is a step toward private repositories
+ * — so the row keeps `data-next` off itself and hands it to nobody.
  *
- * Read with `signedPushes`, never alone, exactly as the signing claim above is:
- * the flag without a nonce seed is a misconfiguration in which nothing can
- * sign, so a page telling a visitor to write fingerprints there would be
- * sending them to claim a name with an unsigned push — after which every push
- * to it, including theirs, is refused for carrying no certificate.
+ * Read with `signedPushes`, never alone, exactly as the section above is: the
+ * flag without a nonce seed is a misconfiguration in which nothing can sign, so
+ * a page telling a visitor to write fingerprints there would be sending them to
+ * claim a name with an unsigned push — after which every push to it, including
+ * theirs, is refused for carrying no certificate.
  */
 function roadmapOwnership(facts: LandingFacts): string {
   if (!(facts.signedPushes && facts.signerLists)) {
@@ -262,11 +386,6 @@ function roadmapOwnership(facts: LandingFacts): string {
         </li>`
   }
   return `        <li>
-          <span class="when">Shipped</span>
-          <h3>Ownership</h3>
-          <p>A name can refuse a stranger. Write the fingerprints you trust to <code>refs/walgit/signers</code> and the repository takes pushes signed by those keys only; a name nobody has written one for still takes anyone's. List two keys — a lost one has no way back.</p>
-        </li>
-        <li>
           <span class="when">Unblocked, unplanned</span>
           <h3>Private</h3>
           <p>A name that holds a Signer List is the first thing here anyone could be private <em>from</em>. Reads are still gated on nothing: a claimed repository, its list and its history are as readable as everything else, and holding a name is not a step toward closing it.</p>
@@ -284,15 +403,29 @@ function wireScript(): string {
   return `${WIRE_CLIENT}`
 }
 
+/**
+ * Every substitution passes a FUNCTION, never the string itself.
+ *
+ * `String.replace` reads `$` sequences in a replacement STRING as capture-group
+ * references, and these fragments are full of them: a shell prompt is
+ * `<span class="p">$</span>`, the claim recipe carries `awk '{print $2}'` and
+ * `$NAME`. Today every one of those is left literal — there are no capture
+ * groups in a string pattern — but that is a rule about what the fragments
+ * happen to contain, re-checked on every copy edit, and the failure it guards
+ * is silent: a command on the page that quietly differs from the one anybody
+ * runs. A function replacer is not interpreted at all, so the question stops
+ * being asked.
+ */
 export function renderLanding(facts: LandingFacts): string {
-  return PAGE.replaceAll('{{HOST}}', facts.host)
-    .replace('{{SIGNING_CLAIM}}', signingClaim(facts))
-    .replace('{{THIRD_CLAIM}}', thirdClaim(facts))
-    .replace('{{ROADMAP_LEDE}}', roadmapLede(facts))
-    .replace('{{ROADMAP_OWNERSHIP}}', roadmapOwnership(facts))
-    .replace('{{EVENTS}}', eventsSection(facts))
-    .replace('{{WIRE_SCRIPT}}', facts.events ? wireScript() : '')
-    .replace('{{PERMANENCE}}', permanence(facts))
+  return PAGE.replaceAll('{{HOST}}', () => facts.host)
+    .replace('{{PUBLIC_CLAIM}}', () => publicClaim(facts))
+    .replace('{{SIGNING_CLAIM}}', () => signingClaim(facts))
+    .replace('{{THIRD_CLAIM}}', () => thirdClaim(facts))
+    .replace('{{ROADMAP_OWNERSHIP}}', () => roadmapOwnership(facts))
+    .replace('{{EVENTS}}', () => eventsSection(facts))
+    .replace('{{OWNERSHIP}}', () => ownershipSection(facts))
+    .replace('{{WIRE_SCRIPT}}', () => (facts.events ? wireScript() : ''))
+    .replace('{{PERMANENCE}}', () => permanence(facts))
 }
 
 const WIRE_CLIENT = `
@@ -745,6 +878,12 @@ const PAGE = `<!doctype html>
     gap: .5rem;
     align-content: start;
   }
+  /* The rules are drawn by the container's background showing through a 1px
+     gap, so a half-empty final row is not blank — it paints a solid --rule
+     block beside the last card. The list is rendered from policy and is three
+     rows on a deployment that has shipped ownership, four on one that has not,
+     so an odd count is an ordinary state rather than an editing mistake. */
+  .road li:last-child:nth-child(odd) { grid-column: 1 / -1; }
   .road h3 {
     font-family: var(--mono);
     font-size: .95rem;
@@ -838,19 +977,19 @@ const PAGE = `<!doctype html>
       </div>
     </div>
     <p class="under" id="repo-help">No account · <span>No token</span> · No key · <span>The name is the repository</span></p>
-{{EVENTS}}
+{{EVENTS}}{{OWNERSHIP}}
     <section>
       <h2>The rules.</h2>
       <ul class="claims">
         <li><span class="k">Append-only</span><span class="v"><b>Nothing you push can be destroyed.</b> Anyone may add; no one may rewrite or delete. A push that would rewrite history is refused in <code>pre-receive</code>, before anything is uploaded, by a message naming what to do instead.</span></li>
-        <li><span class="k">Public</span><span class="v"><b>Every repository is world-readable and world-writable.</b> Sharing is a URL, not an invitation. Privacy is not free yet.</span></li>
+{{PUBLIC_CLAIM}}
 {{THIRD_CLAIM}}{{SIGNING_CLAIM}}
       </ul>
     </section>
 
     <section>
       <h2>On the way.</h2>
-      <p>What is missing, in the order it unblocks itself{{ROADMAP_LEDE}}. Nothing here is a date, and each one is written down before it is built.</p>
+      <p>What is missing, in the order it unblocks itself. Nothing here is a date, and each one is written down before it is built.</p>
       <ul class="road">
 {{ROADMAP_OWNERSHIP}}
         <li>

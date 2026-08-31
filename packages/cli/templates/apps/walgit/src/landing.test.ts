@@ -8,7 +8,9 @@
 
 import { describe, expect, test } from 'bun:test'
 
+import { ZERO_OID } from '../shared/protocol'
 import { renderLanding, wantsLanding } from '../shared/landing'
+import { checkSignerAllowed } from './signers'
 
 const FACTS = {
   host: 'agentgit.zabaca.com',
@@ -231,6 +233,179 @@ describe('the rules', () => {
   })
 })
 
+/**
+ * The `Public` term, which is the sentence the gate falsified.
+ *
+ * "Every repository is world-readable and world-writable" was true of every
+ * deployment until a name could hold a Signer List, and it is the first thing
+ * on this page anybody reads about write access — so it is exactly the claim
+ * that must not outlive the config, like every limit beside it.
+ */
+describe('the Public term states what pre-receive actually refuses', () => {
+  test('with Signer Lists off, it is the unconditional sentence', () => {
+    const html = renderLanding(FACTS)
+    expect(html).toContain(
+      '<b>Every repository is world-readable and world-writable.</b> Sharing is a URL',
+    )
+  })
+
+  test('with them on, it stops promising a write nobody can make', () => {
+    const html = renderLanding({ ...FACTS, signerLists: true })
+    expect(html).not.toContain('world-readable and world-writable.')
+    expect(html).toContain('world-writable until its name is claimed')
+    // Reads are untouched, and ADR-0012 is emphatic that none of this is a step
+    // toward private repositories — so the line that says so stays.
+    expect(html).toContain('Privacy is not free yet')
+  })
+
+  /**
+   * Read from the flag ALONE, unlike the section and the roadmap below, which
+   * are paired with `signedPushes`. Those two send a visitor off to claim a
+   * name and must not do it where nothing can sign; this one only says what is
+   * refused — and `pre-receive` refuses on this flag by itself, so a deployment
+   * that sets it with no seed refuses EVERY push to a claimed name. Gating the
+   * correction on the seed would leave that deployment making the one claim it
+   * is furthest from keeping.
+   */
+  test('and it is corrected on the flag alone, with no nonce seed', () => {
+    const html = renderLanding({ ...FACTS, signerLists: true, signedPushes: false })
+    expect(html).toContain('world-writable until its name is claimed')
+    // Still without inviting anyone to claim anything on a host where no push
+    // can be signed: the correction names no ref and no command.
+    expect(html).not.toContain('refs/walgit/signers')
+    expect(html).not.toContain('--signed')
+  })
+})
+
+/**
+ * Ownership, argued as a section rather than stated as a term.
+ *
+ * It is the second argument on this page for the same reason the events section
+ * is the first: the two commands in the hero already show that there was no
+ * signup, and neither shows what append-only costs. `Nothing you push can be
+ * destroyed` is met in `The rules.` as a protection; this is the half of it
+ * that is a bill — a stranger's branch in your name is as permanent as yours —
+ * and the answer to it.
+ */
+describe('the section that argues for holding a name', () => {
+  const HELD = { ...FACTS, signedPushes: true, signerLists: true }
+
+  test('it makes the case append-only creates, then answers it', () => {
+    const html = renderLanding(HELD)
+    expect(html).toContain('<h2>A name a stranger cannot take.</h2>')
+    const flat = html.replace(/\s+/g, ' ')
+    // The cost, which is the argument. Without it the section is a feature
+    // announcement, and a reader has no reason to spend a push on one.
+    expect(flat).toContain('neither of you can ever remove it')
+    expect(flat).toContain('So a name can refuse a stranger.')
+    // The two things a visitor must have before they act: where the list goes,
+    // and the one piece of advice with no way back if it is ignored.
+    expect(html).toContain('<code>refs/walgit/signers</code>')
+    expect(flat).toContain('List two keys')
+    // It renders before `The rules.`, beside the events argument rather than
+    // after the summary of it, so the terms below read as what both settle.
+    expect(html.indexOf('A name a stranger cannot take')).toBeLessThan(
+      html.indexOf('<h2>The rules.</h2>'),
+    )
+  })
+
+  /**
+   * The panel is checked against the HOOK, not against itself.
+   *
+   * The obvious version of this test — assert the page contains the three
+   * sentences the page was written with — is tautological: it passes however
+   * far `heldMessage` drifts, which is the one thing it exists to catch. So it
+   * runs the real gate and asserts the page's transcript is a subset of what
+   * `pre-receive` actually writes. A page and a hook describing two different
+   * refusals is worse than a wrong cap here, because the refusal is the only
+   * documentation the agent hitting it has.
+   *
+   * Compared with whitespace flattened, deliberately: the hook wraps for a
+   * terminal and the panel wraps for a 52-column box, and re-wrapping the same
+   * sentence is not drift.
+   */
+  test('every line of the transcript is one the hook actually writes', () => {
+    // The exact push the panel depicts: unsigned, on a host that advertises
+    // signing, into a name that holds a list naming somebody else.
+    const verdict = checkSignerAllowed(
+      'study-42',
+      { kind: 'unsigned', signable: true },
+      ['SHA256:BMBEMXbMBsnjXwgNs+86IiJrPgYlZEsWxaKZW/2/1dw'],
+      [{ ref: 'refs/heads/main', oldOid: ZERO_OID, newOid: 'a'.repeat(40) }],
+    )
+    expect(verdict.ok).toBe(false)
+    const refusal = (verdict as { message: string }).message.replace(/\s+/g, ' ')
+
+    const page = renderLanding(HELD)
+    const start = page.indexOf(
+      '<pre class="tx"><span class="ln"><span class="p">$</span> git push agentgit',
+    )
+    expect(start).toBeGreaterThan(-1)
+    const markup = page.slice(start, page.indexOf('</pre>', start))
+    // The panel's own text, as a reader sees it: tags out, entities back, one
+    // line. The hook wraps for a terminal and this wraps for a 52-column box,
+    // and re-wrapping the same sentence is not drift.
+    const shown = markup
+      .replace(/<[^>]*>/g, '')
+      .replaceAll('&lt;', '<')
+      .replaceAll('&gt;', '>')
+      .replaceAll('&amp;', '&')
+      .replace(/\s+/g, ' ')
+
+    for (const line of [
+      'walgit: refused — study-42 is held by a Signer List.',
+      'Your push carries no signature, so walgit cannot tell whose it is. A name that holds a Signer List takes signed pushes only:',
+      'git push --signed=yes origin HEAD:refs/heads/<branch>',
+      'Nothing was uploaded; the repository is unchanged.',
+    ]) {
+      expect(shown).toContain(line)
+      expect(refusal).toContain(line)
+    }
+
+    // It is an EXCERPT — the remedy block is long and the prose beside the
+    // panel has already given it — so it carries an elision mark rather than
+    // reading as the whole message, and the foot says what was cut.
+    expect(shown).toContain('…')
+    expect(page).toContain('names a free name to use instead, and how to be added to this one')
+  })
+
+  /**
+   * `String.replace` reads `$` in a replacement STRING as a capture-group
+   * reference, and this section is the first fragment on the page to carry ones
+   * that look like real references — `$2` inside `awk '{print $2}'`. A mangled
+   * command would be a page showing something other than what a reader runs,
+   * and it would be silent. `renderLanding` passes function replacers so the
+   * question cannot arise; this is the assertion that says so out loud.
+   */
+  test('the recipe keeps its dollars, which replace() could have eaten', () => {
+    const html = renderLanding(HELD)
+    expect(html).toContain("| awk '{print $2}' > signers")
+    expect(html).toContain('https://agentgit.zabaca.com/$NAME.git')
+    // The recipe is the WHOLE of it. Showing only the push hands a reader a
+    // command that pushes their project's HEAD at the signers ref, which is
+    // refused as an unreadable list.
+    expect(html).toContain('git init -q claim')
+    expect(html).toContain('git add signers')
+  })
+
+  test('with Signer Lists off, the whole section is absent', () => {
+    const html = renderLanding({ ...FACTS, signedPushes: true })
+    expect(html).not.toContain('A name a stranger cannot take')
+    expect(html).not.toContain('refs/walgit/signers')
+    expect(html).not.toContain('{{')
+  })
+
+  // The flag without a nonce seed is a misconfiguration in which nothing can
+  // sign, so a section telling a visitor to claim a name would be sending them
+  // to claim it with an unsigned push — after which every push to it, theirs
+  // included, is refused for carrying no certificate.
+  test('and the flag alone does not earn it: with no seed, there is no section', () => {
+    const html = renderLanding({ ...FACTS, signerLists: true })
+    expect(html).not.toContain('A name a stranger cannot take')
+    expect(html).not.toContain('{{')
+  })
+})
+
 describe('the roadmap', () => {
   test('names what is missing, in every deployment', () => {
     const html = renderLanding({ ...FACTS, events: true })
@@ -261,18 +436,38 @@ describe('the roadmap', () => {
     expect(html).not.toContain('Shipped')
   })
 
-  test('with them on, the Ownership row describes what shipped', () => {
+  test('with them on, the Ownership row leaves rather than turning Shipped', () => {
     const html = renderLanding({ ...FACTS, signedPushes: true, signerLists: true })
-    expect(html).toContain('<span class="when">Shipped</span>')
-    expect(html).toContain('A name can refuse a stranger')
-    expect(html).toContain('refs/walgit/signers')
-    // The consequence a visitor has to act on before they claim anything.
-    expect(html).toContain('List two keys')
-    // And the row it replaced stops describing a policy nobody built: the
-    // design that shipped is a list a name writes, not first-key-wins.
+    // This list is what is MISSING, and a section above now states ownership as
+    // a rule of the host. A `Shipped` row would be the page carrying one
+    // capability twice — once as a fact and once as an achievement — so the row
+    // leaves entirely and the lede goes back to its plain sentence.
+    expect(html).not.toContain('<span class="when">Shipped</span>')
+    expect(html).not.toContain('the one thing that no longer is')
+    expect(html).toContain(
+      'What is missing, in the order it unblocks itself. Nothing here is a date',
+    )
+    // And it stops describing a policy nobody built: the design that shipped is
+    // a list a name writes, not first-key-wins.
     expect(html).not.toContain('the first key to push a name keeps it')
-    // A list introduced as "what is missing" cannot lead with something done.
-    expect(html).toContain('the one thing that no longer is')
+    expect(html).not.toContain('<h3>Ownership</h3>')
+    // Nothing else in the roadmap moved.
+    for (const row of ['Private', 'Pull requests', 'CI']) expect(html).toContain(row)
+  })
+
+  /**
+   * Removing a row leaves an ODD number of them, and `.road` is a two-column
+   * grid whose rules are its container background showing through a 1px gap —
+   * so the missing fourth cell does not read as empty space, it paints a solid
+   * `--rule` block beside the last card. The count is rendered from policy, so
+   * both parities are ordinary and the last card spans when it is alone.
+   */
+  test('an odd roadmap does not leave a painted hole beside the last card', () => {
+    const html = renderLanding({ ...FACTS, signedPushes: true, signerLists: true })
+    expect(html.split('<h3>').length - 1).toBe(3)
+    expect(html).toContain('.road li:last-child:nth-child(odd) { grid-column: 1 / -1; }')
+    // With ownership unbuilt the list is four rows, and the rule is inert.
+    expect(renderLanding({ ...FACTS, signedPushes: true }).split('<h3>').length - 1).toBe(4)
   })
 
   // The flag without a nonce seed is a misconfiguration in which nothing can

@@ -81,8 +81,20 @@ export function renderLlms(facts: LlmsFacts): string {
 
   const limits: string[] = []
   if (facts.publicAccess) {
+    /**
+     * The first thing an agent reads about write access, so it is the first
+     * thing the gate makes false. It is read from `signerLists` ALONE, unlike
+     * `## Hold a name` below, which is paired with `signedPushes`: the section
+     * teaches an agent to claim a name and must not do so where nothing can
+     * sign, whereas this sentence only says what `pre-receive` refuses — and
+     * `pre-receive` refuses on this flag by itself. On a deployment that sets
+     * it without a seed, a claimed name refuses every push, which makes
+     * unconditional writability more wrong rather than less.
+     */
     limits.push(
-      '- **No credential.** Reads and writes take no token, no key and no account. Everything here is world-readable and world-writable. Do not push a secret.',
+      facts.signerLists
+        ? '- **No credential.** Reads and writes take no token, no key and no account. Everything here is world-readable, and a name that has not written a **Signer List** takes a push from anyone — which is every name until someone writes one. Do not push a secret.'
+        : '- **No credential.** Reads and writes take no token, no key and no account. Everything here is world-readable and world-writable. Do not push a secret.',
     )
   } else {
     limits.push(
