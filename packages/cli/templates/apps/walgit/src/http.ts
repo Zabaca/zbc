@@ -26,7 +26,7 @@ import type { InstructionsPolicy } from './instructions'
 import { renderInstructions } from './instructions'
 import type { ResolvedRepo } from './repo'
 import { resolveRepo } from './repo'
-import type { Provenance } from './wal-index'
+import type { Claim, Provenance } from './wal-index'
 
 export type BackendRequest = {
   repo: ResolvedRepo
@@ -89,16 +89,29 @@ export type HttpHandlerDeps = {
    */
   readRefs?: (repoId: string) => Promise<Record<string, string>>
   /**
-   * One repository's push provenance — ref → the Signer that moved it, and when
-   * (docs/adr/0011). Read from the Index for the same reason `readRefs` is: the
-   * Index is where a push records it, and the disk holds no copy at all.
+   * What the Index records about who wrote one repository: the push provenance
+   * — ref → the Signer that moved it, and when (docs/adr/0011) — and the Signer
+   * List that repository holds, when it holds one (docs/adr/0012). Read from
+   * the Index for the same reason `readRefs` is: the Index is where a push
+   * records both, and the disk holds no copy of either.
+   *
+   * One reader for both because they are one object read answering one
+   * endpoint. Two readers would double an Index fetch to answer a single
+   * request, and would let a caller wire one and forget the other.
    *
    * Optional like every other reader here, and absent means the endpoint does
    * not exist rather than answering an empty map — an instance with no store
    * has no authoritative answer, and inventing "nobody signed anything" out of
    * a missing log is the one wrong answer this feature can give.
    */
-  readProvenance?: (repoId: string) => Promise<Record<string, Provenance>>
+  readProvenance?: (repoId: string) => Promise<ProvenanceRead>
+}
+
+/** What `GET /_walgit/provenance` answers with, before it is serialized. */
+export type ProvenanceRead = {
+  provenance: Record<string, Provenance>
+  /** Absent for an unclaimed repository, which is most of them. */
+  claim?: Claim
 }
 
 /**
@@ -220,8 +233,13 @@ function createRouter(deps: HttpHandlerDeps): (req: Request) => Promise<Response
       // A repository nobody has signed a push to reads as an empty map, not a
       // 404 and not an error: signing is opt-in, so "no Signer recorded" is the
       // ordinary answer here and has to be a cheap one to consume.
-      const provenance = await deps.readProvenance(repoId)
-      return new Response(`${JSON.stringify({ repo: repoId, provenance })}\n`, {
+      //
+      // `claim` is OMITTED rather than null for an unclaimed one, so that the
+      // absence a client tests for is the same absence the Index carries and
+      // there is no second spelling of "nobody has claimed this name".
+      const { provenance, claim } = await deps.readProvenance(repoId)
+      const body = { repo: repoId, provenance, ...(claim ? { claim } : {}) }
+      return new Response(`${JSON.stringify(body)}\n`, {
         headers: { 'content-type': 'application/json; charset=utf-8' },
       })
     }

@@ -23,6 +23,7 @@ import { configuredThreshold, isCompactionDue } from './compact'
 import { checkSize, limitsEnforced, limitsFromEnv, liveBytes } from './limits'
 import { clearPending, invocationId, markConsumed, readPending, sweepPending } from './pending'
 import { establishSigner, parseRefChanges, preReceive, publishPush, quarantinePack } from './push'
+import { checkSignerList, gitSignersSource, signerListsEnabled } from './signers'
 import { requireStore, storeFromEnv } from './store-env'
 import { loadIndex, type RefChange } from './wal-index'
 
@@ -72,18 +73,39 @@ async function main(): Promise<number> {
     // throws, are all `null` here — and a `null` Signer is the anonymous push
     // walgit accepted before any of this existed.
     const signer = establishSigner()
+    const changes = parseRefChanges(stdin).filter((c) => c.ref.startsWith('refs/'))
 
     // Before the store is even touched: a push that will be refused must not
     // cost an object-store write. git's own deny rules run after this hook, so
     // leaving it to them would upload a pack nothing will ever reference.
     if (appendOnlyEnabled()) {
-      const changes = parseRefChanges(stdin).filter((c) => c.ref.startsWith('refs/'))
       const verdict = checkAppendOnly(gitDir, repoId, changes)
       if (!verdict.ok) {
         process.stderr.write(`${verdict.message}\n`)
         return 1
       }
     }
+
+    // The Signer List this push writes, resolved here for the same reason and
+    // at the same moment (docs/adr/0012). Two of its answers refuse the push —
+    // a list that is empty, and one walgit cannot read — and both have to be
+    // reachable before the upload or every push they refused would leave an
+    // Orphan behind. The third answer is the list itself, which rides down to
+    // the compare-and-swap that publishes the ref move.
+    //
+    // Nothing is refused here for being unsigned or unlisted: that is
+    // enforcement, and it is a later slice. Off entirely without the flag, in
+    // which case `refs/walgit/signers` is an ordinary ref like any other.
+    let signerList: string[] | null = null
+    if (signerListsEnabled()) {
+      const verdict = checkSignerList(repoId, changes, gitSignersSource(gitDir))
+      if (!verdict.ok) {
+        process.stderr.write(`${verdict.message}\n`)
+        return 1
+      }
+      signerList = verdict.signers
+    }
+
     const quarantineDir = process.env.GIT_QUARANTINE_PATH || process.env.GIT_OBJECT_DIRECTORY
     const store = requireStore()
 
@@ -114,6 +136,7 @@ async function main(): Promise<number> {
       gitDir,
       quarantineDir,
       signer,
+      signerList,
     })
     fault('after-upload')
     await stall()
@@ -153,10 +176,16 @@ async function main(): Promise<number> {
     fault('before-cas')
     const store = requireStore()
     // The pack belongs to the first transaction that publishes; later ones in
-    // the same push carry ref changes only — but they carry the same Signer,
-    // because they are the same push. Dropping it here would attribute the
-    // first ref of a multi-ref push and silently leave the rest anonymous.
-    const toPublish = pending.consumed ? { entry: null, provenance: pending.provenance } : pending
+    // the same push carry ref changes only — but they carry the same Signer and
+    // the same Signer List, because they are the same push. Dropping the Signer
+    // here would attribute the first ref of a multi-ref push and silently leave
+    // the rest anonymous; dropping the list would lose a claim outright
+    // whenever git happened to move the list ref in a later transaction than
+    // the one that published the pack. `applyClaim` is what keeps carrying it
+    // in every transaction from writing it in the wrong one.
+    const toPublish = pending.consumed
+      ? { entry: null, provenance: pending.provenance, claim: pending.claim }
+      : pending
     const result = await publishPush(store, repoId, toPublish, changes)
     if (!result.ok) {
       process.stderr.write(

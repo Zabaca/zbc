@@ -128,6 +128,20 @@ export const REF_NAME = /^refs\/[A-Za-z0-9._\-/]+$/
 /** The all-zeroes oid: creation when it is `oldOid`, deletion when `newOid`. */
 export const ZERO_OID = '0'.repeat(40)
 
+/**
+ * Where a repository's Signer List lives (docs/adr/0012).
+ *
+ * A ref, and that is the whole mechanism: claiming a free name is pushing it,
+ * granting is a commit that adds a line, revoking is a commit that removes one,
+ * and reading it is `git ls-remote`. It is protocol rather than implementation
+ * — a client types this name — so it lives here beside the paths, and so the
+ * Index writer and the push path cannot spell it two ways.
+ *
+ * Under `refs/walgit/` rather than `refs/heads/`: it is not a branch, and a
+ * clone should not check it out.
+ */
+export const SIGNERS_REF = 'refs/walgit/signers'
+
 // ── Refusals ────────────────────────────────────────────────────────────────
 
 /**

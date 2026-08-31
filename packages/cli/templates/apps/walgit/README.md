@@ -22,38 +22,39 @@ by layer:
   rule something the build fails on rather than a comment. See
   `docs/adr/0010-walgit-shared-kernel.md` in the zbc repository.
 
-| | |
-| --- | --- |
-| `shared/protocol.ts` | the wire contract: header names, internal paths, the smart-HTTP grammar, the repo-id and ref-name grammars, the zero oid, the refusal vocabulary |
-| `shared/credentials.ts` | reading a credential off the wire: the two auth forms, the token list, the constant-time compare |
-| `shared/policy.ts` | reading a limit from the environment, and saying what it is — so the cap stated and the cap enforced are one number |
-| `shared/events.ts`, `shared/outbox.ts` | the ref-event protocol and the per-ref coalesce window that bounds a subscriber's message rate — every decision, pure |
-| `shared/telemetry.ts` | classifying a request and a refusal into the datapoint the Worker writes |
-| `shared/landing.ts` | the HTML page a browser gets at `/`, rendered from the limits actually configured |
-| `shared/container-env.ts` | which of the Worker's variables the container is told about, and a fingerprint of them |
-| `worker/index.ts`, `wrangler.jsonc` | the Cloudflare Worker that proxies to the container, and forwards its environment |
-| `shared/ref-cache.ts` | the fan-out's derived, in-memory copy of ref state — bounded, never authoritative |
-| `worker/events-do.ts` | the Durable Object that holds the ref-event sockets — a shell over `shared/events.ts` |
-| `src/store.ts`, `src/wal-index.ts` | the object-store adapter and the `index.json` compare-and-swap |
-| `src/keys.ts` | the object-store key namespace: every prefix, every key builder, and the parse back out of one |
-| `src/repo.ts` | repo addressing — the one place a client-supplied name becomes a path. Pure: string in, path out |
-| `src/cache.ts` | provisioning the bare repo that path names: `git init`, the config walgit needs, the hooks |
-| `src/http.ts`, `src/git-backend.ts`, `src/server.ts` | smart-HTTP, with `git http-backend` as a CGI child |
-| `src/push.ts`, `src/hooks.ts`, `src/hook-main.ts` | the push path: upload at `pre-receive`, publish under CAS at `reference-transaction` |
-| `src/announce.ts` | telling subscribers a push landed, from `post-receive` — after it is durable, and never able to fail it |
-| `src/pending.ts` | the hand-off between the two hook processes of one push, keyed by `git-receive-pack` pid |
-| `src/reconcile.ts`, `src/sync.ts` | force the local cache to match the log, on every access |
-| `src/orphans.ts` | the packs a rejected push leaves behind, found by diffing the log |
-| `src/materialize.ts` | rebuild a repo from the log alone, on a disk that holds nothing |
-| `src/compact.ts` | collapse the log to one entry, under a per-repo lease |
-| `src/gc.ts` | delete superseded and orphaned objects, a grace period later |
-| `src/delete-repo.ts` | remove a whole repository: tombstone, wait, then index-first deletion |
-| `src/expire.ts` | decide WHICH repositories go: idle since their last push, past the window |
-| `src/limits.ts` | the push-size and repository-total caps, refused in `pre-receive` before anything is uploaded |
-| `src/usage.ts` | what the log says this service holds, folded out of the indexes |
-| `src/instructions.ts` | the plain-text `GET /` — the whole API surface, rendered from the limits actually enforced |
-| `src/verify.ts`, `src/cli.ts` | the operator CLI: inspect, rebuild, verify, reclaim |
-| `src/git.ts`, `src/mkdir-lock.ts` | the two shared primitives: running a git plumbing command, and locking with `mkdir` |
+|                                                      |                                                                                                                                                  |
+| ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `shared/protocol.ts`                                 | the wire contract: header names, internal paths, the smart-HTTP grammar, the repo-id and ref-name grammars, the zero oid, the refusal vocabulary |
+| `shared/credentials.ts`                              | reading a credential off the wire: the two auth forms, the token list, the constant-time compare                                                 |
+| `shared/policy.ts`                                   | reading a limit from the environment, and saying what it is — so the cap stated and the cap enforced are one number                              |
+| `shared/events.ts`, `shared/outbox.ts`               | the ref-event protocol and the per-ref coalesce window that bounds a subscriber's message rate — every decision, pure                            |
+| `shared/telemetry.ts`                                | classifying a request and a refusal into the datapoint the Worker writes                                                                         |
+| `shared/landing.ts`                                  | the HTML page a browser gets at `/`, rendered from the limits actually configured                                                                |
+| `shared/container-env.ts`                            | which of the Worker's variables the container is told about, and a fingerprint of them                                                           |
+| `worker/index.ts`, `wrangler.jsonc`                  | the Cloudflare Worker that proxies to the container, and forwards its environment                                                                |
+| `shared/ref-cache.ts`                                | the fan-out's derived, in-memory copy of ref state — bounded, never authoritative                                                                |
+| `worker/events-do.ts`                                | the Durable Object that holds the ref-event sockets — a shell over `shared/events.ts`                                                            |
+| `src/store.ts`, `src/wal-index.ts`                   | the object-store adapter and the `index.json` compare-and-swap                                                                                   |
+| `src/keys.ts`                                        | the object-store key namespace: every prefix, every key builder, and the parse back out of one                                                   |
+| `src/repo.ts`                                        | repo addressing — the one place a client-supplied name becomes a path. Pure: string in, path out                                                 |
+| `src/cache.ts`                                       | provisioning the bare repo that path names: `git init`, the config walgit needs, the hooks                                                       |
+| `src/http.ts`, `src/git-backend.ts`, `src/server.ts` | smart-HTTP, with `git http-backend` as a CGI child                                                                                               |
+| `src/push.ts`, `src/hooks.ts`, `src/hook-main.ts`    | the push path: upload at `pre-receive`, publish under CAS at `reference-transaction`                                                             |
+| `src/announce.ts`                                    | telling subscribers a push landed, from `post-receive` — after it is durable, and never able to fail it                                          |
+| `src/pending.ts`                                     | the hand-off between the two hook processes of one push, keyed by `git-receive-pack` pid                                                         |
+| `src/reconcile.ts`, `src/sync.ts`                    | force the local cache to match the log, on every access                                                                                          |
+| `src/orphans.ts`                                     | the packs a rejected push leaves behind, found by diffing the log                                                                                |
+| `src/materialize.ts`                                 | rebuild a repo from the log alone, on a disk that holds nothing                                                                                  |
+| `src/compact.ts`                                     | collapse the log to one entry, under a per-repo lease                                                                                            |
+| `src/gc.ts`                                          | delete superseded and orphaned objects, a grace period later                                                                                     |
+| `src/delete-repo.ts`                                 | remove a whole repository: tombstone, wait, then index-first deletion                                                                            |
+| `src/expire.ts`                                      | decide WHICH repositories go: idle since their last push, past the window                                                                        |
+| `src/limits.ts`                                      | the push-size and repository-total caps, refused in `pre-receive` before anything is uploaded                                                    |
+| `src/signers.ts`                                     | the Signer List a repository holds, resolved and refused in `pre-receive` beside the size caps                                                   |
+| `src/usage.ts`                                       | what the log says this service holds, folded out of the indexes                                                                                  |
+| `src/instructions.ts`                                | the plain-text `GET /` — the whole API surface, rendered from the limits actually enforced                                                       |
+| `src/verify.ts`, `src/cli.ts`                        | the operator CLI: inspect, rebuild, verify, reclaim                                                                                              |
+| `src/git.ts`, `src/mkdir-lock.ts`                    | the two shared primitives: running a git plumbing command, and locking with `mkdir`                                                              |
 
 ## The operator CLI
 
@@ -154,7 +155,7 @@ restore that died partway can leave refs that look perfect on a truncated repo.
 `gc` reclaims both kinds of garbage — entries a compaction superseded, and the
 packs rejected pushes leave behind. It **only reports unless given `--yes`**,
 and it never collects an object younger than `--min-age` (default 60 minutes,
-`WALGIT_GC_GRACE_MS`): the push path uploads a pack *before* it publishes it, so
+`WALGIT_GC_GRACE_MS`): the push path uploads a pack _before_ it publishes it, so
 inside that window a perfectly good pack is indistinguishable from a rejected
 one, and deleting it would fail a push that was about to succeed. The age comes
 from the ULID in the key, so it costs no extra round trip — and an object whose
@@ -250,11 +251,11 @@ Each size is measured twice: over the raw log, and over the same repository
 after compaction.
 
 | WAL entries | raw p50 | raw p99 | compacted p50 | entries replayed |
-| ---: | ---: | ---: | ---: | ---: |
-| 1 | 36 ms | 41 ms | 36 ms | 1 |
-| 10 | 40 ms | 43 ms | 35 ms | 1 |
-| 50 | 57 ms | 65 ms | 36 ms | 1 |
-| 200 | 125 ms | 134 ms | 36 ms | 1 |
+| ----------: | ------: | ------: | ------------: | ---------------: |
+|           1 |   36 ms |   41 ms |         36 ms |                1 |
+|          10 |   40 ms |   43 ms |         35 ms |                1 |
+|          50 |   57 ms |   65 ms |         36 ms |                1 |
+|         200 |  125 ms |  134 ms |         36 ms |                1 |
 
 The right-hand column is the point: raw restore is linear in push count, and a
 compacted restore at 200 pushes is indistinguishable from one at 20, because it
@@ -346,7 +347,7 @@ A crash between the two leaves objects that nothing references — exactly what
 object that is gone. The cached bare repo on disk goes last, because a cache
 left behind is reclaimable and a half-deleted log is not.
 
-Deciding *which* repositories go — expiry — is not this file's business. It
+Deciding _which_ repositories go — expiry — is not this file's business. It
 takes a repo id.
 
 ## Expiring idle repositories
@@ -453,10 +454,17 @@ cloudflare instance's `workerSecrets`):
 
 Optional instance configuration (plain env, not secrets): `WALGIT_APPEND_ONLY`,
 `WALGIT_MAX_PUSH_BYTES`, `WALGIT_MAX_REPO_BYTES`, `WALGIT_RETENTION_HOURS`,
-`WALGIT_PUBLIC` — each unset means the behaviour is off and `GET /` does not
-claim it. `WALGIT_EVENTS_URL` and `WALGIT_EVENTS_TOKEN` (a secret) turn on the
-ref-event stream below, and `WALGIT_PUSH_CERT_SEED` (a secret) turns on signed
-pushes.
+`WALGIT_PUBLIC`, `WALGIT_SIGNER_LISTS` — each unset means the behaviour is off
+and `GET /` does not claim it. `WALGIT_EVENTS_URL` and `WALGIT_EVENTS_TOKEN` (a
+secret) turn on the ref-event stream below, and `WALGIT_PUSH_CERT_SEED` (a
+secret) turns on signed pushes.
+
+`WALGIT_SIGNER_LISTS=1` lets a repository record the keys allowed to push to it
+(docs/adr/0012 in the zbc repository): a commit on `refs/walgit/signers` whose
+tree holds a `signers` file, one `SHA256:…` fingerprint per line. Today walgit
+**records** that list and refuses nothing on the strength of it — only a push
+writing an empty or unreadable list is refused. Enforcement ships separately, so
+do not turn this on expecting a name to be defended by it yet.
 
 The container sleeps when idle and the next request wakes it — one regime,
 median 1.77 s, spread 0.93–6.45 s, and a ten-minute idle measures the same. Its
@@ -481,7 +489,7 @@ refusal a client actually reads comes earlier, from `pre-receive`
 (`src/append-only.ts`), and that earliness buys the two things git's own message
 cannot: the wording — `denying non-fast-forward refs/heads/main` tells an agent
 neither what walgit is nor what to do instead — and the object-store write, since
-git refuses only *after* `pre-receive`, by which point the pack for a doomed push
+git refuses only _after_ `pre-receive`, by which point the pack for a doomed push
 has already been uploaded and left for `findOrphans` to reclaim.
 
 The check is git's own fast-forward test (`merge-base --is-ancestor`) over the
@@ -537,7 +545,7 @@ that a bug in the hook is the likelier explanation.
 ## Signed pushes
 
 `WALGIT_PUSH_CERT_SEED` makes the host willing to receive `git push
---signed=yes`. A push certificate is a claim about *who moved this ref*, signed
+--signed=yes`. A push certificate is a claim about _who moved this ref_, signed
 by the pusher and carrying a nonce this server issued — and it is a
 `receive-pack` capability, not a transport feature, so it works over smart-HTTP
 with no SSH anywhere ([ADR-0011](../../../../../docs/adr/0011-walgit-records-who-pushed-and-refuses-nothing.md)).
@@ -562,7 +570,7 @@ therefore safe to pass unconditionally, to this host or any other.
 
 An agent working in a sandbox cannot be told anything: it has no ingress, no
 stable address and often no listening port, so a webhook has nowhere to go.
-Every agent therefore pays a background tax — *is my local main still current?*
+Every agent therefore pays a background tax — _is my local main still current?_
 — one fetch and one slice of context at a time, and almost every answer is
 "nothing changed". The stream inverts the direction: the client dials out once
 and is told.

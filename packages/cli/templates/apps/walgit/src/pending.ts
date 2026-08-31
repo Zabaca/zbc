@@ -16,7 +16,7 @@
 import * as fs from 'node:fs'
 import * as path from 'node:path'
 
-import type { Provenance, WalEntry } from './wal-index'
+import type { Claim, Provenance, WalEntry } from './wal-index'
 
 /**
  * What `pre-receive` hands to `reference-transaction`.
@@ -41,6 +41,14 @@ export interface PendingPush {
    * Absent for every unsigned push, which is most of them.
    */
   provenance?: Provenance
+  /**
+   * The Signer List this push writes, resolved in `pre-receive` from the commit
+   * sitting in the quarantine (docs/adr/0012), and carried here for the reason
+   * everything else is: the transaction that publishes it is a different
+   * process, and by then the quarantine is gone. Absent for every push that
+   * does not move `refs/walgit/signers`, which is nearly all of them.
+   */
+  claim?: Claim
   /**
    * The `git-receive-pack` that owns this record; see `invocationId`. Optional
    * only because `publishPush` takes a `PendingPush` as a plain argument and

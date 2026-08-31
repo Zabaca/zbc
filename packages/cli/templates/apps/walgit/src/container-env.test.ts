@@ -58,6 +58,13 @@ describe('containerEnv', () => {
     })
   })
 
+  test('the Signer List flag reaches the container', () => {
+    // The refusals it turns on all run in `pre-receive`, which is inside the
+    // container. A flag that stopped at the Worker would be a deployment that
+    // believes its names can be claimed and records nothing when they are.
+    expect(containerEnv({ WALGIT_SIGNER_LISTS: '1' })).toEqual({ WALGIT_SIGNER_LISTS: '1' })
+  })
+
   test('every forwarded name is one src/ actually reads', () => {
     // A name added here and nowhere else is a variable that looks configured
     // and does nothing.

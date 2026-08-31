@@ -1,7 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import { INTERNAL_HEADER, REJECT_HEADER, SERVED_HEADER } from '../shared/protocol'
-import { createHttpHandler } from './http'
-import type { Provenance } from './wal-index'
+import { createHttpHandler, type ProvenanceRead } from './http'
 
 const handler = () =>
   createHttpHandler({
@@ -271,9 +270,14 @@ describe('the provenance read', () => {
     },
   }
 
+  const claimed = {
+    signers: ['SHA256:BMBEMXbMBsnjXwgNs+86IiJrPgYlZEsWxaKZW/2/1dw'],
+    ts: '2026-08-30T19:00:00.000Z',
+  }
+
   const provenanceHandler = (
     overrides: {
-      readProvenance?: (repoId: string) => Promise<Record<string, Provenance>>
+      readProvenance?: (repoId: string) => Promise<ProvenanceRead>
       tokens?: string[]
       public?: boolean
     } = {},
@@ -284,7 +288,10 @@ describe('the provenance read', () => {
       public: overrides.public,
       ensureRepo: (repo) => repo,
       runBackend: async () => new Response('backend ran'),
-      readProvenance: 'readProvenance' in overrides ? overrides.readProvenance : async () => signed,
+      readProvenance:
+        'readProvenance' in overrides
+          ? overrides.readProvenance
+          : async () => ({ provenance: signed }),
     })
 
   const ask = (h: (req: Request) => Promise<Response>, repo = 'alpha', auth = 'Bearer s3cret') =>
@@ -307,7 +314,7 @@ describe('the provenance read', () => {
       provenanceHandler({
         readProvenance: async (repoId) => {
           asked.push(repoId)
-          return {}
+          return { provenance: {} }
         },
       }),
       'beta',
@@ -320,9 +327,30 @@ describe('the provenance read', () => {
     // The ordinary case on a host where signing is opt-in: the Index carries no
     // `provenance` field at all. A 404 or a 500 here would make every consumer
     // special-case the common answer.
-    const res = await ask(provenanceHandler({ readProvenance: async () => ({}) }))
+    const res = await ask(provenanceHandler({ readProvenance: async () => ({ provenance: {} }) }))
     expect(res.status).toBe(200)
     expect(await res.json()).toEqual({ repo: 'alpha', provenance: {} })
+  })
+
+  test('names the repository’s Signer List beside the provenance', async () => {
+    // Same Index, same credential, same route (docs/adr/0012): a client that
+    // wants to know who may push a name reads it where it already reads who
+    // did push it.
+    const res = await ask(
+      provenanceHandler({
+        readProvenance: async () => ({ provenance: signed, claim: claimed }),
+      }),
+    )
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual({ repo: 'alpha', provenance: signed, claim: claimed })
+  })
+
+  test('an unclaimed repository has no claim field at all, not a null one', async () => {
+    // Absence is the answer, and it has exactly one spelling — the same one the
+    // Index uses. A `claim: null` would be a second way to say "unclaimed" that
+    // every consumer would then have to test for as well.
+    const res = await ask(provenanceHandler({ readProvenance: async () => ({ provenance: {} }) }))
+    expect(await res.text()).toBe(`${JSON.stringify({ repo: 'alpha', provenance: {} })}\n`)
   })
 
   test('demands exactly the credential a clone of the repository demands', async () => {
