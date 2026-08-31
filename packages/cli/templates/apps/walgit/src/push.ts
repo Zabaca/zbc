@@ -150,12 +150,16 @@ export interface PreReceiveContext {
 export async function preReceive(ctx: PreReceiveContext): Promise<void> {
   const now = ctx.now ?? (() => new Date())
   const signer = ctx.signer
-  // One instant for both, because they describe one push: two `now()` readings
-  // would stamp the Signer and the list it wrote a millisecond apart for no
-  // reason anyone reading them back could account for.
-  const ts = now().toISOString()
+  // One reading of the clock for the whole function, because all of it
+  // describes one push: the WAL entry, the Signer and the list that push wrote
+  // would otherwise be stamped milliseconds apart for no reason anyone reading
+  // them back could account for.
+  const at = now()
+  const ts = at.toISOString()
   const provenance: Provenance | null = signer ? { signer, ts } : null
-  const claim: Claim | null = ctx.signerList ? { signers: [...ctx.signerList], ts } : null
+  // `length` and not truthiness: an empty array is truthy, and recording an
+  // empty list is the state `src/signers.ts` refuses a push for reaching.
+  const claim: Claim | null = ctx.signerList?.length ? { signers: [...ctx.signerList], ts } : null
   const recorded = { ...(provenance ? { provenance } : {}), ...(claim ? { claim } : {}) }
   const found = ctx.quarantineDir ? quarantinePack(ctx.quarantineDir) : null
   if (!found) {
@@ -169,7 +173,7 @@ export async function preReceive(ctx: PreReceiveContext): Promise<void> {
   }
 
   const { index } = await loadIndex(ctx.store, ctx.repoId)
-  const id = ulid(now().getTime())
+  const id = ulid(at.getTime())
   const packBody = new Uint8Array(fs.readFileSync(found.pack))
   const key = walKey(ctx.repoId, index.seq + 1, id, 'pack')
 
@@ -186,7 +190,7 @@ export async function preReceive(ctx: PreReceiveContext): Promise<void> {
     kind: 'push',
     size: packBody.byteLength,
     sha256: sha256(packBody),
-    ts: now().toISOString(),
+    ts,
   }
   writePending(ctx.gitDir, { entry, ...recorded })
 }

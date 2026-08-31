@@ -4,12 +4,12 @@ A git host where object storage holds the write-ahead log and is the source of t
 
 One context of several in the zbc repository — see its root `CONTEXT-MAP.md`. This glossary travels with the package, so a consumer who runs `zbc add walgit` gets the vocabulary along with the code.
 
-**walgit is the mechanism, not a product.** A deployment of it may be a product — agentgit is one — but the rule in both directions is: *walgit may gain capabilities, never opinions*. Anything specific to one deployment must be expressible as instance configuration, or it does not belong in this package. Every capability here defaults to off.
+**walgit is the mechanism, not a product.** A deployment of it may be a product — agentgit is one — but the rule in both directions is: _walgit may gain capabilities, never opinions_. Anything specific to one deployment must be expressible as instance configuration, or it does not belong in this package. Every capability here defaults to off.
 
 ## Language
 
 **Shared Kernel** (`shared/`):
-The runtime-neutral third directory beside `src/` (the container process) and `worker/` (the Cloudflare Worker). Its rule is one sentence — *`shared/` imports no runtime, and both halves may import it* — and it is enforced rather than asserted: `shared/` is the only directory in both TypeScript programs, so a module there is typechecked against bun's ambient types and against the Workers runtime's (ADR-0010). It holds what both halves have to agree on exactly: the wire contract (`protocol.ts`), credential reading, limit reading and formatting, and the ref-event, telemetry and landing-page logic.
+The runtime-neutral third directory beside `src/` (the container process) and `worker/` (the Cloudflare Worker). Its rule is one sentence — _`shared/` imports no runtime, and both halves may import it_ — and it is enforced rather than asserted: `shared/` is the only directory in both TypeScript programs, so a module there is typechecked against bun's ambient types and against the Workers runtime's (ADR-0010). It holds what both halves have to agree on exactly: the wire contract (`protocol.ts`), credential reading, limit reading and formatting, and the ref-event, telemetry and landing-page logic.
 _Avoid_: common, util, lib — none of them says why a module qualifies
 
 **Write-Ahead Log** (the WAL):
@@ -84,7 +84,7 @@ The key that signed a push, named by its fingerprint (`SHA256:…`). A key, neve
 _Avoid_: user, account, identity, owner (the last is reserved for a permission system that does not exist)
 
 **Provenance**:
-The recorded fact that a Signer moved a given ref — an optional map in the Index, ref → `{ signer, ts }`, written by the same compare-and-swap that publishes the push. Latest-state per ref like everything else here: there is no provenance history, because the audit trail of *content* is the commit graph.
+The recorded fact that a Signer moved a given ref — an optional map in the Index, ref → `{ signer, ts }`, written by the same compare-and-swap that publishes the push. Latest-state per ref like everything else here: there is no provenance history, because the audit trail of _content_ is the commit graph.
 _Avoid_: identity, attribution log, audit trail
 
 **Provenance Read**:
@@ -96,7 +96,7 @@ What the two agent-facing documents say a deployment can do, rendered from the t
 _Avoid_: feature flag (there is no flag; the seed IS the capability)
 
 **Fail open**:
-The rule the whole capability is built to: a missing, malformed or unverifiable certificate, a bad nonce, or a verifier that is absent or throws records no Signer and **accepts the push**. Provenance is metadata and must never become a new way for a push to fail — anonymous pushing is first-class and stays that way. It has exactly one exception, and it is confined to a repository that holds a Signer List (ADR-0012); everywhere else, down to the unconditional catch at the seam, this stands.
+The rule the whole capability is built to: a missing, malformed or unverifiable certificate, a bad nonce, or a verifier that is absent or throws records no Signer and **accepts the push**. Provenance is metadata and must never become a new way for a push to fail — anonymous pushing is first-class and stays that way. It has exactly one exception, and it is confined to a repository that holds a Signer List (ADR-0012): there, an unestablished Signer refuses the push. Nowhere else is a push refused for who signed it. Writing an unusable list is refused on any repository, but that is a verdict about the file, not about the Signer.
 
 ## Ownership (ADR-0012)
 
@@ -112,4 +112,4 @@ _Avoid_: owner, ownership record (both imply a permission system rather than a f
 A repository with no Signer List, which is every repository until someone writes one. Absence has one spelling — the field is absent from the Index and omitted from the read — so there is no second way to say it. Nothing is refused on an unclaimed name except a list walgit cannot record.
 
 **Empty list** / **unreadable list**:
-The two ways writing a list is refused, on claimed and unclaimed names alike, because both are about losing a name rather than defending one. An empty list — including a deletion of the ref — would leave the name claimable by the next stranger, so a compromised key could give it away rather than merely keep it. An unreadable one — not a commit, no `signers` file, a line that is not a fingerprint — would leave an agent believing it holds a name it does not.
+The two ways writing a list is refused, on claimed and unclaimed names alike, because both are about losing a name rather than defending one. An empty list — including a deletion of the ref — would leave the name claimable by the next stranger, so a compromised key could give it away rather than merely keep it. An unreadable one — not a commit, no `signers` file, a line that is not a fingerprint, or a file too large to read without risking a silent truncation — would leave an agent believing it holds a name it does not.

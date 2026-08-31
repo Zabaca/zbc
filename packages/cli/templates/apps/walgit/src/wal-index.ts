@@ -166,7 +166,7 @@ export interface PushRecord {
 }
 
 /** A push that records neither. The overwhelming majority of them. */
-export const NO_RECORD: PushRecord = { provenance: null, claim: null }
+const NO_RECORD: PushRecord = { provenance: null, claim: null }
 
 /** A ref change as `reference-transaction` reports it on stdin. */
 export interface RefChange {
@@ -287,26 +287,37 @@ export function applyProvenance(
 }
 
 /**
- * Apply one push's Signer List, if it wrote one.
+ * Apply one push's Signer List, if it wrote one — and drop the claim if the
+ * push took the list ref away.
  *
- * Gated on the push actually moving `SIGNERS_REF` in THIS set of changes, not
- * merely on a resolved list being in hand. git updates refs one transaction at
- * a time unless the client asked for `--atomic`, so a push moving a branch and
- * the list together publishes across several compare-and-swaps — and writing
- * the field in the first of them would leave the Index naming a list the ref
- * does not yet hold, and still naming it if a later transaction is refused.
+ * Writing is gated on the push actually moving `SIGNERS_REF` in THIS set of
+ * changes, not merely on a resolved list being in hand. git updates refs one
+ * transaction at a time unless the client asked for `--atomic`, so a push
+ * moving a branch and the list together publishes across several
+ * compare-and-swaps — and writing the field in the first of them would leave
+ * the Index naming a list the ref does not yet hold, and still naming it if a
+ * later transaction is refused.
  *
- * There is no clearing rule to match `applyProvenance`'s, because there is no
- * change that clears it: deleting the list ref is refused before it gets here
- * (`src/signers.ts`), which is what makes "absent means unclaimed" a fact about
- * a repository nobody has ever claimed rather than one about a repository whose
- * claim was dropped.
+ * The deletion rule is here rather than left to the refusal in
+ * `src/signers.ts`, even though that refusal makes it unreachable, because the
+ * refusal only exists while `WALGIT_SIGNER_LISTS` is on. A deployment that
+ * turns the flag off can delete the ref, and an Index that went on naming a
+ * list nothing holds would state something false — the same reason
+ * `applyProvenance` clears a deleted ref rather than keeping the last Signer
+ * for it.
+ *
+ * It does NOT make the derived copy self-healing, and nothing here does: only a
+ * push that moves the ref while the flag is on writes the field. A list pushed
+ * before the flag was turned on, or a ref force-moved while it was off, leaves
+ * the Index behind the ref, and the ref is the one that is authoritative.
  */
 export function applyClaim(
   current: Claim | undefined,
   changes: readonly RefChange[],
   claim: Claim | null,
 ): Claim | undefined {
+  const deleted = changes.some((c) => c.ref === SIGNERS_REF && c.newOid === ZERO_OID)
+  if (deleted) return undefined
   if (claim === null) return current
   const moves = changes.some((c) => c.ref === SIGNERS_REF && c.newOid !== ZERO_OID)
   return moves ? claim : current

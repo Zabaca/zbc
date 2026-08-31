@@ -20,6 +20,7 @@ import { git, gitOrThrow } from './git'
 import {
   checkSignerList,
   gitSignersSource,
+  MAX_SIGNER_LIST_BYTES,
   parseSignerList,
   signerListsEnabled,
   type SignersFile,
@@ -31,6 +32,13 @@ const KEY_A = 'SHA256:BMBEMXbMBsnjXwgNs+86IiJrPgYlZEsWxaKZW/2/1dw'
 const KEY_B = 'SHA256:0000MXbMBsnjXwgNs+86IiJrPgYlZEsWxaKZW/2/1dw'
 const OID = 'a'.repeat(40)
 const OTHER_OID = 'b'.repeat(40)
+
+/** A list of `count` distinct, well-formed fingerprints — 51 bytes per line. */
+const listOf = (count: number) =>
+  Array.from(
+    { length: count },
+    (_, i) => `SHA256:${String(i).padStart(6, '0')}${'A'.repeat(37)}`,
+  ).join('\n') + '\n'
 
 const change = (ref: string, newOid = OID, oldOid = ZERO_OID): RefChange => ({
   ref,
@@ -211,17 +219,6 @@ describe('checkSignerList', () => {
     })
   }
 
-  test('refuses an unreadable list on an unclaimed name exactly as on a claimed one', () => {
-    // The verdict is a function of what the push WRITES, and nothing else: it
-    // never asks whether the repository already has a list. An agent that
-    // believes it has claimed a name it has not is the failure being prevented,
-    // and that belief is formed on the very first push.
-    const first = checkSignerList('alpha', [change(SIGNERS_REF, OID, ZERO_OID)], holding('junk\n'))
-    const later = checkSignerList('alpha', [change(SIGNERS_REF, OTHER_OID, OID)], holding('junk\n'))
-    expect(first.ok).toBe(false)
-    expect(later.ok).toBe(false)
-  })
-
   test('nothing is refused for being unsigned or for naming a stranger — not yet', () => {
     // This slice records the list and enforces nothing with it. A push by
     // nobody in particular that lists somebody else entirely still lands.
@@ -246,6 +243,11 @@ describe('gitSignersSource', () => {
   let withList = ''
   let withoutList = ''
   let blob = ''
+  let asDirectory = ''
+  let oversized = ''
+  let nearCap = ''
+
+  const nearCapKeys = 1000
 
   const commit = (message: string): string => {
     gitOrThrow([
@@ -273,6 +275,21 @@ describe('gitSignersSource', () => {
     gitOrThrow(['-C', work, 'add', 'signers'])
     withList = commit('claim')
     blob = git(['-C', work, 'rev-parse', `${withList}:signers`]).stdout.trim()
+
+    gitOrThrow(['-C', work, 'rm', '--quiet', 'signers'])
+    fs.mkdirSync(path.join(work, 'signers'))
+    fs.writeFileSync(path.join(work, 'signers', 'keys'), `${KEY_A}\n`)
+    gitOrThrow(['-C', work, 'add', 'signers'])
+    asDirectory = commit('a directory where the file should be')
+
+    gitOrThrow(['-C', work, 'rm', '-r', '--quiet', 'signers'])
+    fs.writeFileSync(path.join(work, 'signers'), listOf(1400))
+    gitOrThrow(['-C', work, 'add', 'signers'])
+    oversized = commit('far too many keys')
+
+    fs.writeFileSync(path.join(work, 'signers'), listOf(nearCapKeys))
+    gitOrThrow(['-C', work, 'add', 'signers'])
+    nearCap = commit('a lot of keys, but not too many')
   })
 
   afterAll(() => fs.rmSync(work, { recursive: true, force: true }))
@@ -309,6 +326,40 @@ describe('gitSignersSource', () => {
   test('an oid this repository has never heard of is not a list', () => {
     const file = gitSignersSource(gitDir)('f'.repeat(40))
     expect(file.found).toBe(false)
+  })
+
+  test('a directory named signers is refused as a directory, not as a missing file', () => {
+    // Telling an agent to add a file it demonstrably just pushed is a refusal
+    // it cannot act on, which is the same as no refusal at all.
+    const file = gitSignersSource(gitDir)(asDirectory)
+    expect(file.found).toBe(false)
+    if (file.found) return
+    expect(file.why).toContain('directory')
+  })
+
+  test('a file past the cap is refused unread, naming both numbers', () => {
+    // Unread is the point. `git()` buffers a subprocess's output and an
+    // oversized read there can come back TRUNCATED with a zero exit — which
+    // would resolve a list that is not the one the ref holds, silently, which
+    // is the whole failure the strict parser exists to prevent.
+    const file = gitSignersSource(gitDir)(oversized)
+    expect(file.found).toBe(false)
+    if (file.found) return
+    expect(file.why).toContain(String(MAX_SIGNER_LIST_BYTES))
+    expect(file.why).toMatch(/is \d+ bytes/)
+  })
+
+  test('a big-but-allowed file is read whole, to its last key', () => {
+    // The other side of the cap: right under it, every byte survives the
+    // subprocess. A truncation here would drop keys off the end of the list
+    // and nothing downstream would notice.
+    const file = gitSignersSource(gitDir)(nearCap)
+    expect(file.found).toBe(true)
+    if (!file.found) return
+    const parsed = parseSignerList(file.text)
+    expect(parsed.ok).toBe(true)
+    if (!parsed.ok) return
+    expect(parsed.signers).toHaveLength(nearCapKeys)
   })
 })
 
@@ -351,5 +402,104 @@ describe('the refusal', () => {
     expect(message).toContain('line 2')
     expect(message).toContain('SHA256:oops')
     expect(message).toContain('could not read')
+  })
+})
+
+/**
+ * The one property the pure verdict cannot hold on its own: the refusal has to
+ * be reached BEFORE the pack is uploaded.
+ *
+ * That is a fact about where the block sits in `hook-main`, and nothing above
+ * this line would notice it moving below `preReceive` — the verdict would still
+ * refuse, and the push would still fail, but every refused push would leave an
+ * Orphan in the object store, which is the exact cost the placement exists to
+ * avoid. So it is asserted where it is decided: the real hook process, a real
+ * quarantine holding a real pack, and a store directory that has to still be
+ * empty afterwards.
+ *
+ * A hook process rather than a server, so this stays cheap and needs no port:
+ * `pre-receive` is a program git runs with refs on stdin, and that is all it is.
+ */
+describe('the refusal reaches the pusher before the pack reaches the store', () => {
+  let work: string
+  let store: string
+  let quarantine: string
+  let good = ''
+  let bad = ''
+
+  const commitSigners = (contents: string, message: string): string => {
+    fs.writeFileSync(path.join(work, 'signers'), contents)
+    gitOrThrow(['-C', work, 'add', 'signers'])
+    gitOrThrow([
+      '-C',
+      work,
+      '-c',
+      'user.email=walgit@example.test',
+      '-c',
+      'user.name=walgit',
+      'commit',
+      '--quiet',
+      '-m',
+      message,
+    ])
+    return git(['-C', work, 'rev-parse', 'HEAD']).stdout.trim()
+  }
+
+  beforeAll(() => {
+    work = fs.mkdtempSync(path.join(os.tmpdir(), 'walgit-hook-'))
+    gitOrThrow(['init', '--quiet', '--initial-branch=main', work])
+    good = commitSigners(`${KEY_A}\n`, 'a list walgit can read')
+    bad = commitSigners('not a fingerprint\n', 'a list walgit cannot read')
+    // A quarantine that looks like one git built: `pre-receive` uploads whatever
+    // pack it finds here, so its contents are what a misordered verdict would
+    // leak into the store.
+    quarantine = path.join(work, 'tmp_objdir-incoming')
+    fs.mkdirSync(path.join(quarantine, 'pack'), { recursive: true })
+    fs.writeFileSync(path.join(quarantine, 'pack', 'pack-1.pack'), 'PACKDATA')
+  })
+
+  afterAll(() => fs.rmSync(work, { recursive: true, force: true }))
+
+  const preReceiveHook = async (tip: string) => {
+    store = fs.mkdtempSync(path.join(os.tmpdir(), 'walgit-hookstore-'))
+    const child = Bun.spawn(
+      [process.execPath, path.join(import.meta.dir, 'hook-main.ts'), 'pre-receive'],
+      {
+        stdin: new TextEncoder().encode(`${ZERO_OID} ${tip} ${SIGNERS_REF}\n`),
+        stdout: 'pipe',
+        stderr: 'pipe',
+        env: {
+          ...process.env,
+          GIT_DIR: path.join(work, '.git'),
+          WALGIT_REPO_ID: 'alpha',
+          WALGIT_STORE_DIR: store,
+          WALGIT_SIGNER_LISTS: '1',
+          GIT_QUARANTINE_PATH: quarantine,
+        },
+      },
+    )
+    const [code, stderr] = await Promise.all([child.exited, new Response(child.stderr).text()])
+    const uploaded = fs.existsSync(path.join(store, 'repos', 'alpha', 'wal'))
+      ? fs.readdirSync(path.join(store, 'repos', 'alpha', 'wal'))
+      : []
+    fs.rmSync(store, { recursive: true, force: true })
+    return { code, stderr, uploaded }
+  }
+
+  test('a readable list is accepted, and its pack IS uploaded', async () => {
+    // The control. Without it the assertion below could pass because this
+    // harness never uploads anything at all.
+    const { code, uploaded } = await preReceiveHook(good)
+    expect(code).toBe(0)
+    expect(uploaded.some((name) => name.endsWith('.pack'))).toBe(true)
+  })
+
+  test('an unreadable list is refused, and the store is untouched', async () => {
+    const { code, stderr, uploaded } = await preReceiveHook(bad)
+    expect(code).toBe(1)
+    expect(stderr).toContain('walgit: refused')
+    // Not "an orphan that gets collected later" — never written at all, which
+    // is what the refusal's own last line promises the pusher.
+    expect(uploaded).toEqual([])
   })
 })

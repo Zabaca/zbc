@@ -93,6 +93,14 @@ export interface Env {
    * the nonce it derives is what makes a push certificate un-replayable.
    */
   WALGIT_PUSH_CERT_SEED?: string
+  /**
+   * `1` to give repositories Signer Lists (src/signers.ts, docs/adr/0012).
+   * Its own variable rather than a consequence of the seed above: signing is
+   * refused client-side where it is not offered, while ownership is a
+   * server-side refusal that would otherwise arrive on a deployment that
+   * already set a seed, unasked.
+   */
+  WALGIT_SIGNER_LISTS?: string
   WALGIT_EVENTS: DurableObjectNamespace<WalgitEvents>
 }
 

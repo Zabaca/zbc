@@ -103,12 +103,37 @@ export type SignersFile =
 export type SignersSource = (oid: string) => SignersFile
 
 /**
+ * The most a `signers` file walgit will read, in bytes — roughly a thousand
+ * keys, which is far past any plausible list and far short of a problem.
+ *
+ * A cap is not optional here, for two reasons that are both about what the file
+ * becomes. The resolved list is copied into `index.json`, the hottest object in
+ * the system: it is re-read on every push and re-written in full by every
+ * compare-and-swap, so a megabyte attached to it by an anonymous pusher is paid
+ * for by every later push to that name, forever, with no way to take it off.
+ * And reading an unbounded blob through a subprocess buffer is how a file gets
+ * silently TRUNCATED into a list that is not the one the ref holds — which is
+ * exactly the "a key drops out and nobody notices" failure the strict parser
+ * below exists to prevent. Refusing early is the only reading that cannot lie.
+ */
+export const MAX_SIGNER_LIST_BYTES = 64 * 1024
+
+/**
  * The real source: `git cat-file`, against the repository the hook runs in.
  *
- * Two calls rather than one, because the two failures are different sentences
- * to whoever is being refused: a ref pointed at a blob is a different mistake
- * from a commit with no `signers` file in it, and a refusal that could not tell
- * them apart would send half its readers looking in the wrong place.
+ * The first call is `--batch-check` over BOTH questions at once — is the tip a
+ * commit, and what is at `signers` in its tree — because git answers each input
+ * line with `<sha> <type> <size>` or `<input> missing`, so one subprocess
+ * distinguishes every failure this can have. That matters more than the
+ * subprocess it saves: a refusal that could not tell "you pointed the ref at a
+ * blob" from "your commit has no such file" from "your file is too big" would
+ * send most of its readers looking in the wrong place, and the message is the
+ * only documentation the agent being refused has.
+ *
+ * The size is read BEFORE the content, and nothing over the cap is read at all.
+ * `git()` buffers a subprocess's output, and an oversized read there does not
+ * reliably fail — it can return truncated bytes with a zero exit, which would
+ * resolve a list the ref does not hold.
  *
  * The pushed objects are still in the quarantine when this runs, which needs no
  * special handling: git puts the quarantine on the hook's object path, so
@@ -116,17 +141,59 @@ export type SignersSource = (oid: string) => SignersFile
  */
 export function gitSignersSource(gitDir: string): SignersSource {
   return (oid) => {
-    const type = git(['--git-dir', gitDir, 'cat-file', '-t', oid])
-    const kind = type.stdout.trim()
-    if (type.status !== 0 || kind !== 'commit') {
-      return { found: false, why: `${SIGNERS_REF} points at ${kind || 'nothing readable'}` }
+    const checked = git(['--git-dir', gitDir, 'cat-file', '--batch-check'], {
+      input: `${oid}\n${oid}:signers\n`,
+    })
+    const [tip, file] = checked.stdout.split('\n')
+    if (checked.status !== 0 || tip === undefined || file === undefined) {
+      return { found: false, why: `git could not read ${SIGNERS_REF} at ${oid}` }
     }
+
+    const tipType = batchCheckType(tip)
+    if (tipType !== 'commit') {
+      return { found: false, why: `${SIGNERS_REF} points at ${tipType ?? 'no such object'}` }
+    }
+
+    const fileType = batchCheckType(file)
+    if (fileType === null) return { found: false, why: NO_FILE }
+    if (fileType !== 'blob') {
+      return { found: false, why: '`signers` in that commit is a directory, not a file' }
+    }
+
+    const size = batchCheckSize(file)
+    if (size === null) return { found: false, why: NO_FILE }
+    if (size > MAX_SIGNER_LIST_BYTES) {
+      return {
+        found: false,
+        why:
+          `the \`signers\` file is ${size} bytes, and walgit reads at most ` +
+          `${MAX_SIGNER_LIST_BYTES}`,
+      }
+    }
+
     const blob = git(['--git-dir', gitDir, 'cat-file', 'blob', `${oid}:signers`])
+    // It was there a moment ago and a git object is immutable, so this is a
+    // read that failed rather than a file that is absent — and saying "add a
+    // `signers` file" to someone who just pushed one is worse than saying
+    // nothing.
     if (blob.status !== 0) {
-      return { found: false, why: 'that commit has no file named `signers` in it' }
+      return { found: false, why: `git could not read the \`signers\` file at ${oid}` }
     }
     return { found: true, text: blob.stdout }
   }
+}
+
+const NO_FILE = 'that commit has no file named `signers` in it'
+
+/** `<sha> <type> <size>` → the type; `<input> missing` → `null`. */
+function batchCheckType(line: string): string | null {
+  const type = line.trim().split(' ')[1]
+  return type === undefined || type === 'missing' ? null : type
+}
+
+function batchCheckSize(line: string): number | null {
+  const size = Number(line.trim().split(' ')[2])
+  return Number.isSafeInteger(size) ? size : null
 }
 
 // ── The verdict ─────────────────────────────────────────────────────────────
@@ -192,7 +259,7 @@ const refuse = (
  * one: it states what walgit found, the format it wanted, and the one thing to
  * do next — an agent that cannot act on a refusal has been told nothing.
  */
-export function rejectionMessage(
+function rejectionMessage(
   repoId: string,
   kind: 'empty-list' | 'unreadable-list',
   why: string,

@@ -425,9 +425,11 @@ describe('provenance', () => {
  * The same path Provenance takes, one level up: resolved in `pre-receive` from
  * the quarantine, carried through the pending record, applied by the
  * compare-and-swap that publishes the ref move. What is asserted here is that
- * the Index ends up holding the list — deciding WHETHER a list may be written
- * is `signers.test.ts`'s, and what a real `git push` of one does is the e2e
- * suite's.
+ * the Index ends up holding the list. Deciding WHETHER a list may be written is
+ * `signers.test.ts`'s, along with the hook-level proof that a refusal is
+ * reached before the pack is uploaded. A real `git push` of one belongs to the
+ * enforcement slice, which is the first thing with an end-to-end story worth
+ * telling — claim a free name, be refused as a stranger, be granted, succeed.
  */
 describe('the Signer List', () => {
   const scratch = () => fs.mkdtempSync(path.join(os.tmpdir(), 'walgit-claim-'))
@@ -495,6 +497,18 @@ describe('the Signer List', () => {
     // Unlike provenance beside it, there is no clearing rule: a claim is a fact
     // about the name, not about the last push.
     expect((await loadIndex(store, 'r')).index.claim).toEqual(claimOf(KEY))
+  })
+
+  test('deleting the list ref takes the claim with it', async () => {
+    // Unreachable while the flag is on — `checkSignerList` refuses the deletion
+    // first — and that is exactly why the rule lives on the Index instead of
+    // resting on the refusal. A deployment that turns the flag off can delete
+    // the ref, and an Index that went on naming a list nothing holds would
+    // state something false, which is worse than stating nothing.
+    const store = new MemoryStore()
+    await publishPush(store, 'r', { entry: null, claim: claimOf(KEY) }, [listMove()])
+    await publishPush(store, 'r', { entry: null }, [listMove(LIST_OID, ZERO_OID)])
+    expect((await loadIndex(store, 'r')).index.claim).toBeUndefined()
   })
 
   test('a later list replaces the earlier one entirely', async () => {
