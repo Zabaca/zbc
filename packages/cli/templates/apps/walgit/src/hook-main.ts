@@ -22,7 +22,7 @@ import { appendOnlyEnabled, checkAppendOnly } from './append-only'
 import { configuredThreshold, isCompactionDue } from './compact'
 import { checkSize, limitsEnforced, limitsFromEnv, liveBytes } from './limits'
 import { clearPending, invocationId, markConsumed, readPending, sweepPending } from './pending'
-import { parseRefChanges, preReceive, publishPush, quarantinePack } from './push'
+import { establishSigner, parseRefChanges, preReceive, publishPush, quarantinePack } from './push'
 import { requireStore, storeFromEnv } from './store-env'
 import { loadIndex, type RefChange } from './wal-index'
 
@@ -59,6 +59,20 @@ async function main(): Promise<number> {
   const stdin = await Bun.stdin.text()
 
   if (hook === 'pre-receive') {
+    // Who signed this push, settled here and handed down. It is read in this
+    // hook because this is the only one git shows the certificate to — the
+    // blob lives in the push's quarantine and is gone by the time the refs
+    // move — and it is settled at the TOP because a verdict that turns on the
+    // Signer has to be reachable before the upload: reached after it, every
+    // push it refused would leave an Orphan behind. Today it only becomes the
+    // Provenance the publish records.
+    //
+    // Fail-open throughout (docs/adr/0011): a certificate that is missing,
+    // stale, malformed or unverifiable, and an `ssh-keygen` that is absent or
+    // throws, are all `null` here — and a `null` Signer is the anonymous push
+    // walgit accepted before any of this existed.
+    const signer = establishSigner()
+
     // Before the store is even touched: a push that will be refused must not
     // cost an object-store write. git's own deny rules run after this hook, so
     // leaving it to them would upload a pack nothing will ever reference.
@@ -99,6 +113,7 @@ async function main(): Promise<number> {
       repoId,
       gitDir,
       quarantineDir,
+      signer,
     })
     fault('after-upload')
     await stall()
