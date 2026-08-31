@@ -27,13 +27,16 @@ import { certSigner } from './push-cert'
 import type { ObjectStore } from './store'
 import { ulid } from './ulid'
 import {
+  applyClaim,
   applyProvenance,
   applyRefChanges,
   commitIndex,
   loadIndex,
   nextIndex,
   sha256,
+  type Claim,
   type Provenance,
+  type PushRecord,
   type RefChange,
   type WalEntry,
   type WalIndex,
@@ -116,6 +119,18 @@ export interface PreReceiveContext {
    * good certificate, and typecheck.
    */
   signer: string | null
+  /**
+   * The Signer List this push writes, already resolved by the hook, or `null`
+   * when it writes none (docs/adr/0012).
+   *
+   * Optional, where `signer` beside it is required, and the asymmetry is real
+   * rather than an oversight: every push has an answer to "who signed this", so
+   * a forgotten argument there would silently discard a good one. Nearly no
+   * push has an answer to "what list does this write", so the default IS the
+   * answer for every caller that has nothing to say — and the one caller that
+   * does is the hook, which had to resolve it before the upload anyway.
+   */
+  signerList?: readonly string[] | null
 }
 
 /**
@@ -135,14 +150,21 @@ export interface PreReceiveContext {
 export async function preReceive(ctx: PreReceiveContext): Promise<void> {
   const now = ctx.now ?? (() => new Date())
   const signer = ctx.signer
-  const provenance: Provenance | null = signer ? { signer, ts: now().toISOString() } : null
+  // One instant for both, because they describe one push: two `now()` readings
+  // would stamp the Signer and the list it wrote a millisecond apart for no
+  // reason anyone reading them back could account for.
+  const ts = now().toISOString()
+  const provenance: Provenance | null = signer ? { signer, ts } : null
+  const claim: Claim | null = ctx.signerList ? { signers: [...ctx.signerList], ts } : null
+  const recorded = { ...(provenance ? { provenance } : {}), ...(claim ? { claim } : {}) }
   const found = ctx.quarantineDir ? quarantinePack(ctx.quarantineDir) : null
   if (!found) {
     // A ref-only push (a delete, or a branch pointed at an object the server
     // already has) is legitimate and still has to publish its ref change — and
     // its provenance: a branch pointed at objects the repository already has
-    // moves a ref, and is signed like any other push.
-    writePending(ctx.gitDir, { entry: null, ...(provenance ? { provenance } : {}) })
+    // moves a ref, and is signed like any other push. A list ref pointed at a
+    // commit the repository already holds is the same case.
+    writePending(ctx.gitDir, { entry: null, ...recorded })
     return
   }
 
@@ -166,7 +188,7 @@ export async function preReceive(ctx: PreReceiveContext): Promise<void> {
     sha256: sha256(packBody),
     ts: now().toISOString(),
   }
-  writePending(ctx.gitDir, { entry, ...(provenance ? { provenance } : {}) })
+  writePending(ctx.gitDir, { entry, ...recorded })
 }
 
 export type PublishResult =
@@ -216,16 +238,20 @@ export async function publishPush(
     // no log record to append, only new ref state. Keeping seq contiguous with
     // the entry list is what lets a restore trust `entries` by itself.
     //
-    // Provenance rides on BOTH branches, which is why it is a field on the
-    // Index and not on a WAL entry: a ref-only push has no entry to hang it
-    // from and is exactly as signed as any other.
-    const provenance = pending.provenance ?? null
+    // Both records ride on BOTH branches, which is why they are fields on the
+    // Index and not on a WAL entry: a ref-only push has no entry to hang them
+    // from and is exactly as signed, and exactly as much a claim, as any other.
+    const record: PushRecord = {
+      provenance: pending.provenance ?? null,
+      claim: pending.claim ?? null,
+    }
     const next = pending.entry
-      ? nextIndex(index, pending.entry, changes, provenance)
+      ? nextIndex(index, pending.entry, changes, record)
       : {
           ...index,
           refs: applyRefChanges(index.refs, changes),
-          provenance: applyProvenance(index.provenance, changes, provenance),
+          provenance: applyProvenance(index.provenance, changes, record.provenance),
+          claim: applyClaim(index.claim, changes, record.claim),
         }
 
     const result = await commitIndex(store, next, etag)

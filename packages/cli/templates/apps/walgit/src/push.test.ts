@@ -12,7 +12,7 @@ import {
   type PendingPush,
 } from './pending'
 import { establishSigner, parseRefChanges, preReceive, publishPush } from './push'
-import { ZERO_OID } from '../shared/protocol'
+import { SIGNERS_REF, ZERO_OID } from '../shared/protocol'
 import { loadIndex, type RefChange } from './wal-index'
 
 const OID_A = 'a'.repeat(40)
@@ -416,5 +416,128 @@ describe('provenance', () => {
       'refs/heads/main': by(KEY),
       'refs/heads/topic': by(KEY),
     })
+  })
+})
+
+/**
+ * Recording a Signer List (docs/adr/0012).
+ *
+ * The same path Provenance takes, one level up: resolved in `pre-receive` from
+ * the quarantine, carried through the pending record, applied by the
+ * compare-and-swap that publishes the ref move. What is asserted here is that
+ * the Index ends up holding the list — deciding WHETHER a list may be written
+ * is `signers.test.ts`'s, and what a real `git push` of one does is the e2e
+ * suite's.
+ */
+describe('the Signer List', () => {
+  const scratch = () => fs.mkdtempSync(path.join(os.tmpdir(), 'walgit-claim-'))
+  const KEY = `SHA256:${'A'.repeat(43)}`
+  const OTHER = `SHA256:${'B'.repeat(43)}`
+  const AT = '2026-08-30T12:00:00.000Z'
+  const LIST_OID = 'd'.repeat(40)
+
+  const claimOf = (...signers: string[]) => ({ signers, ts: AT })
+  const listMove = (oldOid = ZERO_OID, newOid = LIST_OID) => change(SIGNERS_REF, oldOid, newOid)
+
+  /** `pre-receive` for a push carrying a pack and writing `signerList`. */
+  const preReceiveListing = async (store: MemoryStore, signerList: string[] | null) => {
+    const dir = scratch()
+    const quarantine = path.join(dir, 'tmp_objdir-incoming-abc')
+    fs.mkdirSync(path.join(quarantine, 'pack'), { recursive: true })
+    fs.writeFileSync(path.join(quarantine, 'pack', 'pack-1.pack'), 'PACKDATA')
+    await preReceive({
+      store,
+      repoId: 'r',
+      gitDir: dir,
+      quarantineDir: quarantine,
+      now: () => new Date(AT),
+      signer: null,
+      signerList,
+    })
+    return readPending(dir)!
+  }
+
+  test('a push that writes a list records it, alongside the ref it moved', async () => {
+    const store = new MemoryStore()
+    const recorded = await preReceiveListing(store, [KEY, OTHER])
+    expect(recorded.claim).toEqual(claimOf(KEY, OTHER))
+
+    expect((await publishPush(store, 'r', recorded, [listMove()])).ok).toBe(true)
+
+    const { index } = await loadIndex(store, 'r')
+    expect(index.claim).toEqual(claimOf(KEY, OTHER))
+    // The ref and the field land in one compare-and-swap, which is what makes
+    // the derived copy safe — and what makes a repository rebuilt from the log
+    // still hold its list, because a restore replays both from here.
+    expect(index.refs[SIGNERS_REF]).toBe(LIST_OID)
+  })
+
+  test('a push that writes no list leaves index.json exactly as it was', async () => {
+    const store = new MemoryStore()
+    const recorded = await preReceiveListing(store, null)
+    expect(recorded.claim).toBeUndefined()
+
+    await publishPush(store, 'r', recorded, [change('refs/heads/main', ZERO_OID, OID_A)])
+    const { index } = await loadIndex(store, 'r')
+    expect(index.claim).toBeUndefined()
+    // Absent from the serialized object rather than present as null: an Index
+    // written before this field existed reads as unclaimed, and an instance
+    // where nobody claims anything writes byte-for-byte what it wrote before.
+    const body = new TextDecoder().decode((await store.get('repos/r/index.json'))!.body)
+    expect(body).not.toContain('claim')
+  })
+
+  test('an ordinary push to a claimed repository leaves the list alone', async () => {
+    const store = new MemoryStore()
+    await publishPush(store, 'r', { entry: null, claim: claimOf(KEY) }, [listMove()])
+    await publishPush(store, 'r', { entry: null }, [change('refs/heads/main', ZERO_OID, OID_A)])
+
+    // Unlike provenance beside it, there is no clearing rule: a claim is a fact
+    // about the name, not about the last push.
+    expect((await loadIndex(store, 'r')).index.claim).toEqual(claimOf(KEY))
+  })
+
+  test('a later list replaces the earlier one entirely', async () => {
+    // Revoking is a commit that removes a line, so the new list is the whole
+    // answer — a merge of the two would make a revocation impossible.
+    const store = new MemoryStore()
+    await publishPush(store, 'r', { entry: null, claim: claimOf(KEY, OTHER) }, [listMove()])
+    await publishPush(store, 'r', { entry: null, claim: claimOf(OTHER) }, [
+      listMove(LIST_OID, OID_C),
+    ])
+    expect((await loadIndex(store, 'r')).index.claim).toEqual(claimOf(OTHER))
+  })
+
+  test('the field is written by the transaction that moves the list ref, not an earlier one', async () => {
+    // A push moving a branch and the list together publishes across several
+    // compare-and-swaps, and `hook-main` hands the resolved list to every one
+    // of them. Writing it in the first would leave the Index naming a list the
+    // ref does not yet hold — and still naming it if the second is refused.
+    const store = new MemoryStore()
+    const recorded = await preReceiveListing(store, [KEY])
+
+    await publishPush(store, 'r', recorded, [change('refs/heads/main', ZERO_OID, OID_A)])
+    expect((await loadIndex(store, 'r')).index.claim).toBeUndefined()
+
+    await publishPush(store, 'r', { entry: null, claim: recorded.claim }, [listMove()])
+    expect((await loadIndex(store, 'r')).index.claim).toEqual(claimOf(KEY))
+  })
+
+  test('a push recording both a Signer and a list stamps them at one instant', async () => {
+    const dir = scratch()
+    await preReceive({
+      store: new MemoryStore(),
+      repoId: 'r',
+      gitDir: dir,
+      quarantineDir: undefined,
+      now: () => new Date(AT),
+      signer: KEY,
+      signerList: [KEY],
+    })
+    const recorded = readPending(dir)!
+    // One push, one moment. Two readings of the clock would date the Signer and
+    // the list it wrote a millisecond apart, for no reason a reader could ever
+    // account for.
+    expect(recorded.provenance!.ts).toBe(recorded.claim!.ts)
   })
 })

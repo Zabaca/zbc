@@ -86,6 +86,24 @@ export function splitPushCertificate(text: string): SplitCertificate | null {
  */
 const FINGERPRINT = /SHA256:[A-Za-z0-9+/]{43}/
 
+/** The same spelling, anchored — for text that must be nothing else. */
+const FINGERPRINT_ONLY = new RegExp(`^${FINGERPRINT.source}$`)
+
+/**
+ * Is this text a fingerprint and nothing but one?
+ *
+ * The Signer List is a file of these, one per line (docs/adr/0012), and it is
+ * read strictly: a line that is not exactly a fingerprint makes the whole list
+ * unreadable rather than being skipped. Dropping it silently would let a typo
+ * cost an agent a key it believes is listed, which is the failure that decision
+ * exists to prevent — so this asks the whole-string question, and it is built
+ * from the same source as `fingerprintIn` so the two can never disagree about
+ * what a fingerprint looks like.
+ */
+export function isFingerprint(text: string): boolean {
+  return FINGERPRINT_ONLY.test(text)
+}
+
 /**
  * The key a verifier's output names, or `null` when it names none.
  *

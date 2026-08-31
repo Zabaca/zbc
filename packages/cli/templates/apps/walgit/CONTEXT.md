@@ -95,8 +95,21 @@ _Avoid_: the provenance API, the audit endpoint
 What the two agent-facing documents say a deployment can do, rendered from the thing that enforces it and never written as prose. Signing joins the size caps, the retention window and the stream under this rule: with no `WALGIT_PUSH_CERT_SEED`, neither `GET /` nor `/llms.txt` mentions signing, keys or Provenance at all. Sharper here than for a cap, because a client asking to sign a host that does not advertise `push-cert` is refused by its OWN git — the agent finds out only after it has written the push.
 _Avoid_: feature flag (there is no flag; the seed IS the capability)
 
-**Claim** (not built):
-Reserved for the trust-on-first-use assertion that a Signer owns a repository, if ownership is ever added. Deliberately not "owner", which implies a permission system rather than a first-mover fact.
-
 **Fail open**:
-The rule the whole capability is built to: a missing, malformed or unverifiable certificate, a bad nonce, or a verifier that is absent or throws records no Signer and **accepts the push**. Provenance is metadata and must never become a new way for a push to fail — anonymous pushing is first-class and stays that way.
+The rule the whole capability is built to: a missing, malformed or unverifiable certificate, a bad nonce, or a verifier that is absent or throws records no Signer and **accepts the push**. Provenance is metadata and must never become a new way for a push to fail — anonymous pushing is first-class and stays that way. It has exactly one exception, and it is confined to a repository that holds a Signer List (ADR-0012); everywhere else, down to the unconditional catch at the seam, this stands.
+
+## Ownership (ADR-0012)
+
+**Signer List**:
+The key fingerprints a repository names, written to `refs/walgit/signers` — a COMMIT whose tree holds a file called `signers`, one `SHA256:…` per line, blank lines and `#` comments ignored. That the mechanism is a ref is the whole design: claiming a free name is pushing it, granting is a commit that adds a line, revoking is a commit that removes one, and reading it is `git ls-remote`. A commit chain rather than a blob-valued ref, because a blob fails `merge-base --is-ancestor` with exit 128 and the append-only judge reads that as a rewrite — a blob list could be created once and never edited.
+_Avoid_: allowed signers (that is OpenSSH's registry file, which walgit deliberately does not have), the ACL, the owner list
+
+**Claim**:
+The recorded fact that a repository holds a Signer List — an optional repo-level field in the Index carrying the resolved fingerprints and when they landed, written by the same compare-and-swap that publishes the push that moved the ref. The ref is authoritative and this is a derived copy, safe because it is written atomically with the ref, derived from bytes in the same push, and replayed with it by a restore. It exists so the refusal never has to read a git object: the Cache is disposable, and ownership cannot depend on it being materialized.
+_Avoid_: owner, ownership record (both imply a permission system rather than a first-mover fact), ACL
+
+**Unclaimed**:
+A repository with no Signer List, which is every repository until someone writes one. Absence has one spelling — the field is absent from the Index and omitted from the read — so there is no second way to say it. Nothing is refused on an unclaimed name except a list walgit cannot record.
+
+**Empty list** / **unreadable list**:
+The two ways writing a list is refused, on claimed and unclaimed names alike, because both are about losing a name rather than defending one. An empty list — including a deletion of the ref — would leave the name claimable by the next stranger, so a compromised key could give it away rather than merely keep it. An unreadable one — not a commit, no `signers` file, a line that is not a fingerprint — would leave an agent believing it holds a name it does not.

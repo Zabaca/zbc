@@ -48,6 +48,13 @@ export const CONTAINER_ENV = [
   // and receive-pack runs inside the container — so this is the variable that
   // decides whether the capability is advertised at all (src/push-cert.ts).
   'WALGIT_PUSH_CERT_SEED',
+  // Signer Lists (docs/adr/0012). Its own variable rather than a consequence of
+  // the seed above: the seed is the flag for SIGNING because a client's own git
+  // refuses `--signed` where it is unset, so that capability cannot be asked for
+  // where it is not offered. Ownership is a server-side refusal with no such
+  // coupling, and riding the seed would turn it on for every deployment that
+  // already set one.
+  'WALGIT_SIGNER_LISTS',
 ] as const
 
 export type ContainerEnvName = (typeof CONTAINER_ENV)[number]
