@@ -144,6 +144,52 @@ describe('renderLlms', () => {
     expect(doc).toContain('world-readable')
   })
 
+  /**
+   * The credential bullet, which is the first thing in the document about write
+   * access and the last one still promising it unconditionally.
+   *
+   * Read from `signerLists` ALONE, unlike `## Hold a name` below: that section
+   * teaches an agent to claim a name and must not do so where nothing can sign,
+   * whereas this only says what `pre-receive` refuses — and `pre-receive`
+   * refuses on this flag by itself.
+   */
+  test('the credential bullet stops promising world-writability', () => {
+    const doc = renderLlms({ ...FACTS, publicAccess: true, signerLists: true })
+    expect(doc).not.toContain('world-readable and world-writable')
+    const flat = doc.replace(/\s+/g, ' ')
+    expect(flat).toContain('a name that has not written a **Signer List** takes a push from anyone')
+    // The unclaimed name is still the ordinary case, and the document says so
+    // rather than leaving an agent to assume the gate is everywhere.
+    expect(flat).toContain('which is every name until someone writes one')
+    // Reads, and the warning, are untouched.
+    expect(doc).toContain('world-readable')
+    expect(doc).toContain('Do not push a secret.')
+  })
+
+  test('and with the flag off it is the sentence it has always been', () => {
+    const doc = renderLlms({ ...FACTS, publicAccess: true })
+    expect(doc).toContain(
+      'Everything here is world-readable and world-writable. Do not push a secret.',
+    )
+  })
+
+  /**
+   * The append-only bullet says the same thing one line later — *"safe to hand
+   * a repository to a stranger: they can build on it"* — so correcting only the
+   * credential bullet would leave the two adjacent entries disagreeing, and an
+   * agent reading the list top to bottom would get both readings.
+   */
+  test('the append-only bullet beside it stops making the same promise', () => {
+    const off = renderLlms({ ...FACTS, appendOnly: true })
+    expect(off).toContain('safe to hand a repository to a stranger')
+
+    const on = renderLlms({ ...FACTS, appendOnly: true, signerLists: true })
+    expect(on).not.toContain('safe to hand a repository to a stranger')
+    expect(on).toContain('safe to hand an unclaimed name to a stranger')
+    // Untouched: what append-only itself guarantees.
+    expect(on).toContain('Adding a commit or a branch is always allowed.')
+  })
+
   test('is markdown a model can skim by its headings', () => {
     const doc = renderLlms({ ...FACTS, events: true })
     const headings = doc.split('\n').filter((l) => l.startsWith('#'))

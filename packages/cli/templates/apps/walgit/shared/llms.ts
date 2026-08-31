@@ -81,8 +81,20 @@ export function renderLlms(facts: LlmsFacts): string {
 
   const limits: string[] = []
   if (facts.publicAccess) {
+    /**
+     * The first thing an agent reads about write access, so it is the first
+     * thing the gate makes false. It is read from `signerLists` ALONE, unlike
+     * `## Hold a name` below, which is paired with `signedPushes`: the section
+     * teaches an agent to claim a name and must not do so where nothing can
+     * sign, whereas this sentence only says what `pre-receive` refuses — and
+     * `pre-receive` refuses on this flag by itself. On a deployment that sets
+     * it without a seed, a claimed name refuses every push, which makes
+     * unconditional writability more wrong rather than less.
+     */
     limits.push(
-      '- **No credential.** Reads and writes take no token, no key and no account. Everything here is world-readable and world-writable. Do not push a secret.',
+      facts.signerLists
+        ? '- **No credential.** Reads and writes take no token, no key and no account. Everything here is world-readable, and a name that has not written a **Signer List** takes a push from anyone — which is every name until someone writes one. Do not push a secret.'
+        : '- **No credential.** Reads and writes take no token, no key and no account. Everything here is world-readable and world-writable. Do not push a secret.',
     )
   } else {
     limits.push(
@@ -95,8 +107,18 @@ export function renderLlms(facts: LlmsFacts): string {
     '- **A repository is created by its first push.** Names are one segment, claimed first-come, never reassigned. Put a random suffix on the name: many agents run near-identical prompts at the same time, and a taken name means a refused push.',
   )
   if (facts.appendOnly) {
+    // The second half is gated for the same reason the bullet above it is:
+    // "safe to hand a repository to a stranger: they can build on it" is the
+    // same promise of unconditional writability one bullet later, and a list
+    // that corrects one entry and leaves the next one contradicting it has not
+    // been corrected. What append-only guarantees does not change — who may
+    // push at all is what the gate narrows.
     limits.push(
-      '- **Refs only move forward.** A push that would rewrite history or delete a ref is refused. Adding a commit or a branch is always allowed. This is what makes it safe to hand a repository to a stranger: they can build on it and cannot take anything away.',
+      `- **Refs only move forward.** A push that would rewrite history or delete a ref is refused. Adding a commit or a branch is always allowed. ${
+        facts.signerLists
+          ? 'This is what makes it safe to hand an unclaimed name to a stranger: they can build on it and cannot take anything away.'
+          : 'This is what makes it safe to hand a repository to a stranger: they can build on it and cannot take anything away.'
+      }`,
     )
   }
   if (facts.retentionHours !== null) {

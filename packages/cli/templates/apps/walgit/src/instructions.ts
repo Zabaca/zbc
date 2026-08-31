@@ -53,10 +53,20 @@ export type InstructionsPolicy = {
    *
    * It buys no section — this page has a byte budget and ADR-0012 put
    * discovery in `/llms.txt` and in the refusal itself, because ownership's
-   * failure lands on our server in our words. What it buys is one clause: the
-   * signing paragraph otherwise promises that nothing is refused for being
-   * unsigned, which the gate makes false, and a page that says the opposite of
-   * the hook is the drift every other entry here exists to prevent.
+   * failure lands on our server in our words. What it buys is two corrections,
+   * both of them the removal of a promise the gate makes false: the signing
+   * paragraph otherwise says nothing is refused for being unsigned, and the
+   * access bullet otherwise says every repository is world-WRITABLE. A page
+   * that says the opposite of the hook is the drift every other entry here
+   * exists to prevent.
+   *
+   * Read alone rather than with `signedPushes`, unlike the signing clause: the
+   * hook refuses on this flag by itself (`signerListsEnabled` in
+   * `src/hook-main.ts`), so on a deployment that sets it without a nonce seed a
+   * claimed name refuses EVERY push — which makes unconditional writability
+   * more wrong, not less. The bullet states what is refused; it does not invite
+   * anyone to claim anything, so the misconfiguration that gates the roadmap
+   * row on the HTML page does not gate this.
    */
   signerLists?: boolean
 }
@@ -117,14 +127,28 @@ export function renderInstructions(origin: string, policy: InstructionsPolicy = 
 function facts(policy: InstructionsPolicy): string[] {
   const facts: string[] = [
     policy.publicAccess
-      ? 'Everything here is public. Every repository is world-readable and world-writable, by anyone, with no credential. Do not push a secret, a token, or anything you would not publish.'
+      ? publicAccessFact(policy.signerLists === true)
       : 'This instance requires a credential. Send it as the password of an HTTP basic credential or as a bearer token; the username is ignored.',
     'A repository is created by the first push to its name. Names are a single segment, claimed first-come, and never reassigned.',
   ]
 
   if (policy.appendOnly) {
+    /**
+     * The last sentence is gated too, and for the same reason the access bullet
+     * above it is: *"That holds for everyone, so a stranger can build on your
+     * work"* is the same promise of unconditional writability in different
+     * words, and a document that corrects one sentence and leaves the next one
+     * contradicting it has not been corrected. What append-only guarantees is
+     * unchanged — it is who gets to push at all that the gate narrows — so the
+     * gated version says *whoever the name takes a push from* and hands the
+     * question back to the bullet that answers it.
+     */
     facts.push(
-      'Refs are append-only. A push that would rewrite history or delete a ref is refused. You can always add a commit or a branch; nothing can ever be removed. That holds for everyone, so a stranger can build on your work but cannot destroy it.',
+      `Refs are append-only. A push that would rewrite history or delete a ref is refused. You can always add a commit or a branch; nothing can ever be removed. ${
+        policy.signerLists
+          ? 'Whoever the name takes a push from can build on your work but cannot destroy it.'
+          : 'That holds for everyone, so a stranger can build on your work but cannot destroy it.'
+      }`,
     )
   }
   if (policy.retentionHours !== undefined) {
@@ -143,6 +167,31 @@ function facts(policy: InstructionsPolicy): string[] {
     'Put a random suffix on the name. Many agents run near-identical prompts at the same time; a plain name is probably taken already, and a taken name means your push is refused.',
   )
   return facts
+}
+
+/**
+ * What a push costs, on a host that asks for nothing.
+ *
+ * The gated sentence is the SHORTER of the two, which is the whole difficulty:
+ * this page had three bytes of headroom under the 3,000-byte budget asserted in
+ * `instructions.test.ts`, and the correction had to be bought rather than
+ * added. What it cost is the opening summary — *"Everything here is public."* —
+ * which said in five words what *"world-readable"* says three words later, and
+ * the word *"by"* in *"by anyone"*. What it deliberately did NOT cost is *"or
+ * anything you would not publish"*: that clause is the one that catches the
+ * case an agent has not thought of, and a warning about secrets is not the
+ * place to find savings. The page still grows on net — the signing clause is
+ * longer with the gate on than without it — and the measured figures live in
+ * the budget test rather than here, so there is one place to keep current.
+ *
+ * It names the Signer List and stops. Not the ref, not `ssh-keygen`, not how to
+ * write one — ADR-0012 put that in `/llms.txt` and in the refusal, and this
+ * page's job is only to stop claiming the opposite.
+ */
+function publicAccessFact(signerLists: boolean): string {
+  return signerLists
+    ? 'Every repository is world-readable. Anyone may push, with no credential, unless a name holds a Signer List. Do not push a secret, a token, or anything you would not publish.'
+    : 'Everything here is public. Every repository is world-readable and world-writable, by anyone, with no credential. Do not push a secret, a token, or anything you would not publish.'
 }
 
 /**
