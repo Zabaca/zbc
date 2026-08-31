@@ -122,3 +122,51 @@ One asymmetry worth knowing, because it makes a "no new objects" check by WAL
 entry count wrong: a **signed** ref-only push sends an empty pack (a 32-byte
 header and trailer) where an unsigned one sends none at all. The scenario reads
 the object count out of the pack header instead.
+
+# `live.ts` — a separate check, against a deployment
+
+Everything above is `suite.ts`, which starts its own node. `live.ts` is not part
+of it and shares none of its machinery beyond `harness.ts`'s `git` helpers: it
+asks whether a **deployment** has ownership turned on, which
+`WALGIT_SIGNER_LISTS` being instance configuration (`docs/adr/0012`) makes
+unanswerable from inside the package.
+
+```bash
+bun run e2e:live -- --origin https://walgit.example.com  # …and it enforces
+bun run e2e:live -- --origin https://…  --expect-unclaimed
+bun run e2e:live -- --local                              # boot src/server.ts with ownership on
+```
+
+The mechanism itself is proven by `src/push.e2e.test.ts` — claim, grant, revoke,
+the atomic list-and-branch steal — and this file must not grow into a second
+copy of that. What it adds is a real `git push` over HTTP, with real ed25519
+keys and real push certificates, **against an address**: a free name claimed, the
+list read back from `/_walgit/provenance`, an unlisted key refused, an unsigned
+push refused, and the claimed repository still cloned with no credential.
+
+The first two forms are **assertions about an origin**, not verbosity levels, and
+exactly one is true of any deployment that advertises signed pushes: the default
+says *this origin enforces Signer Lists*, `--expect-unclaimed` says *it does
+not*. Each exits 0 only when its own assertion holds, so neither can be mistaken
+for the other by a script — there is deliberately no mode that merely reports
+what it found. `--expect-unclaimed` requires `/llms.txt` to say in its own words
+that the host keeps no list of allowed signers, rather than settling for the
+absence of the opposite: a deployment with ownership on and no
+`WALGIT_PUSH_CERT_SEED` says neither, and that misconfiguration must not pass as
+"ownership is off".
+
+`--local` boots the container process alone, so `/llms.txt` — the Worker's
+document — is not there to check, and the run says so in its output rather than
+passing quietly over it. It is a smoke test for this file, not evidence about
+any instance.
+
+| Code | Meaning |
+| ---- | ------- |
+| 0 | the assertion holds |
+| 1 | it does not, or the origin could not be reached |
+| 64 | the arguments were wrong |
+
+Under `--origin` the run leaves `walgit-live-*` repositories behind on that
+origin — collected by its retention window if it has one, permanent if not, with
+the claimed one claimed forever. It names them on the way out. Under `--local`
+there is nothing to leave: the node and its store go with the scratch directory.

@@ -12,6 +12,7 @@
     "bench:materialize": "bun run src/materialize.bench.ts",
     "walgit": "bun run src/cli.ts",
     "e2e": "bun run e2e/suite.ts",
+    "e2e:live": "bun run e2e/live.ts",
     "deploy": "wrangler deploy"
   },
   "dependencies": {
