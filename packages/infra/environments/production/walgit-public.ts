@@ -91,6 +91,24 @@ export default cloudflareModule.instance({
       // party to agree a value with, and the S3-credential argument for reusing
       // an existing secret does not apply.
       { name: 'WALGIT_EVENTS_TOKEN', secret: 'WALGIT_PUBLIC_EVENTS_TOKEN' },
+      // Signed pushes, and the whole of turning them on: `git-receive-pack`
+      // advertises the `push-cert` capability if, and only if, the receiving
+      // repository has `receive.certNonceSeed` set, so this one value is the
+      // flag (docs/adr/0011). With it unset a client asking to sign is refused
+      // by its OWN git, and both agent-facing documents render from the same
+      // predicate, so neither offers a capability this host does not have.
+      //
+      // A SECRET rather than a var, for the reason above it: git derives every
+      // push nonce as an HMAC of this seed, so knowing it is enough to forge
+      // one, and `workerVars` are applied on a wrangler command line.
+      //
+      // GENERATED ONCE, AND NEVER AGAIN. A client holds a nonce across the
+      // round trip between the ref advertisement and the push. Rotating this
+      // value invalidates every nonce in flight, so a rotation is a window in
+      // which signed pushes are silently recorded as unsigned — provenance
+      // failing open, exactly as designed, for as long as the change takes to
+      // reach every repository.
+      { name: 'WALGIT_PUSH_CERT_SEED', secret: 'WALGIT_PUBLIC_PUSH_CERT_SEED' },
     ],
     // ── what propagates, and how ─────────────────────────────────────────
     //
