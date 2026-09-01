@@ -253,8 +253,8 @@ describe('the signing section says it is possible, and not why', () => {
    * the bullet that answers it.
    */
   test('the append-only fact stops promising the same thing two bullets later', () => {
-    const flat = (caps: Capabilities) =>
-      renderInstructions('https://walgit.example', caps).replace(/\s+/g, ' ')
+    const flat = (config: Capabilities) =>
+      renderInstructions('https://walgit.example', config).replace(/\s+/g, ' ')
 
     expect(flat(PUBLIC)).toContain('That holds for everyone, so a stranger can build on your work')
 
@@ -307,10 +307,10 @@ describe('the signing section says it is possible, and not why', () => {
  */
 describe('the terse document never explains how to hold a name', () => {
   test('it names no ref, no file, no fingerprint and no command', () => {
-    for (const caps of [PUBLIC, EVERYTHING]) {
+    for (const config of [PUBLIC, EVERYTHING]) {
       // Lowercased, because this document SHOUTS its headings: a `GRANT AND
       // REVOKE` section would walk straight past a lowercase needle.
-      const text = renderInstructions('https://walgit.example', caps).toLowerCase()
+      const text = renderInstructions('https://walgit.example', config).toLowerCase()
       for (const teaching of [
         'refs/walgit/signers',
         'ssh-keygen',
@@ -346,7 +346,7 @@ describe('the terse document never explains how to hold a name', () => {
         // The real host rather than the short one the rest of this file uses:
         // the origin is printed six times, so a test measuring `walgit.example`
         // would hold a budget the deployment does not have.
-        (caps) => renderInstructions('https://agentgit.zabaca.com', caps).length,
+        (config) => renderInstructions('https://agentgit.zabaca.com', config).length,
       ),
     )
     // 2,997 bytes at the widest today — three under. Whatever breaks this did
