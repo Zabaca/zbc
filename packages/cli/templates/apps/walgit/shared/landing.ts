@@ -25,8 +25,9 @@
  *
  * ── why the limits are arguments, not copy ────────────────────────────────
  *
- * Every claim about a limit is rendered from the same environment variables
- * the push path enforces and `GET /` states. A page that promised a 24-hour
+ * Every claim about a limit is rendered from the same `Capabilities`
+ * (`shared/capabilities.ts`) the push path enforces and `GET /` states — one
+ * derivation, read here rather than repeated. A page that promised a 24-hour
  * window an unset `WALGIT_RETENTION_HOURS` never collects would be a lie told
  * at the top of the funnel, and the only reliable way to not tell it is to
  * have no copy that can outlive the config. So an unset limit removes its
@@ -38,53 +39,9 @@
  * the two were kept identical.
  */
 
+import type { Capabilities } from './capabilities'
 import { describeBytes } from './policy'
 import { EVENTS_PATH, SIGNERS_REF } from './protocol'
-
-export interface LandingFacts {
-  /** The hostname the request arrived on — every command on the page uses it. */
-  host: string
-  /** `null` when this deployment collects nothing, and the page then says so. */
-  retentionHours: number | null
-  maxPushBytes: number | null
-  maxRepoBytes: number | null
-  /**
-   * Does this deployment accept a signed push and record who made it?
-   *
-   * Rendered from `WALGIT_PUSH_CERT_SEED` through the same predicate the push
-   * path uses, because git refuses `--signed` client-side against a host that
-   * has not set the seed: a page inviting somebody to sign would be sending
-   * them to a refusal it caused.
-   */
-  signedPushes: boolean
-  /**
-   * Does this deployment serve the ref-event stream?
-   *
-   * Rendered from `WALGIT_EVENTS_TOKEN` — the variable that decides whether the
-   * Worker claims the socket path at all — for exactly the reason the limits
-   * are rendered from theirs: a page describing a socket that answers 404 is
-   * the same lie as a page promising a window nothing collects.
-   */
-  events: boolean
-  /**
-   * May a repository here hold a Signer List, and be defended by it?
-   *
-   * From `WALGIT_SIGNER_LISTS`, and read at two different strengths.
-   *
-   * **Alone** it corrects the `Public` term, because that term states what
-   * `pre-receive` refuses and `pre-receive` refuses on this flag by itself: a
-   * deployment that sets it with no nonce seed refuses EVERY push to a claimed
-   * name, so "world-writable" is more wrong there, not less.
-   *
-   * **With `signedPushes`** it renders the ownership section and rewrites the
-   * roadmap, because both of those tell a visitor to go and claim a name — and
-   * without a seed nothing can sign, so they would be sending them to claim it
-   * with an unsigned push, after which every push to it is refused. It also
-   * changes one sentence in the signing claim, which otherwise promises that
-   * nothing is refused for being unsigned.
-   */
-  signerLists: boolean
-}
 
 /**
  * Does this request want the page rather than the protocol?
@@ -117,19 +74,19 @@ const claim = (key: string, value: string) =>
  * caps — and when a deployment enforces nothing at all, the claim is absent
  * rather than replaced by a reassuring sentence nothing backs.
  */
-function thirdClaim(facts: LandingFacts): string {
-  if (facts.retentionHours !== null) {
-    const window = describeHours(facts.retentionHours)
+function thirdClaim(caps: Capabilities): string {
+  if (caps.retentionHours !== null) {
+    const window = describeHours(caps.retentionHours)
     return claim(
       window,
       `<b>A repository lives ${window} from its last push.</b> This is scratch space, on purpose.`,
     )
   }
-  if (facts.maxPushBytes !== null || facts.maxRepoBytes !== null) {
+  if (caps.maxPushBytes !== null || caps.maxRepoBytes !== null) {
     const parts: string[] = []
-    if (facts.maxPushBytes !== null) parts.push(`${describeBytes(facts.maxPushBytes)} per push`)
-    if (facts.maxRepoBytes !== null) {
-      parts.push(`${describeBytes(facts.maxRepoBytes)} per repository`)
+    if (caps.maxPushBytes !== null) parts.push(`${describeBytes(caps.maxPushBytes)} per push`)
+    if (caps.maxRepoBytes !== null) {
+      parts.push(`${describeBytes(caps.maxRepoBytes)} per repository`)
     }
     return claim(
       'Bounded',
@@ -140,10 +97,10 @@ function thirdClaim(facts: LandingFacts): string {
 }
 
 /** The permanence sentence, which turns on the same variable as the claim. */
-function permanence(facts: LandingFacts): string {
-  return facts.retentionHours === null
+function permanence(caps: Capabilities): string {
+  return caps.retentionHours === null
     ? 'Not an archive: a repository here is a working surface, and nothing about this service is a promise to keep your history.'
-    : `Not permanent: ${describeHours(facts.retentionHours)} from the last push, a repository is collected.`
+    : `Not permanent: ${describeHours(caps.retentionHours)} from the last push, a repository is collected.`
 }
 
 /**
@@ -164,9 +121,9 @@ function permanence(facts: LandingFacts): string {
  * every limit on this page is rendered rather than written: a section
  * describing a socket that answers 404 is a lie told at the top of the funnel.
  */
-function eventsSection(facts: LandingFacts): string {
-  if (!facts.events) return ''
-  const socket = `wss://${facts.host}${EVENTS_PATH}`
+function eventsSection(host: string, caps: Capabilities): string {
+  if (!caps.events) return ''
+  const socket = `wss://${host}${EVENTS_PATH}`
 
   return `
     <section class="split">
@@ -214,11 +171,11 @@ function eventsSection(facts: LandingFacts): string {
  * the gate — it is who may push at all that narrows — so the gated version
  * hands that question to the term that answers it.
  */
-function appendOnlyClaim(facts: LandingFacts): string {
+function appendOnlyClaim(caps: Capabilities): string {
   return claim(
     'Append-only',
     '<b>Nothing you push can be destroyed.</b> ' +
-      (facts.signerLists
+      (caps.namesCanRefuse
         ? 'Whoever the name takes a push from may add; no one may rewrite or delete.'
         : 'Anyone may add; no one may rewrite or delete.') +
       ' A push that would rewrite history is refused in <code>pre-receive</code>, before anything is uploaded, by a message naming what to do instead.',
@@ -234,21 +191,21 @@ function appendOnlyClaim(facts: LandingFacts): string {
  * name could hold a Signer List, and a claim the page cannot back is the same
  * defect as a window nothing collects.
  *
- * Read from `signerLists` ALONE, unlike the section below it and unlike the
- * roadmap: those two teach an agent to claim a name and must not do it where
- * no push can be signed, whereas this states what is refused — and the hook
- * refuses on this flag by itself. A deployment that sets it with no nonce seed
- * refuses EVERY push to a claimed name, which makes unconditional writability
- * more wrong, not less.
+ * Read from `namesCanRefuse` — the gate alone — unlike the section below it and
+ * unlike the roadmap, which ask for `namesCanBeClaimed`: those two teach an
+ * agent to claim a name and must not do it where no push can be signed, whereas
+ * this states what is refused, and the hook refuses on the flag by itself. A
+ * deployment that sets it with no nonce seed refuses EVERY push to a claimed
+ * name, which makes unconditional writability more wrong, not less.
  *
  * Reads are untouched and the card still says so, because ADR-0012 is emphatic
  * that none of this is a step toward private repositories: *"Privacy is not
  * free yet"* was true before the gate and is true after it.
  */
-function publicClaim(facts: LandingFacts): string {
+function publicClaim(caps: Capabilities): string {
   return claim(
     'Public',
-    facts.signerLists
+    caps.namesCanRefuse
       ? '<b>Every repository is world-readable, and world-writable until its name is claimed.</b> Sharing is a URL, not an invitation. Privacy is not free yet.'
       : '<b>Every repository is world-readable and world-writable.</b> Sharing is a URL, not an invitation. Privacy is not free yet.',
   )
@@ -299,15 +256,14 @@ function publicClaim(facts: LandingFacts): string {
  * message: what it cuts is the remedy block, which is long, and which the
  * section beside it has already given.
  *
- * Gated on `signedPushes` as well as `signerLists`, exactly as the roadmap rows
- * are and for the same reason: the flag without a nonce seed is a
- * misconfiguration in which nothing can sign, so inviting a visitor to claim a
- * name there would be sending them to claim it with an unsigned push — after
- * which every push to it, theirs included, is refused for carrying no
- * certificate.
+ * Gated on `namesCanBeClaimed` — the gate AND a seed — because the flag without
+ * a nonce seed is a misconfiguration in which nothing can sign, so inviting a
+ * visitor to claim a name there would be sending them to claim it with an
+ * unsigned push, after which every push to it, theirs included, is refused for
+ * carrying no certificate.
  */
-function ownershipSection(facts: LandingFacts): string {
-  if (!(facts.signedPushes && facts.signerLists)) return ''
+function ownershipSection(host: string, caps: Capabilities): string {
+  if (!caps.namesCanBeClaimed) return ''
 
   return `
     <section class="split">
@@ -331,7 +287,7 @@ function ownershipSection(facts: LandingFacts): string {
 <span class="p">$</span> git -c gpg.format=ssh \\
       -c user.signingkey=~/.ssh/id_ed25519.pub \\
       push --signed=if-asked \\
-      https://${facts.host}/$NAME.git \\
+      https://${host}/$NAME.git \\
       HEAD:${SIGNERS_REF}</pre>
           </div>
           <p class="under">List a second key · the full recipe is in <span>/llms.txt</span></p>
@@ -363,14 +319,14 @@ function ownershipSection(facts: LandingFacts): string {
  * how anyone uses the service — an unsigned push is accepted exactly as it was
  * — so it belongs in the list of what is true here, not in the body.
  */
-function signingClaim(facts: LandingFacts): string {
-  if (!facts.signedPushes) return ''
+function signingClaim(caps: Capabilities): string {
+  if (!caps.signedPushes) return ''
   return (
     '\n' +
     claim(
       'Attributed',
       "<b>A push signed with your key records that key's fingerprint.</b> " +
-        (facts.signerLists
+        (caps.namesCanRefuse
           ? 'Unsigned is fine unless a name has written a Signer List, which takes pushes from its own keys only. There is still no account: the fingerprint is the whole identity.'
           : 'Nothing is refused for being unsigned, and there is still no account: the fingerprint is the whole identity.') +
         ' <code>git push --signed=if-asked</code>.',
@@ -396,16 +352,16 @@ function signingClaim(facts: LandingFacts): string {
  * ADR-0012 is explicit that nothing here is a step toward private repositories
  * — so the row keeps `data-next` off itself and hands it to nobody.
  *
- * Read from `signerLists` ALONE, like the two terms above and unlike the
- * section, which teaches claiming and needs the seed too. The row is a
- * statement about whether the capability EXISTS, not an invitation to use it —
- * and on a deployment with the flag and no seed it exists and refuses
+ * Read from `namesCanRefuse` — the gate alone — like the two terms above and
+ * unlike the section, which teaches claiming and needs the seed too. The row is
+ * a statement about whether the capability EXISTS, not an invitation to use it
+ * — and on a deployment with the flag and no seed it exists and refuses
  * everyone. Gating it on the seed put two answers on one page: a `Public` term
  * saying a name can be claimed, above a roadmap row calling claiming a name the
  * next thing to build.
  */
-function roadmapOwnership(facts: LandingFacts): string {
-  if (!facts.signerLists) {
+function roadmapOwnership(caps: Capabilities): string {
+  if (!caps.namesCanRefuse) {
     return `        <li data-next>
           <span class="when">Next</span>
           <h3>Ownership</h3>
@@ -448,17 +404,17 @@ function wireScript(): string {
  * runs. A function replacer is not interpreted at all, so the question stops
  * being asked.
  */
-export function renderLanding(facts: LandingFacts): string {
-  return PAGE.replaceAll('{{HOST}}', () => facts.host)
-    .replace('{{APPEND_ONLY_CLAIM}}', () => appendOnlyClaim(facts))
-    .replace('{{PUBLIC_CLAIM}}', () => publicClaim(facts))
-    .replace('{{SIGNING_CLAIM}}', () => signingClaim(facts))
-    .replace('{{THIRD_CLAIM}}', () => thirdClaim(facts))
-    .replace('{{ROADMAP_OWNERSHIP}}', () => roadmapOwnership(facts))
-    .replace('{{EVENTS}}', () => eventsSection(facts))
-    .replace('{{OWNERSHIP}}', () => ownershipSection(facts))
-    .replace('{{WIRE_SCRIPT}}', () => (facts.events ? wireScript() : ''))
-    .replace('{{PERMANENCE}}', () => permanence(facts))
+export function renderLanding(host: string, caps: Capabilities): string {
+  return PAGE.replaceAll('{{HOST}}', () => host)
+    .replace('{{APPEND_ONLY_CLAIM}}', () => appendOnlyClaim(caps))
+    .replace('{{PUBLIC_CLAIM}}', () => publicClaim(caps))
+    .replace('{{SIGNING_CLAIM}}', () => signingClaim(caps))
+    .replace('{{THIRD_CLAIM}}', () => thirdClaim(caps))
+    .replace('{{ROADMAP_OWNERSHIP}}', () => roadmapOwnership(caps))
+    .replace('{{EVENTS}}', () => eventsSection(host, caps))
+    .replace('{{OWNERSHIP}}', () => ownershipSection(host, caps))
+    .replace('{{WIRE_SCRIPT}}', () => (caps.events ? wireScript() : ''))
+    .replace('{{PERMANENCE}}', () => permanence(caps))
 }
 
 const WIRE_CLIENT = `

@@ -8,19 +8,27 @@
 
 import { describe, expect, test } from 'bun:test'
 
+import { capabilitiesFrom } from '../shared/capabilities'
 import { ZERO_OID } from '../shared/protocol'
 import { renderLanding, wantsLanding } from '../shared/landing'
 import { checkSignerAllowed } from './signers'
 
-const FACTS = {
-  host: 'agentgit.zabaca.com',
-  retentionHours: null,
-  maxPushBytes: null,
-  maxRepoBytes: null,
-  events: false,
-  signedPushes: false,
-  signerLists: false,
-}
+const HOST = 'agentgit.zabaca.com'
+
+/**
+ * Fixtures are ENVIRONMENTS read through `capabilitiesFrom`, never
+ * `Capabilities` literals: two of the booleans are two readings of one flag, so
+ * a literal can spell a deployment that cannot exist — a name that can be
+ * claimed on a host where nothing can sign — and this page's whole job is to
+ * describe deployments that do.
+ */
+const caps = capabilitiesFrom
+const EVENTS = { WALGIT_EVENTS_URL: `https://${HOST}`, WALGIT_EVENTS_TOKEN: 'events' }
+const SEED = { WALGIT_PUSH_CERT_SEED: 'nonce-seed' }
+const GATE = { WALGIT_SIGNER_LISTS: '1' }
+
+/** A deployment that enforces and offers nothing. */
+const NOTHING = caps({})
 
 describe('wantsLanding', () => {
   test('a browser asking for HTML at the root gets the page', () => {
@@ -45,7 +53,7 @@ describe('wantsLanding', () => {
 
 describe('renderLanding', () => {
   test('every command names the host the request arrived on', () => {
-    const page = renderLanding({ ...FACTS, host: 'walgit.zabaca.com' })
+    const page = renderLanding('walgit.zabaca.com', NOTHING)
     // The repository name is a field the visitor edits, so the URL in the
     // command is split around it. The host is not: it is whichever hostname
     // this request arrived on, and a page naming a different one would hand a
@@ -63,7 +71,7 @@ describe('renderLanding', () => {
    * visitor copies has to be what they can see.
    */
   test('the command carries a name a visitor can change', () => {
-    const page = renderLanding(FACTS)
+    const page = renderLanding(HOST, NOTHING)
     expect(page).toContain('id="repo"')
     expect(page).toContain('<span id="repo-echo">my-thing</span>')
     // Rendered rather than filled in by script, so a page with no JavaScript
@@ -72,7 +80,10 @@ describe('renderLanding', () => {
   })
 
   test('no placeholder survives into the page', () => {
-    const page = renderLanding({ ...FACTS, retentionHours: 24, maxPushBytes: 1024 ** 2 })
+    const page = renderLanding(
+      HOST,
+      caps({ WALGIT_RETENTION_HOURS: '24', WALGIT_MAX_PUSH_BYTES: String(1024 ** 2) }),
+    )
     expect(page).not.toContain('{{')
   })
 
@@ -80,25 +91,25 @@ describe('renderLanding', () => {
   // promised a window nothing collects would be a lie told at the top of the
   // funnel.
   test('with no retention set, the page promises no window', () => {
-    const page = renderLanding(FACTS)
+    const page = renderLanding(HOST, NOTHING)
     expect(page).not.toContain('24 hours')
     expect(page).not.toContain('is collected')
     expect(page).toContain('nothing about this service is a promise to keep your history')
   })
 
   test('with retention set, the window is stated twice and agrees with itself', () => {
-    const page = renderLanding({ ...FACTS, retentionHours: 24 })
+    const page = renderLanding(HOST, caps({ WALGIT_RETENTION_HOURS: '24' }))
     expect(page).toContain('A repository lives 24 hours from its last push.')
     expect(page).toContain('Not permanent: 24 hours from the last push, a repository is collected.')
   })
 
   test('with no retention but caps set, the third claim becomes the caps', () => {
-    const page = renderLanding({ ...FACTS, maxPushBytes: 99 * 1024 * 1024 })
+    const page = renderLanding(HOST, caps({ WALGIT_MAX_PUSH_BYTES: String(99 * 1024 * 1024) }))
     expect(page).toContain('99 MiB (103809024 bytes) per push')
   })
 
   test('a deployment that enforces nothing makes no third claim at all', () => {
-    const page = renderLanding(FACTS)
+    const page = renderLanding(HOST, NOTHING)
     expect(page).not.toContain('per push')
     expect(page).not.toContain('per repository')
   })
@@ -106,7 +117,7 @@ describe('renderLanding', () => {
 
 describe('the ref-event stream on the page', () => {
   test('with events on, the page describes the same capability', () => {
-    const page = renderLanding({ ...FACTS, events: true, host: 'agentgit.zabaca.com' })
+    const page = renderLanding(HOST, caps(EVENTS))
     expect(page).toContain('Stop asking whether main moved.')
     // The socket's address, in the scheme a socket dials. The frames it
     // exchanges are the manual's — a reader who is going to run the command
@@ -118,7 +129,7 @@ describe('the ref-event stream on the page', () => {
   // The same rule the limits follow: a page describing a socket the deployment
   // does not claim would 404 whoever believed it.
   test('with events off, the page does not mention it', () => {
-    const page = renderLanding(FACTS)
+    const page = renderLanding(HOST, NOTHING)
     expect(page).not.toContain('_walgit/events')
     expect(page).not.toContain('WebSocket')
     expect(page).not.toContain('{{')
@@ -137,7 +148,7 @@ describe('the ref-event stream on the page', () => {
  */
 describe('the events section carries a runnable client', () => {
   test('with events on, the page names the published client and how to get it', () => {
-    const html = renderLanding({ ...FACTS, events: true })
+    const html = renderLanding(HOST, caps(EVENTS))
     expect(html).toContain('bunx @zabaca/agentgit watch')
     // Named, not spelled out twice: what a reader on node needs from this page
     // is that their runtime is not excluded.
@@ -147,14 +158,14 @@ describe('the events section carries a runnable client', () => {
   // The page argues; it does not index. Every one of these earned its place
   // somewhere else — the manual, the README — and none of them earned it here.
   test('it sells nothing and links nowhere', () => {
-    const html = renderLanding({ ...FACTS, events: true })
+    const html = renderLanding(HOST, caps(EVENTS))
     expect(html).not.toContain('llms.txt')
     expect(html).not.toContain('SDK: ')
     expect(html).not.toContain('--json')
   })
 
   test('with events off, no client is shown', () => {
-    const html = renderLanding({ ...FACTS, events: false })
+    const html = renderLanding(HOST, NOTHING)
     expect(html).not.toContain('_walgit/events')
     expect(html).not.toContain('@zabaca/agentgit')
   })
@@ -165,13 +176,13 @@ describe('the page says a push can land on work in progress', () => {
   // manual's. What the page owes a reader is that the question is answered at
   // all, and what the answer looks like when it is yes.
   test('with events on, the collision the client reports is shown', () => {
-    const html = renderLanding({ ...FACTS, events: true })
+    const html = renderLanding(HOST, caps(EVENTS))
     expect(html).toContain('flags what collides with your uncommitted work')
     expect(html).toContain('COLLIDES with your work in')
   })
 
   test('with events off, it is absent with everything else', () => {
-    const html = renderLanding({ ...FACTS, events: false })
+    const html = renderLanding(HOST, NOTHING)
     expect(html).not.toContain('COLLIDES')
   })
 })
@@ -188,7 +199,7 @@ describe('the page says a push can land on work in progress', () => {
  */
 describe('the signing term', () => {
   test('with signing on, the page says what a signature buys and what it does not', () => {
-    const page = renderLanding({ ...FACTS, signedPushes: true })
+    const page = renderLanding(HOST, caps(SEED))
     expect(page).toContain('records that key')
     expect(page).toContain('--signed=if-asked')
     // The line the whole design turns on. Losing it would make the page read
@@ -200,14 +211,14 @@ describe('the signing term', () => {
   test('and stops saying it once a name can refuse an unsigned push', () => {
     // The claim list is what is TRUE here, so it cannot go on promising that
     // nothing is refused for being unsigned while `pre-receive` refuses it.
-    const page = renderLanding({ ...FACTS, signedPushes: true, signerLists: true })
+    const page = renderLanding(HOST, caps({ ...SEED, ...GATE }))
     expect(page).toContain('Signer List')
     expect(page).not.toContain('Nothing is refused for being unsigned')
     expect(page).not.toContain('{{')
   })
 
   test('with signing off, the page never mentions it', () => {
-    const page = renderLanding(FACTS)
+    const page = renderLanding(HOST, NOTHING)
     expect(page).not.toContain('--signed')
     expect(page).not.toContain('Attributed')
     expect(page).not.toContain('{{')
@@ -227,7 +238,7 @@ describe('the rules', () => {
   // walgit's business and not a visitor's — so it is stated in the ADR and in
   // the README, and not here.
   test('says nothing about how the server stores anything', () => {
-    const page = renderLanding({ ...FACTS, events: true, signedPushes: true })
+    const page = renderLanding(HOST, caps({ ...EVENTS, ...SEED }))
     expect(page).not.toContain('object storage')
     expect(page).not.toContain('Durable')
   })
@@ -243,14 +254,14 @@ describe('the rules', () => {
  */
 describe('the Public term states what pre-receive actually refuses', () => {
   test('with Signer Lists off, it is the unconditional sentence', () => {
-    const html = renderLanding(FACTS)
+    const html = renderLanding(HOST, NOTHING)
     expect(html).toContain(
       '<b>Every repository is world-readable and world-writable.</b> Sharing is a URL',
     )
   })
 
   test('with them on, it stops promising a write nobody can make', () => {
-    const html = renderLanding({ ...FACTS, signerLists: true })
+    const html = renderLanding(HOST, caps(GATE))
     expect(html).not.toContain('world-readable and world-writable.')
     expect(html).toContain('world-writable until its name is claimed')
     // Reads are untouched, and ADR-0012 is emphatic that none of this is a step
@@ -265,8 +276,8 @@ describe('the Public term states what pre-receive actually refuses', () => {
    * wrong answer it started with.
    */
   test('and the term above it stops making the same promise in three words', () => {
-    expect(renderLanding(FACTS)).toContain('Anyone may add; no one may rewrite or delete.')
-    const held = renderLanding({ ...FACTS, signerLists: true })
+    expect(renderLanding(HOST, NOTHING)).toContain('Anyone may add; no one may rewrite or delete.')
+    const held = renderLanding(HOST, caps(GATE))
     expect(held).not.toContain('Anyone may add')
     expect(held).toContain('Whoever the name takes a push from may add')
     // What append-only guarantees is untouched: it is who may push that the
@@ -285,7 +296,7 @@ describe('the Public term states what pre-receive actually refuses', () => {
    * is furthest from keeping.
    */
   test('and it is corrected on the flag alone, with no nonce seed', () => {
-    const html = renderLanding({ ...FACTS, signerLists: true, signedPushes: false })
+    const html = renderLanding(HOST, caps(GATE))
     expect(html).toContain('world-writable until its name is claimed')
     // Still without inviting anyone to claim anything on a host where no push
     // can be signed: the correction names no ref and no command.
@@ -305,10 +316,10 @@ describe('the Public term states what pre-receive actually refuses', () => {
  * and the answer to it.
  */
 describe('the section that argues for holding a name', () => {
-  const HELD = { ...FACTS, signedPushes: true, signerLists: true }
+  const HELD = caps({ ...SEED, ...GATE })
 
   test('it makes the case append-only creates, then answers it', () => {
-    const html = renderLanding(HELD)
+    const html = renderLanding(HOST, HELD)
     expect(html).toContain('<h2>A name a stranger cannot take.</h2>')
     const flat = html.replace(/\s+/g, ' ')
     // The cost, which is the argument. Without it the section is a feature
@@ -353,7 +364,7 @@ describe('the section that argues for holding a name', () => {
     expect(verdict.ok).toBe(false)
     const refusal = (verdict as { message: string }).message.replace(/\s+/g, ' ')
 
-    const page = renderLanding(HELD)
+    const page = renderLanding(HOST, HELD)
     const start = page.indexOf(
       '<pre class="tx"><span class="ln"><span class="p">$</span> git push agentgit',
     )
@@ -395,7 +406,7 @@ describe('the section that argues for holding a name', () => {
    * question cannot arise; this is the assertion that says so out loud.
    */
   test('the recipe keeps its dollars, which replace() could have eaten', () => {
-    const html = renderLanding(HELD)
+    const html = renderLanding(HOST, HELD)
     expect(html).toContain("| awk '{print $2}' > signers")
     expect(html).toContain('https://agentgit.zabaca.com/$NAME.git')
     // The recipe is the WHOLE of it. Showing only the push hands a reader a
@@ -406,7 +417,7 @@ describe('the section that argues for holding a name', () => {
   })
 
   test('with Signer Lists off, the whole section is absent', () => {
-    const html = renderLanding({ ...FACTS, signedPushes: true })
+    const html = renderLanding(HOST, caps(SEED))
     expect(html).not.toContain('A name a stranger cannot take')
     expect(html).not.toContain('refs/walgit/signers')
     expect(html).not.toContain('{{')
@@ -417,7 +428,7 @@ describe('the section that argues for holding a name', () => {
   // to claim it with an unsigned push — after which every push to it, theirs
   // included, is refused for carrying no certificate.
   test('and the flag alone does not earn it: with no seed, there is no section', () => {
-    const html = renderLanding({ ...FACTS, signerLists: true })
+    const html = renderLanding(HOST, caps(GATE))
     expect(html).not.toContain('A name a stranger cannot take')
     expect(html).not.toContain('{{')
   })
@@ -425,7 +436,7 @@ describe('the section that argues for holding a name', () => {
 
 describe('the roadmap', () => {
   test('names what is missing, in every deployment', () => {
-    const html = renderLanding({ ...FACTS, events: true })
+    const html = renderLanding(HOST, caps(EVENTS))
     for (const row of ['Ownership', 'Private', 'Pull requests', 'CI']) {
       expect(html).toContain(row)
     }
@@ -434,10 +445,8 @@ describe('the roadmap', () => {
   // The one promise on the page that is not rendered from config, so it is the
   // one that has to say it is not a promise.
   test('promises no date', () => {
-    expect(renderLanding(FACTS)).toContain('Nothing here is a date')
-    expect(renderLanding({ ...FACTS, signedPushes: true, signerLists: true })).toContain(
-      'Nothing here is a date',
-    )
+    expect(renderLanding(HOST, NOTHING)).toContain('Nothing here is a date')
+    expect(renderLanding(HOST, caps({ ...SEED, ...GATE }))).toContain('Nothing here is a date')
   })
 
   /**
@@ -447,14 +456,14 @@ describe('the roadmap', () => {
    * already refuses a stranger is out of date about its own `pre-receive`.
    */
   test('with Signer Lists off, ownership is still the next thing', () => {
-    const html = renderLanding({ ...FACTS, signedPushes: true })
+    const html = renderLanding(HOST, caps(SEED))
     expect(html).toContain('<span class="when">Next</span>')
     expect(html).toContain('the first key to push a name keeps it')
     expect(html).not.toContain('Shipped')
   })
 
   test('with them on, the Ownership row leaves rather than turning Shipped', () => {
-    const html = renderLanding({ ...FACTS, signedPushes: true, signerLists: true })
+    const html = renderLanding(HOST, caps({ ...SEED, ...GATE }))
     // This list is what is MISSING, and a section above now states ownership as
     // a rule of the host. A `Shipped` row would be the page carrying one
     // capability twice — once as a fact and once as an achievement — so the row
@@ -480,11 +489,11 @@ describe('the roadmap', () => {
    * both parities are ordinary and the last card spans when it is alone.
    */
   test('an odd roadmap does not leave a painted hole beside the last card', () => {
-    const html = renderLanding({ ...FACTS, signedPushes: true, signerLists: true })
+    const html = renderLanding(HOST, caps({ ...SEED, ...GATE }))
     expect(html.split('<h3>').length - 1).toBe(3)
     expect(html).toContain('.road li:last-child:nth-child(odd) { grid-column: 1 / -1; }')
     // With ownership unbuilt the list is four rows, and the rule is inert.
-    expect(renderLanding({ ...FACTS, signedPushes: true }).split('<h3>').length - 1).toBe(4)
+    expect(renderLanding(HOST, caps(SEED)).split('<h3>').length - 1).toBe(4)
   })
 
   /**
@@ -501,7 +510,7 @@ describe('the roadmap', () => {
    * is the correct thing to tell somebody who cannot do it.
    */
   test('the flag alone retires the row, even where nothing can sign', () => {
-    const html = renderLanding({ ...FACTS, signerLists: true })
+    const html = renderLanding(HOST, caps(GATE))
     expect(html).not.toContain('<span class="when">Next</span>')
     expect(html).not.toContain('the first key to push a name keeps it')
     expect(html).not.toContain('Shipped')
@@ -518,7 +527,7 @@ describe('the roadmap', () => {
    * not a step toward closing reads. Both halves of that are the correction.
    */
   test('and the Private row names the list, not the fingerprint', () => {
-    const html = renderLanding({ ...FACTS, signedPushes: true, signerLists: true })
+    const html = renderLanding(HOST, caps({ ...SEED, ...GATE }))
     expect(html).not.toContain('same fingerprint that already gets recorded')
     expect(html).toContain('Signer List')
     expect(html).toContain('Reads are still gated on nothing')

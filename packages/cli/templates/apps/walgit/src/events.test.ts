@@ -12,7 +12,6 @@ import {
   authorizeAnnounce,
   authorizeSubscribe,
   encode,
-  eventsEnabled,
   eventsFromChanges,
   handshake,
   MAX_REFS_PER_ENTRY,
@@ -27,17 +26,6 @@ import { normalizeRepoId } from './repo'
 
 const SHA_A = 'a'.repeat(40)
 const SHA_B = 'b'.repeat(40)
-
-describe('eventsEnabled', () => {
-  // Off unless configured: an instance nobody turned this on for must expose no
-  // endpoint at all, rather than one that accepts sockets and never speaks.
-  test('needs an announce secret', () => {
-    expect(eventsEnabled(undefined)).toBe(false)
-    expect(eventsEnabled('')).toBe(false)
-    expect(eventsEnabled('   ')).toBe(false)
-    expect(eventsEnabled('secret')).toBe(true)
-  })
-})
 
 describe('authorizeSubscribe', () => {
   const tokens = ['read-token', 'rotating-token']

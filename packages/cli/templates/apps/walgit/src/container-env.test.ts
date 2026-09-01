@@ -25,7 +25,7 @@ describe('containerEnv', () => {
 
   test('drops unset and blank, so a cleared variable reads as unenforced', () => {
     // The two spellings of "no policy" have to collapse into one, or a blank
-    // string reaches `limitsFromEnv` as a value and is parsed rather than
+    // string reaches `capabilitiesFrom` as a value and is parsed rather than
     // skipped.
     expect(containerEnv({ WALGIT_RETENTION_HOURS: '' })).toEqual({})
     expect(containerEnv({})).toEqual({})
