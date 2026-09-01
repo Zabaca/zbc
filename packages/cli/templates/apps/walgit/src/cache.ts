@@ -18,8 +18,8 @@
 import * as fs from 'node:fs'
 import * as path from 'node:path'
 
+import { capabilitiesFrom } from '../shared/capabilities'
 import { appendOnlyEnabled } from './append-only'
-import { limitsFromEnv } from './limits'
 import { git, gitOrThrow } from './git'
 import { installHooks } from './hooks'
 import { PUSH_CERT_NONCE_SLOP_SECONDS, pushCertSeed } from './push-cert'
@@ -128,7 +128,7 @@ export function ensureBareRepo(repo: ResolvedRepo): ResolvedRepo {
   // past the cap that a bug in the hook is the likelier explanation.
   // Cleared when the cap is, because a stale limit on a repository whose
   // instance no longer sets one would refuse pushes nothing documents.
-  const { maxPushBytes } = limitsFromEnv()
+  const { maxPushBytes } = capabilitiesFrom(process.env)
   if (maxPushBytes === null) {
     clearConfig(repo.dir, 'receive.maxInputSize')
   } else {

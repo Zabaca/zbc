@@ -22,11 +22,12 @@
  * two messages say different things.
  *
  * Both are UNSET by default. A cap this file does not enforce is one `GET /`
- * must not claim, which is why `instructions.ts` renders from the same env vars
- * read here rather than from a copy of them.
+ * must not claim, which is why `instructions.ts` renders from the same
+ * `Capabilities` this file takes its caps from rather than from a copy of them.
  */
 
-import { describeBytes, positiveNumber } from '../shared/policy'
+import type { Capabilities } from '../shared/capabilities'
+import { describeBytes } from '../shared/policy'
 import type { WalIndex } from './wal-index'
 
 export interface Limits {
@@ -39,18 +40,21 @@ export interface Limits {
 export const NO_LIMITS: Limits = { maxPushBytes: null, maxRepoBytes: null }
 
 /**
- * The caps this instance enforces.
+ * The caps this instance enforces, as the two of nine capabilities this file
+ * cares about.
  *
- * An unparseable or non-positive value reads as unset rather than as zero. Zero
- * would refuse every push, and a typo in a deployment env var must not silently
- * become "this host accepts nothing". `positiveNumber` is `shared/policy.ts`'s
- * so the Worker rendering the landing page reads the variable exactly the way
- * `pre-receive` enforces it.
+ * A projection rather than a second reading. The parsing lives in
+ * `capabilitiesFrom` (`shared/capabilities.ts`), which is also what the three
+ * agent-facing documents state their caps from — so the number `pre-receive`
+ * refuses on and the number a page prints cannot be arrived at two ways. An
+ * unparseable or non-positive value has already read as unset by the time it
+ * gets here: zero would refuse every push, and a typo in a deployment env var
+ * must not silently become "this host accepts nothing".
  */
-export function limitsFromEnv(env: Record<string, string | undefined> = process.env): Limits {
+export function limitsOf(caps: Capabilities): Limits {
   return {
-    maxPushBytes: positiveNumber(env.WALGIT_MAX_PUSH_BYTES),
-    maxRepoBytes: positiveNumber(env.WALGIT_MAX_REPO_BYTES),
+    maxPushBytes: caps.maxPushBytes,
+    maxRepoBytes: caps.maxRepoBytes,
   }
 }
 

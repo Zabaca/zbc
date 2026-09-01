@@ -64,18 +64,6 @@ export const MAX_WATCH_ENTRIES = 64
 export const MAX_REFS_PER_ENTRY = 256
 
 /**
- * Is the stream configured at all?
- *
- * Off unless a deployment says otherwise: without the announce secret there is
- * nothing that could publish an event, so the endpoints do not exist rather
- * than existing and never firing. A subscriber then gets the same 404 as any
- * other unrouted path, which is the honest answer.
- */
-export function eventsEnabled(announceToken: string | undefined): boolean {
-  return typeof announceToken === 'string' && announceToken.trim() !== ''
-}
-
-/**
  * May this request watch?
  *
  * Exactly the credential a read needs, and for the same reason: an event says

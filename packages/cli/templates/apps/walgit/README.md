@@ -518,9 +518,9 @@ first thing walgit ever says to most of them.
 `WALGIT_MAX_PUSH_BYTES` caps a single push; `WALGIT_MAX_REPO_BYTES` caps what
 one repository holds in total. Both are **unset by default** — an instance opts
 in, and an instance that does not set them enforces nothing and claims nothing.
-`GET /` states each cap it enforces, rendered through the same
-`limitsFromEnv` the hook enforces with, so the page cannot promise a limit the
-push path does not hold.
+`GET /` states each cap it enforces, rendered from the same `Capabilities`
+(`shared/capabilities.ts`) the hook takes its limits from, so the page cannot
+promise a limit the push path does not hold.
 
 The refusal happens in `pre-receive` (`src/limits.ts`), where the pack is
 sitting in the quarantine at a known size and nothing has been written to the

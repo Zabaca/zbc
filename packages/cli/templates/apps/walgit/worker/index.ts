@@ -27,13 +27,12 @@
 
 import { Container, getContainer } from '@cloudflare/containers'
 
+import { capabilitiesFrom } from '../shared/capabilities'
 import { containerEnv, fingerprintEnv } from '../shared/container-env'
 import { parseTokens } from '../shared/credentials'
-import { authorizeAnnounce, authorizeSubscribe, eventsEnabled } from '../shared/events'
-import { type LandingFacts, renderLanding, wantsLanding } from '../shared/landing'
+import { authorizeAnnounce, authorizeSubscribe } from '../shared/events'
+import { renderLanding, wantsLanding } from '../shared/landing'
 import { renderLlms, wantsLlms } from '../shared/llms'
-import { flagEnabled, positiveNumber } from '../shared/policy'
-import { signedPushEnabled } from '../shared/provenance'
 import {
   ANNOUNCE_PATH,
   COLD_HEADER,
@@ -78,11 +77,14 @@ export interface Env {
    */
   WALGIT_METRICS?: AnalyticsEngineDataset
   /**
-   * The ref-event stream (shared/events.ts). Off unless `WALGIT_EVENTS_TOKEN`
-   * is set: without it nothing could publish an event, so the endpoints do not
-   * exist rather than existing and staying silent. The token is the shared
-   * secret the container's push path presents when it announces; the container
-   * gets it, and the URL to announce to, through the forward list.
+   * The ref-event stream (shared/events.ts). Off unless BOTH are set: the
+   * token is the shared secret the container's push path presents when it
+   * announces, and the URL is where it announces TO. With only the token the
+   * socket is claimed, the handshake answers with current refs, and no event
+   * ever arrives, because `post-receive` has nowhere to send one — so the
+   * endpoints do not exist unless both halves are configured
+   * (`shared/capabilities.ts`). The container gets both through the forward
+   * list.
    */
   WALGIT_EVENTS_TOKEN?: string
   WALGIT_EVENTS_URL?: string
@@ -230,6 +232,13 @@ export default {
     const startedAt = Date.now()
     const url = new URL(request.url)
 
+    // What this deployment offers, derived once for the whole request
+    // (`shared/capabilities.ts`). The two documents below state themselves
+    // from it and the event route is claimed from it, so the page, the manual
+    // and the socket cannot describe three different deployments — they used
+    // to read the environment three times, and only the size caps were shared.
+    const caps = capabilitiesFrom(env)
+
     // The browser half of `/`, answered at the edge (shared/landing.ts). Placed
     // before every other decision on purpose: a link on an aggregator points at
     // this exact URL, and none of that traffic should wake the container, queue
@@ -237,22 +246,11 @@ export default {
     // asks for HTML, so a clone cannot land here.
     const accept = request.headers.get('accept') ?? ''
     if (wantsLanding(request.method, url.pathname, accept)) {
-      const page = renderLanding({
-        host: url.host,
-        // The same predicate that decides whether the socket path is claimed
-        // below, so the page cannot advertise a stream this request would 404.
-        events: eventsEnabled(env.WALGIT_EVENTS_TOKEN),
-        // Same predicate as `/llms.txt` and `GET /`: git refuses `--signed`
-        // against a host without the seed, so a page inviting somebody to sign
-        // would be sending them to a refusal it caused.
-        signedPushes: signedPushEnabled(env.WALGIT_PUSH_CERT_SEED),
-        // Read through the shared flag helper, like append-only beside it: the
-        // container enforces the gate from this variable and both documents
-        // describe it from the same one, so neither can go on promising that
-        // nothing is refused for being unsigned after the hook stopped agreeing.
-        signerLists: flagEnabled(env.WALGIT_SIGNER_LISTS),
-        ...limitsFromEnv(env),
-      })
+      // The host is passed beside the capabilities rather than folded into
+      // them: this document and `/llms.txt` want a bare hostname they prefix
+      // with `https://`/`wss://` themselves, while `GET /` needs a full origin
+      // including the scheme, and one field could not serve both.
+      const page = renderLanding(url.host, caps)
       const bytes = new TextEncoder().encode(page)
       record(env, ctx, {
         kind: 'landing',
@@ -293,27 +291,7 @@ export default {
     // `/llms.txt` is not reachable as a repo route even for a repository called
     // `llms.txt`.
     if (wantsLlms(request.method, url.pathname)) {
-      const doc = renderLlms({
-        host: url.host,
-        events: eventsEnabled(env.WALGIT_EVENTS_TOKEN),
-        // The same predicate the push path enforces with, from the shared
-        // kernel, rather than a second reading of the same variables: a
-        // document that tells an agent it needs no credential must not be one
-        // spelling away from being wrong.
-        publicAccess: flagEnabled(env.WALGIT_PUBLIC),
-        appendOnly: flagEnabled(env.WALGIT_APPEND_ONLY),
-        // Read through the same function the container turns the capability on
-        // with (shared/provenance.ts): the seed is what makes `receive-pack`
-        // advertise `push-cert` at all, so a manual that offered signing here
-        // without one would send an agent to a flag its own git refuses.
-        signedPushes: signedPushEnabled(env.WALGIT_PUSH_CERT_SEED),
-        // Read through the shared flag helper, like append-only beside it: the
-        // container enforces the gate from this variable and both documents
-        // describe it from the same one, so neither can go on promising that
-        // nothing is refused for being unsigned after the hook stopped agreeing.
-        signerLists: flagEnabled(env.WALGIT_SIGNER_LISTS),
-        ...limitsFromEnv(env),
-      })
+      const doc = renderLlms(url.host, caps)
       const bytes = new TextEncoder().encode(doc)
       record(env, ctx, {
         kind: 'landing',
@@ -347,10 +325,13 @@ export default {
     // path is claimed at all — the request falls through to the container,
     // which does not route it, and the client gets the same 404 as for any
     // other path that does not exist.
-    if (
-      (url.pathname === EVENTS_PATH || url.pathname === ANNOUNCE_PATH) &&
-      eventsEnabled(env.WALGIT_EVENTS_TOKEN)
-    ) {
+    //
+    // Claimed from the same `caps.events` the two documents advertise from, so
+    // the route and the documents cannot disagree. That takes BOTH halves: with
+    // only the token this used to claim the socket, answer the handshake with
+    // current refs, and then deliver nothing forever, because the container's
+    // `post-receive` had no URL to announce to.
+    if ((url.pathname === EVENTS_PATH || url.pathname === ANNOUNCE_PATH) && caps.events) {
       return events(request, url, env)
     }
 
@@ -543,30 +524,6 @@ function stripInternal(request: Request): Request {
   const headers = new Headers(request.headers)
   headers.delete(INTERNAL_HEADER)
   return new Request(request, { headers })
-}
-
-/**
- * The limit facts the page is allowed to claim.
- *
- * Literally the same reading as the push path's, because `positiveNumber` is
- * `shared/policy.ts`'s and `src/limits.ts` enforces through it: unset, blank,
- * unparseable or non-positive all mean "this deployment enforces nothing
- * here", so a typo in a variable removes a claim rather than inventing one. The
- * page then omits it (shared/landing.ts) instead of printing a number nobody
- * enforces.
- *
- * The three limits and nothing else: signing and the event stream are
- * capabilities rather than caps, they are read from different variables, and
- * each call site passes its own so a reader can see which predicate decided it.
- */
-function limitsFromEnv(
-  env: Env,
-): Pick<LandingFacts, 'retentionHours' | 'maxPushBytes' | 'maxRepoBytes'> {
-  return {
-    retentionHours: positiveNumber(env.WALGIT_RETENTION_HOURS),
-    maxPushBytes: positiveNumber(env.WALGIT_MAX_PUSH_BYTES),
-    maxRepoBytes: positiveNumber(env.WALGIT_MAX_REPO_BYTES),
-  }
 }
 
 /** The facts known before the container answers. */

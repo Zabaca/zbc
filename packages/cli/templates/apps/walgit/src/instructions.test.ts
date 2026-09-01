@@ -1,15 +1,45 @@
 import { describe, expect, test } from 'bun:test'
+import { capabilitiesFrom, type Capabilities, type CapabilityEnv } from '../shared/capabilities'
 import { renderInstructions } from './instructions'
 
-const PUBLIC = {
-  publicAccess: true,
-  appendOnly: true,
-  retentionHours: 24,
-  maxPushBytes: 99 * 1024 * 1024,
-  maxRepoBytes: 250 * 1024 * 1024,
-  events: true,
-  signedPushes: true,
+/** Fixtures go through here so a misspelled variable is a compile error. */
+const caps = (env: CapabilityEnv) => capabilitiesFrom(env)
+
+/**
+ * Every fixture here is an ENVIRONMENT read through `capabilitiesFrom`, never a
+ * `Capabilities` literal. Two of the six booleans are two readings of one flag
+ * (`namesCanRefuse`, `namesCanBeClaimed`), so a literal can spell a deployment
+ * that cannot exist — a name that can be claimed on a host where nothing can
+ * sign — and this document's whole job is to describe deployments that do.
+ *
+ * Each is annotated `CapabilityEnv` rather than handed straight to
+ * `capabilitiesFrom`, whose parameter is wide enough to take `process.env`: a
+ * misspelled variable there would be read as unset, and every `not.toContain`
+ * in this file would still pass against a document claiming nothing.
+ */
+const OPEN: CapabilityEnv = { WALGIT_PUBLIC: '1', WALGIT_APPEND_ONLY: '1' }
+const LIMITS: CapabilityEnv = {
+  WALGIT_RETENTION_HOURS: '24',
+  WALGIT_MAX_PUSH_BYTES: String(99 * 1024 * 1024),
+  WALGIT_MAX_REPO_BYTES: String(250 * 1024 * 1024),
 }
+const EVENTS: CapabilityEnv = {
+  WALGIT_EVENTS_URL: 'https://walgit.example',
+  WALGIT_EVENTS_TOKEN: 'events',
+}
+const SEED: CapabilityEnv = { WALGIT_PUSH_CERT_SEED: 'nonce-seed' }
+const GATE: CapabilityEnv = { WALGIT_SIGNER_LISTS: '1' }
+
+/** The public deployment: open, append-only, capped, streaming, signing. */
+const PUBLIC = caps({ ...OPEN, ...LIMITS, ...EVENTS, ...SEED })
+/** …the same one with no stream. */
+const NO_EVENTS = caps({ ...OPEN, ...LIMITS, ...SEED })
+/** …and with no nonce seed, so nothing can sign. */
+const NO_SIGNING = caps({ ...OPEN, ...LIMITS, ...EVENTS })
+/** …and with the ownership gate on as well: every capability this page reads. */
+const EVERYTHING = caps({ ...OPEN, ...LIMITS, ...EVENTS, ...SEED, ...GATE })
+/** A deployment that has configured nothing at all. */
+const NOTHING = caps({})
 
 describe('renderInstructions', () => {
   test('states every limit the instance enforces, before the example', async () => {
@@ -31,7 +61,7 @@ describe('renderInstructions', () => {
   })
 
   test('never claims a rule this instance does not enforce', () => {
-    const text = renderInstructions('https://walgit.example', {}).replace(/\s+/g, ' ')
+    const text = renderInstructions('https://walgit.example', NOTHING).replace(/\s+/g, ' ')
     expect(text).not.toContain('append-only')
     expect(text).not.toContain('LAST PUSH')
     expect(text).not.toMatch(/may not exceed/)
@@ -61,14 +91,17 @@ describe('renderInstructions', () => {
   })
 
   test('byte caps carry the raw count, so an agent need not guess our rounding', () => {
-    const text = renderInstructions('https://walgit.example', { maxPushBytes: 99 * 1024 * 1024 })
+    const text = renderInstructions(
+      'https://walgit.example',
+      caps({ WALGIT_MAX_PUSH_BYTES: String(99 * 1024 * 1024) }),
+    )
     expect(text).toContain('(103809024 bytes)')
   })
 
-  test('an unreadable cap is impossible to state, because policy carries numbers', () => {
+  test('an unreadable cap is impossible to state, because capabilities carry numbers', () => {
     // Guarding the direction rather than the formatting: a limit absent from
-    // policy must produce no sentence at all, never "NaN".
-    expect(renderInstructions('https://walgit.example', {})).not.toContain('NaN')
+    // capabilities must produce no sentence at all, never "NaN".
+    expect(renderInstructions('https://walgit.example', NOTHING)).not.toContain('NaN')
   })
 
   test('with events on, the socket is named in the scheme a socket dials', () => {
@@ -108,7 +141,7 @@ describe('renderInstructions', () => {
  */
 describe('the watch section hands off rather than carrying everything', () => {
   test('with events on, it names the socket and points at the manual', () => {
-    const text = renderInstructions('https://walgit.example', { ...PUBLIC, events: true })
+    const text = renderInstructions('https://walgit.example', PUBLIC)
     expect(text).toContain('wss://walgit.example/_walgit/events')
     expect(text).toContain('https://walgit.example/llms.txt')
     // The client itself lives in the long document now. This page is read
@@ -117,7 +150,7 @@ describe('the watch section hands off rather than carrying everything', () => {
   })
 
   test('with events off, nothing about a client is claimed', () => {
-    const text = renderInstructions('https://walgit.example', { ...PUBLIC, events: false })
+    const text = renderInstructions('https://walgit.example', NO_EVENTS)
     expect(text).not.toContain('_walgit/events')
     expect(text).not.toContain('git","fetch"')
   })
@@ -134,7 +167,7 @@ describe('the collision check is named but not spelled out here', () => {
   // runs it. The commands themselves stay in the long document: this is read
   // mid-task, and every line costs context the agent wanted for the task.
   test('with events on, it is described in one clause and located', () => {
-    const text = renderInstructions('https://walgit.example', { ...PUBLIC, events: true })
+    const text = renderInstructions('https://walgit.example', PUBLIC)
     const flat = text.replace(/\s+/g, ' ')
     expect(flat).toContain('collides with your uncommitted work')
     // The published client, and the two facts that decide whether an agent
@@ -148,7 +181,7 @@ describe('the collision check is named but not spelled out here', () => {
   })
 
   test('with events off, neither the stream nor the check is mentioned', () => {
-    const text = renderInstructions('https://walgit.example', { ...PUBLIC, events: false })
+    const text = renderInstructions('https://walgit.example', NO_EVENTS)
     expect(text).not.toContain('merge-tree')
     expect(text).not.toContain('_walgit/events')
     // But the manual is still worth finding.
@@ -185,10 +218,7 @@ describe('the signing section says it is possible, and not why', () => {
     // One clause, not a section: the page has a byte budget and ADR-0012 put
     // discovery in /llms.txt and in the refusal itself. What it cannot do is go
     // on promising the opposite of what `pre-receive` does.
-    const text = renderInstructions('https://walgit.example', {
-      ...PUBLIC,
-      signerLists: true,
-    }).replace(/\s+/g, ' ')
+    const text = renderInstructions('https://walgit.example', EVERYTHING).replace(/\s+/g, ' ')
     expect(text).toContain('Signer List')
     expect(text).not.toContain('Nothing is refused for being unsigned.')
   })
@@ -197,16 +227,14 @@ describe('the signing section says it is possible, and not why', () => {
    * The access bullet, which is the other promise the gate falsifies — and the
    * one an agent reads first, before it has decided to sign anything.
    *
-   * Read from `signerLists` ALONE, unlike the clause above it: `pre-receive`
-   * refuses on this flag by itself (`signerListsEnabled`, `src/hook-main.ts`),
+   * Read from `namesCanRefuse` — the gate alone — unlike the clause above it:
+   * `pre-receive` refuses on the flag by itself (`signerListsEnabled`,
+   * `src/hook-main.ts`),
    * so on a deployment that sets it with no nonce seed a claimed name refuses
    * EVERY push — which makes unconditional writability more wrong, not less.
    */
   test('the access bullet stops promising a write nobody can make', () => {
-    const text = renderInstructions('https://walgit.example', {
-      ...PUBLIC,
-      signerLists: true,
-    }).replace(/\s+/g, ' ')
+    const text = renderInstructions('https://walgit.example', EVERYTHING).replace(/\s+/g, ' ')
     expect(text).not.toContain('world-readable and world-writable')
     expect(text).toContain('Anyone may push, with no credential, unless a name holds a Signer List')
     // The half that was NOT traded away for the correction. This page renders
@@ -225,12 +253,12 @@ describe('the signing section says it is possible, and not why', () => {
    * the bullet that answers it.
    */
   test('the append-only fact stops promising the same thing two bullets later', () => {
-    const flat = (policy: Record<string, unknown>) =>
-      renderInstructions('https://walgit.example', policy).replace(/\s+/g, ' ')
+    const flat = (config: Capabilities) =>
+      renderInstructions('https://walgit.example', config).replace(/\s+/g, ' ')
 
     expect(flat(PUBLIC)).toContain('That holds for everyone, so a stranger can build on your work')
 
-    const held = flat({ ...PUBLIC, signerLists: true })
+    const held = flat(EVERYTHING)
     expect(held).not.toContain('That holds for everyone')
     expect(held).toContain('Whoever the name takes a push from can build on your work')
     // The guarantee itself is untouched, word for word.
@@ -238,10 +266,10 @@ describe('the signing section says it is possible, and not why', () => {
   })
 
   test('and it is corrected on the flag alone, with no nonce seed', () => {
-    const text = renderInstructions('https://walgit.example', {
-      publicAccess: true,
-      signerLists: true,
-    }).replace(/\s+/g, ' ')
+    const text = renderInstructions(
+      'https://walgit.example',
+      caps({ WALGIT_PUBLIC: '1', ...GATE }),
+    ).replace(/\s+/g, ' ')
     expect(text).not.toContain('world-readable and world-writable')
     expect(text).toContain('unless a name holds a Signer List')
     // Without teaching any of it: no ref, no command, no way in. ADR-0012 put
@@ -252,7 +280,7 @@ describe('the signing section says it is possible, and not why', () => {
   })
 
   test('with no seed, the capability does not exist on the page', () => {
-    const text = renderInstructions('https://walgit.example', { ...PUBLIC, signedPushes: false })
+    const text = renderInstructions('https://walgit.example', NO_SIGNING)
     expect(text).not.toContain('SIGN A PUSH')
     expect(text).not.toContain('--signed')
     expect(text).not.toContain('_walgit/provenance')
@@ -278,13 +306,11 @@ describe('the signing section says it is possible, and not why', () => {
  * page does not have to, and it has no bytes to teach with.
  */
 describe('the terse document never explains how to hold a name', () => {
-  const EVERYTHING = { ...PUBLIC, signerLists: true }
-
   test('it names no ref, no file, no fingerprint and no command', () => {
-    for (const policy of [PUBLIC, EVERYTHING]) {
+    for (const config of [PUBLIC, EVERYTHING]) {
       // Lowercased, because this document SHOUTS its headings: a `GRANT AND
       // REVOKE` section would walk straight past a lowercase needle.
-      const text = renderInstructions('https://walgit.example', policy).toLowerCase()
+      const text = renderInstructions('https://walgit.example', config).toLowerCase()
       for (const teaching of [
         'refs/walgit/signers',
         'ssh-keygen',
@@ -306,22 +332,97 @@ describe('the terse document never explains how to hold a name', () => {
    *
    * It is a real constraint rather than a round number: this text is what an
    * agent pays for mid-task, out of the context it wanted to spend on the task.
-   * Every capability so far has arrived believing it was "just three lines", so
-   * the version measured is the one claiming the most.
+   * Every capability so far has arrived believing it was "just three lines".
+   *
+   * Measured over EVERY configuration rather than over one hand-maintained
+   * "everything on" fixture. That fixture was the gap: a capability added to
+   * the type had to be remembered here too, and "the version claiming the most"
+   * is a judgement — the append-only bullet, for one, is LONGER with the
+   * ownership gate off than on. Enumerating removes the judgement.
    */
-  test('and stays inside its budget with every capability on', () => {
-    // The real host rather than the short one the rest of this file uses: the
-    // origin is printed six times, so a test measuring `walgit.example` would
-    // hold a budget the deployment does not have.
-    //
-    // It renders 2,992 bytes today — eight under. Whatever breaks this did not
-    // break the budget, it spent the last of it: the fix is to decide what
-    // comes OUT of this page, not to raise the number. The five bytes it
-    // regained were bought, not found: the access bullet dropped its opening
-    // summary — "Everything here is public." said in five words what
-    // "world-readable" says three words later — to pay for the Signer List
-    // clause without touching the warning about secrets.
-    const text = renderInstructions('https://agentgit.zabaca.com', EVERYTHING)
-    expect(text.length).toBeLessThan(3000)
+  test('no configuration exceeds the budget', () => {
+    const worst = Math.max(
+      ...everyConfiguration().map(
+        // The real host rather than the short one the rest of this file uses:
+        // the origin is printed six times, so a test measuring `walgit.example`
+        // would hold a budget the deployment does not have.
+        (config) => renderInstructions('https://agentgit.zabaca.com', config).length,
+      ),
+    )
+    // 2,997 bytes at the widest today — three under. Whatever breaks this did
+    // not break the budget, it spent the last of it: the fix is to decide what
+    // comes OUT of this page, not to raise the number.
+    expect(worst).toBeLessThan(3000)
   })
 })
+
+/**
+ * Every deployment this page can describe.
+ *
+ * Five independent switches, so 32 boolean shapes — not 64. The type has six
+ * booleans, but `namesCanBeClaimed` is `namesCanRefuse && signedPushes`, so
+ * half of a 64-render sweep would be states no environment produces, and this
+ * page does not read that field at all. Enumerating the ENVIRONMENT is what
+ * keeps every measured configuration one a deployment can actually be in.
+ *
+ * The three limits are enumerated too, rather than pinned at values asserted to
+ * render widest. Assertion was wrong twice: `describeHours` is wider at 1,000
+ * hours than at 999, and `describeBytes` has no TiB branch, so a cap near a
+ * tebibyte prints a FOUR-digit GiB figure beside a 13-digit raw count and is
+ * wider than any `9.99 GiB` value. Measuring the candidates costs 1,120
+ * renders and needs nobody to be right about which is longest.
+ *
+ * The candidate set is the domain bound, and it is deliberate rather than
+ * exhaustive: `describeBytes` and `describeHours` grow without limit as digits
+ * are added, so "the widest possible" does not exist. What is bounded is what
+ * this service can serve — one container, sized in `wrangler.jsonc` at 1 GiB of
+ * memory, materializing a repository from the log on every cold read — and a
+ * cap approaching a tebibyte is far outside it. A deployment that configures
+ * one really would overrun this budget; it would also never finish a push.
+ */
+function everyConfiguration(): Capabilities[] {
+  const SWITCHES: CapabilityEnv[] = [
+    { WALGIT_PUBLIC: '1' },
+    { WALGIT_APPEND_ONLY: '1' },
+    EVENTS,
+    SEED,
+    GATE,
+  ]
+  // Live (24), the widest sub-day and sub-week values, and the widest under the
+  // four-digit bound — `describeHours` prints days for a multiple of 24 at or
+  // above 48, so the multiples are the SHORT ones.
+  const HOURS = ['1', '24', '47', '168', '999', '1000', '9999']
+  // Live (99 MiB, 250 MiB), the GiB boundary, and two GiB-scale shapes that
+  // trade width against each other: two decimals on a smaller raw count, or a
+  // bare `100 GiB` beside a twelve-digit one.
+  const BYTES = [
+    String(99 * 1024 ** 2),
+    String(250 * 1024 ** 2),
+    String(1024 ** 3),
+    String(Math.round(9.99 * 1024 ** 3)),
+    String(100 * 1024 ** 3 - 1),
+  ]
+
+  const all: Capabilities[] = []
+  for (let mask = 0; mask < 1 << SWITCHES.length; mask++) {
+    let flags: CapabilityEnv = {}
+    SWITCHES.forEach((on, bit) => {
+      if (mask & (1 << bit)) flags = { ...flags, ...on }
+    })
+    for (const hours of HOURS) {
+      for (const bytes of BYTES) {
+        all.push(
+          caps({
+            ...flags,
+            WALGIT_RETENTION_HOURS: hours,
+            // Both caps at the same value: they render independently, so the
+            // widest page is the one where each is at its own widest.
+            WALGIT_MAX_PUSH_BYTES: bytes,
+            WALGIT_MAX_REPO_BYTES: bytes,
+          }),
+        )
+      }
+    }
+  }
+  return all
+}
