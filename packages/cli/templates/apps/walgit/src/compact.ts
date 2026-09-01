@@ -260,9 +260,14 @@ export async function compact(
     const produced = packs[0]!
 
     const packPath = path.join(packDir, produced)
-    const packBody = new Uint8Array(fs.readFileSync(packPath))
+    // The `Buffer` goes to the store as it is. A Node `Buffer` already IS a
+    // `Uint8Array`, so wrapping it in `new Uint8Array(…)` would change nothing
+    // about the value and allocate a second full copy of the repository — up to
+    // `WALGIT_MAX_REPO_BYTES` of it, which is the largest single allocation
+    // walgit makes and what sized the container.
+    const packBody = fs.readFileSync(packPath)
     const idxPath = packPath.replace(/\.pack$/, '.idx')
-    const idxBody = fs.existsSync(idxPath) ? new Uint8Array(fs.readFileSync(idxPath)) : null
+    const idxBody = fs.existsSync(idxPath) ? fs.readFileSync(idxPath) : null
 
     const id = ulid(now().getTime())
     const key = walKey(repo.repoId, supersedesThrough + 1, id, 'pack')

@@ -279,7 +279,9 @@ export class FileStore implements ObjectStore {
   async get(key: string): Promise<GetResult> {
     if (!fs.existsSync(this.path(key))) return null
     return {
-      body: new Uint8Array(fs.readFileSync(this.path(key))),
+      // The `Buffer` is returned as it is: it already IS a `Uint8Array`, and
+      // wrapping it would copy every byte read back out of the store.
+      body: fs.readFileSync(this.path(key)),
       etag: fs.readFileSync(this.etagPath(key), 'utf8'),
     }
   }

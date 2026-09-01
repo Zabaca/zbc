@@ -105,7 +105,10 @@ async function buildLog(repoId: string, count: number): Promise<WalIndex> {
       input: objects,
       maxBuffer: 1 << 28,
     })
-    const pack = new Uint8Array(packed.stdout)
+    // A `Buffer` already IS a `Uint8Array`; wrapping it would only double the
+    // memory the bench holds, which is the one thing a bench should not
+    // misreport.
+    const pack = packed.stdout
 
     const seq = i + 1
     const key = walKey(repoId, seq, ulid(Date.now() + i), 'pack')
@@ -114,7 +117,7 @@ async function buildLog(repoId: string, count: number): Promise<WalIndex> {
     fs.mkdirSync(staged, { recursive: true })
     fs.writeFileSync(path.join(staged, 'p.pack'), pack)
     git(staged, 'index-pack', 'p.pack')
-    await store.put(siblingIdx(key), new Uint8Array(fs.readFileSync(path.join(staged, 'p.idx'))))
+    await store.put(siblingIdx(key), fs.readFileSync(path.join(staged, 'p.idx')))
 
     const entry: WalEntry = {
       seq,
