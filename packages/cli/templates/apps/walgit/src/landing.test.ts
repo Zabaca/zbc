@@ -8,7 +8,7 @@
 
 import { describe, expect, test } from 'bun:test'
 
-import { capabilitiesFrom } from '../shared/capabilities'
+import { capabilitiesFrom, type CapabilityEnv } from '../shared/capabilities'
 import { ZERO_OID } from '../shared/protocol'
 import { renderLanding, wantsLanding } from '../shared/landing'
 import { checkSignerAllowed } from './signers'
@@ -22,10 +22,13 @@ const HOST = 'agentgit.zabaca.com'
  * claimed on a host where nothing can sign — and this page's whole job is to
  * describe deployments that do.
  */
-const caps = capabilitiesFrom
-const EVENTS = { WALGIT_EVENTS_URL: `https://${HOST}`, WALGIT_EVENTS_TOKEN: 'events' }
-const SEED = { WALGIT_PUSH_CERT_SEED: 'nonce-seed' }
-const GATE = { WALGIT_SIGNER_LISTS: '1' }
+const caps = (env: CapabilityEnv) => capabilitiesFrom(env)
+const EVENTS: CapabilityEnv = {
+  WALGIT_EVENTS_URL: `https://${HOST}`,
+  WALGIT_EVENTS_TOKEN: 'events',
+}
+const SEED: CapabilityEnv = { WALGIT_PUSH_CERT_SEED: 'nonce-seed' }
+const GATE: CapabilityEnv = { WALGIT_SIGNER_LISTS: '1' }
 
 /** A deployment that enforces and offers nothing. */
 const NOTHING = caps({})

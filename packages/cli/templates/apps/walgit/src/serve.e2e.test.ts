@@ -8,8 +8,11 @@ import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
 
-import { capabilitiesFrom } from '../shared/capabilities'
+import { capabilitiesFrom, type CapabilityEnv } from '../shared/capabilities'
 import { createHttpHandler } from './http'
+
+/** Typed so a misspelled variable in a fixture is a compile error. */
+const caps = (env: CapabilityEnv) => capabilitiesFrom(env)
 import { ensureBareRepo } from './cache'
 import { runGitHttpBackend } from './git-backend'
 import { FileStore } from './store'
@@ -70,7 +73,7 @@ beforeAll(() => {
       ensureRepo: ensureBareRepo,
       syncRepo: (repo) => syncRepo(new FileStore(storeDir), repo),
       runBackend: runGitHttpBackend,
-      capabilities: capabilitiesFrom({
+      capabilities: caps({
         WALGIT_APPEND_ONLY: '1',
         WALGIT_RETENTION_HOURS: '24',
         WALGIT_MAX_PUSH_BYTES: String(99 * 1024 * 1024),
@@ -92,7 +95,7 @@ beforeAll(() => {
       ensureRepo: ensureBareRepo,
       syncRepo: (repo) => syncRepo(new FileStore(storeDir), repo),
       runBackend: runGitHttpBackend,
-      capabilities: capabilitiesFrom({
+      capabilities: caps({
         WALGIT_PUBLIC: '1',
         WALGIT_APPEND_ONLY: '1',
         WALGIT_RETENTION_HOURS: '24',

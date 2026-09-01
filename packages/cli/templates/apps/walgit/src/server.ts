@@ -33,16 +33,6 @@ const port = Number(process.env.PORT ?? 8080)
 const tokens = parseTokens(process.env.WALGIT_HTTP_TOKENS)
 
 /**
- * Open to anyone, deliberately. This is the public service's whole shape: with
- * writes open there is nothing a credential could prove, so demanding one only
- * costs an agent a step. It is an explicit opt-in and NOT the absence of
- * tokens — `createHttpHandler` refuses to serve when neither is configured, so
- * a deployment that loses its secrets fails closed instead of opening to the
- * world. Off unless set, so every existing deployment is unchanged.
- */
-const isPublic = process.env.WALGIT_PUBLIC === '1'
-
-/**
  * What this deployment offers, and therefore what `GET /` is allowed to
  * promise. One read of one derivation (`shared/capabilities.ts`), which
  * `pre-receive` takes its caps from and the two edge documents state
@@ -56,6 +46,24 @@ const isPublic = process.env.WALGIT_PUBLIC === '1'
  * container when a deploy changes a variable (shared/container-env.ts).
  */
 const caps = capabilitiesFrom(process.env)
+
+/**
+ * Open to anyone, deliberately. This is the public service's whole shape: with
+ * writes open there is nothing a credential could prove, so demanding one only
+ * costs an agent a step. It is an explicit opt-in and NOT the absence of
+ * tokens — `createHttpHandler` refuses to serve when neither is configured, so
+ * a deployment that loses its secrets fails closed instead of opening to the
+ * world. Off unless set, so every existing deployment is unchanged.
+ *
+ * The GATE reads the same field `GET /` states it from, rather than its own
+ * `WALGIT_PUBLIC === '1'`. Those two spellings differed — `flagEnabled` takes
+ * `1` or `true` (docs/adr/0010), the gate took only `1` — so a deployment
+ * spelling it `true` had a front door demanding a credential under a page
+ * saying none was needed. Which spelling is right is settled by `flagEnabled`
+ * existing at all: it is there precisely so both halves read a boolean-ish
+ * variable the same way.
+ */
+const isPublic = caps.publicAccess
 
 const store = storeFromEnv()
 if (!store) {

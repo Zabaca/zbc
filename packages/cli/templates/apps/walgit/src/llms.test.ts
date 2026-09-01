@@ -11,7 +11,7 @@
 
 import { describe, expect, test } from 'bun:test'
 
-import { capabilitiesFrom } from '../shared/capabilities'
+import { capabilitiesFrom, type CapabilityEnv } from '../shared/capabilities'
 import { flagEnabled } from '../shared/policy'
 import { pushCertSeed, signedPushEnabled } from '../shared/provenance'
 import { MAX_REFS_PER_ENTRY, MAX_WATCH_ENTRIES } from '../shared/events'
@@ -28,16 +28,19 @@ const HOST = 'agentgit.zabaca.com'
  * claimed on a host where nothing can sign — and this manual's whole job is to
  * describe deployments that do.
  */
-const caps = capabilitiesFrom
-const OPEN = { WALGIT_PUBLIC: '1', WALGIT_APPEND_ONLY: '1' }
-const LIMITS = {
+const caps = (env: CapabilityEnv) => capabilitiesFrom(env)
+const OPEN: CapabilityEnv = { WALGIT_PUBLIC: '1', WALGIT_APPEND_ONLY: '1' }
+const LIMITS: CapabilityEnv = {
   WALGIT_RETENTION_HOURS: '24',
   WALGIT_MAX_PUSH_BYTES: String(99 * 1024 * 1024),
   WALGIT_MAX_REPO_BYTES: String(250 * 1024 * 1024),
 }
-const EVENTS = { WALGIT_EVENTS_URL: `https://${HOST}`, WALGIT_EVENTS_TOKEN: 'events' }
-const SEED = { WALGIT_PUSH_CERT_SEED: 'nonce-seed' }
-const GATE = { WALGIT_SIGNER_LISTS: '1' }
+const EVENTS: CapabilityEnv = {
+  WALGIT_EVENTS_URL: `https://${HOST}`,
+  WALGIT_EVENTS_TOKEN: 'events',
+}
+const SEED: CapabilityEnv = { WALGIT_PUSH_CERT_SEED: 'nonce-seed' }
+const GATE: CapabilityEnv = { WALGIT_SIGNER_LISTS: '1' }
 
 /** Open and append-only, enforcing and offering nothing else. */
 const BASE = caps(OPEN)

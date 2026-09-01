@@ -1,6 +1,9 @@
 import { describe, expect, test } from 'bun:test'
-import { capabilitiesFrom, type Capabilities } from '../shared/capabilities'
+import { capabilitiesFrom, type Capabilities, type CapabilityEnv } from '../shared/capabilities'
 import { renderInstructions } from './instructions'
+
+/** Fixtures go through here so a misspelled variable is a compile error. */
+const caps = (env: CapabilityEnv) => capabilitiesFrom(env)
 
 /**
  * Every fixture here is an ENVIRONMENT read through `capabilitiesFrom`, never a
@@ -8,27 +11,35 @@ import { renderInstructions } from './instructions'
  * (`namesCanRefuse`, `namesCanBeClaimed`), so a literal can spell a deployment
  * that cannot exist — a name that can be claimed on a host where nothing can
  * sign — and this document's whole job is to describe deployments that do.
+ *
+ * Each is annotated `CapabilityEnv` rather than handed straight to
+ * `capabilitiesFrom`, whose parameter is wide enough to take `process.env`: a
+ * misspelled variable there would be read as unset, and every `not.toContain`
+ * in this file would still pass against a document claiming nothing.
  */
-const OPEN = { WALGIT_PUBLIC: '1', WALGIT_APPEND_ONLY: '1' }
-const LIMITS = {
+const OPEN: CapabilityEnv = { WALGIT_PUBLIC: '1', WALGIT_APPEND_ONLY: '1' }
+const LIMITS: CapabilityEnv = {
   WALGIT_RETENTION_HOURS: '24',
   WALGIT_MAX_PUSH_BYTES: String(99 * 1024 * 1024),
   WALGIT_MAX_REPO_BYTES: String(250 * 1024 * 1024),
 }
-const EVENTS = { WALGIT_EVENTS_URL: 'https://walgit.example', WALGIT_EVENTS_TOKEN: 'events' }
-const SEED = { WALGIT_PUSH_CERT_SEED: 'nonce-seed' }
-const GATE = { WALGIT_SIGNER_LISTS: '1' }
+const EVENTS: CapabilityEnv = {
+  WALGIT_EVENTS_URL: 'https://walgit.example',
+  WALGIT_EVENTS_TOKEN: 'events',
+}
+const SEED: CapabilityEnv = { WALGIT_PUSH_CERT_SEED: 'nonce-seed' }
+const GATE: CapabilityEnv = { WALGIT_SIGNER_LISTS: '1' }
 
 /** The public deployment: open, append-only, capped, streaming, signing. */
-const PUBLIC = capabilitiesFrom({ ...OPEN, ...LIMITS, ...EVENTS, ...SEED })
+const PUBLIC = caps({ ...OPEN, ...LIMITS, ...EVENTS, ...SEED })
 /** …the same one with no stream. */
-const NO_EVENTS = capabilitiesFrom({ ...OPEN, ...LIMITS, ...SEED })
+const NO_EVENTS = caps({ ...OPEN, ...LIMITS, ...SEED })
 /** …and with no nonce seed, so nothing can sign. */
-const NO_SIGNING = capabilitiesFrom({ ...OPEN, ...LIMITS, ...EVENTS })
+const NO_SIGNING = caps({ ...OPEN, ...LIMITS, ...EVENTS })
 /** …and with the ownership gate on as well: every capability this page reads. */
-const EVERYTHING = capabilitiesFrom({ ...OPEN, ...LIMITS, ...EVENTS, ...SEED, ...GATE })
+const EVERYTHING = caps({ ...OPEN, ...LIMITS, ...EVENTS, ...SEED, ...GATE })
 /** A deployment that has configured nothing at all. */
-const NOTHING = capabilitiesFrom({})
+const NOTHING = caps({})
 
 describe('renderInstructions', () => {
   test('states every limit the instance enforces, before the example', async () => {
@@ -82,7 +93,7 @@ describe('renderInstructions', () => {
   test('byte caps carry the raw count, so an agent need not guess our rounding', () => {
     const text = renderInstructions(
       'https://walgit.example',
-      capabilitiesFrom({ WALGIT_MAX_PUSH_BYTES: String(99 * 1024 * 1024) }),
+      caps({ WALGIT_MAX_PUSH_BYTES: String(99 * 1024 * 1024) }),
     )
     expect(text).toContain('(103809024 bytes)')
   })
@@ -257,7 +268,7 @@ describe('the signing section says it is possible, and not why', () => {
   test('and it is corrected on the flag alone, with no nonce seed', () => {
     const text = renderInstructions(
       'https://walgit.example',
-      capabilitiesFrom({ WALGIT_PUBLIC: '1', ...GATE }),
+      caps({ WALGIT_PUBLIC: '1', ...GATE }),
     ).replace(/\s+/g, ' ')
     expect(text).not.toContain('world-readable and world-writable')
     expect(text).toContain('unless a name holds a Signer List')
@@ -338,7 +349,7 @@ describe('the terse document never explains how to hold a name', () => {
         (caps) => renderInstructions('https://agentgit.zabaca.com', caps).length,
       ),
     )
-    // 2,995 bytes at the widest today — five under. Whatever breaks this did
+    // 2,997 bytes at the widest today — three under. Whatever breaks this did
     // not break the budget, it spent the last of it: the fix is to decide what
     // comes OUT of this page, not to raise the number.
     expect(worst).toBeLessThan(3000)
@@ -348,44 +359,70 @@ describe('the terse document never explains how to hold a name', () => {
 /**
  * Every deployment this page can describe.
  *
- * Five independent switches, so 32 renders — not 64. The type has six booleans,
- * but `namesCanBeClaimed` is `namesCanRefuse && signedPushes`, so half of a
- * 64-render sweep would be states no environment produces, and this page does
- * not read that field at all. Enumerating the ENVIRONMENT is what keeps every
- * measured configuration one a deployment can actually be in.
+ * Five independent switches, so 32 boolean shapes — not 64. The type has six
+ * booleans, but `namesCanBeClaimed` is `namesCanRefuse && signedPushes`, so
+ * half of a 64-render sweep would be states no environment produces, and this
+ * page does not read that field at all. Enumerating the ENVIRONMENT is what
+ * keeps every measured configuration one a deployment can actually be in.
  *
- * The three limits are held fixed at their widest rendering rather than
- * switched, because their contribution is a width and not a branch — a limit
- * that is absent only makes the page shorter. Widest, precisely: `describeBytes`
- * prints `<n> GiB (<raw> bytes)`, so a GiB-scale cap is wider than the MiB-scale
- * one this deployment runs on both halves — a longer raw byte count, and two
- * decimals on the rounded figure; `describeHours` prints days for a multiple of
- * 24 at or above 48, so a three-digit non-multiple is its widest. The live
- * values (24 hours, 99 MiB, 250 MiB) render 2,988 — the seven bytes between
- * that and 2,995 are the headroom a deployment gives up by configuring
- * GiB-scale caps.
+ * The three limits are enumerated too, rather than pinned at values asserted to
+ * render widest. Assertion was wrong twice: `describeHours` is wider at 1,000
+ * hours than at 999, and `describeBytes` has no TiB branch, so a cap near a
+ * tebibyte prints a FOUR-digit GiB figure beside a 13-digit raw count and is
+ * wider than any `9.99 GiB` value. Measuring the candidates costs 1,120
+ * renders and needs nobody to be right about which is longest.
+ *
+ * The candidate set is the domain bound, and it is deliberate rather than
+ * exhaustive: `describeBytes` and `describeHours` grow without limit as digits
+ * are added, so "the widest possible" does not exist. What is bounded is what
+ * this service can serve — one container, sized in `wrangler.jsonc` at 1 GiB of
+ * memory, materializing a repository from the log on every cold read — and a
+ * cap approaching a tebibyte is far outside it. A deployment that configures
+ * one really would overrun this budget; it would also never finish a push.
  */
 function everyConfiguration(): Capabilities[] {
-  const SWITCHES: Record<string, string>[] = [
+  const SWITCHES: CapabilityEnv[] = [
     { WALGIT_PUBLIC: '1' },
     { WALGIT_APPEND_ONLY: '1' },
     EVENTS,
     SEED,
     GATE,
   ]
-  const WIDEST = {
-    WALGIT_RETENTION_HOURS: '999',
-    WALGIT_MAX_PUSH_BYTES: String(Math.round(1.99 * 1024 ** 3)),
-    WALGIT_MAX_REPO_BYTES: String(Math.round(9.99 * 1024 ** 3)),
-  }
+  // Live (24), the widest sub-day and sub-week values, and the widest under the
+  // four-digit bound — `describeHours` prints days for a multiple of 24 at or
+  // above 48, so the multiples are the SHORT ones.
+  const HOURS = ['1', '24', '47', '168', '999', '1000', '9999']
+  // Live (99 MiB, 250 MiB), the GiB boundary, and two GiB-scale shapes that
+  // trade width against each other: two decimals on a smaller raw count, or a
+  // bare `100 GiB` beside a twelve-digit one.
+  const BYTES = [
+    String(99 * 1024 ** 2),
+    String(250 * 1024 ** 2),
+    String(1024 ** 3),
+    String(Math.round(9.99 * 1024 ** 3)),
+    String(100 * 1024 ** 3 - 1),
+  ]
 
   const all: Capabilities[] = []
   for (let mask = 0; mask < 1 << SWITCHES.length; mask++) {
-    let env: Record<string, string> = { ...WIDEST }
+    let flags: CapabilityEnv = {}
     SWITCHES.forEach((on, bit) => {
-      if (mask & (1 << bit)) env = { ...env, ...on }
+      if (mask & (1 << bit)) flags = { ...flags, ...on }
     })
-    all.push(capabilitiesFrom(env))
+    for (const hours of HOURS) {
+      for (const bytes of BYTES) {
+        all.push(
+          caps({
+            ...flags,
+            WALGIT_RETENTION_HOURS: hours,
+            // Both caps at the same value: they render independently, so the
+            // widest page is the one where each is at its own widest.
+            WALGIT_MAX_PUSH_BYTES: bytes,
+            WALGIT_MAX_REPO_BYTES: bytes,
+          }),
+        )
+      }
+    }
   }
   return all
 }

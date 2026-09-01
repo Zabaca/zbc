@@ -13,8 +13,18 @@
 
 import { describe, expect, test } from 'bun:test'
 
-import { capabilitiesFrom } from '../shared/capabilities'
+import { capabilitiesFrom, type Capabilities, type CapabilityEnv } from '../shared/capabilities'
 import { announceConfigFromEnv } from './announce'
+
+/**
+ * Every fixture goes through here rather than straight into
+ * `capabilitiesFrom`, whose parameter is deliberately wide enough to take
+ * `process.env`. Annotated `CapabilityEnv`, a misspelled variable in a literal
+ * is a compile error; handed to `capabilitiesFrom` directly it would be
+ * accepted, read as unset, and leave a `not.toContain` assertion passing
+ * against a document that says nothing.
+ */
+const caps = (env: CapabilityEnv) => capabilitiesFrom(env)
 
 describe('the stream takes both halves', () => {
   /**
@@ -30,9 +40,9 @@ describe('the stream takes both halves', () => {
    * out.
    */
   test('is off with either half missing', () => {
-    expect(capabilitiesFrom({}).events).toBe(false)
-    expect(capabilitiesFrom({ WALGIT_EVENTS_TOKEN: 'secret' }).events).toBe(false)
-    expect(capabilitiesFrom({ WALGIT_EVENTS_URL: 'https://agentgit.example' }).events).toBe(false)
+    expect(caps({}).events).toBe(false)
+    expect(caps({ WALGIT_EVENTS_TOKEN: 'secret' }).events).toBe(false)
+    expect(caps({ WALGIT_EVENTS_URL: 'https://agentgit.example' }).events).toBe(false)
   })
 
   // Blank collapses to unset, the same reading `containerEnv` makes at the seam:
@@ -45,15 +55,13 @@ describe('the stream takes both halves', () => {
       ['https://agentgit.example', ''],
       ['https://agentgit.example', '   '],
     ]) {
-      expect(capabilitiesFrom({ WALGIT_EVENTS_URL: url, WALGIT_EVENTS_TOKEN: token }).events).toBe(
-        false,
-      )
+      expect(caps({ WALGIT_EVENTS_URL: url, WALGIT_EVENTS_TOKEN: token }).events).toBe(false)
     }
   })
 
   test('is on only with both set', () => {
     expect(
-      capabilitiesFrom({
+      caps({
         WALGIT_EVENTS_URL: 'https://agentgit.example',
         WALGIT_EVENTS_TOKEN: 'secret',
       }).events,
@@ -70,8 +78,8 @@ describe('the stream takes both halves', () => {
   test('and agrees with what the push path announces to, in every combination', () => {
     for (const url of [undefined, '', '  ', 'https://agentgit.example']) {
       for (const token of [undefined, '', '  ', 'secret']) {
-        const env = { WALGIT_EVENTS_URL: url, WALGIT_EVENTS_TOKEN: token }
-        expect(capabilitiesFrom(env).events).toBe(announceConfigFromEnv(env) !== null)
+        const env: CapabilityEnv = { WALGIT_EVENTS_URL: url, WALGIT_EVENTS_TOKEN: token }
+        expect(caps(env).events).toBe(announceConfigFromEnv(env) !== null)
       }
     }
   })
@@ -93,9 +101,9 @@ describe('the two strengths of the gate', () => {
    * deployment, not less.
    */
   test('namesCanRefuse is the flag alone, with no seed', () => {
-    const caps = capabilitiesFrom(GATE)
-    expect(caps.namesCanRefuse).toBe(true)
-    expect(caps.signedPushes).toBe(false)
+    const gated = caps(GATE)
+    expect(gated.namesCanRefuse).toBe(true)
+    expect(gated.signedPushes).toBe(false)
   })
 
   /**
@@ -105,17 +113,17 @@ describe('the two strengths of the gate', () => {
    * included, with no way to sign out of it.
    */
   test('namesCanBeClaimed needs the seed too', () => {
-    expect(capabilitiesFrom(GATE).namesCanBeClaimed).toBe(false)
-    expect(capabilitiesFrom({ ...GATE, ...SEED }).namesCanBeClaimed).toBe(true)
+    expect(caps(GATE).namesCanBeClaimed).toBe(false)
+    expect(caps({ ...GATE, ...SEED }).namesCanBeClaimed).toBe(true)
   })
 
   // The seed without the flag is signing without ownership, which is the state
   // every deployment that took ADR-0011 and not ADR-0012 is in.
   test('and the seed alone claims neither', () => {
-    const caps = capabilitiesFrom(SEED)
-    expect(caps.signedPushes).toBe(true)
-    expect(caps.namesCanRefuse).toBe(false)
-    expect(caps.namesCanBeClaimed).toBe(false)
+    const signing = caps(SEED)
+    expect(signing.signedPushes).toBe(true)
+    expect(signing.namesCanRefuse).toBe(false)
+    expect(signing.namesCanBeClaimed).toBe(false)
   })
 })
 
@@ -127,15 +135,15 @@ describe('the two strengths of the gate', () => {
 describe('the flags take 1 and true, and nothing else', () => {
   test('publicAccess and appendOnly are on for either spelling', () => {
     for (const raw of ['1', 'true']) {
-      expect(capabilitiesFrom({ WALGIT_PUBLIC: raw }).publicAccess).toBe(true)
-      expect(capabilitiesFrom({ WALGIT_APPEND_ONLY: raw }).appendOnly).toBe(true)
+      expect(caps({ WALGIT_PUBLIC: raw }).publicAccess).toBe(true)
+      expect(caps({ WALGIT_APPEND_ONLY: raw }).appendOnly).toBe(true)
     }
   })
 
   test('and off for everything else', () => {
     for (const raw of [undefined, '', '0', 'yes', 'TRUE', 'on']) {
-      expect(capabilitiesFrom({ WALGIT_PUBLIC: raw }).publicAccess).toBe(false)
-      expect(capabilitiesFrom({ WALGIT_APPEND_ONLY: raw }).appendOnly).toBe(false)
+      expect(caps({ WALGIT_PUBLIC: raw }).publicAccess).toBe(false)
+      expect(caps({ WALGIT_APPEND_ONLY: raw }).appendOnly).toBe(false)
     }
   })
 })
@@ -152,9 +160,9 @@ describe('a number that is not a positive number is no limit at all', () => {
     'WALGIT_MAX_REPO_BYTES',
   ] as const
   const READ = {
-    WALGIT_RETENTION_HOURS: (c: ReturnType<typeof capabilitiesFrom>) => c.retentionHours,
-    WALGIT_MAX_PUSH_BYTES: (c: ReturnType<typeof capabilitiesFrom>) => c.maxPushBytes,
-    WALGIT_MAX_REPO_BYTES: (c: ReturnType<typeof capabilitiesFrom>) => c.maxRepoBytes,
+    WALGIT_RETENTION_HOURS: (c: Capabilities) => c.retentionHours,
+    WALGIT_MAX_PUSH_BYTES: (c: Capabilities) => c.maxPushBytes,
+    WALGIT_MAX_REPO_BYTES: (c: Capabilities) => c.maxRepoBytes,
   }
 
   // Zero would refuse every push and a negative one is a typo; neither may
@@ -163,15 +171,15 @@ describe('a number that is not a positive number is no limit at all', () => {
   test('unset, blank, unparseable, zero and negative all read as null', () => {
     for (const name of NUMBERS) {
       for (const raw of [undefined, '', '   ', 'lots', 'NaN', '0', '-1']) {
-        expect(READ[name](capabilitiesFrom({ [name]: raw }))).toBeNull()
+        expect(READ[name](caps({ [name]: raw }))).toBeNull()
       }
     }
   })
 
   test('a positive number is the limit', () => {
-    expect(capabilitiesFrom({ WALGIT_RETENTION_HOURS: '24' }).retentionHours).toBe(24)
-    expect(capabilitiesFrom({ WALGIT_MAX_PUSH_BYTES: '104857600' }).maxPushBytes).toBe(104857600)
-    expect(capabilitiesFrom({ WALGIT_MAX_REPO_BYTES: '250000000' }).maxRepoBytes).toBe(250000000)
+    expect(caps({ WALGIT_RETENTION_HOURS: '24' }).retentionHours).toBe(24)
+    expect(caps({ WALGIT_MAX_PUSH_BYTES: '104857600' }).maxPushBytes).toBe(104857600)
+    expect(caps({ WALGIT_MAX_REPO_BYTES: '250000000' }).maxRepoBytes).toBe(250000000)
   })
 })
 
@@ -181,7 +189,7 @@ describe('a number that is not a positive number is no limit at all', () => {
  * capabilities. Nothing is `undefined`: every field is present and says no.
  */
 test('an unconfigured deployment advertises nothing, and says so in every field', () => {
-  expect(capabilitiesFrom({})).toEqual({
+  expect(caps({})).toEqual({
     publicAccess: false,
     appendOnly: false,
     events: false,

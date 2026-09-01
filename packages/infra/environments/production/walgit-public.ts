@@ -75,9 +75,13 @@ export default cloudflareModule.instance({
     workerSecrets: [
       { name: 'WALGIT_S3_ACCESS_KEY_ID', secret: 'WAREHOUSE_R2_ACCESS_KEY_ID' },
       { name: 'WALGIT_S3_SECRET_ACCESS_KEY', secret: 'WAREHOUSE_R2_SECRET_ACCESS_KEY' },
-      // The ref-event stream's announce credential, and the variable that turns
-      // the stream on at all: with it unset there is no endpoint, and a
-      // subscriber gets the same 404 as for any path that does not exist.
+      // The ref-event stream's announce credential. One of the two variables
+      // that turn the stream on — `WALGIT_EVENTS_URL` below is the other, and
+      // both are required: with either unset there is no endpoint, and a
+      // subscriber gets the same 404 as for any path that does not exist. The
+      // token alone would claim the socket while the container's
+      // `post-receive` had nowhere to announce to, so the handshake would
+      // answer and nothing would ever arrive (shared/capabilities.ts).
       //
       // A SECRET rather than a var, and the distinction is not cosmetic here.
       // `workerVars` are applied through `wrangler deploy --var`, i.e. on a

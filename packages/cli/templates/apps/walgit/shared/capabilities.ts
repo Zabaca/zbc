@@ -64,6 +64,17 @@ type CapabilityVar = Extract<
 >
 
 /**
+ * An environment named exactly by the variables a capability is read from.
+ *
+ * `capabilitiesFrom` accepts something wider (see below), so this is what a
+ * caller writing a LITERAL should annotate it with: a misspelled variable in a
+ * literal typed as this is a compile error, whereas the same literal handed
+ * straight to `capabilitiesFrom` would be accepted and quietly read as unset.
+ * That is what every test fixture in this package is typed as.
+ */
+export type CapabilityEnv = Partial<Record<CapabilityVar, string>>
+
+/**
  * What this deployment offers, as the documents and the push path both read it.
  *
  * Every field is REQUIRED and absence is `null`, never an omitted key. Optional
@@ -145,12 +156,16 @@ export type Capabilities = {
  * The second half of the parameter type is what lets the container hand over
  * `process.env` — an all-optional type is "weak" to TypeScript, which refuses a
  * source that declares no property in common with it, and `NodeJS.ProcessEnv`
- * declares only `NODE_ENV` and `TZ`. It does not widen what may be READ: a
- * property access on a union has to exist on BOTH halves, so a variable outside
- * `CapabilityVar` is still a compile error here.
+ * declares only `NODE_ENV` and `TZ`.
+ *
+ * It does not widen what may be READ here: a property access on a union has to
+ * exist on BOTH halves, so a variable outside `CapabilityVar` is a compile
+ * error inside this function. It DOES widen what a caller may pass — a literal
+ * with a misspelled variable is accepted and read as unset — so a caller
+ * writing one annotates it `CapabilityEnv`, which is checked.
  */
 export function capabilitiesFrom(
-  env: Partial<Record<CapabilityVar, string>> | Record<string, string | undefined>,
+  env: CapabilityEnv | Record<string, string | undefined>,
 ): Capabilities {
   const namesCanRefuse = flagEnabled(env.WALGIT_SIGNER_LISTS)
   const signedPushes = signedPushEnabled(env.WALGIT_PUSH_CERT_SEED)
