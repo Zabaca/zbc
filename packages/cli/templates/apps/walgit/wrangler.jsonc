@@ -18,10 +18,29 @@
     {
       "class_name": "WalgitContainer",
       "image": "./Dockerfile",
-      // git is not memory-hungry until it packs: `git repack -adf` on a 250 MiB
-      // repository is the sizing case, and it succeeded on this tier in the
-      // Containers spike (27.7 s, with /dev/shm unusable).
-      "instance_type": "standard-1",
+      // 1 GiB, and the tier above it was paying for a copy nobody needed.
+      //
+      // The old sizing said "git is not memory-hungry until it packs, and
+      // `git repack -adf` on a 250 MiB repository is the sizing case". Measured,
+      // that is not what happens. Repacking a 250 MiB repository — the
+      // `WALGIT_MAX_REPO_BYTES` cap — peaks at 82 MiB RSS. git is never the
+      // sizing case. What follows the repack is: `compact.ts` reads the produced
+      // pack into memory to hash and upload it, and peak RSS for the whole
+      // operation is ~583 MiB.
+      //
+      // Half of that is avoidable and is being removed separately: a Node
+      // `Buffer` already IS a `Uint8Array`, so `new Uint8Array(readFileSync(…))`
+      // allocates a second full copy of every pack (+502 MiB for a 250 MiB file,
+      // against +251 MiB without the wrapper, same digest). Once that lands the
+      // peak is ~330 MiB and this tier is roomy rather than merely adequate.
+      //
+      // Headroom to keep in mind when raising `WALGIT_MAX_REPO_BYTES` or
+      // `WALGIT_MAX_PUSH_BYTES`: one container serves concurrent requests and
+      // each in-flight push buffers its own pack, so two simultaneous 99 MiB
+      // pushes cost ~400 MiB today and ~200 MiB after the copy goes. Nothing
+      // bounds how many land at once, which is the real limit on sizing down
+      // again.
+      "instance_type": "basic",
       // One instance, deliberately — see worker/index.ts. The disk is a cache,
       // so a second instance is correct but starts cold and materializes
       // everything it serves.
