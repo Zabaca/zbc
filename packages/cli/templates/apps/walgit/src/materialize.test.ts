@@ -164,7 +164,7 @@ describe('materialize', () => {
     fs.mkdirSync(staged, { recursive: true })
     fs.writeFileSync(path.join(staged, 'p.pack'), src.pack)
     git(staged, 'index-pack', 'p.pack')
-    const idxBody = new Uint8Array(fs.readFileSync(path.join(staged, 'p.idx')))
+    const idxBody = fs.readFileSync(path.join(staged, 'p.idx'))
     await store.put(idxKey, idxBody)
 
     await publish({
@@ -176,7 +176,7 @@ describe('materialize', () => {
     await materialize(store, repo)
 
     const placed = path.join(repo.dir, 'objects', 'pack', `${packBasename(entry)}.idx`)
-    expect(new Uint8Array(fs.readFileSync(placed))).toEqual(idxBody)
+    expect(fs.readFileSync(placed)).toEqual(idxBody)
   })
 
   test('never requests an entry at or below the frontier', async () => {

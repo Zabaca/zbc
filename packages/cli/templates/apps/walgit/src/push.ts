@@ -188,15 +188,17 @@ export async function preReceive(ctx: PreReceiveContext): Promise<void> {
 
   const { index } = await loadIndex(ctx.store, ctx.repoId)
   const id = ulid(at.getTime())
-  const packBody = new Uint8Array(fs.readFileSync(found.pack))
+  // The `Buffer` goes to the store as it is. A Node `Buffer` already IS a
+  // `Uint8Array`, so wrapping it in `new Uint8Array(…)` would change nothing
+  // about the value and allocate a second full copy of the pack — up to
+  // `WALGIT_MAX_PUSH_BYTES` of it, per in-flight push, which is what sized the
+  // container.
+  const packBody = fs.readFileSync(found.pack)
   const key = walKey(ctx.repoId, index.seq + 1, id, 'pack')
 
   await ctx.store.put(key, packBody)
   if (found.idx) {
-    await ctx.store.put(
-      walKey(ctx.repoId, index.seq + 1, id, 'idx'),
-      new Uint8Array(fs.readFileSync(found.idx)),
-    )
+    await ctx.store.put(walKey(ctx.repoId, index.seq + 1, id, 'idx'), fs.readFileSync(found.idx))
   }
 
   const entry: Omit<WalEntry, 'seq'> = {
