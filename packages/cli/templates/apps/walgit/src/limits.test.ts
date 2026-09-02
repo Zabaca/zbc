@@ -9,14 +9,8 @@
  */
 import { describe, expect, test } from 'bun:test'
 
-import {
-  checkSize,
-  limitsEnforced,
-  limitsFromEnv,
-  liveBytes,
-  NO_LIMITS,
-  type Limits,
-} from './limits'
+import { capabilitiesFrom } from '../shared/capabilities'
+import { checkSize, limitsEnforced, limitsOf, liveBytes, NO_LIMITS, type Limits } from './limits'
 import type { WalEntry, WalIndex } from './wal-index'
 
 const MIB = 1024 ** 2
@@ -40,9 +34,15 @@ function index(entries: Array<Pick<WalEntry, 'seq' | 'size'>>, frontier = 0): Wa
   }
 }
 
+/**
+ * The caps are a projection of `Capabilities` (`shared/capabilities.ts`) rather
+ * than a second reading of the environment, so what is checked here is that the
+ * projection carries the derivation's answers through unchanged — the parsing
+ * itself is `capabilities.test.ts`'s.
+ */
 describe('reading the caps', () => {
   test('unset means unlimited, and unlimited means nothing is checked', () => {
-    expect(limitsFromEnv({})).toEqual(NO_LIMITS)
+    expect(limitsOf(capabilitiesFrom({}))).toEqual(NO_LIMITS)
     expect(limitsEnforced(NO_LIMITS)).toBe(false)
     // The template default. A deployment opts in; an existing one is unchanged.
     expect(
@@ -55,10 +55,14 @@ describe('reading the caps', () => {
   test('a garbage or non-positive value reads as unset, never as zero', () => {
     // Zero would refuse every push on the instance. A typo must not do that.
     for (const raw of ['', '  ', 'unlimited', '0', '-1', 'NaN']) {
-      expect(limitsFromEnv({ WALGIT_MAX_PUSH_BYTES: raw }).maxPushBytes).toBeNull()
+      expect(limitsOf(capabilitiesFrom({ WALGIT_MAX_PUSH_BYTES: raw })).maxPushBytes).toBeNull()
     }
-    expect(limitsFromEnv({ WALGIT_MAX_PUSH_BYTES: '104857600' }).maxPushBytes).toBe(104857600)
-    expect(limitsFromEnv({ WALGIT_MAX_REPO_BYTES: '250000000' }).maxRepoBytes).toBe(250000000)
+    expect(limitsOf(capabilitiesFrom({ WALGIT_MAX_PUSH_BYTES: '104857600' })).maxPushBytes).toBe(
+      104857600,
+    )
+    expect(limitsOf(capabilitiesFrom({ WALGIT_MAX_REPO_BYTES: '250000000' })).maxRepoBytes).toBe(
+      250000000,
+    )
   })
 })
 

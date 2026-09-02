@@ -17,10 +17,11 @@ import { spawn } from 'node:child_process'
 import * as fs from 'node:fs'
 import * as path from 'node:path'
 
+import { capabilitiesFrom } from '../shared/capabilities'
 import { announceConfigFromEnv } from './announce'
 import { appendOnlyEnabled, checkAppendOnly } from './append-only'
 import { configuredThreshold, isCompactionDue } from './compact'
-import { checkSize, limitsEnforced, limitsFromEnv, liveBytes } from './limits'
+import { checkSize, limitsEnforced, limitsOf, liveBytes } from './limits'
 import { clearPending, invocationId, markConsumed, readPending, sweepPending } from './pending'
 import {
   establishSigner,
@@ -170,7 +171,11 @@ async function main(): Promise<number> {
     // when a repository total is configured) one index read — against the ~37 s
     // an oversized push otherwise spends uploading before the EDGE refuses it
     // with something that reads like a dropped connection. See src/limits.ts.
-    const limits = limitsFromEnv()
+    // This is a separate OS process git spawns per hook, with its own
+    // `process.env` — so the read is here rather than threaded through
+    // `PreReceiveContext`, and it is the same derivation the three documents
+    // state their caps from.
+    const limits = limitsOf(capabilitiesFrom(process.env))
     if (limitsEnforced(limits)) {
       const found = quarantineDir ? quarantinePack(quarantineDir) : null
       const pushBytes = found ? fs.statSync(found.pack).size : 0

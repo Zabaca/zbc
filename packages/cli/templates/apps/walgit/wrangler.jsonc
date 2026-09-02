@@ -53,8 +53,8 @@
       // The ref-event stream's rendezvous: one object holding every subscriber's
       // socket, so a push published in one colo reaches a client connected to
       // another (worker/events-do.ts). Bound unconditionally — the endpoints
-      // only exist when WALGIT_EVENTS_TOKEN is set, and an unused binding costs
-      // nothing.
+      // only exist when WALGIT_EVENTS_TOKEN and WALGIT_EVENTS_URL are BOTH set
+      // (shared/capabilities.ts), and an unused binding costs nothing.
       { "class_name": "WalgitEvents", "name": "WALGIT_EVENTS" }
     ]
   },

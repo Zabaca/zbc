@@ -10,6 +10,7 @@
  * a container hold a token long before they hold an identity of any other kind.
  */
 
+import { capabilitiesFrom, type Capabilities } from '../shared/capabilities'
 import { authorizedBy } from '../shared/credentials'
 import {
   EXPIRE_PATH,
@@ -22,7 +23,6 @@ import {
   SMART_HTTP,
   type ContainerRejectKind,
 } from '../shared/protocol'
-import type { InstructionsPolicy } from './instructions'
 import { renderInstructions } from './instructions'
 import type { ResolvedRepo } from './repo'
 import { resolveRepo } from './repo'
@@ -60,11 +60,13 @@ export type HttpHandlerDeps = {
   syncRepo?: (repo: ResolvedRepo) => Promise<unknown>
   runBackend: (req: BackendRequest) => Promise<Response>
   /**
-   * What `GET /` tells an agent about this instance. Rendered from the limits
-   * actually configured, so the page can never promise a rule the deployment
-   * does not enforce.
+   * What `GET /` tells an agent about this instance
+   * (`shared/capabilities.ts`), so the page can never promise a rule the
+   * deployment does not enforce. Optional so the routing can be tested without
+   * one; a handler given none advertises nothing at all, which is the safe
+   * direction for a document about what is offered.
    */
-  instructions?: InstructionsPolicy
+  capabilities?: Capabilities
   /**
    * Run one expiry sweep. Optional: an instance that is not given one simply
    * does not answer the endpoint, which is what a deployment with no timer in
@@ -142,6 +144,16 @@ const UNAUTHORIZED = () =>
 const NOT_FOUND = () => reject(404, 'not-found', 'not found\n')
 
 /**
+ * What a handler wired without capabilities says it offers: nothing.
+ *
+ * The empty environment read through the one derivation, rather than an object
+ * literal — a hand-written "all off" would be a second place a capability has
+ * to be remembered, which is the whole defect `shared/capabilities.ts` exists
+ * to remove.
+ */
+const ADVERTISES_NOTHING = capabilitiesFrom({})
+
+/**
  * Stamp a response as walgit's own. Rebuilt rather than mutated because a
  * Response's headers are immutable once constructed — the body is passed
  * through by reference, so a streamed clone is not buffered to do this.
@@ -211,9 +223,10 @@ function createRouter(deps: HttpHandlerDeps): (req: Request) => Promise<Response
     // has nowhere to start. text/plain because the reader is a model with a
     // default fetch, not a browser — no markup to parse to find the endpoint.
     if (url.pathname === '/' && (request.method === 'GET' || request.method === 'HEAD')) {
-      return new Response(renderInstructions(publicOrigin(request, url), deps.instructions), {
-        headers: { 'content-type': 'text/plain; charset=utf-8' },
-      })
+      return new Response(
+        renderInstructions(publicOrigin(request, url), deps.capabilities ?? ADVERTISES_NOTHING),
+        { headers: { 'content-type': 'text/plain; charset=utf-8' } },
+      )
     }
 
     if (!deps.public && !authorizedBy(request.headers.get('authorization'), deps.tokens)) {

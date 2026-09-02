@@ -10,73 +10,32 @@
  * the retention window after pushing has been misled, so every limit the
  * instance enforces is stated before the example — and a limit the instance
  * does NOT enforce is never claimed, which is why the text is rendered from
- * policy rather than written once as a constant.
+ * `Capabilities` (`shared/capabilities.ts`) — the one derivation the push path
+ * and the two edge documents also read — rather than written once as a
+ * constant.
  */
 
+import type { Capabilities } from '../shared/capabilities'
 import { describeBytes } from '../shared/policy'
 import { EVENTS_PATH, PROVENANCE_PATH } from '../shared/protocol'
-
-export type InstructionsPolicy = {
-  /** Reads and writes need no credential. */
-  publicAccess?: boolean
-  /** Refs only move forward; rewrites and deletions are refused. */
-  appendOnly?: boolean
-  /** A repository is collected this many hours after its last push. */
-  retentionHours?: number
-  /** Largest single push, in bytes. */
-  maxPushBytes?: number
-  /** Largest total size of one repository, in bytes. */
-  maxRepoBytes?: number
-  /**
-   * This deployment serves the ref-event stream.
-   *
-   * Advertised for the same reason the limits are: an agent that cannot
-   * discover the socket falls back to fetching on a timer, which is the exact
-   * cost the stream exists to remove. And a deployment without one must not
-   * describe it — a promised socket that refuses the upgrade is worse than no
-   * mention at all, because the agent writes the client before finding out.
-   */
-  events?: boolean
-  /**
-   * This deployment accepts a signed push and records who made it.
-   *
-   * Rendered from the nonce seed, for the reason every other entry here is
-   * rendered from what enforces it: with no seed `git-receive-pack` never
-   * advertises the `push-cert` capability, and a client told to sign is
-   * refused by its OWN git before a byte leaves the machine. Advertising it
-   * there would hand an agent a flag that cannot work — the same defect as a
-   * cap nothing enforces, arriving one step earlier.
-   */
-  signedPushes?: boolean
-  /**
-   * A repository here may hold a Signer List, and be defended by it.
-   *
-   * It buys no section — this page has a byte budget and ADR-0012 put
-   * discovery in `/llms.txt` and in the refusal itself, because ownership's
-   * failure lands on our server in our words. What it buys is two corrections,
-   * both of them the removal of a promise the gate makes false: the signing
-   * paragraph otherwise says nothing is refused for being unsigned, and the
-   * access bullet otherwise says every repository is world-WRITABLE. A page
-   * that says the opposite of the hook is the drift every other entry here
-   * exists to prevent.
-   *
-   * Read alone rather than with `signedPushes`, unlike the signing clause: the
-   * hook refuses on this flag by itself (`signerListsEnabled` in
-   * `src/hook-main.ts`), so on a deployment that sets it without a nonce seed a
-   * claimed name refuses EVERY push — which makes unconditional writability
-   * more wrong, not less. The bullet states what is refused; it does not invite
-   * anyone to claim anything, so the misconfiguration that gates the roadmap
-   * row on the HTML page does not gate this.
-   */
-  signerLists?: boolean
-}
 
 /**
  * Rendered per request rather than baked at boot, because the host an agent
  * must type is the host it reached us on: a deployment behind a proxy, a
  * preview URL and a local test each need the example to work verbatim.
+ *
+ * A full ORIGIN, scheme included, unlike the two edge documents which take a
+ * bare hostname and supply `https://` themselves — a local test reaches this
+ * over plain http and the example has to work verbatim there too. That is why
+ * neither spelling of the host is a field on `Capabilities`.
+ *
+ * What this page does with each capability is the shortest reading of it in the
+ * package. It has a byte budget, and ADR-0012 put ownership's discovery in
+ * `/llms.txt` and in the refusal itself — so `namesCanRefuse` buys two
+ * corrections here and nothing else, and `namesCanBeClaimed` is not read at
+ * all: this document never teaches anyone to hold a name.
  */
-export function renderInstructions(origin: string, policy: InstructionsPolicy = {}): string {
+export function renderInstructions(origin: string, caps: Capabilities): string {
   const lines: string[] = [
     'walgit — a git host for agents.',
     '',
@@ -88,7 +47,7 @@ export function renderInstructions(origin: string, policy: InstructionsPolicy = 
     '',
   ]
 
-  for (const fact of facts(policy)) lines.push(...wrap(`- ${fact}`), '')
+  for (const fact of facts(caps)) lines.push(...wrap(`- ${fact}`), '')
 
   lines.push(
     'PUSH A REPOSITORY YOU ALREADY HAVE',
@@ -108,9 +67,9 @@ export function renderInstructions(origin: string, policy: InstructionsPolicy = 
     '',
     `    git clone ${origin}/$NAME.git`,
     '',
-    ...(policy.signedPushes ? signingSection(origin, policy.signerLists) : []),
-    ...(policy.events ? watchSection(origin) : []),
-    ...(policy.events
+    ...(caps.signedPushes ? signingSection(origin, caps.namesCanRefuse) : []),
+    ...(caps.events ? watchSection(origin) : []),
+    ...(caps.events
       ? []
       : [...wrap(`The full manual, with worked examples, is at ${origin}/llms.txt.`), '']),
     'IF A PUSH IS REFUSED',
@@ -124,15 +83,15 @@ export function renderInstructions(origin: string, policy: InstructionsPolicy = 
   return `${lines.join('\n')}\n`
 }
 
-function facts(policy: InstructionsPolicy): string[] {
+function facts(caps: Capabilities): string[] {
   const facts: string[] = [
-    policy.publicAccess
-      ? publicAccessFact(policy.signerLists === true)
+    caps.publicAccess
+      ? publicAccessFact(caps.namesCanRefuse)
       : 'This instance requires a credential. Send it as the password of an HTTP basic credential or as a bearer token; the username is ignored.',
     'A repository is created by the first push to its name. Names are a single segment, claimed first-come, and never reassigned.',
   ]
 
-  if (policy.appendOnly) {
+  if (caps.appendOnly) {
     /**
      * The last sentence is gated too, and for the same reason the access bullet
      * above it is: *"That holds for everyone, so a stranger can build on your
@@ -145,22 +104,22 @@ function facts(policy: InstructionsPolicy): string[] {
      */
     facts.push(
       `Refs are append-only. A push that would rewrite history or delete a ref is refused. You can always add a commit or a branch; nothing can ever be removed. ${
-        policy.signerLists
+        caps.namesCanRefuse
           ? 'Whoever the name takes a push from can build on your work but cannot destroy it.'
           : 'That holds for everyone, so a stranger can build on your work but cannot destroy it.'
       }`,
     )
   }
-  if (policy.retentionHours !== undefined) {
+  if (caps.retentionHours !== null) {
     facts.push(
-      `A repository is deleted ${describeHours(policy.retentionHours)} after its LAST PUSH. Cloning does not extend it; pushing does. This is scratch space — copy the work elsewhere if it must outlive that window.`,
+      `A repository is deleted ${describeHours(caps.retentionHours)} after its LAST PUSH. Cloning does not extend it; pushing does. This is scratch space — copy the work elsewhere if it must outlive that window.`,
     )
   }
-  if (policy.maxPushBytes !== undefined) {
-    facts.push(`A single push may not exceed ${describeBytes(policy.maxPushBytes)}.`)
+  if (caps.maxPushBytes !== null) {
+    facts.push(`A single push may not exceed ${describeBytes(caps.maxPushBytes)}.`)
   }
-  if (policy.maxRepoBytes !== undefined) {
-    facts.push(`One repository may not exceed ${describeBytes(policy.maxRepoBytes)} in total.`)
+  if (caps.maxRepoBytes !== null) {
+    facts.push(`One repository may not exceed ${describeBytes(caps.maxRepoBytes)} in total.`)
   }
 
   facts.push(
@@ -188,8 +147,8 @@ function facts(policy: InstructionsPolicy): string[] {
  * write one — ADR-0012 put that in `/llms.txt` and in the refusal, and this
  * page's job is only to stop claiming the opposite.
  */
-function publicAccessFact(signerLists: boolean): string {
-  return signerLists
+function publicAccessFact(namesCanRefuse: boolean): string {
+  return namesCanRefuse
     ? 'Every repository is world-readable. Anyone may push, with no credential, unless a name holds a Signer List. Do not push a secret, a token, or anything you would not publish.'
     : 'Everything here is public. Every repository is world-readable and world-writable, by anyone, with no credential. Do not push a secret, a token, or anything you would not publish.'
 }
@@ -204,13 +163,13 @@ function publicAccessFact(signerLists: boolean): string {
  * does not, so an agent can put one form in its habits and never branch on
  * which host it is talking to.
  */
-function signingSection(origin: string, signerLists = false): string[] {
+function signingSection(origin: string, namesCanRefuse: boolean): string[] {
   return [
     'SIGN A PUSH, AND BE CREDITED FOR IT',
     '',
     ...wrap(
       'Push with --signed=if-asked and the fingerprint of your key is recorded as who moved each ref. Any SSH key works, including the one you already push to GitHub with. ' +
-        (signerLists
+        (namesCanRefuse
           ? 'Unsigned is fine unless a name holds a Signer List.'
           : 'Nothing is refused for being unsigned.'),
     ),

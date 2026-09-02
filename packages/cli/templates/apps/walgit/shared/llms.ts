@@ -12,60 +12,19 @@
  *                  this is where worked examples and the reasoning live.
  *
  * The rule that keeps them from becoming two versions of the truth: every
- * enforced limit in both is rendered from the same environment the push path
- * reads, never written as prose. A cap this deployment does not enforce cannot
+ * enforced limit in both is rendered from one `Capabilities`
+ * (`shared/capabilities.ts`), derived from the environment the push path reads
+ * and never written as prose. A cap this deployment does not enforce cannot
  * appear in either document, because neither has a constant to state it with.
  *
  * Markdown rather than plain text, following the llms.txt convention: the
  * headings are the index, and a model can skim them without parsing anything.
  */
 
+import type { Capabilities } from './capabilities'
 import { MAX_REFS_PER_ENTRY, MAX_WATCH_ENTRIES } from './events'
 import { describeBytes } from './policy'
 import { EVENTS_PATH, PROVENANCE_PATH, SIGNERS_REF } from './protocol'
-
-export interface LlmsFacts {
-  /** The hostname the request arrived on — every command below uses it. */
-  host: string
-  /** `null` when this deployment collects nothing, and the text then says so. */
-  retentionHours: number | null
-  maxPushBytes: number | null
-  maxRepoBytes: number | null
-  /** Whether this deployment serves the ref-event stream. */
-  events: boolean
-  /** Whether reads and writes need no credential at all. */
-  publicAccess: boolean
-  /** Whether refs may only move forward here. */
-  appendOnly: boolean
-  /**
-   * Whether this deployment takes a signed push and records who made it.
-   *
-   * From the nonce seed, the same value the container writes onto every
-   * repository as `receive.certNonceSeed`. With no seed the capability is not
-   * advertised on the wire and a client asking to sign is refused by its own
-   * git, so a manual describing it here would be describing a flag that
-   * cannot work on this host.
-   */
-  signedPushes: boolean
-  /**
-   * Whether a repository here may hold a Signer List, and be defended by it.
-   *
-   * Read twice. It conditions the two sentences that say walgit refuses nothing
-   * on the strength of a signature and keeps no list of allowed signers, both
-   * of which stop being true the moment the gate is on; and it is what renders
-   * `## Hold a name`, the section that teaches claiming, granting, revoking and
-   * reading a list. This is the document ADR-0012 put discovery in, so an agent
-   * that came looking learns a name is holdable before it is refused for
-   * pushing to somebody else's.
-   *
-   * Paired with `signedPushes` at the section, never read alone: with no nonce
-   * seed nothing can sign, so every push to a claimed name is refused as
-   * unsigned and no client can sign its way out. Teaching an agent to claim a
-   * name there would hand it a command that cannot work — the same defect as a
-   * cap nothing enforces.
-   */
-  signerLists: boolean
-}
 
 /** Only GET or HEAD on the one path. Nothing else is this document. */
 export function wantsLlms(method: string, pathname: string): boolean {
@@ -75,24 +34,24 @@ export function wantsLlms(method: string, pathname: string): boolean {
 
 const hours = (n: number) => (n === 1 ? '1 hour' : `${n} hours`)
 
-export function renderLlms(facts: LlmsFacts): string {
-  const { host } = facts
+export function renderLlms(host: string, caps: Capabilities): string {
   const ws = `wss://${host}${EVENTS_PATH}`
 
   const limits: string[] = []
-  if (facts.publicAccess) {
+  if (caps.publicAccess) {
     /**
      * The first thing an agent reads about write access, so it is the first
-     * thing the gate makes false. It is read from `signerLists` ALONE, unlike
-     * `## Hold a name` below, which is paired with `signedPushes`: the section
-     * teaches an agent to claim a name and must not do so where nothing can
-     * sign, whereas this sentence only says what `pre-receive` refuses — and
-     * `pre-receive` refuses on this flag by itself. On a deployment that sets
-     * it without a seed, a claimed name refuses every push, which makes
-     * unconditional writability more wrong rather than less.
+     * thing the gate makes false. It is read from `namesCanRefuse` — the gate
+     * alone — unlike `## Hold a name` below, which asks for
+     * `namesCanBeClaimed`: the section teaches an agent to claim a name and
+     * must not do so where nothing can sign, whereas this sentence only says
+     * what `pre-receive` refuses, and `pre-receive` refuses on the flag by
+     * itself. On a deployment that sets it without a seed, a claimed name
+     * refuses every push, which makes unconditional writability more wrong
+     * rather than less.
      */
     limits.push(
-      facts.signerLists
+      caps.namesCanRefuse
         ? '- **No credential.** Reads and writes take no token, no key and no account. Everything here is world-readable, and a name that has not written a **Signer List** takes a push from anyone — which is every name until someone writes one. Do not push a secret.'
         : '- **No credential.** Reads and writes take no token, no key and no account. Everything here is world-readable and world-writable. Do not push a secret.',
     )
@@ -106,7 +65,7 @@ export function renderLlms(facts: LlmsFacts): string {
   limits.push(
     '- **A repository is created by its first push.** Names are one segment, claimed first-come, never reassigned. Put a random suffix on the name: many agents run near-identical prompts at the same time, and a taken name means a refused push.',
   )
-  if (facts.appendOnly) {
+  if (caps.appendOnly) {
     // The second half is gated for the same reason the bullet above it is:
     // "safe to hand a repository to a stranger: they can build on it" is the
     // same promise of unconditional writability one bullet later, and a list
@@ -115,26 +74,24 @@ export function renderLlms(facts: LlmsFacts): string {
     // push at all is what the gate narrows.
     limits.push(
       `- **Refs only move forward.** A push that would rewrite history or delete a ref is refused. Adding a commit or a branch is always allowed. ${
-        facts.signerLists
+        caps.namesCanRefuse
           ? 'This is what makes it safe to hand an unclaimed name to a stranger: they can build on it and cannot take anything away.'
           : 'This is what makes it safe to hand a repository to a stranger: they can build on it and cannot take anything away.'
       }`,
     )
   }
-  if (facts.retentionHours !== null) {
+  if (caps.retentionHours !== null) {
     limits.push(
-      `- **A repository is deleted ${hours(facts.retentionHours)} after its LAST push.** Cloning does not extend it; pushing does. This is scratch space. Copy anything that must outlive that window.`,
+      `- **A repository is deleted ${hours(caps.retentionHours)} after its LAST push.** Cloning does not extend it; pushing does. This is scratch space. Copy anything that must outlive that window.`,
     )
   }
-  if (facts.maxPushBytes !== null) {
+  if (caps.maxPushBytes !== null) {
     limits.push(
-      `- **A single push may not exceed ${describeBytes(facts.maxPushBytes)}.** Refused in \`pre-receive\`, before anything is uploaded.`,
+      `- **A single push may not exceed ${describeBytes(caps.maxPushBytes)}.** Refused in \`pre-receive\`, before anything is uploaded.`,
     )
   }
-  if (facts.maxRepoBytes !== null) {
-    limits.push(
-      `- **One repository may not exceed ${describeBytes(facts.maxRepoBytes)}** in total.`,
-    )
+  if (caps.maxRepoBytes !== null) {
+    limits.push(`- **One repository may not exceed ${describeBytes(caps.maxRepoBytes)}** in total.`)
   }
 
   /**
@@ -155,14 +112,14 @@ export function renderLlms(facts: LlmsFacts): string {
    * stops this document from lying; how to write one is `## Hold a name`, and
    * this section points at it rather than repeating it.
    */
-  const signing = facts.signedPushes
+  const signing = caps.signedPushes
     ? `
 ## Say who pushed
 
 A push here can carry a **push certificate**: a small signed document naming
 the refs it moves and a nonce this host issued. walgit verifies the signature
 itself and records the fingerprint of the key that made it.${
-        facts.signerLists
+        caps.namesCanRefuse
           ? ` A name that has
 written a **Signer List** takes pushes from the keys that list names and refuses
 everything else; a name nobody has written one for refuses nothing, which is
@@ -183,7 +140,7 @@ before anything reaches the network.
 
 The key costs nothing to provision: if you already push to GitHub over SSH, the
 key you push with is the key that signs. There is nothing to register here${
-        facts.signerLists
+        caps.namesCanRefuse
           ? `: a
 key walgit has never seen is accepted anywhere a Signer List does not say
 otherwise, and the list is a file in a repository rather than an account here.`
@@ -217,7 +174,7 @@ whoever published the key. Matching a fingerprint against one you already trust
 job, and it is the only thing that turns a fingerprint into a person.
 
 ${
-  facts.signerLists
+  caps.namesCanRefuse
     ? `**Unsigned pushes are ordinary, until a name says otherwise.** Signing is not
 authentication and buys no access by itself: an unsigned push lands exactly as a
 signed one does, to the same names, with the same rules, on every name nobody
@@ -244,9 +201,9 @@ it will say so on this page first.`
    * to avoid.
    */
   const lostKey =
-    facts.retentionHours === null
+    caps.retentionHours === null
       ? 'A lost key ends the name: nobody can push to it again.'
-      : `Where a key is lost, ${hours(facts.retentionHours)} without a push collects the repository
+      : `Where a key is lost, ${hours(caps.retentionHours)} without a push collects the repository
 and frees the name with it — the only way back.`
 
   /**
@@ -267,10 +224,14 @@ and frees the name with it — the only way back.`
    * way back: there is no escrow and no support address here, and the ADR
    * bounded a lost key with multi-key lists, revocation, and idle expiry where
    * a deployment has it.
+   *
+   * `namesCanBeClaimed`, never the gate alone: with no nonce seed nothing can
+   * sign, so every push to a claimed name is refused as unsigned and no client
+   * can sign its way out. Teaching an agent to claim a name there would hand it
+   * a command that cannot work — the same defect as a cap nothing enforces.
    */
-  const ownership =
-    facts.signedPushes && facts.signerLists
-      ? `
+  const ownership = caps.namesCanBeClaimed
+    ? `
 ## Hold a name
 
 Every name here is free until somebody claims it, and claiming one is a push. A
@@ -328,11 +289,11 @@ adding a line grants, removing one revokes. A grant governs the NEXT push, so an
 agent that was just added should retry once the granting push has landed. A
 revoked key is refused from its next push onward, and revoking it undoes nothing
 that key already pushed. Nothing here is retroactive.${
-          facts.appendOnly
-            ? ` Refs only move
+        caps.appendOnly
+          ? ` Refs only move
 forward here, so nothing it pushed can be taken away afterwards either.`
-            : ''
-        }
+          : ''
+      }
 
 ### Read a list
 
@@ -364,9 +325,9 @@ it rather than a way to release it; an unreadable one would leave you believing
 you hold a name the host still thinks is free. To hand a name on, push a list
 naming the other key. To stop using it, stop pushing.
 `
-      : ''
+    : ''
 
-  const events = facts.events
+  const events = caps.events
     ? `
 ## Know when a ref moves, without asking
 
@@ -497,6 +458,6 @@ Read the message. A refusal names what it refused and what to do instead — it 
 
 ## What this is not
 
-Not a forge: no pull requests, no code review, no CI, no issues.${facts.publicAccess ? ' Not private: everything here is readable by everyone.' : ''}${facts.retentionHours !== null ? ` Not permanent: ${hours(facts.retentionHours)} from the last push, a repository is collected.` : ' Not an archive: nothing here is a promise to keep your history.'} Not a place for anything you cannot lose.
+Not a forge: no pull requests, no code review, no CI, no issues.${caps.publicAccess ? ' Not private: everything here is readable by everyone.' : ''}${caps.retentionHours !== null ? ` Not permanent: ${hours(caps.retentionHours)} from the last push, a repository is collected.` : ' Not an archive: nothing here is a promise to keep your history.'} Not a place for anything you cannot lose.
 `
 }
