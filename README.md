@@ -51,7 +51,7 @@ zbc init --subtree                          # …vendoring engine + modules as a
 zbc add <module>                            # add a built-in module (turso, cloudflare, …)
 zbc apply <env>                             # apply all module instances for an environment
 zbc apply <env> <instance>                  # apply a specific instance (+ its dependencies)
-zbc destroy <env>                           # tear down ephemeral resources
+zbc destroy <env>                           # tear down every instance that defines destroy
 zbc update                                  # subtree projects: pull a newer zbc-core into vendor/zbc
 ```
 
@@ -63,7 +63,7 @@ zbc update                                  # subtree projects: pull a newer zbc
 
 **`apply`** is declarative and idempotent. Run it the first time — everything is provisioned and deployed. Run it again — no-op except code deploy. Config changed — it converges. Same command locally and in CI.
 
-For ephemeral instances (`ephemeral: true`), `apply` destroys and recreates the resource on every run, ensuring a clean state. `destroy` tears down ephemeral resources (reverse dependency order) and is used for cleanup when a PR is closed.
+An instance marked `ephemeral: true` is destroyed and re-applied on every run, so each run starts from a clean resource. That is the engine's rule, not a module's: `ephemeral` sits on the **instance**, any module that defines `destroy` can be ephemeral, and one that doesn't is a hard error before anything is applied. (`ephemeral` inside a module's `config` is the pre-0.14 spelling. It is still honoured — with a deprecation line on every apply — but only for the four modules that ever declared it: `turso`, `r2`, `fly`, `cloudflare-token`. Everywhere else that key was always stripped by the config schema, and it stays inert.) `zbc destroy` is separate: it tears down every instance that defines a `destroy`, ephemeral or not, in reverse dependency order, and is what cleans up when a PR is closed.
 
 ## Modules
 
@@ -87,7 +87,6 @@ export const tursoModule = defineModule({
     dbName: z.string(),
     group: z.string().default('default'),
     primaryLocation: z.string().default('iad'),
-    ephemeral: z.boolean().default(false),
   }),
   outputs: z.object({
     databaseUrl: z.string(),
@@ -147,9 +146,9 @@ Imports (`imports: [mainDb]`) are between instances, typed, refactor-safe, with 
 ```ts
 export default tursoModule.instance({
   name: 'main-db',
+  ephemeral: true,
   config: {
     dbName: `myproject-preview-pr-${process.env.PR_NUMBER}`,
-    ephemeral: true,
   },
 })
 ```

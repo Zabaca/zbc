@@ -30,12 +30,17 @@ export function fakeModule(name: string, opts: FakeModuleOptions = {}) {
 /** One instance of a throwaway module, named, with the given imports. */
 export function fakeInstance(
   name: string,
-  opts: FakeModuleOptions & { imports?: ModuleInstance[]; config?: Record<string, unknown> } = {},
+  opts: FakeModuleOptions & {
+    imports?: ModuleInstance[]
+    config?: Record<string, unknown>
+    ephemeral?: boolean
+  } = {},
 ): ModuleInstance {
   return fakeModule(`mod-${name}`, opts).instance({
     name,
     config: opts.config ?? {},
     imports: opts.imports ?? [],
+    ...(opts.ephemeral === undefined ? {} : { ephemeral: opts.ephemeral }),
   })
 }
 
