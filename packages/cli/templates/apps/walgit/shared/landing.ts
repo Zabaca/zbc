@@ -255,13 +255,17 @@ function publicClaim(caps: Capabilities): string {
  *
  * It is the second argument on this page, and it is here for the same reason
  * the events section is: the two commands in the hero already show that there
- * was no signup and that a URL is the whole handoff, and neither shows the
- * thing append-only creates. *Nothing you push can be destroyed* is the term a
- * reader meets in `The rules.` as a protection; this section is the half of it
- * that is a cost — a stranger's branch in your name is as permanent as your
- * own — and the answer to it. A term could state the rule; only a section can
- * make the case, and the case is what a reader needs before they will spend a
- * push on it.
+ * was no signup and that a URL is the whole handoff, and neither shows what a
+ * name costs. A term could state the rule; only a section can make the case,
+ * and the case is what a reader needs before they will spend a push on it.
+ *
+ * What the case IS depends on `appendOnly`, which is why `ownershipCost` below
+ * is rendered rather than written — the first draft of this section opened on
+ * *"Nothing you push can be destroyed"* unconditionally, which is the same
+ * promise `appendOnlyClaim` and `roadmapPulls` had to stop making and which
+ * this section made in a third place. Either way a stranger who knows the name
+ * can push into it; append-only is only what decides whether that is permanent
+ * or destructive.
  *
  * Placed BEFORE `The rules.`, beside the events argument rather than after the
  * summary of it, so the two arguments read together and the terms below read as
@@ -301,6 +305,23 @@ function publicClaim(caps: Capabilities): string {
  * unsigned push, after which every push to it, theirs included, is refused for
  * carrying no certificate.
  */
+/**
+ * The bill append-only presents, or the one it does not.
+ *
+ * With the flag on, a stranger's branch in your name is as permanent as your
+ * own, and the cost is that nobody can undo it. With it off there is no
+ * permanence to argue from and the exposure is plainly worse — a stranger can
+ * move `main` or delete a ref — so the case for holding a name is made from
+ * that instead. Stating the append-only version on a deployment that does not
+ * enforce it would be the promise `appendOnlyClaim` just stopped making,
+ * reappearing two sections up the page.
+ */
+function ownershipCost(caps: Capabilities): string {
+  return caps.appendOnly
+    ? 'Nothing you push can be destroyed — and that cuts both ways. Anyone who knows the name can add a branch to the repository your agent is working in, and then <em>neither of you can ever remove it</em>. Append-only defends their write as carefully as it defends yours.'
+    : 'Anyone who knows the name can push to the repository your agent is working in — a branch, a moved <code>main</code>, a deleted ref. Nothing stands between a stranger and your history, and <em>whoever pushes last wins</em>.'
+}
+
 function ownershipSection(host: string, caps: Capabilities): string {
   if (!caps.namesCanBeClaimed) return ''
 
@@ -308,7 +329,7 @@ function ownershipSection(host: string, caps: Capabilities): string {
     <section class="split">
       <div class="split-say">
         <h2>A name a stranger cannot take.</h2>
-        <p>Nothing you push can be destroyed — and that cuts both ways. Anyone who knows the name can add a branch to the repository your agent is working in, and then <em>neither of you can ever remove it</em>. Append-only defends their write as carefully as it defends yours.</p>
+        <p>${ownershipCost(caps)}</p>
         <p><strong>So a name can refuse a stranger.</strong> Write the fingerprints you trust to <code>${SIGNERS_REF}</code>. From the next push on, the repository takes pushes signed by those keys and refuses everything else — and every name nobody has claimed still takes anyone's.</p>
         <p><strong>List two keys.</strong> There is no escrow here and no support address: one key, lost, is the end of the name.</p>
       </div>
@@ -409,11 +430,15 @@ function metaDescription(caps: Capabilities): string {
  *
  * *"No token"* stands above the terms and is read before them, so it obeys the
  * rule they obey rather than being the last unconditional promise left on the
- * page. The hero COMMAND is deliberately not corrected with it: on a
- * credentialed deployment it needs `https://walgit:$TOKEN@`, and where a
- * visitor gets that token is a question this page does not answer and cannot
- * answer from `Capabilities` — an editorial decision rather than a rendering
- * one, and its own ticket.
+ * page.
+ *
+ * The COMMANDS are deliberately not corrected with it, and it is a known gap
+ * rather than an oversight: the hero needs `https://walgit:$TOKEN@` and the
+ * watch panel needs `--token`, and where a visitor gets that token is a
+ * question this page does not answer and cannot answer from `Capabilities`.
+ * `/llms.txt` (`shared/llms.ts`) documents both for a credentialed deployment,
+ * so nobody is stranded; this page is the one that has not caught up. It is an
+ * editorial decision rather than a rendering one, and its own ticket.
  */
 function heroUnder(caps: Capabilities): string {
   return caps.publicAccess

@@ -365,12 +365,42 @@ describe('the terms that state a flag are rendered from it', () => {
     )
   })
 
+  // Every configuration that renders MORE of the page, not just the smallest
+  // one: the promise was in three places, and the ownership section — which
+  // needs the gate and a seed to render at all — is the one a fixture of
+  // `PUBLIC` alone never reaches.
   test('with WALGIT_APPEND_ONLY unset, nothing on the page says a push is safe', () => {
-    const html = renderLanding(HOST, caps(PUBLIC))
-    expect(html).not.toContain('Nothing you push can be destroyed')
-    expect(html).not.toContain('no one may rewrite or delete')
-    expect(html).not.toContain('Append-only')
-    expect(html).not.toContain('{{')
+    for (const env of [
+      PUBLIC,
+      { ...PUBLIC, ...GATE, ...SEED },
+      { ...PUBLIC, ...GATE, ...EVENTS },
+    ]) {
+      const html = renderLanding(HOST, caps(env))
+      expect(html).not.toContain('Nothing you push can be destroyed')
+      expect(html).not.toContain('no one may rewrite or delete')
+      expect(html).not.toContain('Append-only')
+      expect(html).not.toContain('cannot take anything away')
+      expect(html).not.toContain('{{')
+    }
+  })
+
+  /**
+   * The ownership section argued from append-only in its opening paragraph —
+   * the same promise in a third place, two sections above the term. Without
+   * the flag the case for holding a name is not weaker but different, and
+   * plainly worse: a stranger can move `main` or delete a ref.
+   */
+  test('and the section that argues for a name argues the right cost', () => {
+    const held = renderLanding(HOST, caps({ ...PUBLIC, ...GATE, ...SEED }))
+    expect(held).toContain('A name a stranger cannot take')
+    expect(held).not.toContain('Append-only defends their write')
+    expect(held).not.toContain('neither of you can ever remove it')
+    expect(held).toContain('<em>whoever pushes last wins</em>')
+
+    // With the flag it is word for word the paragraph that shipped.
+    expect(renderLanding(HOST, caps({ ...OPEN, ...GATE, ...SEED }))).toContain(
+      'Nothing you push can be destroyed — and that cuts both ways. Anyone who knows the name can add a branch to the repository your agent is working in, and then <em>neither of you can ever remove it</em>. Append-only defends their write as carefully as it defends yours.',
+    )
   })
 
   // The term LEAVES rather than stating the opposite, like every unenforced
@@ -471,7 +501,10 @@ describe('the terms that state a flag are rendered from it', () => {
  * and the answer to it.
  */
 describe('the section that argues for holding a name', () => {
-  const HELD = caps({ ...SEED, ...GATE })
+  // Append-only included, because the section's opening paragraph is the cost
+  // append-only creates and now renders from it — this fixture is agentgit's
+  // real shape, and the flag-off wording has its own case above.
+  const HELD = caps({ ...OPEN, ...SEED, ...GATE })
 
   test('it makes the case append-only creates, then answers it', () => {
     const html = renderLanding(HOST, HELD)
