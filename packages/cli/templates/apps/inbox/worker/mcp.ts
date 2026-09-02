@@ -2,16 +2,9 @@ import { StreamableHTTPTransport } from '@hono/mcp'
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { Hono } from 'hono'
 import { z } from 'zod'
-import type {
-  Inbox,
-  InsertMessage,
-  MessageFull,
-  MessageMeta,
-  ScheduledMeta,
-  ThreadMeta,
-} from './inbox-do'
-import { type SendEnv, performDraftSend, performSend } from './send-op'
-import { makeSnippet, newId, normalizeMsgId } from './shared'
+import * as commands from './commands'
+import type { SendEnv } from './commands'
+import type { InboxStore } from './inbox-do'
 
 /**
  * MCP server over the inbox — the same operations as /api/*, exposed as
@@ -21,55 +14,29 @@ import { makeSnippet, newId, normalizeMsgId } from './shared'
  *
  * Auth is the SAME bearer token as /api/* — the caller checks it before
  * invoking this, and MCP clients send it as a normal Authorization header.
- * Tools call the Durable Object stub directly (a Worker cannot fetch its
- * own routes), so this file is wiring, not logic.
+ *
+ * This file is wiring, not logic: every mutation is a call into `commands.ts`
+ * — the same function `api.ts` calls — and every read is a single `store.*`
+ * call. Nothing here decides what a mutation does.
  */
 
 const text = (v: unknown) => ({
   content: [{ type: 'text' as const, text: JSON.stringify(v, null, 2) }],
 })
 
-/** Unwrap a SendOutcome into MCP result-or-error. */
+/** Unwrap a command Outcome into MCP result-or-error. */
 const outcome = (o: { status: number; body: Record<string, unknown> }) => {
   if (o.status >= 400) throw new Error(String(o.body.error ?? `failed (${o.status})`))
   return text(o.body)
 }
 
-/**
- * The DO surface the tools use, with plain Promise returns. The raw
- * DurableObjectStub<Inbox> type expands workers-types' recursive RPC
- * serialization generics inside every registerTool inference and trips
- * TS2589 — this narrow view is the same calls without the type machinery.
- */
-interface InboxApi {
-  list(
-    limit: number,
-    cursor?: string,
-    label?: string,
-  ): Promise<{ messages: MessageMeta[]; nextCursor: string | null }>
-  listThreads(
-    limit: number,
-    cursor?: string,
-  ): Promise<{ threads: ThreadMeta[]; nextCursor: string | null }>
-  getThread(threadId: string): Promise<MessageFull[]>
-  get(id: string): Promise<MessageFull | null>
-  search(q: string, limit: number): Promise<MessageMeta[]>
-  insert(msg: InsertMessage): Promise<{ threadId: string }>
-  listDrafts(limit: number): Promise<MessageMeta[]>
-  updateDraft(id: string, fields: Record<string, string>): Promise<boolean>
-  listScheduled(limit: number): Promise<ScheduledMeta[]>
-  cancelScheduled(id: string): Promise<boolean>
-  delete(id: string): Promise<string | null>
-}
-
 interface McpDeps {
   env: SendEnv & { RAW: R2Bucket }
-  stub: DurableObjectStub<Inbox>
+  store: InboxStore
 }
 
 export async function handleMcp(request: Request, deps: McpDeps): Promise<Response> {
-  const { env } = deps
-  const stub = deps.stub as unknown as InboxApi
+  const { env, store } = deps
   const server = new McpServer({ name: 'inbox', version: '1.0.0' })
 
   server.registerTool(
@@ -79,7 +46,7 @@ export async function handleMcp(request: Request, deps: McpDeps): Promise<Respon
         'List conversation threads, newest first. Each row is the latest message of its thread plus thread_count. Page with cursor = the last id from the previous page.',
       inputSchema: { limit: z.number().optional(), cursor: z.string().optional() },
     },
-    async ({ limit, cursor }) => text(await stub.listThreads(limit ?? 50, cursor)),
+    async ({ limit, cursor }) => text(await store.listThreads(limit ?? 50, cursor)),
   )
   server.registerTool(
     'read_thread',
@@ -89,7 +56,7 @@ export async function handleMcp(request: Request, deps: McpDeps): Promise<Respon
       inputSchema: { thread_id: z.string() },
     },
     async ({ thread_id }) => {
-      const messages = await stub.getThread(thread_id)
+      const messages = await store.getThread(thread_id)
       if (!messages.length) throw new Error('thread not found')
       return text({ messages })
     },
@@ -105,7 +72,7 @@ export async function handleMcp(request: Request, deps: McpDeps): Promise<Respon
         label: z.string().optional(),
       },
     },
-    async ({ limit, cursor, label }) => text(await stub.list(limit ?? 50, cursor, label)),
+    async ({ limit, cursor, label }) => text(await store.list(limit ?? 50, cursor, label)),
   )
   server.registerTool(
     'read_message',
@@ -114,7 +81,7 @@ export async function handleMcp(request: Request, deps: McpDeps): Promise<Respon
       inputSchema: { id: z.string() },
     },
     async ({ id }) => {
-      const msg = await stub.get(id)
+      const msg = await store.get(id)
       if (!msg) throw new Error('message not found')
       return text(msg)
     },
@@ -125,7 +92,7 @@ export async function handleMcp(request: Request, deps: McpDeps): Promise<Respon
       description: 'Keyword search over subject + text body (case-insensitive), newest first.',
       inputSchema: { q: z.string(), limit: z.number().optional() },
     },
-    async ({ q, limit }) => text({ messages: await stub.search(q, limit ?? 50) }),
+    async ({ q, limit }) => text({ messages: await store.search(q, limit ?? 50) }),
   )
   server.registerTool(
     'send_email',
@@ -144,7 +111,7 @@ export async function handleMcp(request: Request, deps: McpDeps): Promise<Respon
     },
     async (input) =>
       outcome(
-        await performSend(env, deps.stub, {
+        await commands.send(env, store, {
           to: input.to,
           subject: input.subject,
           text: input.text,
@@ -169,34 +136,22 @@ export async function handleMcp(request: Request, deps: McpDeps): Promise<Respon
         in_reply_to: z.string().optional(),
       },
     },
-    async (input) => {
-      const id = newId()
-      const from = input.from ?? env.DEFAULT_FROM ?? ''
-      const bodyText = input.text ?? ''
-      await stub.insert({
-        id,
-        status: 'draft',
-        direction: 'outbound',
-        in_reply_to: normalizeMsgId(input.in_reply_to),
-        message_id: `${id}@${from.split('@')[1] || 'localhost'}`,
-        from_addr: from,
-        to_addr: input.to ?? '',
-        subject: input.subject ?? '',
-        date: new Date().toISOString(),
-        snippet: makeSnippet(bodyText, input.html ?? ''),
-        text_body: bodyText,
-        html_body: input.html ?? '',
-        r2_key: '',
-        attachments_json: '[]',
-        size: bodyText.length + (input.html?.length ?? 0),
-      })
-      return text({ ok: true, id, status: 'draft' })
-    },
+    async (input) =>
+      outcome(
+        await commands.createDraft(env, store, {
+          to: input.to,
+          subject: input.subject,
+          text: input.text,
+          html: input.html,
+          from: input.from,
+          inReplyTo: input.in_reply_to,
+        }),
+      ),
   )
   server.registerTool(
     'list_drafts',
     { description: 'List unsent drafts, newest first.' },
-    async () => text({ drafts: await stub.listDrafts(50) }),
+    async () => text({ drafts: await store.listDrafts(50) }),
   )
   server.registerTool(
     'update_draft',
@@ -212,23 +167,17 @@ export async function handleMcp(request: Request, deps: McpDeps): Promise<Respon
         in_reply_to: z.string().optional(),
       },
     },
-    async ({ id, ...input }) => {
-      const updated = await stub.updateDraft(id, {
-        ...(input.from !== undefined ? { from_addr: input.from } : {}),
-        ...(input.to !== undefined ? { to_addr: input.to } : {}),
-        ...(input.subject !== undefined ? { subject: input.subject } : {}),
-        ...(input.text !== undefined ? { text_body: input.text } : {}),
-        ...(input.html !== undefined ? { html_body: input.html } : {}),
-        ...(input.in_reply_to !== undefined
-          ? { in_reply_to: normalizeMsgId(input.in_reply_to) }
-          : {}),
-        ...(input.text !== undefined || input.html !== undefined
-          ? { snippet: makeSnippet(input.text ?? '', input.html ?? '') }
-          : {}),
-      })
-      if (!updated) throw new Error('not a draft')
-      return text({ ok: true, id })
-    },
+    async ({ id, ...input }) =>
+      outcome(
+        await commands.updateDraft(store, id, {
+          to: input.to,
+          subject: input.subject,
+          text: input.text,
+          html: input.html,
+          from: input.from,
+          inReplyTo: input.in_reply_to,
+        }),
+      ),
   )
   server.registerTool(
     'send_draft',
@@ -236,7 +185,7 @@ export async function handleMcp(request: Request, deps: McpDeps): Promise<Respon
       description: 'Send an existing draft (must have to, subject, and text or html).',
       inputSchema: { id: z.string() },
     },
-    async ({ id }) => outcome(await performDraftSend(env, deps.stub, id)),
+    async ({ id }) => outcome(await commands.sendDraft(env, store, id)),
   )
   server.registerTool(
     'list_scheduled',
@@ -244,7 +193,7 @@ export async function handleMcp(request: Request, deps: McpDeps): Promise<Respon
       description:
         'List pending scheduled sends (and failed ones, with send_error), soonest first.',
     },
-    async () => text({ scheduled: await stub.listScheduled(50) }),
+    async () => text({ scheduled: await store.listScheduled(50) }),
   )
   server.registerTool(
     'cancel_scheduled',
@@ -252,10 +201,7 @@ export async function handleMcp(request: Request, deps: McpDeps): Promise<Respon
       description: 'Cancel a pending scheduled send (or dismiss a failed one). Deletes the row.',
       inputSchema: { id: z.string() },
     },
-    async ({ id }) => {
-      if (!(await stub.cancelScheduled(id))) throw new Error('not a scheduled send')
-      return text({ ok: true })
-    },
+    async ({ id }) => outcome(await commands.cancelScheduled(store, id)),
   )
   server.registerTool(
     'delete_message',
@@ -264,10 +210,13 @@ export async function handleMcp(request: Request, deps: McpDeps): Promise<Respon
       inputSchema: { id: z.string() },
     },
     async ({ id }) => {
-      const r2Key = await stub.delete(id)
-      if (r2Key === null) throw new Error('message not found')
-      if (r2Key) await env.RAW.delete(r2Key)
-      return text({ ok: true })
+      const result = await commands.deleteMessage(env, store, id)
+      // The one place an adapter renders a command's error in its own words:
+      // this tool has always said 'message not found' where the JSON route
+      // says 'not found', and MCP clients see the string. The command decides
+      // WHETHER it is a 404; the tool only spells it.
+      if (result.status === 404) throw new Error('message not found')
+      return outcome(result)
     },
   )
 
