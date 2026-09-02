@@ -1,0 +1,67 @@
+# The inbox app template's own suite, run on every change to it.
+#
+# `zbc add inbox` copies `packages/cli/templates/apps/inbox/` verbatim into a
+# consumer's repo, so a defect here ships to every project that scaffolds an
+# inbox — the same argument `core-tests.yml` makes for the modules consumers
+# vendor, applied to the one app template that had no gate.
+#
+# **What this gate specifically protects.** The inbox has one set of mutations
+# (`worker/commands.ts`) and two adapters over them: the JSON routes in
+# `worker/api.ts` and the MCP tools in `worker/mcp.ts`. Those adapters used to
+# each carry their own copy of `create_draft`, `update_draft` and
+# `delete_message`, and the copies had already drifted — deleting a draft
+# answered 200 over MCP and 404 over JSON. `worker/commands.test.ts` drives the
+# SAME operation through both adapters and compares what they store and what
+# they return, which is a test that only earns its keep if something runs it:
+# a PR that re-diverges one adapter would otherwise merge green.
+#
+# It is its own workflow rather than a path added to `core-tests.yml` because
+# that one is scoped, deliberately and in writing, to `templates/infra/` — the
+# tree `publish-core.yml` splits into zbc-core. `walgit-e2e.yml` set the
+# precedent for an app template owning its gate.
+name: inbox-tests
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'packages/cli/templates/apps/inbox/**'
+      - '.github/workflows/inbox-tests.yml'
+  pull_request:
+    paths:
+      - 'packages/cli/templates/apps/inbox/**'
+      - '.github/workflows/inbox-tests.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: inbox-tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - run: bun install
+
+      # Hand-written fakes, no wrangler and no network — the whole suite is
+      # ~100 ms, which is why it can be a per-PR gate rather than a nightly one.
+      - name: Test the inbox commands and both adapters
+        run: bun test worker
+        working-directory: packages/cli/templates/apps/inbox
+
+      # `bun test` only compiles the modules a test imports. The typecheck is
+      # what holds `Inbox implements InboxStore` — the declaration that replaced
+      # mcp.ts's hand-maintained copy of the Durable Object's signatures, and
+      # the only thing that makes renaming a method on the class fail loudly
+      # instead of silently.
+      - name: Typecheck the worker
+        run: bun run typecheck
+        working-directory: packages/cli/templates/apps/inbox

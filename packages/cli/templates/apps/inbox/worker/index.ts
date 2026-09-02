@@ -3,18 +3,23 @@
  *
  * - `email()` handler: Email Routing (catch-all) delivers inbound mail here.
  *   Raw MIME → R2; parsed metadata + bodies → the Inbox Durable Object.
- * - `/api/*`: bearer-authed JSON API (list / read / raw / delete / send).
+ * - `/api/*`: bearer-authed JSON API — handled by `api.ts`.
+ * - `/mcp`: the MCP server over the same operations — handled by `mcp.ts`.
  * - Everything else: the static UI in public/ (ASSETS binding).
+ *
+ * This file is the runtime entry only: the Env, the bearer check, inbound mail
+ * and the dispatch. Both adapters live beside it so a test can load them —
+ * see the note atop `api.ts`.
  */
 import PostalMime from 'postal-mime'
-import { Inbox } from './inbox-do'
+import { type ApiEnv, handleApi, json } from './api'
+import { Inbox, type InboxStore } from './inbox-do'
 import { handleMcp } from './mcp'
-import { type SendBody, performDraftSend, performSend } from './send-op'
 import { type SendEmailBinding, emitWebhook, makeSnippet, newId, normalizeMsgId } from './shared'
 
 export { Inbox }
 
-export interface Env {
+export interface Env extends ApiEnv {
   ASSETS: { fetch: (request: Request) => Promise<Response> }
   INBOX: DurableObjectNamespace<Inbox>
   RAW: R2Bucket
@@ -51,10 +56,6 @@ async function authorized(request: Request, env: Env): Promise<boolean> {
     crypto.subtle.digest('SHA-256', enc.encode(env.INBOX_TOKEN)),
   ])
   return crypto.subtle.timingSafeEqual(a, b)
-}
-
-function json(data: unknown, status = 200): Response {
-  return Response.json(data, { status, headers: { 'cache-control': 'no-store' } })
 }
 
 function inboxStub(env: Env) {
@@ -179,204 +180,16 @@ export default {
       return json({ error: 'unauthorized' }, 401)
     }
 
-    const stub = inboxStub(env)
+    // The DO stub reaches both adapters as an InboxStore: `DurableObjectStub<
+    // Inbox>` expands workers-types' recursive RPC generics inside mcp.ts's
+    // registerTool inference and trips TS2589. This is the one cast.
+    const store = inboxStub(env) as unknown as InboxStore
 
     // POST/GET/DELETE /mcp — MCP server (Streamable HTTP), same bearer token
     if (pathname === '/mcp') {
-      return handleMcp(request, { env, stub })
+      return handleMcp(request, { env, store })
     }
 
-    // GET /api/messages?limit=&cursor=&label=
-    if (pathname === '/api/messages' && request.method === 'GET') {
-      const limit = Number(url.searchParams.get('limit') ?? '50')
-      const cursor = url.searchParams.get('cursor') ?? undefined
-      const label = url.searchParams.get('label') ?? undefined
-      return json(await stub.list(Number.isFinite(limit) ? limit : 50, cursor, label))
-    }
-
-    // GET /api/search?q=&limit= — keyword match over subject + text body
-    if (pathname === '/api/search' && request.method === 'GET') {
-      const q = url.searchParams.get('q') ?? ''
-      if (!q.trim()) return json({ error: 'required: q' }, 400)
-      const limit = Number(url.searchParams.get('limit') ?? '50')
-      return json({ messages: await stub.search(q.trim(), Number.isFinite(limit) ? limit : 50) })
-    }
-
-    // GET /api/threads?limit=&cursor= — newest-first, one row per thread
-    if (pathname === '/api/threads' && request.method === 'GET') {
-      const limit = Number(url.searchParams.get('limit') ?? '50')
-      const cursor = url.searchParams.get('cursor') ?? undefined
-      return json(await stub.listThreads(Number.isFinite(limit) ? limit : 50, cursor))
-    }
-
-    // GET /api/threads/:id — all messages in the thread, oldest-first
-    const threadMatch = pathname.match(/^\/api\/threads\/([^/]+)$/)
-    if (threadMatch && request.method === 'GET') {
-      const messages = await stub.getThread(threadMatch[1]!)
-      return messages.length ? json({ messages }) : json({ error: 'not found' }, 404)
-    }
-
-    // POST /api/send — immediate, or queued for the DO alarm when sendAt set
-    if (pathname === '/api/send' && request.method === 'POST') {
-      let body: SendBody
-      try {
-        body = (await request.json()) as SendBody
-      } catch {
-        return json({ error: 'invalid JSON body' }, 400)
-      }
-      const outcome = await performSend(env, stub, body)
-      return json(outcome.body, outcome.status)
-    }
-
-    // GET /api/scheduled — pending + failed scheduled sends, soonest first
-    if (pathname === '/api/scheduled' && request.method === 'GET') {
-      const limit = Number(url.searchParams.get('limit') ?? '50')
-      return json({ scheduled: await stub.listScheduled(Number.isFinite(limit) ? limit : 50) })
-    }
-
-    // DELETE /api/scheduled/:id — cancel a pending (or dismiss a failed) send
-    const schedMatch = pathname.match(/^\/api\/scheduled\/([^/]+)$/)
-    if (schedMatch && request.method === 'DELETE') {
-      const cancelled = await stub.cancelScheduled(schedMatch[1]!)
-      return cancelled ? json({ ok: true }) : json({ error: 'not a scheduled send' }, 404)
-    }
-
-    // POST /api/drafts — store an outbound message without sending it
-    if (pathname === '/api/drafts' && request.method === 'POST') {
-      let body: SendBody
-      try {
-        body = (await request.json()) as SendBody
-      } catch {
-        return json({ error: 'invalid JSON body' }, 400)
-      }
-      // Drafts may be partial — completeness is enforced at send time.
-      const id = newId()
-      const from = body.from ?? env.DEFAULT_FROM ?? ''
-      const text = body.text ?? ''
-      await stub.insert({
-        id,
-        status: 'draft',
-        direction: 'outbound',
-        in_reply_to: normalizeMsgId(body.inReplyTo),
-        message_id: `${id}@${from.split('@')[1] || 'localhost'}`,
-        from_addr: from,
-        to_addr: body.to ?? '',
-        subject: body.subject ?? '',
-        date: new Date().toISOString(),
-        snippet: makeSnippet(text, body.html ?? ''),
-        text_body: text,
-        html_body: body.html ?? '',
-        r2_key: '',
-        attachments_json: '[]',
-        size: text.length + (body.html?.length ?? 0),
-      })
-      return json({ ok: true, id, status: 'draft' }, 201)
-    }
-
-    // GET /api/drafts
-    if (pathname === '/api/drafts' && request.method === 'GET') {
-      const limit = Number(url.searchParams.get('limit') ?? '50')
-      return json({ drafts: await stub.listDrafts(Number.isFinite(limit) ? limit : 50) })
-    }
-
-    // PUT /api/drafts/:id | POST /api/drafts/:id/send
-    const draftMatch = pathname.match(/^\/api\/drafts\/([^/]+)(\/send)?$/)
-    if (draftMatch) {
-      const [, draftId, sendSuffix] = draftMatch
-
-      if (!sendSuffix && request.method === 'PUT') {
-        let body: SendBody
-        try {
-          body = (await request.json()) as SendBody
-        } catch {
-          return json({ error: 'invalid JSON body' }, 400)
-        }
-        const text = body.text
-        const html = body.html
-        const updated = await stub.updateDraft(draftId!, {
-          ...(body.from !== undefined ? { from_addr: body.from } : {}),
-          ...(body.to !== undefined ? { to_addr: body.to } : {}),
-          ...(body.subject !== undefined ? { subject: body.subject } : {}),
-          ...(text !== undefined ? { text_body: text } : {}),
-          ...(html !== undefined ? { html_body: html } : {}),
-          ...(body.inReplyTo !== undefined ? { in_reply_to: normalizeMsgId(body.inReplyTo) } : {}),
-          ...(text !== undefined || html !== undefined
-            ? { snippet: makeSnippet(text ?? '', html ?? '') }
-            : {}),
-        })
-        return updated ? json({ ok: true, id: draftId }) : json({ error: 'not a draft' }, 404)
-      }
-
-      if (sendSuffix && request.method === 'POST') {
-        const outcome = await performDraftSend(env, stub, draftId!)
-        return json(outcome.body, outcome.status)
-      }
-      if (!sendSuffix && request.method === 'GET') {
-        const draft = await stub.get(draftId!)
-        return draft && draft.status === 'draft' ? json(draft) : json({ error: 'not a draft' }, 404)
-      }
-      if (!sendSuffix && request.method === 'DELETE') {
-        const draft = await stub.get(draftId!)
-        if (!draft || draft.status !== 'draft') return json({ error: 'not a draft' }, 404)
-        await stub.delete(draftId!)
-        return json({ ok: true })
-      }
-    }
-
-    // GET /api/messages/:id/attachments/:n — raw bytes of one attachment.
-    // Re-parses the R2 MIME blob per request (cheap at the 5 MiB cap) rather
-    // than pre-splitting attachments at write time.
-    const attMatch = pathname.match(/^\/api\/messages\/([^/]+)\/attachments\/(\d+)$/)
-    if (attMatch && request.method === 'GET') {
-      const msg = await stub.get(attMatch[1]!)
-      if (!msg) return json({ error: 'not found' }, 404)
-      if (!msg.r2_key) return json({ error: 'no raw MIME (outbound message)' }, 404)
-      const obj = await env.RAW.get(msg.r2_key)
-      if (!obj) return json({ error: 'raw MIME missing from R2' }, 404)
-      const parsed = await PostalMime.parse(await obj.arrayBuffer())
-      const n = Number(attMatch[2])
-      const att = (parsed.attachments ?? [])[n]
-      if (!att) return json({ error: `no attachment at index ${n}` }, 404)
-      const body =
-        typeof att.content === 'string' ? new TextEncoder().encode(att.content) : att.content
-      return new Response(body, {
-        headers: {
-          'content-type': att.mimeType || 'application/octet-stream',
-          'content-disposition': `attachment; filename="${(att.filename ?? 'attachment').replace(/["\r\n]/g, '')}"`,
-          'cache-control': 'no-store',
-        },
-      })
-    }
-
-    // /api/messages/:id[/raw]
-    const match = pathname.match(/^\/api\/messages\/([^/]+)(\/raw)?$/)
-    if (match) {
-      const [, id, rawSuffix] = match
-
-      if (rawSuffix && request.method === 'GET') {
-        const msg = await stub.get(id!)
-        if (!msg) return json({ error: 'not found' }, 404)
-        if (!msg.r2_key) return json({ error: 'no raw MIME (outbound message)' }, 404)
-        const obj = await env.RAW.get(msg.r2_key)
-        if (!obj) return json({ error: 'raw MIME missing from R2' }, 404)
-        return new Response(obj.body, {
-          headers: { 'content-type': 'message/rfc822', 'cache-control': 'no-store' },
-        })
-      }
-
-      if (!rawSuffix && request.method === 'GET') {
-        const msg = await stub.get(id!)
-        return msg ? json(msg) : json({ error: 'not found' }, 404)
-      }
-
-      if (!rawSuffix && request.method === 'DELETE') {
-        const r2Key = await stub.delete(id!)
-        if (!r2Key) return json({ error: 'not found' }, 404)
-        await env.RAW.delete(r2Key)
-        return json({ ok: true })
-      }
-    }
-
-    return json({ error: 'not found' }, 404)
+    return handleApi(request, { env, store })
   },
 }

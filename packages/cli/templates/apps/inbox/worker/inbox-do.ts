@@ -75,6 +75,57 @@ export interface InsertMessage {
   scheduled_at?: string
 }
 
+/** Fields of a draft that `updateDraft` may change. */
+export type DraftFields = Partial<
+  Pick<
+    InsertMessage,
+    'from_addr' | 'to_addr' | 'subject' | 'text_body' | 'html_body' | 'in_reply_to' | 'snippet'
+  >
+>
+
+/**
+ * A value the caller must await but the implementation may return
+ * synchronously: the Inbox class's methods are plain sync SQLite calls, while
+ * the same methods reached through a `DurableObjectStub` come back as
+ * Promises. Both satisfy `InboxStore`, and every caller awaits.
+ */
+type Awaitable<T> = T | Promise<T>
+
+/**
+ * The narrow view of the Inbox that the commands and the two adapters call.
+ *
+ * It exists as an interface rather than as `DurableObjectStub<Inbox>` because
+ * that type expands workers-types' recursive RPC serialization generics inside
+ * every `registerTool` inference in `mcp.ts` and trips TS2589 ("type
+ * instantiation is excessively deep"). `mcp.ts` used to keep a hand-written
+ * copy of these signatures; the copy lives here now and `Inbox implements
+ * InboxStore` is what stops it drifting from the class.
+ *
+ * It is also the seam the tests use: `worker/commands.test.ts` drives both
+ * adapters against an in-memory fake of exactly this surface.
+ */
+export interface InboxStore {
+  list(
+    limit: number,
+    cursor?: string,
+    label?: string,
+  ): Awaitable<{ messages: MessageMeta[]; nextCursor: string | null }>
+  listThreads(
+    limit: number,
+    cursor?: string,
+  ): Awaitable<{ threads: ThreadMeta[]; nextCursor: string | null }>
+  getThread(threadId: string): Awaitable<MessageFull[]>
+  get(id: string): Awaitable<MessageFull | null>
+  search(q: string, limit: number): Awaitable<MessageMeta[]>
+  insert(msg: InsertMessage): Awaitable<{ threadId: string }>
+  listDrafts(limit: number): Awaitable<MessageMeta[]>
+  updateDraft(id: string, fields: DraftFields): Awaitable<boolean>
+  markDraftSent(id: string, date: string): Awaitable<{ threadId: string } | null>
+  listScheduled(limit: number): Awaitable<ScheduledMeta[]>
+  cancelScheduled(id: string): Awaitable<boolean>
+  delete(id: string): Awaitable<string | null>
+}
+
 /** Strip Re:/Fwd: prefixes + whitespace so replies fall into the same thread. */
 function normalizeSubject(subject: string): string {
   return subject
@@ -84,7 +135,7 @@ function normalizeSubject(subject: string): string {
     .toLowerCase()
 }
 
-export class Inbox extends DurableObject<MailEnv> {
+export class Inbox extends DurableObject<MailEnv> implements InboxStore {
   private sql: SqlStorage
 
   constructor(ctx: DurableObjectState, env: MailEnv) {
@@ -340,15 +391,7 @@ export class Inbox extends DurableObject<MailEnv> {
   }
 
   /** Update an unsent draft's editable fields. Returns false if not a draft. */
-  updateDraft(
-    id: string,
-    fields: Partial<
-      Pick<
-        InsertMessage,
-        'from_addr' | 'to_addr' | 'subject' | 'text_body' | 'html_body' | 'in_reply_to' | 'snippet'
-      >
-    >,
-  ): boolean {
+  updateDraft(id: string, fields: DraftFields): boolean {
     const row = this.sql
       .exec(`SELECT status FROM messages WHERE id = ?`, id)
       .toArray()[0] as unknown as { status: string } | undefined
