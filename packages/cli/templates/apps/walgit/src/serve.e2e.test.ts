@@ -26,6 +26,8 @@ let storeDir: string
 let origin: string
 let publicServer: ReturnType<typeof Bun.serve>
 let publicOrigin: string
+let spelledTrueServer: ReturnType<typeof Bun.serve>
+let spelledTrueOrigin: string
 
 /**
  * git runs ASYNCHRONOUSLY here, not via spawnSync. The server under test lives
@@ -85,29 +87,44 @@ beforeAll(() => {
   // A second instance of the same handler, configured open. Same repos dir and
   // same log — the only difference is that no credential is demanded, which is
   // exactly the claim under test.
-  publicServer = Bun.serve({
+  publicServer = open({ WALGIT_PUBLIC: '1', WALGIT_APPEND_ONLY: '1', WALGIT_RETENTION_HOURS: '24' })
+  publicOrigin = `http://127.0.0.1:${publicServer.port}/open.git`
+
+  // A third, spelled `true` rather than `1`. `flagEnabled` has always taken
+  // both, but the git gate used to take only `1` — so this deployment served a
+  // 401 to every clone under a manual saying no credential was needed.
+  spelledTrueServer = open({ WALGIT_PUBLIC: 'true', WALGIT_APPEND_ONLY: '1' })
+  spelledTrueOrigin = `http://127.0.0.1:${spelledTrueServer.port}/spelled-true.git`
+})
+
+/**
+ * A server wired the way `src/server.ts` wires the real one: `public:` is not
+ * passed as a literal but DERIVED, from the same `capabilitiesFrom` the
+ * documents are rendered from. That is the wiring under test — a handler handed
+ * `public: true` by hand would prove the gate works and nothing about which
+ * environments reach it.
+ */
+function open(env: CapabilityEnv): ReturnType<typeof Bun.serve> {
+  const capabilities = caps(env)
+  return Bun.serve({
     port: 0,
     idleTimeout: 0,
     fetch: createHttpHandler({
       reposDir,
       tokens: [],
-      public: true,
+      public: capabilities.publicAccess,
       ensureRepo: ensureBareRepo,
       syncRepo: (repo) => syncRepo(new FileStore(storeDir), repo),
       runBackend: runGitHttpBackend,
-      capabilities: caps({
-        WALGIT_PUBLIC: '1',
-        WALGIT_APPEND_ONLY: '1',
-        WALGIT_RETENTION_HOURS: '24',
-      }),
+      capabilities,
     }),
   })
-  publicOrigin = `http://127.0.0.1:${publicServer.port}/open.git`
-})
+}
 
 afterAll(() => {
   server.stop(true)
   publicServer.stop(true)
+  spelledTrueServer.stop(true)
   delete process.env.WALGIT_STORE_DIR
   fs.rmSync(storeDir, { recursive: true, force: true })
 })
@@ -200,6 +217,22 @@ describe('smart-HTTP', () => {
     const again = path.join(scratch, 'public-second')
     expect((await git(scratch, 'clone', publicOrigin, again)).status).toBe(0)
     expect(fs.readFileSync(path.join(again, 'README'), 'utf8')).toBe('open to anyone\n')
+  })
+
+  test('WALGIT_PUBLIC=true opens the same door WALGIT_PUBLIC=1 does', async () => {
+    // The behaviour change, through a real git client rather than through the
+    // handler: this exact deployment used to answer 401 to this exact clone.
+    const work = path.join(scratch, 'spelled-true')
+    expect((await git(scratch, 'clone', spelledTrueOrigin, work)).status).toBe(0)
+
+    fs.writeFileSync(path.join(work, 'README'), 'spelled true\n')
+    await git(work, 'config', 'user.email', 'agent@example.test')
+    await git(work, 'config', 'user.name', 'agent')
+    await git(work, 'add', 'README')
+    await git(work, 'commit', '-m', 'anonymous commit')
+    const pushed = await git(work, 'push', 'origin', 'HEAD:refs/heads/main')
+    expect(pushed.out).toContain('[new branch]')
+    expect(pushed.status).toBe(0)
   })
 
   test('an anonymous clone is refused', async () => {
