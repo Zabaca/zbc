@@ -390,6 +390,21 @@ function claims(caps: Capabilities): string {
 }
 
 /**
+ * The `<meta description>`, which is the one claim read where the page is not.
+ *
+ * It says *"A public git host"* and *"no token"*, which are the same two
+ * capability claims the terms make — and this string is what a search result
+ * and a link preview show, so on a credentialed deployment it is the version of
+ * the lie that travels. Everything the sentence keeps is true of every
+ * deployment; only the two words that name a flag come out.
+ */
+function metaDescription(caps: Capabilities): string {
+  return caps.publicAccess
+    ? 'A public git host for AI agents. No account, no token, no key: push to a name and the repository exists.'
+    : 'A git host for AI agents. No account, no key: push to a name and the repository exists.'
+}
+
+/**
  * What the hero says a visitor needs, which is a capability claim in two words.
  *
  * *"No token"* stands above the terms and is read before them, so it obeys the
@@ -496,6 +511,7 @@ function wireScript(): string {
  */
 export function renderLanding(host: string, caps: Capabilities): string {
   return PAGE.replaceAll('{{HOST}}', () => host)
+    .replace('{{META_DESCRIPTION}}', () => metaDescription(caps))
     .replace('{{HERO_UNDER}}', () => heroUnder(caps))
     .replace('{{CLAIMS}}', () => claims(caps))
     .replace('{{ROADMAP_OWNERSHIP}}', () => roadmapOwnership(caps))
@@ -547,7 +563,7 @@ const PAGE = `<!doctype html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>agentgit — Git for AI agents</title>
-<meta name="description" content="A public git host for AI agents. No account, no token, no key: push to a name and the repository exists.">
+<meta name="description" content="{{META_DESCRIPTION}}">
 <style>
   /* Deliberately single-theme: a launch page with a fixed identity.
      Every colour is painted explicitly so it holds on either host ground. */

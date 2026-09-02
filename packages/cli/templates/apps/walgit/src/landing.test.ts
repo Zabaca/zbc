@@ -346,12 +346,23 @@ describe('the terms that state a flag are rendered from it', () => {
     expect(html).toContain('Basic-auth password or as a bearer token')
   })
 
-  // Two words above the terms, and the last unconditional capability claim on
-  // the page. The hero COMMAND is knowingly left alone: it needs a token
-  // placeholder no `Capabilities` field can supply, and that is copy.
+  // Two words above the terms, and read before them. The hero COMMAND is
+  // knowingly left alone: it needs a token placeholder no `Capabilities` field
+  // can supply, and that is copy.
   test('and the hero stops saying no token is needed', () => {
     expect(renderLanding(HOST, caps(APPEND))).not.toContain('<span>No token</span>')
     expect(renderLanding(HOST, caps(OPEN))).toContain('<span>No token</span>')
+  })
+
+  // The same two claims, in the one string that is read where the page is not:
+  // a search result and a link preview show this and nothing else.
+  test('and the meta description, which travels further than the page', () => {
+    expect(renderLanding(HOST, caps(APPEND))).toContain(
+      '<meta name="description" content="A git host for AI agents. No account, no key: push to a name and the repository exists.">',
+    )
+    expect(renderLanding(HOST, caps(OPEN))).toContain(
+      '<meta name="description" content="A public git host for AI agents. No account, no token, no key: push to a name and the repository exists.">',
+    )
   })
 
   test('with WALGIT_APPEND_ONLY unset, nothing on the page says a push is safe', () => {
