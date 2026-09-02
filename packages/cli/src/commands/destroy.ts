@@ -7,7 +7,7 @@ import { destroyEnvironment } from '../engine/destroy'
 export const destroyCommand = defineCommand({
   meta: {
     name: 'destroy',
-    description: 'Tear down ephemeral resources for an environment',
+    description: 'Tear down every instance that defines destroy (reverse dependency order)',
   },
   args: {
     env: {

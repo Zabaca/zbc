@@ -10,6 +10,22 @@ interface DefineModuleOptions<TConfig extends z.ZodType, TOutputs extends z.ZodT
   destroy?: DestroyFn<z.infer<TConfig>>
 }
 
+/**
+ * The pre-0.14 spelling: `ephemeral` as a field of a module's own config
+ * schema. Four modules carried it, three of them acting on it inline with three
+ * different failure policies. The engine owns the rule now, but a consumer's
+ * checked-in preview instance files still say `config: { ephemeral: true }`, and
+ * `zbc update` must not break them — so that spelling keeps working, with a
+ * deprecation line printed by `zbc apply`.
+ */
+export function configEphemeral(config: unknown): boolean {
+  return (
+    typeof config === 'object' &&
+    config !== null &&
+    (config as Record<string, unknown>).ephemeral === true
+  )
+}
+
 export function defineModule<TConfig extends z.ZodType, TOutputs extends z.ZodType>(
   opts: DefineModuleOptions<TConfig, TOutputs>,
 ): ModuleDefinition<TConfig, TOutputs> {
@@ -30,6 +46,7 @@ export function defineModule<TConfig extends z.ZodType, TOutputs extends z.ZodTy
         moduleName: opts.name,
         config: instanceOpts.config,
         imports: instanceOpts.imports ?? [],
+        ephemeral: instanceOpts.ephemeral ?? configEphemeral(instanceOpts.config),
         _outputsSchema: opts.outputs,
         _definition: definition as ModuleDefinition<any, TOutputs>,
       }

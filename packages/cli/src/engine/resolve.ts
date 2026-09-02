@@ -59,6 +59,23 @@ function assertImportsDiscovered(instances: ModuleInstance[], envLabel?: string)
   }
 }
 
+/**
+ * An ephemeral instance of a module with no `destroy` is a contradiction, and
+ * the engine refuses it before it applies anything — including the instances
+ * that sort ahead of it. Silently applying an "ephemeral" resource that is
+ * never torn down is exactly what `cloudflare-token` did for as long as it
+ * declared the flag and never read it.
+ */
+export function assertEphemeralDestroyable(instances: ModuleInstance[]): void {
+  for (const inst of instances) {
+    if (inst.ephemeral && !inst._definition.destroy) {
+      throw new Error(
+        `Instance "${inst.name}" is ephemeral but module "${inst.moduleName}" has no destroy`,
+      )
+    }
+  }
+}
+
 function collectTransitiveDeps(instance: ModuleInstance): ModuleInstance[] {
   const collected = new Set<string>()
   const result: ModuleInstance[] = []

@@ -75,6 +75,73 @@ describe('applyInstances', () => {
   })
 })
 
+describe('ephemeral', () => {
+  /** An instance with a `destroy`, whose two hooks append to `ran` so order is observable. */
+  function tracked(
+    ran: string[],
+    name: string,
+    opts: { ephemeral?: boolean; config?: Record<string, unknown> } = {},
+  ) {
+    return fakeInstance(name, {
+      ...opts,
+      apply: async () => {
+        ran.push(`apply:${name}`)
+        return {}
+      },
+      destroy: async () => {
+        ran.push(`destroy:${name}`)
+      },
+    })
+  }
+
+  test('an ephemeral instance is destroyed then applied, each once', async () => {
+    const ran: string[] = []
+    const inst = tracked(ran, 'preview-db', { ephemeral: true })
+    await applyInstances([inst], opts)
+    expect(ran).toEqual(['destroy:preview-db', 'apply:preview-db'])
+  })
+
+  test('a non-ephemeral instance is only applied, even though its module has a destroy', async () => {
+    const ran: string[] = []
+    const inst = tracked(ran, 'main-db')
+    await applyInstances([inst], opts)
+    expect(ran).toEqual(['apply:main-db'])
+  })
+
+  test('ephemeral on a module with no destroy throws before anything is applied', async () => {
+    const ran: string[] = []
+    const first = tracked(ran, 'first')
+    const bad = fakeInstance('cache', { imports: [first], ephemeral: true })
+
+    await expect(applyInstances([first, bad], opts)).rejects.toThrow(
+      'Instance "cache" is ephemeral but module "mod-cache" has no destroy',
+    )
+    expect(ran).toEqual([])
+  })
+
+  test('the old config.ephemeral spelling still works, with a deprecation line', async () => {
+    const ran: string[] = []
+    const inst = tracked(ran, 'preview-db', { config: { ephemeral: true } })
+
+    const lines = await captureLog(() => applyInstances([inst], opts))
+    expect(ran).toEqual(['destroy:preview-db', 'apply:preview-db'])
+    expect(lines).toContain(
+      '  ⚠ preview-db: config.ephemeral is deprecated — set ephemeral: true on the instance',
+    )
+  })
+
+  test('a failing destroy fails the apply — nothing is swallowed', async () => {
+    const inst = fakeInstance('preview-db', {
+      ephemeral: true,
+      apply: async () => ({}),
+      destroy: async () => {
+        throw new Error('bucket not empty')
+      },
+    })
+    await expect(applyInstances([inst], opts)).rejects.toThrow('bucket not empty')
+  })
+})
+
 describe('the context the engine hands a module', () => {
   test('projectRoot and the raw fields are still there', async () => {
     let seen: ApplyContext | undefined
@@ -151,6 +218,21 @@ describe('the context the engine hands a module', () => {
     expect(ran).toEqual(['a', 'b'])
   })
 })
+
+/** Collect what `run` logs, restoring `console.log` whether it resolves or throws. */
+async function captureLog(run: () => Promise<unknown>): Promise<string[]> {
+  const lines: string[] = []
+  const original = console.log
+  console.log = (...args: unknown[]) => {
+    lines.push(args.join(' '))
+  }
+  try {
+    await run()
+  } finally {
+    console.log = original
+  }
+  return lines
+}
 
 /** An instance whose schema fills in a default, to prove the module sees the parsed config. */
 function fakeModuleWithDefault(spy: (config: unknown) => void) {
