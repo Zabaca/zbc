@@ -29,6 +29,10 @@ const EVENTS: CapabilityEnv = {
 }
 const SEED: CapabilityEnv = { WALGIT_PUSH_CERT_SEED: 'nonce-seed' }
 const GATE: CapabilityEnv = { WALGIT_SIGNER_LISTS: '1' }
+const PUBLIC: CapabilityEnv = { WALGIT_PUBLIC: '1' }
+const APPEND: CapabilityEnv = { WALGIT_APPEND_ONLY: '1' }
+/** The two flags agentgit runs on, and the shape most of this file assumes. */
+const OPEN: CapabilityEnv = { ...PUBLIC, ...APPEND }
 
 /** A deployment that enforces and offers nothing. */
 const NOTHING = caps({})
@@ -257,14 +261,14 @@ describe('the rules', () => {
  */
 describe('the Public term states what pre-receive actually refuses', () => {
   test('with Signer Lists off, it is the unconditional sentence', () => {
-    const html = renderLanding(HOST, NOTHING)
+    const html = renderLanding(HOST, caps(OPEN))
     expect(html).toContain(
       '<b>Every repository is world-readable and world-writable.</b> Sharing is a URL',
     )
   })
 
   test('with them on, it stops promising a write nobody can make', () => {
-    const html = renderLanding(HOST, caps(GATE))
+    const html = renderLanding(HOST, caps({ ...OPEN, ...GATE }))
     expect(html).not.toContain('world-readable and world-writable.')
     expect(html).toContain('world-writable until its name is claimed')
     // Reads are untouched, and ADR-0012 is emphatic that none of this is a step
@@ -279,8 +283,10 @@ describe('the Public term states what pre-receive actually refuses', () => {
    * wrong answer it started with.
    */
   test('and the term above it stops making the same promise in three words', () => {
-    expect(renderLanding(HOST, NOTHING)).toContain('Anyone may add; no one may rewrite or delete.')
-    const held = renderLanding(HOST, caps(GATE))
+    expect(renderLanding(HOST, caps(OPEN))).toContain(
+      'Anyone may add; no one may rewrite or delete.',
+    )
+    const held = renderLanding(HOST, caps({ ...OPEN, ...GATE }))
     expect(held).not.toContain('Anyone may add')
     expect(held).toContain('Whoever the name takes a push from may add')
     // What append-only guarantees is untouched: it is who may push that the
@@ -299,12 +305,147 @@ describe('the Public term states what pre-receive actually refuses', () => {
    * is furthest from keeping.
    */
   test('and it is corrected on the flag alone, with no nonce seed', () => {
-    const html = renderLanding(HOST, caps(GATE))
+    const html = renderLanding(HOST, caps({ ...OPEN, ...GATE }))
     expect(html).toContain('world-writable until its name is claimed')
     // Still without inviting anyone to claim anything on a host where no push
     // can be signed: the correction names no ref and no command.
     expect(html).not.toContain('refs/walgit/signers')
     expect(html).not.toContain('--signed')
+  })
+})
+
+/**
+ * The two terms that were prose until now.
+ *
+ * `Public` and `Append-only` are opt-in flags a consumer scaffolding walgit has
+ * neither of until they set them, and both terms stated their capability
+ * unconditionally — so a deployment running on tokens with append-only off
+ * served a page, at the edge, before any auth, to anyone, asserting that every
+ * repository was world-writable and that nothing pushed to it could be
+ * destroyed. Neither was true of it. This is the same rule the limits have
+ * always followed, finally applied to the two terms that never did.
+ */
+describe('the terms that state a flag are rendered from it', () => {
+  test('with WALGIT_PUBLIC unset, the page promises no write to a stranger', () => {
+    const html = renderLanding(HOST, caps(APPEND))
+    expect(html).not.toContain('world-writable')
+    expect(html).not.toContain('world-readable')
+    expect(html).not.toContain('Sharing is a URL')
+    expect(html).not.toContain('{{')
+  })
+
+  // Not omitted, unlike `Append-only`: access is the one thing a reader of
+  // `The rules.` has to be told either way, and a list that simply drops it
+  // reads as a host that asks for nothing.
+  test('and states the other answer in its place', () => {
+    const html = renderLanding(HOST, caps(APPEND))
+    expect(html).toContain('<span class="k">Credentialed</span>')
+    expect(html).toContain('<b>Reads and writes need a credential.</b>')
+    // The form git actually sends it in — the same one /llms.txt and `GET /`
+    // name, so the three documents describe one credential.
+    expect(html).toContain('Basic-auth password or as a bearer token')
+  })
+
+  // Two words above the terms, and the last unconditional capability claim on
+  // the page. The hero COMMAND is knowingly left alone: it needs a token
+  // placeholder no `Capabilities` field can supply, and that is copy.
+  test('and the hero stops saying no token is needed', () => {
+    expect(renderLanding(HOST, caps(APPEND))).not.toContain('<span>No token</span>')
+    expect(renderLanding(HOST, caps(OPEN))).toContain('<span>No token</span>')
+  })
+
+  test('with WALGIT_APPEND_ONLY unset, nothing on the page says a push is safe', () => {
+    const html = renderLanding(HOST, caps(PUBLIC))
+    expect(html).not.toContain('Nothing you push can be destroyed')
+    expect(html).not.toContain('no one may rewrite or delete')
+    expect(html).not.toContain('Append-only')
+    expect(html).not.toContain('{{')
+  })
+
+  // The term LEAVES rather than stating the opposite, like every unenforced
+  // limit: "refs can be rewritten" is what every git host does and is not a
+  // rule of this one.
+  test('and the term leaves rather than being replaced', () => {
+    const html = renderLanding(HOST, caps(PUBLIC))
+    expect(html).not.toContain('<span class="k">Append-only</span>')
+    expect(html).toContain('<span class="k">Public</span>')
+  })
+
+  // The roadmap makes the same promise seven words into the Pull requests row,
+  // so gating only the term would have moved the false sentence one section
+  // down rather than removing it. What is MISSING there is the same either way.
+  test('and the roadmap stops leaning on it too', () => {
+    const off = renderLanding(HOST, caps(PUBLIC))
+    expect(off).not.toContain('Append-only already makes a proposal safe to push')
+    expect(off).toContain('A branch is already the whole of a proposal.')
+    expect(off).toContain('a way to say it landed — not a review UI')
+
+    expect(renderLanding(HOST, caps(OPEN))).toContain(
+      'Append-only already makes a proposal safe to push.',
+    )
+  })
+
+  // Both terms already varied on `namesCanRefuse` (PR #106). The outer gate is
+  // what is new, so the two-way split has to survive it word for word.
+  test('the Signer List wording is untouched by the outer gate', () => {
+    const open = renderLanding(HOST, caps(OPEN))
+    expect(open).toContain('<b>Every repository is world-readable and world-writable.</b>')
+    expect(open).toContain('Anyone may add; no one may rewrite or delete.')
+
+    const held = renderLanding(HOST, caps({ ...OPEN, ...GATE }))
+    expect(held).toContain(
+      '<b>Every repository is world-readable, and world-writable until its name is claimed.</b>',
+    )
+    expect(held).toContain('Whoever the name takes a push from may add; no one may rewrite')
+  })
+
+  /**
+   * Every term but `Public` can be absent, and the list is drawn as rows
+   * separated by borders — so a placeholder that renders nothing leaves a rule
+   * with no row under it. All four corners of the two flags, plus the two that
+   * empty the rest of the list, have to come out as a run of real `<li>`s.
+   */
+  test('no corner of the two flags leaves an empty or dangling term', () => {
+    for (const env of [
+      {},
+      PUBLIC,
+      APPEND,
+      OPEN,
+      { ...OPEN, ...GATE, ...SEED },
+      { WALGIT_RETENTION_HOURS: '24' },
+    ] satisfies CapabilityEnv[]) {
+      const html = renderLanding(HOST, caps(env))
+      const list = html.slice(
+        html.indexOf('<ul class="claims">'),
+        html.indexOf('</ul>', html.indexOf('<ul class="claims">')),
+      )
+      expect(list).not.toContain('<li></li>')
+      // The rows are one per line, so a blank line inside the list IS the
+      // dangling rule: nothing separates the terms but their own newlines.
+      // First line is the `<ul>`, last is the indent before the `</ul>`.
+      const rows = list.split('\n').slice(1, -1)
+      expect(rows.every((row) => row.trim().startsWith('<li>'))).toBe(true)
+      expect(rows.length).toBeGreaterThan(0)
+      expect(html).not.toContain('{{')
+    }
+  })
+
+  /**
+   * agentgit sets both flags (`walgit-public.ts`), so the deployment this page
+   * was written for must read exactly as it did — this change is only about the
+   * deployments that set neither. The whole page is compared, not the two
+   * terms, because the gates moved the assembly of `The rules.` as well as its
+   * contents.
+   */
+  test('and the deployment that sets both is byte-for-byte the page it already had', () => {
+    const html = renderLanding(HOST, caps({ ...OPEN, ...GATE, ...SEED, ...EVENTS }))
+    expect(html).toContain(
+      `      <ul class="claims">
+        <li><span class="k">Append-only</span><span class="v"><b>Nothing you push can be destroyed.</b> Whoever the name takes a push from may add; no one may rewrite or delete. A push that would rewrite history is refused in <code>pre-receive</code>, before anything is uploaded, by a message naming what to do instead.</span></li>
+        <li><span class="k">Public</span><span class="v"><b>Every repository is world-readable, and world-writable until its name is claimed.</b> Sharing is a URL, not an invitation. Privacy is not free yet.</span></li>
+        <li><span class="k">Attributed</span><span class="v"><b>A push signed with your key records that key's fingerprint.</b> Unsigned is fine unless a name has written a Signer List, which takes pushes from its own keys only. There is still no account: the fingerprint is the whole identity. <code>git push --signed=if-asked</code>.</span></li>
+      </ul>`,
+    )
   })
 })
 
