@@ -390,7 +390,27 @@ describe('zbc secret request', () => {
   test('channels are single-use: a second submission is rejected and a consumed channel is gone', async () => {
     const root = makeProject()
     const relay = createRelay()
-    const server = Bun.serve({ port: 0, fetch: relay.fetch })
+
+    // The CLI polls GET /submission, and that read DELETES the channel — single-use
+    // is the property, not an accident. So a poll landing between the two POSTs below
+    // makes the second one 404 "no such channel" instead of the 409 this test is about,
+    // roughly one run in seven. Hold the CLI off the collection until the second
+    // submission has been answered, by giving it the relay's own pre-submission reply
+    // (404 "not yet submitted"), which its poll loop already treats as "keep waiting".
+    let collectable = false
+    const server = Bun.serve({
+      port: 0,
+      fetch(req) {
+        const { pathname } = new URL(req.url)
+        if (!collectable && req.method === 'GET' && pathname.endsWith('/submission')) {
+          return new Response(JSON.stringify({ error: 'not yet submitted' }), {
+            status: 404,
+            headers: { 'content-type': 'application/json' },
+          })
+        }
+        return relay.fetch(req)
+      },
+    })
     try {
       const cli = spawnCli(root, [
         'secret',
@@ -420,6 +440,7 @@ describe('zbc secret request', () => {
       })
       expect(second.status).toBe(409)
 
+      collectable = true
       const result = await cli.result
       expect(result.exitCode).toBe(0)
       const written = fs.readFileSync(
