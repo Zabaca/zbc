@@ -9,12 +9,22 @@
 # vendored copy for four days without reaching here, and every other consumer
 # had the defect with no way to see it.
 #
-# **Scoped to templates/infra deliberately, and the narrowing is stated rather
-# than left to be discovered.** `bun test packages/cli` is red today on six
-# warehouse auth tests that predate this workflow, and a gate that is red on
-# arrival is a gate people learn to ignore (RULES.md in the contributing repo
-# puts it plainly: a guard with false positives gets switched off). Widening
-# this is a matter of fixing those six, not of editing the path here.
+# `packages/cli/src/` — the ENGINE — is here for the same reason, and it was
+# missed for the same reason it is easy to miss: it is not vendored, so it does
+# not look like something consumers receive. It is. Every consumer installs it
+# as `@zabaca/zbc`, and it is the code that orders the graph, resolves imports
+# and decrypts secrets for every module above. #114 added 533 lines of engine
+# tests that ran in CI only because that PR happened to also touch
+# `templates/infra/`; a pure-engine change was ungated.
+#
+# **Still scoped, and the narrowing is stated rather than left to be
+# discovered.** `bun test packages/cli` — the whole package, templates/apps
+# included — is red today on six warehouse auth tests that predate this
+# workflow, and a gate that is red on arrival is a gate people learn to ignore
+# (RULES.md in the contributing repo puts it plainly: a guard with false
+# positives gets switched off). The apps have their own workflows
+# (`inbox-tests`, `walgit-e2e`); what is left uncovered is the warehouse app,
+# and closing that is a matter of fixing those six, not of editing a path here.
 name: core-tests
 
 on:
@@ -22,6 +32,7 @@ on:
     branches: [main]
     paths:
       - 'packages/cli/templates/infra/**'
+      - 'packages/cli/src/**'
       # The typecheck below compiles the templates through `packages/infra`,
       # whose `modules/` and `src/` are symlinks into them — so its tsconfig,
       # its manifest and the root tsconfig it extends are all inputs to this
@@ -33,6 +44,7 @@ on:
   pull_request:
     paths:
       - 'packages/cli/templates/infra/**'
+      - 'packages/cli/src/**'
       - 'packages/infra/**'
       - 'tsconfig.json'
       - 'scripts/**'
@@ -62,6 +74,32 @@ jobs:
       # under a tag rather than a broken build.
       - name: Test the modules consumers vendor
         run: bun test packages/cli/templates/infra
+
+      # `zbc secret` shells out to both, and its suite exercises a real sops
+      # round-trip rather than a mock — which is the right test and the reason
+      # it cannot run on a bare runner. ubuntu-latest ships neither binary, so
+      # widening this workflow to the engine turned two passing local tests into
+      # a red gate. Skipping them when the tools are missing would have made
+      # that green with no coverage at all, which is the failure this whole
+      # workflow exists to prevent, so they are installed instead. Pinned:
+      # `sops --version` output is asserted nowhere, but an unpinned decrypt is
+      # the last thing that should change under CI on its own.
+      - name: Install sops and age
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq && sudo apt-get install -y -qq age
+          curl -fsSL -o /tmp/sops \
+            https://github.com/getsops/sops/releases/download/v3.12.1/sops-v3.12.1.linux.amd64
+          sudo install -m 0755 /tmp/sops /usr/local/bin/sops
+          sops --version
+          age-keygen --version
+
+      # The engine that drives them. `templates/infra` above is WHAT converges;
+      # this is WHAT DECIDES the order it converges in, which imports resolve to
+      # and which secrets a module can see — so a defect here misapplies every
+      # module, including ones whose own suite is green.
+      - name: Test the engine that drives them
+        run: bun test packages/cli/src
 
       # `scripts/release-core.ts` cuts the tags those modules ship under, so a
       # defect in it is a defect in the distribution — the same reason the suite

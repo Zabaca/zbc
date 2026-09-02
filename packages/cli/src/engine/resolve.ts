@@ -2,8 +2,16 @@ import { legacyConfigEphemeral } from '../../templates/infra/src/define-module'
 import type { ModuleInstance } from '../../templates/infra/src/types'
 
 export interface ResolveOptions {
-  /** Apply/destroy only this instance (plus, for apply, its transitive imports). */
-  target?: string
+  /**
+   * Apply/destroy only these instances (plus, for apply, their transitive
+   * imports). A bare string is one of them.
+   *
+   * Plural because CI scopes a production apply to what a push actually
+   * touched, and a push routinely touches two — running the CLI once per name
+   * would re-decrypt the environment and re-apply the shared dependencies of
+   * each, turning a saving into a slower, noisier deploy.
+   */
+  target?: string | string[]
   /** Where the instances came from, for error messages. */
   envLabel?: string
   /**
@@ -25,14 +33,22 @@ export function resolveOrder(
 
   let toProcess = instances
 
-  if (opts.target) {
-    const targetInstance = instances.find((i) => i.name === opts.target)
-    if (!targetInstance) {
-      throw new Error(
-        `Instance "${opts.target}" not found. Available: ${instances.map((i) => i.name).join(', ')}`,
-      )
+  const targets = typeof opts.target === 'string' ? [opts.target] : (opts.target ?? [])
+
+  if (targets.length > 0) {
+    const selected = new Map<string, ModuleInstance>()
+    for (const target of targets) {
+      const targetInstance = instances.find((i) => i.name === target)
+      if (!targetInstance) {
+        throw new Error(
+          `Instance "${target}" not found. Available: ${instances.map((i) => i.name).join(', ')}`,
+        )
+      }
+      // Union, not concatenation: two targets that share a dependency would
+      // otherwise list it twice, and the sort counts an instance's edges once.
+      for (const dep of collectTransitiveDeps(targetInstance)) selected.set(dep.name, dep)
     }
-    toProcess = collectTransitiveDeps(targetInstance)
+    toProcess = Array.from(selected.values())
   }
 
   return topologicalSort(toProcess)

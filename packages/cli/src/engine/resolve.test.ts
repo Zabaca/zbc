@@ -44,6 +44,40 @@ describe('resolveOrder', () => {
     expect(names(resolveOrder([a, b, c, unrelated], { target: 'c' }))).toEqual(['a', 'b', 'c'])
   })
 
+  test('two targets sharing a dependency run it once, before both', () => {
+    const shared = fakeInstance('shared')
+    const a = fakeInstance('a', { imports: [shared] })
+    const b = fakeInstance('b', { imports: [shared] })
+    const unrelated = fakeInstance('unrelated')
+
+    const order = resolveOrder([shared, a, b, unrelated], { target: ['a', 'b'] })
+
+    // Deduplication is the point. Concatenating the two closures would list
+    // `shared` twice, and the sort counts an instance's in-edges once — the
+    // second copy would never reach in-degree zero, and the run would throw
+    // "Circular dependency" for a graph that has none.
+    expect(names(order).toSorted()).toEqual(['a', 'b', 'shared'])
+    expect(at(order, 'shared')).toBeLessThan(at(order, 'a'))
+    expect(at(order, 'shared')).toBeLessThan(at(order, 'b'))
+  })
+
+  test('a single-element target list is the bare string', () => {
+    const a = fakeInstance('a')
+    const b = fakeInstance('b', { imports: [a] })
+
+    expect(names(resolveOrder([a, b], { target: ['b'] }))).toEqual(
+      names(resolveOrder([a, b], { target: 'b' })),
+    )
+  })
+
+  test('one unknown name among known ones still throws', () => {
+    const a = fakeInstance('a')
+
+    expect(() => resolveOrder([a], { target: ['a', 'ghost'] })).toThrow(
+      /Instance "ghost" not found\. Available: a/,
+    )
+  })
+
   test('an unknown target names what was available', () => {
     expect(() => resolveOrder([fakeInstance('a')], { target: 'ghost' })).toThrow(
       /Instance "ghost" not found\. Available: a/,
