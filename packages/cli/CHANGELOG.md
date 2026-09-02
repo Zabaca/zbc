@@ -44,3 +44,20 @@ Unaffected if you set `WALGIT_PUBLIC=1`, leave it unset, or do not run walgit.
 the absence of tokens: with neither tokens nor public configured the container
 still refuses to boot, so a deployment that loses its secrets fails closed
 instead of opening to the world.
+
+### walgit's ref-event stream now needs both halves configured — this narrows
+
+**If your walgit deployment sets `WALGIT_EVENTS_TOKEN` without
+`WALGIT_EVENTS_URL`, the ref-event stream stops being served.** The socket path
+was previously claimed on the token alone; it is now claimed on the same
+`caps.events` the documents advertise from, which requires both.
+
+That configuration never worked: the token is what claims the socket at the
+edge, and the URL is where the container's `post-receive` announces. With only
+the token a subscriber connected, was handed current refs, and then waited
+forever, because the push path had nowhere to announce to. It now 404s instead,
+and `/llms.txt` and the landing page stop offering a stream — which is the same
+failure, said out loud, before an agent writes a client against it.
+
+Set `WALGIT_EVENTS_URL` as well to keep the stream. Unaffected if you set both
+(as this repo's own `agentgit` deployment does) or neither.

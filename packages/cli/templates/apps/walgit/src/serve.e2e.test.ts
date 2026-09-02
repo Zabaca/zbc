@@ -87,13 +87,17 @@ beforeAll(() => {
   // A second instance of the same handler, configured open. Same repos dir and
   // same log — the only difference is that no credential is demanded, which is
   // exactly the claim under test.
-  publicServer = open({ WALGIT_PUBLIC: '1', WALGIT_APPEND_ONLY: '1', WALGIT_RETENTION_HOURS: '24' })
+  publicServer = publicInstance({
+    WALGIT_PUBLIC: '1',
+    WALGIT_APPEND_ONLY: '1',
+    WALGIT_RETENTION_HOURS: '24',
+  })
   publicOrigin = `http://127.0.0.1:${publicServer.port}/open.git`
 
   // A third, spelled `true` rather than `1`. `flagEnabled` has always taken
   // both, but the git gate used to take only `1` — so this deployment served a
   // 401 to every clone under a manual saying no credential was needed.
-  spelledTrueServer = open({ WALGIT_PUBLIC: 'true', WALGIT_APPEND_ONLY: '1' })
+  spelledTrueServer = publicInstance({ WALGIT_PUBLIC: 'true', WALGIT_APPEND_ONLY: '1' })
   spelledTrueOrigin = `http://127.0.0.1:${spelledTrueServer.port}/spelled-true.git`
 })
 
@@ -104,7 +108,7 @@ beforeAll(() => {
  * `public: true` by hand would prove the gate works and nothing about which
  * environments reach it.
  */
-function open(env: CapabilityEnv): ReturnType<typeof Bun.serve> {
+function publicInstance(env: CapabilityEnv): ReturnType<typeof Bun.serve> {
   const capabilities = caps(env)
   return Bun.serve({
     port: 0,

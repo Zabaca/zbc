@@ -459,12 +459,18 @@ and `GET /` does not claim it. `WALGIT_EVENTS_URL` and `WALGIT_EVENTS_TOKEN` (a
 secret) turn on the ref-event stream below, and `WALGIT_PUSH_CERT_SEED` (a
 secret) turns on signed pushes.
 
-Every flag above is read exactly once, by `capabilitiesFrom`
-(`shared/capabilities.ts`), and **on means `1` or `true` — nothing else**. An
-unrecognised value (`yes`, `on`, `TRUE`) reads as off, which for `WALGIT_PUBLIC`
-means a token-gated host. Both halves take their answer from that one
-derivation, so the documents cannot advertise a rule the push path does not
-enforce, or the reverse.
+For the three boolean flags — `WALGIT_APPEND_ONLY`, `WALGIT_PUBLIC` and
+`WALGIT_SIGNER_LISTS` — **on means `1` or `true`, and nothing else**
+(`flagEnabled`, `shared/policy.ts`). An unrecognised value (`yes`, `on`, `TRUE`)
+reads as off, which for `WALGIT_PUBLIC` means a token-gated host. The others are
+not booleans: the three size and retention limits are read as positive numbers
+and the rest are values in their own right, unset meaning the behaviour is off.
+
+All of them are read in one place — `capabilitiesFrom`
+(`shared/capabilities.ts`) — which is what the three agent-facing documents are
+rendered from and what every decision about whether a credential is required
+reads. So `GET /` and `/llms.txt` cannot claim public access the front door does
+not grant, or the reverse.
 
 `WALGIT_SIGNER_LISTS=1` lets a repository name the keys allowed to push to it
 (docs/adr/0012 in the zbc repository): a commit on `refs/walgit/signers` whose

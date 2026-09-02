@@ -160,7 +160,10 @@ describe('the documents say what the gate does', () => {
   const HOST = 'walgit.test'
   const ORIGIN = `https://${HOST}`
 
-  /** All three agent-facing documents, rendered from one environment. */
+  /**
+   * All three agent-facing documents, rendered from one environment. Only the
+   * first two vary on `publicAccess` today — see the landing-page test below.
+   */
   const documents = (env: CapabilityEnv) => {
     const caps = capabilitiesFrom(env)
     return {
@@ -181,32 +184,36 @@ describe('the documents say what the gate does', () => {
    * assertion on wording would have to be rewritten every time the copy is —
    * which is how a document drifts out of a test's reach in the first place.
    */
-  test('`true` renders every document identically to `1`', () => {
+  test('`true` renders `GET /` and `/llms.txt` identically to `1`', () => {
     expect(spelledTrue.instructions).toBe(open.instructions)
     expect(spelledTrue.llms).toBe(open.llms)
-    expect(spelledTrue.landing).toBe(open.landing)
   })
 
-  test('`yes` renders every document identically to unset', () => {
+  test('`yes` renders `GET /` and `/llms.txt` identically to unset', () => {
     expect(unrecognised.instructions).toBe(closed.instructions)
     expect(unrecognised.llms).toBe(closed.llms)
-    expect(unrecognised.landing).toBe(closed.landing)
   })
 
   /**
    * Without this the two equalities above would pass on a renderer that ignored
    * `publicAccess` entirely.
-   *
-   * The landing page is deliberately NOT asserted here, because today it IS
-   * such a renderer: it claims world-readable and world-writable whatever the
-   * flag says, which is a separate defect with its own ticket. Its two
-   * equalities above are therefore vacuous for now and become load-bearing the
-   * moment the page starts reading the field — which is the point of leaving
-   * them in.
    */
-  test('the two renderings differ, so the equality above is not vacuous', () => {
+  test('the two renderings differ, so the equalities above are not vacuous', () => {
     expect(open.instructions).not.toBe(closed.instructions)
     expect(open.llms).not.toBe(closed.llms)
+  })
+
+  /**
+   * The third agent-facing document, asserted only for the spelling and NOT for
+   * the flag — because today it ignores the flag: `publicClaim`
+   * (`shared/landing.ts`) states world-readable and world-writable whatever
+   * `publicAccess` says. That is a separate defect with its own ticket, and it
+   * is why this is one weak assertion rather than the pair above: it holds
+   * vacuously now and becomes load-bearing the moment the page reads the field.
+   */
+  test('the landing page does not distinguish `true` from `1` either', () => {
+    expect(spelledTrue.landing).toBe(open.landing)
+    expect(unrecognised.landing).toBe(closed.landing)
   })
 
   test('a closed deployment teaches an agent how to present a credential', () => {
