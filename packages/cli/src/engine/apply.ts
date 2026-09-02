@@ -1,8 +1,8 @@
 import { createApplyContext } from '../../templates/infra/src/context'
-import { configEphemeral } from '../../templates/infra/src/define-module'
+import { legacyConfigEphemeral } from '../../templates/infra/src/define-module'
 import type { ApplyContext, ModuleInstance } from '../../templates/infra/src/types'
 import { discoverInstances } from './discover'
-import { assertEphemeralDestroyable, resolveOrder } from './resolve'
+import { assertEphemeralDestroyable, isEphemeral, resolveOrder } from './resolve'
 import { loadSecrets } from './secrets'
 
 export interface ApplyInstancesOptions {
@@ -63,12 +63,17 @@ function instanceContext(
 /**
  * Destroy an ephemeral instance so the apply that follows starts from nothing.
  *
- * Deliberately NOT wrapped in a catch. The three modules that used to do this
+ * The engine adds NO catch of its own. The three modules that used to do this
  * inline each swallowed the failure — `catch {}` twice, `allowFailure: true`
  * once — which turned "the delete was refused" into "the resource is clean",
  * and the resource then persisted across every preview run. Each of those
- * modules' own `destroy` already treats an absent resource as success, so the
- * only thing a catch here could hide is a real failure.
+ * modules' own `destroy` treats an absent resource as success, so nothing here
+ * needs a catch to survive the first-ever apply.
+ *
+ * What a module's OWN `destroy` swallows is still swallowed — `r2`'s logs a
+ * refused delete and returns, deliberately, so that `zbc destroy` does not abort
+ * the whole environment on one non-empty bucket. See its `destroy` doc: an
+ * ephemeral `r2` instance is only as clean as the bucket the app left behind.
  */
 async function destroyEphemeral(
   instance: ModuleInstance,
@@ -92,8 +97,8 @@ export async function applyInstances(
 
   for (const instance of sorted) {
     console.log(`\n→ ${instance.moduleName}:${instance.name}`)
-    if (instance.ephemeral) {
-      if (configEphemeral(instance.config)) {
+    if (isEphemeral(instance)) {
+      if (legacyConfigEphemeral(instance.moduleName, instance.config)) {
         console.log(
           `  ⚠ ${instance.name}: config.ephemeral is deprecated — set ephemeral: true on the instance`,
         )

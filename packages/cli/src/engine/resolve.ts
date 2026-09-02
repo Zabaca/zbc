@@ -1,3 +1,4 @@
+import { legacyConfigEphemeral } from '../../templates/infra/src/define-module'
 import type { ModuleInstance } from '../../templates/infra/src/types'
 
 export interface ResolveOptions {
@@ -60,6 +61,26 @@ function assertImportsDiscovered(instances: ModuleInstance[], envLabel?: string)
 }
 
 /**
+ * Whether this instance is ephemeral.
+ *
+ * `ephemeral` is WRITTEN by `defineModule` — which a subtree consumer vendors at
+ * `vendor/zbc/src/` and moves with `zbc update` — and READ here, in the engine
+ * the npm CLI ships. The two version independently, so an instance built by a
+ * `define-module.ts` older than this CLI has no `ephemeral` property at all. The
+ * engine repeats the legacy fallback rather than reading `undefined` as "no",
+ * which would silently make every preview resource permanent.
+ *
+ * The reverse skew — a newer vendored subtree under an older CLI, whose engine
+ * knows nothing of instance-level `ephemeral` — cannot be fixed from here; `zbc
+ * update` moving ahead of the CLI is what the version pin in `zbc init
+ * --subtree` exists to prevent.
+ */
+export function isEphemeral(instance: ModuleInstance): boolean {
+  const declared = (instance as { ephemeral?: boolean }).ephemeral
+  return declared ?? legacyConfigEphemeral(instance.moduleName, instance.config)
+}
+
+/**
  * An ephemeral instance of a module with no `destroy` is a contradiction, and
  * the engine refuses it before it applies anything — including the instances
  * that sort ahead of it. Silently applying an "ephemeral" resource that is
@@ -68,7 +89,7 @@ function assertImportsDiscovered(instances: ModuleInstance[], envLabel?: string)
  */
 export function assertEphemeralDestroyable(instances: ModuleInstance[]): void {
   for (const inst of instances) {
-    if (inst.ephemeral && !inst._definition.destroy) {
+    if (isEphemeral(inst) && !inst._definition.destroy) {
       throw new Error(
         `Instance "${inst.name}" is ephemeral but module "${inst.moduleName}" has no destroy`,
       )

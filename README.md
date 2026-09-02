@@ -63,7 +63,7 @@ zbc update                                  # subtree projects: pull a newer zbc
 
 **`apply`** is declarative and idempotent. Run it the first time — everything is provisioned and deployed. Run it again — no-op except code deploy. Config changed — it converges. Same command locally and in CI.
 
-An instance marked `ephemeral: true` is destroyed and re-applied on every run, so each run starts from a clean resource. That is the engine's rule, not a module's: `ephemeral` sits on the **instance**, any module that defines `destroy` can be ephemeral, and one that doesn't is a hard error before anything is applied. (`ephemeral` inside a module's `config` is the pre-0.14 spelling — still honoured, with a deprecation line on every apply.) `zbc destroy` is separate: it tears down every instance that defines a `destroy`, ephemeral or not, in reverse dependency order, and is what cleans up when a PR is closed.
+An instance marked `ephemeral: true` is destroyed and re-applied on every run, so each run starts from a clean resource. That is the engine's rule, not a module's: `ephemeral` sits on the **instance**, any module that defines `destroy` can be ephemeral, and one that doesn't is a hard error before anything is applied. (`ephemeral` inside a module's `config` is the pre-0.14 spelling. It is still honoured — with a deprecation line on every apply — but only for the four modules that ever declared it: `turso`, `r2`, `fly`, `cloudflare-token`. Everywhere else that key was always stripped by the config schema, and it stays inert.) `zbc destroy` is separate: it tears down every instance that defines a `destroy`, ephemeral or not, in reverse dependency order, and is what cleans up when a PR is closed.
 
 ## Modules
 
