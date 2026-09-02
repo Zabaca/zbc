@@ -135,6 +135,7 @@ export const initCommand = defineCommand({
     const infraDest = path.join(cwd, 'packages/infra')
     await copyTemplateDir(path.join(tplRoot, 'infra'), infraDest, {
       vars,
+      excludeTests: true,
       exclude: ['modules', 'README.md', ...(args.subtree ? ['src'] : [])],
     })
 

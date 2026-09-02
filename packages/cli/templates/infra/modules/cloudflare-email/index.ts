@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { defineModule } from '../../src/define-module'
+import type { ApplyContext } from '../../src/types'
 
 /**
  * cloudflare-email — provisions Cloudflare Email Service (public beta) for a
@@ -9,7 +10,7 @@ import { defineModule } from '../../src/define-module'
  * Unlike the `cloudflare` module (which shells out to wrangler), this module
  * calls the Cloudflare REST API directly — wrangler has no surface for Email
  * Routing / Email Sending onboarding. Same turso-style shape: token from
- * ctx.secrets, idempotent list→create everywhere, console.log progress.
+ * ctx.secret, idempotent list→create everywhere, console.log progress.
  *
  * Operational caveats (beta):
  * - Email Sending requires a Workers Paid plan (403/10105 = not entitled).
@@ -118,25 +119,9 @@ const workerRefSchema = z.union([
 type WorkerRef = z.infer<typeof workerRefSchema>
 
 /** Resolve a worker-name entry to its literal string. */
-function resolveWorkerName(
-  ref: WorkerRef,
-  imports: Record<string, unknown>,
-  fieldName: string,
-): string {
+function resolveWorkerName(ref: WorkerRef, ctx: ApplyContext, fieldName: string): string {
   if (typeof ref === 'string') return ref
-  const instanceOutputs = imports[ref.from]
-  if (instanceOutputs === undefined) {
-    throw new Error(
-      `${fieldName} references instance "${ref.from}", which is not in this instance's imports`,
-    )
-  }
-  const value = (instanceOutputs as Record<string, unknown> | null)?.[ref.output]
-  if (typeof value !== 'string') {
-    throw new Error(
-      `${fieldName} references output "${ref.output}" on instance "${ref.from}", which doesn't emit it`,
-    )
-  }
-  return value
+  return ctx.output(ref, fieldName)
 }
 
 /** A routing rule action target. */
@@ -176,7 +161,7 @@ const RULE_PREFIX = 'zbc:'
 
 function ruleAction(
   entry: { action: string; destination?: string; workerName?: WorkerRef },
-  imports: Record<string, unknown>,
+  ctx: ApplyContext,
   fieldName: string,
 ): { type: string; value?: string[] } {
   if (entry.action === 'forward') {
@@ -185,7 +170,7 @@ function ruleAction(
   }
   if (entry.action === 'worker') {
     if (!entry.workerName) throw new Error(`${fieldName}: action "worker" requires a workerName`)
-    return { type: 'worker', value: [resolveWorkerName(entry.workerName, imports, fieldName)] }
+    return { type: 'worker', value: [resolveWorkerName(entry.workerName, ctx, fieldName)] }
   }
   return { type: 'drop' }
 }
@@ -305,8 +290,7 @@ export const cloudflareEmailModule = defineModule({
     domain: z.string(),
   }),
   async apply(config, ctx) {
-    const token = ctx.secrets['CLOUDFLARE_API_TOKEN']
-    if (!token) throw new Error('Missing secret: CLOUDFLARE_API_TOKEN')
+    const token = ctx.secret('CLOUDFLARE_API_TOKEN')
 
     const { accountId, zoneId, domain } = config
     const dnsStatus: Record<string, string> = {}
@@ -447,7 +431,7 @@ export const cloudflareEmailModule = defineModule({
           name: ruleName,
           enabled: true,
           matchers: [{ type: 'literal', field: 'to', value: email }],
-          actions: [ruleAction(entry, ctx.imports, `addresses[${entry.localPart}]`)],
+          actions: [ruleAction(entry, ctx, `addresses[${entry.localPart}]`)],
         }
         const existing = existingRules.find(
           (r) =>
@@ -474,7 +458,7 @@ export const cloudflareEmailModule = defineModule({
             name: `${RULE_PREFIX}catch-all`,
             enabled: true,
             matchers: [{ type: 'all' }],
-            actions: [ruleAction(config.catchAll, ctx.imports, 'catchAll')],
+            actions: [ruleAction(config.catchAll, ctx, 'catchAll')],
           },
         })
         console.log(`  Routing: catch-all → ${config.catchAll.action}`)
@@ -501,8 +485,7 @@ export const cloudflareEmailModule = defineModule({
     }
   },
   async destroy(config, ctx) {
-    const token = ctx.secrets['CLOUDFLARE_API_TOKEN']
-    if (!token) throw new Error('Missing secret: CLOUDFLARE_API_TOKEN')
+    const token = ctx.secret('CLOUDFLARE_API_TOKEN')
     const { zoneId, domain } = config
 
     console.log(`  ⚠ DESTROYING email config for ${domain} — mail for this domain WILL STOP.`)

@@ -1,5 +1,5 @@
 import * as path from 'node:path'
-import type { ModuleInstance } from '../infra-types'
+import type { ModuleInstance } from '../../templates/infra/src/types'
 
 function isModuleInstance(value: unknown): value is ModuleInstance {
   return (

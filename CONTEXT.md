@@ -38,6 +38,10 @@ A short human-checkable code shown by both the CLI and the browser page so the h
 A module that only orchestrates build+deploy against topology the *consuming package* defines itself (e.g. its own `wrangler.jsonc`, `Dockerfile`). The module doesn't know the shape of what it's deploying. `cloudflare` is the only deploy module.
 _Avoid_: thin module
 
+**Import**:
+A typed reference from one Instance to another in the same environment. The engine applies the imported Instance first and hands its outputs to the importer through the context — `ctx.output({ from, output }, field)` — which is the only way a Module learns another Module's result. A Module never reads another Module's resource directly. At destroy time the same call still answers: a full-environment destroy applies the imported Instance on demand — only if the destroy asks, and only because the same run tears it down again afterwards. A targeted destroy refuses, since the Instance it would create is shared infra nothing in that run would remove.
+_Avoid_: dependency (says nothing about outputs flowing), link
+
 **App Template**:
 A `kind: "app"` template that scaffolds a full package into the consumer's `packages/<name>/` — real application code (worker routes, business logic), not just a resource's config schema. Declares its module dependencies in `registry.json`, which `zbc add <app>` auto-vendors. `inbox`, `secret-relay`, and `warehouse` are app templates. What earns a template is the third principle above, not this structural definition.
 _Avoid_: app module (conflates with Provisioning/Deploy Module, which own only a resource's config, not a scaffolded package)

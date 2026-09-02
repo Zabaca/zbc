@@ -178,6 +178,19 @@ async function installModule(
 
   console.log(`zbc add: ${moduleName}`)
 
+  // Fill in any engine file this repo does not have yet. `zbc init` lays down
+  // packages/infra/src/ once, at scaffold time, and every module imports
+  // '../../src/define-module' from it — so a repo initialized on an older CLI
+  // has whatever src/ shipped THEN, and a module added today can import a file
+  // that does not exist in its tree. `context.ts` is the first such addition:
+  // `fly`, `cloudflare-api` and `provision-core` import it. Skip-if-exists, so
+  // a consumer's own edits to the files they already have are untouched.
+  // `../../src` from the module directory is literally the path its own import
+  // statements resolve, in either layout.
+  await copyTemplateDir(path.resolve(source.dir, '../../src'), path.join(infraDir, 'src'), {
+    excludeTests: true,
+  })
+
   await fs.mkdir(destDir, { recursive: true })
   for (const f of registry.files ?? []) {
     await copyTemplateFile(path.join(source.dir, f.path), path.join(destDir, f.path))

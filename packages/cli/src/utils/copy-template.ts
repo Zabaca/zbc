@@ -8,6 +8,15 @@ interface CopyOptions {
   skipIfExists?: boolean
   /** Directory/file basenames to skip (e.g. ['modules']). */
   exclude?: string[]
+  /**
+   * Skip `*.test.ts`. On for the infra engine and its modules, whose tests are
+   * ours and not part of what a consumer is scaffolded — the published tarball
+   * already drops them (`!templates/**\/*.test.ts` in the manifest's `files`),
+   * so this is what makes running the CLI from a checkout produce the same
+   * tree. OFF for app templates: that is code the consumer owns and maintains,
+   * and its tests go with it.
+   */
+  excludeTests?: boolean
 }
 
 function substitute(body: string, vars: Record<string, string>): string {
@@ -58,6 +67,7 @@ export async function copyTemplateDir(
 
   for (const entry of entries) {
     if (exclude.has(entry.name)) continue
+    if (opts.excludeTests && entry.isFile() && entry.name.endsWith('.test.ts')) continue
     const srcPath = path.join(sourceDir, entry.name)
     const destName = rename[entry.name] ?? entry.name
     const destPath = path.join(destDir, destName)
