@@ -1,3 +1,16 @@
+# Converges the production environment on every push to main.
+#
+# Until 2026-09-02 that was the whole story and there was no filter of any
+# kind: a README-only commit redeployed every Worker, rolled two Containers and
+# rewrote a zone with two dozen DNS records. The apply is idempotent, so nothing
+# broke — it was just minutes of real provider traffic for a change that touched
+# no infrastructure at all.
+#
+# `scripts/affected-instances.ts` now answers which instances a push actually
+# touched, and the run is scoped to those plus their dependencies. That script
+# is deliberately built to answer ALL whenever it is unsure — a needless apply
+# costs a slow job, a missed one costs a merged change that silently never
+# deployed — so the narrowing here can only ever be as wrong as "too much work".
 name: Production
 
 on:
@@ -15,6 +28,11 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@v4
+        with:
+          # The scope step diffs against the push's `before` commit, which is
+          # not in a depth-1 clone. `fetch-depth: 0` is the only depth that is
+          # right for every push, since a merge can land any number of commits.
+          fetch-depth: 0
 
       - uses: oven-sh/setup-bun@v2
         with:
@@ -30,7 +48,41 @@ jobs:
           curl -L https://fly.io/install.sh | sh
           echo "$HOME/.fly/bin" >> "$GITHUB_PATH"
 
+      - name: Work out what this push touched
+        id: scope
+        run: |
+          set -euo pipefail
+          BEFORE='${{ github.event.before }}'
+
+          # A first push to a branch, or a force-push whose old tip was garbage
+          # collected, reports a `before` that no longer resolves. There is no
+          # diff to take, so there is nothing to narrow with.
+          if [ -z "$BEFORE" ] || [ "$BEFORE" = "0000000000000000000000000000000000000000" ] \
+            || ! git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then
+            echo "no usable base commit ($BEFORE) — applying the whole environment"
+            echo "instances=ALL" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          git diff --name-only "$BEFORE" '${{ github.sha }}' > changed.txt
+          echo "changed files:"; cat changed.txt
+
+          # `xargs` rather than `$(cat)`: a path with a space in it would
+          # otherwise split into two file names, each of which maps to no
+          # instance — which widens to ALL, so this is a correctness nicety
+          # rather than a load-bearing one.
+          INSTANCES=$(xargs -a changed.txt bun scripts/affected-instances.ts production)
+          echo "instances=$INSTANCES" >> "$GITHUB_OUTPUT"
+
       - name: Decrypt secrets & deploy
+        if: steps.scope.outputs.instances != ''
         env:
           SOPS_AGE_KEY: ${{ secrets.SOPS_AGE_KEY }}
-        run: bun run --cwd packages/cli src/index.ts apply production
+          INSTANCES: ${{ steps.scope.outputs.instances }}
+        run: |
+          set -euo pipefail
+          if [ "$INSTANCES" = "ALL" ]; then
+            bun run --cwd packages/cli src/index.ts apply production
+          else
+            bun run --cwd packages/cli src/index.ts apply production --only "$INSTANCES"
+          fi

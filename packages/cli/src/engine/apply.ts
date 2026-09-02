@@ -8,8 +8,8 @@ import { loadSecrets } from './secrets'
 export interface ApplyInstancesOptions {
   secrets: Record<string, string>
   projectRoot: string
-  /** Apply only this instance and its transitive imports. */
-  target?: string
+  /** Apply only these instances and their transitive imports. */
+  target?: string | string[]
   /** Where the instances came from, for error messages. */
   envLabel?: string
 }
@@ -117,7 +117,7 @@ export async function applyInstances(
 export async function applyEnvironment(
   projectRoot: string,
   envDir: string,
-  target?: string,
+  target?: string | string[],
 ): Promise<Map<string, unknown>> {
   const instances = await discoverInstances(envDir)
   const secrets = await loadSecrets(envDir)
