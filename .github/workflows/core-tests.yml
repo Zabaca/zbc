@@ -75,6 +75,25 @@ jobs:
       - name: Test the modules consumers vendor
         run: bun test packages/cli/templates/infra
 
+      # `zbc secret` shells out to both, and its suite exercises a real sops
+      # round-trip rather than a mock — which is the right test and the reason
+      # it cannot run on a bare runner. ubuntu-latest ships neither binary, so
+      # widening this workflow to the engine turned two passing local tests into
+      # a red gate. Skipping them when the tools are missing would have made
+      # that green with no coverage at all, which is the failure this whole
+      # workflow exists to prevent, so they are installed instead. Pinned:
+      # `sops --version` output is asserted nowhere, but an unpinned decrypt is
+      # the last thing that should change under CI on its own.
+      - name: Install sops and age
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq && sudo apt-get install -y -qq age
+          curl -fsSL -o /tmp/sops \
+            https://github.com/getsops/sops/releases/download/v3.12.1/sops-v3.12.1.linux.amd64
+          sudo install -m 0755 /tmp/sops /usr/local/bin/sops
+          sops --version
+          age-keygen --version
+
       # The engine that drives them. `templates/infra` above is WHAT converges;
       # this is WHAT DECIDES the order it converges in, which imports resolve to
       # and which secrets a module can see — so a defect here misapplies every
