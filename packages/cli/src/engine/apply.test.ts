@@ -80,10 +80,10 @@ describe('ephemeral', () => {
   function tracked(
     ran: string[],
     name: string,
-    opts: { ephemeral?: boolean; config?: Record<string, unknown> } = {},
+    how: { ephemeral?: boolean; config?: Record<string, unknown> } = {},
   ) {
     return fakeInstance(name, {
-      ...opts,
+      ...how,
       apply: async () => {
         ran.push(`apply:${name}`)
         return {}
