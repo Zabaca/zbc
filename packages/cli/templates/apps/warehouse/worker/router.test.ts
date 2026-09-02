@@ -6,6 +6,12 @@
 // real container — mart-api.test.ts and materialize-dispatch.test.ts already cover the
 // parquet-reading and container-exec integration seams behind those two calls.
 
+// Imported for its side effect, not preloaded: `bunfig.toml`'s `[test].preload` is
+// resolved from the directory `bun test` was invoked in, so it applies when this package
+// is tested on its own and NOT when the repo-wide `cd packages/cli && bun test` sweeps
+// this file up — under which `authorized()` died on `crypto.subtle.timingSafeEqual is not
+// a function`. The shim guards against re-defining, so both routes loading it is fine.
+import './test-setup'
 import { describe, expect, test } from 'bun:test'
 import type { MaterializeExecResult } from './materialize-dispatch'
 import { authorized, handleFetch, handleScheduled, route, type Env } from './router'
