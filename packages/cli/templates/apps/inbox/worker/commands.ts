@@ -235,6 +235,16 @@ export async function createDraft(
  * recomputed whenever either body was touched. Which rows may be patched at
  * all is the DO's rule (`updateDraft` refuses anything but a draft), not this
  * command's — the command only translates the adapter's field names.
+ *
+ * Known wart, carried verbatim from the two adapter copies this replaced and
+ * left alone here so the refactor stays byte-identical: the snippet is derived
+ * from the PATCH, not from the patched row. Patching only `html` on a draft
+ * that already has a `text_body` therefore writes a snippet taken from the new
+ * html while the text part — the one `makeSnippet` would have preferred, and
+ * the one that actually goes out — is unchanged. Fixing it needs the command
+ * to read the row first (an extra DO round-trip), which is a behaviour change,
+ * not a refactor. `commands.test.ts` pins the current behaviour so a fix is a
+ * deliberate edit to that test rather than a silent one.
  */
 export async function updateDraft(
   store: InboxStore,

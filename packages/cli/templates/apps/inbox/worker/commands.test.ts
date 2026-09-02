@@ -390,6 +390,31 @@ describe('updateDraft', () => {
     await commands.updateDraft(store, 'd1', { text: 'new body' })
     expect(store.rows.get('d1')!.snippet).toBe('new body')
   })
+
+  /**
+   * Characterization, not endorsement. The snippet is computed from the patch
+   * alone, so patching only `html` on a draft that has a text body writes a
+   * snippet describing the html while `text_body` — what `makeSnippet` prefers,
+   * and what actually goes out — is untouched. Both adapter copies did this
+   * before the command existed; see the note on `updateDraft`. If you are here
+   * because you fixed it, this is the assertion to change.
+   */
+  test('derives the snippet from the patch, not from the patched row', async () => {
+    const store = fakeStore()
+    store.seed({
+      id: 'd1',
+      status: 'draft',
+      text_body: 'quarterly numbers attached',
+      html_body: '<p>quarterly numbers attached</p>',
+      snippet: 'quarterly numbers attached',
+    })
+
+    await commands.updateDraft(store, 'd1', { html: '<p>see revised deck</p>' })
+
+    const row = store.rows.get('d1')!
+    expect(row.text_body).toBe('quarterly numbers attached')
+    expect(row.snippet).toBe('see revised deck')
+  })
 })
 
 describe('deleteMessage', () => {
