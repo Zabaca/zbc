@@ -459,6 +459,19 @@ and `GET /` does not claim it. `WALGIT_EVENTS_URL` and `WALGIT_EVENTS_TOKEN` (a
 secret) turn on the ref-event stream below, and `WALGIT_PUSH_CERT_SEED` (a
 secret) turns on signed pushes.
 
+For the three boolean flags — `WALGIT_APPEND_ONLY`, `WALGIT_PUBLIC` and
+`WALGIT_SIGNER_LISTS` — **on means `1` or `true`, and nothing else**
+(`flagEnabled`, `shared/policy.ts`). An unrecognised value (`yes`, `on`, `TRUE`)
+reads as off, which for `WALGIT_PUBLIC` means a token-gated host. The others are
+not booleans: the three size and retention limits are read as positive numbers
+and the rest are values in their own right, unset meaning the behaviour is off.
+
+All of them are read in one place — `capabilitiesFrom`
+(`shared/capabilities.ts`) — which is what the three agent-facing documents are
+rendered from and what every decision about whether a credential is required
+reads. So `GET /` and `/llms.txt` cannot claim public access the front door does
+not grant, or the reverse.
+
 `WALGIT_SIGNER_LISTS=1` lets a repository name the keys allowed to push to it
 (docs/adr/0012 in the zbc repository): a commit on `refs/walgit/signers` whose
 tree holds a `signers` file, one `SHA256:…` fingerprint per line. While a
@@ -657,6 +670,19 @@ already moving.
 One trust boundary: any HTTP token can read and write any repository. Per-repo
 authorization is deferred until the repo namespace exists in the WAL — the
 `tokens` list is the seam it plugs into.
+
+`WALGIT_PUBLIC` removes that boundary entirely: reads, writes and ref-event
+subscriptions all serve anyone, with no credential. It is an **explicit opt-in
+and not the absence of tokens** — with neither configured the container refuses
+to boot, so a deployment that loses its secrets fails closed instead of opening
+to the world.
+
+Three places decide whether a credential is needed — the container's git auth
+(`src/http.ts`), the edge's socket auth (`worker/index.ts`) and the boot refusal
+— and all three read `caps.publicAccess`. They used to read the variable
+themselves, two of them accepting only `1` while `/llms.txt` accepted `true` as
+well, so a host spelling it `true` told an agent no credential was needed and
+then answered 401 to every clone.
 
 ## Tests
 

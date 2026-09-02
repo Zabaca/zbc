@@ -27,7 +27,7 @@
 
 import { Container, getContainer } from '@cloudflare/containers'
 
-import { capabilitiesFrom } from '../shared/capabilities'
+import { capabilitiesFrom, type Capabilities } from '../shared/capabilities'
 import { containerEnv, fingerprintEnv } from '../shared/container-env'
 import { parseTokens } from '../shared/credentials'
 import { authorizeAnnounce, authorizeSubscribe } from '../shared/events'
@@ -64,7 +64,11 @@ export interface Env {
   WALGIT_COMPACTION_THRESHOLD?: string
   WALGIT_GC_GRACE_MS?: string
   WALGIT_DELETE_GRACE_MS?: string
-  /** The policy `GET /` states and the push path enforces (src/instructions.ts). */
+  /**
+   * The policy the documents state and the push path enforces. Read ONLY
+   * through `capabilitiesFrom` (`shared/capabilities.ts`) — a second read here
+   * is how the three spellings of `WALGIT_PUBLIC` drifted apart.
+   */
   WALGIT_PUBLIC?: string
   WALGIT_APPEND_ONLY?: string
   WALGIT_RETENTION_HOURS?: string
@@ -332,7 +336,7 @@ export default {
     // current refs, and then deliver nothing forever, because the container's
     // `post-receive` had no URL to announce to.
     if ((url.pathname === EVENTS_PATH || url.pathname === ANNOUNCE_PATH) && caps.events) {
-      return events(request, url, env)
+      return events(request, url, env, caps)
     }
 
     const facts = classifyRequest(request.method, url.pathname, url.search)
@@ -457,8 +461,12 @@ export default {
  * the layer that holds the environment — the read tokens and the announce
  * secret — and the object should not carry a second copy of either. What it
  * gets is a request that has already been allowed.
+ *
+ * The capabilities are PASSED IN rather than derived again, so the socket
+ * cannot reach a different verdict from the route that claimed it or from the
+ * documents that advertised it.
  */
-async function events(request: Request, url: URL, env: Env): Promise<Response> {
+async function events(request: Request, url: URL, env: Env, caps: Capabilities): Promise<Response> {
   const stub = env.WALGIT_EVENTS.get(env.WALGIT_EVENTS.idFromName(EVENTS_OBJECT_NAME))
 
   if (url.pathname === ANNOUNCE_PATH) {
@@ -481,10 +489,17 @@ async function events(request: Request, url: URL, env: Env): Promise<Response> {
   // Exactly the credential a read of the repository needs — see
   // `authorizeSubscribe`. The challenge header is sent for the same reason the
   // container sends it: a client that can be prompted should be.
+  //
+  // `caps.publicAccess`, not `env.WALGIT_PUBLIC === '1'`. This line used to
+  // read the variable a third way: `flagEnabled` (`1` or `true`) fed
+  // `/llms.txt`'s access claim, `=== '1'` fed this socket and the container's
+  // git auth. On a deployment spelling it `true` the manual told an agent that
+  // reads need no credential while every subscribe answered 401 — the exact
+  // hazard `flagEnabled` was written for (`shared/policy.ts`).
   const allowed = authorizeSubscribe({
     authorization: request.headers.get('authorization'),
     tokens: parseTokens(env.WALGIT_HTTP_TOKENS),
-    isPublic: env.WALGIT_PUBLIC === '1',
+    isPublic: caps.publicAccess,
   })
   if (!allowed) {
     return new Response('unauthorized\n', {
