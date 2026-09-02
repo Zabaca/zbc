@@ -137,7 +137,11 @@ export interface CfOptions {
    * a Cloudflare failure, so it is the only hook here — the seam still throws
    * `CfError` with the same status and codes, and only the text changes.
    *
-   * The first collected code with a hint wins.
+   * When an envelope carries several hinted codes, the LOWEST code wins —
+   * deliberately, because the alternative is the order Cloudflare happened to
+   * list its errors in, and a module's operator-facing text must not depend on
+   * that. It also reproduces the copies this replaced, which tested their codes
+   * in a fixed order (`cloudflare-email` checked 10000 before 10105).
    */
   hints?: Record<number, string>
 }
@@ -207,7 +211,12 @@ export async function cfRaw<T>(
   }
   if (!res.ok || !payload?.success) {
     const codes = collectCfCodes(payload?.errors)
-    const hint = codes.map((code) => opts?.hints?.[code]).find((text) => text !== undefined)
+    // Scanned over the hints rather than over `codes`, so which one wins is the
+    // module's own ordering and not the API's — see `CfOptions.hints`.
+    const hinted = Object.keys(opts?.hints ?? {})
+      .map(Number)
+      .find((code) => codes.includes(code))
+    const hint = hinted === undefined ? undefined : opts?.hints?.[hinted]
     throw new CfError(
       res.status,
       codes,

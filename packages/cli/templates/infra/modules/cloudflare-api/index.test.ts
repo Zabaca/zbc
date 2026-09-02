@@ -187,6 +187,23 @@ describe('hints name the scope, and nothing else changes', () => {
     )
   })
 
+  test('two hinted codes resolve the same way whatever order the API listed them', async () => {
+    // The copies this replaced tested 10000 before 10105 unconditionally. A
+    // scan over the errors array would instead hand the operator whichever
+    // Cloudflare happened to put first — a different instruction for the same
+    // failure, decided by nothing.
+    const both = {
+      hints: { 10000: 'needs a scope.', 10105: 'needs a paid plan.' },
+    }
+    const errors = [{ code: 10105 }, { code: 10000 }]
+
+    answer({ success: false, errors, result: null }, 403)
+    expect((await thrown(both)).message).toContain('needs a scope.')
+
+    answer({ success: false, errors: errors.toReversed(), result: null }, 403)
+    expect((await thrown(both)).message).toContain('needs a scope.')
+  })
+
   test('a hint for a code the envelope did not carry is not applied', async () => {
     answer(
       { success: false, errors: [{ code: 10105, message: 'not entitled' }], result: null },
