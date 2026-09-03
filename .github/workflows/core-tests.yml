@@ -101,11 +101,14 @@ jobs:
       - name: Test the engine that drives them
         run: bun test packages/cli/src
 
-      # `scripts/release-core.ts` cuts the tags those modules ship under, so a
-      # defect in it is a defect in the distribution — the same reason the suite
-      # above is here rather than left to whoever authored a module. It rides
-      # along on this workflow instead of getting its own because it shares the
-      # subject: what consumers receive, and under what name.
+      # `scripts/release.ts` cuts the versions and tags those modules ship
+      # under, so a defect in it is a defect in the distribution — the same
+      # reason the suite above is here rather than left to whoever authored a
+      # module. It matters more since releasing became manual: this script is
+      # now the only thing standing between a person and an unrepeatable npm
+      # publish. It rides along on this workflow instead of getting its own
+      # because it shares the subject: what consumers receive, and under what
+      # name.
       - name: Test the release tooling
         run: bun test scripts
 

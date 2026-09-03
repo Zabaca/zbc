@@ -25,18 +25,13 @@
 # missed heals on the next release of anything.
 name: publish-npm
 
+# **Manual only since 2026-09-03**, when releasing moved out of merging and into
+# `/release`. That skill publishes the CLI from the releaser's machine, so this
+# is no longer the usual path — but it stays, and stays wired to every package,
+# for the reason agentgit's first publish existed at all: npm wants a token with
+# 2FA bypass, which this credential has and a personal login does not. When a
+# local `bun publish` is refused, dispatching this is the way the package ships.
 on:
-  push:
-    branches: [main]
-    paths:
-      - 'packages/cli/package.json'
-      - 'packages/agentgit/package.json'
-      # Its own path, so adding a package here publishes it on merge rather
-      # than waiting for that package's next version bump. Safe by
-      # construction: every package whose version is already on npm no-ops.
-      - '.github/workflows/publish-npm.yml'
-  # 0.10.7 was released before this workflow existed; dispatch is how it, or any
-  # other already-tagged version, gets shipped without a further bump.
   workflow_dispatch:
 
 concurrency: publish-npm

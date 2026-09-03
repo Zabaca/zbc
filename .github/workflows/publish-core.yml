@@ -4,13 +4,14 @@
 # CLI version (zbc-core-v<x.y.z>) so consumers pin upgrades.
 name: publish-core
 
+# **Manual only since 2026-09-03.** It used to fire on any main push touching
+# the prefix, which meant the split ran continuously while the TAG step skipped
+# unless the version had moved — the exact shape that let two prefix commits
+# land between v0.10.6 and v0.10.7 with no version naming them. Publishing is
+# now one deliberate act (`/release`), so the split and the tag happen together
+# or not at all.
 on:
-  push:
-    branches: [main]
-    paths:
-      - 'packages/cli/templates/infra/**'
-      - 'packages/cli/package.json'
-      - '.github/workflows/publish-core.yml'
+  workflow_dispatch:
 
 concurrency: publish-core
 
