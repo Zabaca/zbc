@@ -155,7 +155,7 @@ export default tursoModule.instance({
 
 ## Environments
 
-- **production** — `zbc apply production`, triggered by main merge via GitHub Actions
+- **production** — `zbc apply production`, dispatched deliberately by `/release` (`gh workflow run production.yml -f instances=…`). A merge to main deploys nothing
 - **preview** — `zbc apply preview`, ephemeral per-PR resources, triggered on PR open/push, cleaned up on PR close via `zbc destroy preview`
 
 ## Secrets Management
@@ -194,41 +194,42 @@ CI has its own age keypair. The private key is stored as a single GitHub Actions
 1. Add the project under `packages/<project>/`.
 2. For each environment it needs, add module instances in `packages/infra/environments/<env>/` — typically a Turso database and a Cloudflare Worker deploy, wired via imports.
 3. Put any required secrets (API tokens, provider credentials) into `packages/infra/environments/<env>/secrets.yaml`, encrypted via SOPS.
-4. Run `zbc apply <env>` locally to validate. CI will take over on push to main and on PRs.
+4. Run `zbc apply <env>` locally to validate. Preview still applies automatically on PRs; production does not — it ships when someone runs `/release`.
 
 ## Releasing the CLI
 
-`@zabaca/zbc` is published from `packages/cli/`. Tags follow `zbc-cli-v<version>`; release commits follow `release(cli): @zabaca/zbc <version>`.
+**Nothing releases on merge.** Pushing to main deploys nothing, publishes
+nothing and tags nothing — releasing is one deliberate act, run through the
+`/release` skill (`.claude/skills/release/SKILL.md`). That skill is the
+reference; this is the summary.
 
-1. **Bump the version** in `packages/cli/package.json` (semver — patch for template/bugfix tweaks, minor for new commands or modules).
-2. **Commit** the bump (plus any code/template changes shipping with it):
+It became manual on 2026-09-03, after both failure directions happened. #115
+shipped the instance-level `ephemeral` rule with no version bump and never
+reached npm. Earlier, two commits landed under the split prefix between v0.10.6
+and v0.10.7 with no version naming them — one renaming `provision-core`'s marker
+directory, which re-provisions a consumer's whole fleet. Neither was reported,
+because neither was a failure: the workflows did what they said.
 
-   ```bash
-   git commit -m "release(cli): @zabaca/zbc <version>"
-   ```
+```sh
+bun scripts/release.ts                  # dry run: what would ship, and every refusal
+bun scripts/release.ts minor --push     # bump, commit, tag zbc-cli-v<version>, push main
+cd packages/cli && bun run publish:npm  # never npm publish — it strips the bun shebang
+gh workflow run publish-core.yml        # tags zbc-core-v<version> (only if the prefix changed)
+gh workflow run production.yml -f instances=ALL
+```
 
-3. **Tag** the release commit and push both:
+Write the CHANGELOG entry *before* the bump, and only when the release changes
+something a consumer already depends on — `packages/cli/CHANGELOG.md` is for
+releases you must read before upgrading, not a commit log.
 
-   ```bash
-   git tag zbc-cli-v<version>
-   git push origin main zbc-cli-v<version>
-   ```
+`scripts/release.ts` refuses eight ways a release goes wrong, all at once:
+`not-main`, `dirty`, `not-synced`, `tag-exists`, `cli-tag-exists`,
+`npm-published`, `nothing-to-release`, `not-ahead`.
 
-4. **Publish to npm** with Bun (never `npm publish` — npm strips the bun shebang from `bin/zbc.js` and breaks the CLI):
-
-   ```bash
-   cd packages/cli && bun run publish:npm
-   ```
-
-   Requires npm auth (`npm whoami` to verify) and publish rights on the `@zabaca` scope.
-
-5. **Verify** the new version is live:
-
-   ```bash
-   npm view @zabaca/zbc version
-   ```
-
-Note: existing scaffolded repos have their own checked-in workflows from whenever they last ran `zbc init` — template changes do not flow into them automatically. They need a re-scaffold or manual patch to pick up workflow updates.
+Note: existing scaffolded repos have their own checked-in workflows from
+whenever they last ran `zbc init` — template changes do not flow into them
+automatically. They need a re-scaffold or manual patch to pick up workflow
+updates.
 
 ## Design system
 
