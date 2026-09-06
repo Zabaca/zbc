@@ -113,13 +113,45 @@ export async function applyInstances(
   return outputs
 }
 
+/** One instance that was applied, and what it emitted. */
+export interface AppliedInstance {
+  name: string
+  /** The module behind the instance — the outputs mean nothing without it. */
+  module: string
+  outputs: unknown
+}
+
+export interface ApplyEnvironmentResult {
+  /** Outputs by instance name, in apply order. */
+  outputs: Map<string, unknown>
+  /** The same, as a list a caller can serialize: name, module, outputs. */
+  instances: AppliedInstance[]
+}
+
 /** The I/O half: discover the environment's instances, decrypt its secrets, apply. */
 export async function applyEnvironment(
   projectRoot: string,
   envDir: string,
   target?: string | string[],
-): Promise<Map<string, unknown>> {
+): Promise<ApplyEnvironmentResult> {
   const instances = await discoverInstances(envDir)
   const secrets = await loadSecrets(envDir)
-  return applyInstances(instances, { secrets, projectRoot, target, envLabel: envDir })
+  const outputs = await applyInstances(instances, {
+    secrets,
+    projectRoot,
+    target,
+    envLabel: envDir,
+  })
+
+  // `outputs` is written once per instance as the sorted loop runs, so its
+  // insertion order IS the apply order — which is what a reader of the result
+  // wants, and what a re-sort here would have to reconstruct.
+  const byName = new Map(instances.map((instance) => [instance.name, instance]))
+  const applied: AppliedInstance[] = Array.from(outputs, ([name, value]) => ({
+    name,
+    module: byName.get(name)?.moduleName ?? 'unknown',
+    outputs: value,
+  }))
+
+  return { outputs, instances: applied }
 }

@@ -1,6 +1,5 @@
 import { afterEach, describe, expect, test } from 'bun:test'
 import * as fs from 'node:fs'
-import * as os from 'node:os'
 import * as path from 'node:path'
 import { parse as parseYamlDoc } from 'yaml'
 
@@ -14,6 +13,7 @@ import { parse as parseYamlDoc } from 'yaml'
  */
 
 import { createRelay } from '../../templates/apps/secret-relay/src/relay'
+import { cleanupProjects, makeProject, runCli, spawnCli } from './fixtures'
 import {
   decryptWithDocumentKey,
   encryptForChannel,
@@ -22,112 +22,9 @@ import {
   pairingCode,
 } from '../../templates/apps/secret-relay/src/crypto'
 
-const CLI = path.join(import.meta.dir, '../index.ts')
-
-const createdRoots: string[] = []
-
 afterEach(() => {
-  for (const root of createdRoots.splice(0)) {
-    fs.rmSync(root, { recursive: true, force: true })
-  }
+  cleanupProjects()
 })
-
-/** Minimal zbc project: zbc.config.ts + one environment dir. */
-function makeProject(opts: { env?: string; secrets?: string } = {}): string {
-  const env = opts.env ?? 'production'
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'zbc-secret-test-'))
-  createdRoots.push(root)
-  fs.writeFileSync(
-    path.join(root, 'zbc.config.ts'),
-    `export default { project: 'testproj', environments: ['${env}'] }\n`,
-  )
-  fs.writeFileSync(
-    path.join(root, 'package.json'),
-    JSON.stringify({ name: 'testproj', workspaces: ['packages/*'], private: true }),
-  )
-  const infraDir = path.join(root, 'packages/infra')
-  fs.mkdirSync(infraDir, { recursive: true })
-  fs.writeFileSync(path.join(infraDir, 'package.json'), JSON.stringify({ name: 'infra' }))
-  const envDir = path.join(root, 'packages/infra/environments', env)
-  fs.mkdirSync(envDir, { recursive: true })
-  if (opts.secrets !== undefined) {
-    fs.writeFileSync(path.join(envDir, 'secrets.yaml'), opts.secrets)
-  }
-  return root
-}
-
-interface CliProc {
-  proc: ReturnType<typeof Bun.spawn>
-  /** Resolves with all captured stdout once the process exits. */
-  result: Promise<{ exitCode: number; stdout: string; stderr: string }>
-  /** Waits until stdout matches `re`, returning the first capture group (or whole match). */
-  waitForStdout(re: RegExp): Promise<string>
-}
-
-/** Spawn the CLI without waiting for exit, so the test can play the browser. */
-function spawnCli(cwd: string, args: string[], env: Record<string, string> = {}): CliProc {
-  const proc = Bun.spawn(['bun', CLI, ...args], {
-    cwd,
-    stdout: 'pipe',
-    stderr: 'pipe',
-    env: { ...process.env, ...env },
-  })
-  let stdoutSoFar = ''
-  const reader = (proc.stdout as ReadableStream<Uint8Array>).getReader()
-  const decoder = new TextDecoder()
-  const waiters: Array<{ re: RegExp; resolve: (m: string) => void }> = []
-  const capture = (m: RegExpMatchArray): string => m[1] ?? m[0]
-  const done = (async () => {
-    while (true) {
-      const { value, done } = await reader.read()
-      if (done) break
-      stdoutSoFar += decoder.decode(value, { stream: true })
-      for (let i = waiters.length - 1; i >= 0; i--) {
-        const waiter = waiters[i]!
-        const m = stdoutSoFar.match(waiter.re)
-        if (m) {
-          waiters.splice(i, 1)
-          waiter.resolve(capture(m))
-        }
-      }
-    }
-    return stdoutSoFar
-  })()
-  return {
-    proc,
-    result: (async () => {
-      const [stdout, stderr, exitCode] = await Promise.all([
-        done,
-        new Response(proc.stderr as ReadableStream).text(),
-        proc.exited,
-      ])
-      return { exitCode, stdout, stderr }
-    })(),
-    waitForStdout(re: RegExp) {
-      const m = stdoutSoFar.match(re)
-      if (m) return Promise.resolve(capture(m))
-      return new Promise<string>((resolve) => waiters.push({ re, resolve }))
-    },
-  }
-}
-
-async function runCli(
-  cwd: string,
-  args: string[],
-): Promise<{ exitCode: number; stdout: string; stderr: string }> {
-  const proc = Bun.spawn(['bun', CLI, ...args], {
-    cwd,
-    stdout: 'pipe',
-    stderr: 'pipe',
-    env: { ...process.env },
-  })
-  const [stdout, stderr, exitCode] = await Promise.all([
-    new Response(proc.stdout).text(),
-    new Response(proc.stderr).text(),
-    proc.exited,
-  ])
-  return { exitCode, stdout, stderr }
-}
 
 describe('zbc add secret-relay', () => {
   test('scaffolds the app, vendors the cloudflare module, and generates the instance file', async () => {
@@ -734,5 +631,69 @@ export default {
     // the value must never surface on stdout/stderr
     expect(result.stdout).not.toContain('tok-abc123')
     expect(result.stderr).not.toContain('tok-abc123')
+  })
+})
+
+/**
+ * `zbc secret get` — the one value a local script needs.
+ *
+ * Eight sites across two consumers re-implemented this as `sops -d … | grep`
+ * against plaintext, so the assertions are what a shell substitution needs: the
+ * value alone on stdout, and a failure that says nothing rather than the word
+ * "undefined".
+ */
+describe('zbc secret get', () => {
+  test('prints one value and nothing else', async () => {
+    const root = makeProject({ secrets: 'TURSO_API_TOKEN: tok-abc123\nOTHER: nope\n' })
+
+    const result = await runCli(root, ['secret', 'get', 'production', 'TURSO_API_TOKEN'])
+
+    expect(result.exitCode).toBe(0)
+    expect(result.stdout).toBe('tok-abc123\n')
+  })
+
+  test('reads the environment it was given, not the default', async () => {
+    const root = makeProject({ env: 'preview', secrets: 'API: preview-value\n' })
+
+    const result = await runCli(root, ['secret', 'get', 'preview', 'API'])
+
+    expect(result.exitCode).toBe(0)
+    expect(result.stdout).toBe('preview-value\n')
+  })
+
+  test('a key that is not there fails, names the key, and writes nothing to stdout', async () => {
+    const root = makeProject({ secrets: 'PRESENT: yes\n' })
+
+    const result = await runCli(root, ['secret', 'get', 'production', 'ABSENT'])
+
+    expect(result.exitCode).not.toBe(0)
+    expect(result.stdout).toBe('')
+    expect(result.stderr).toContain('ABSENT')
+  })
+
+  test('a blank value fails unless --allow-blank says a placeholder is expected', async () => {
+    const root = makeProject({ secrets: 'PLACEHOLDER:\n' })
+
+    const refused = await runCli(root, ['secret', 'get', 'production', 'PLACEHOLDER'])
+    expect(refused.exitCode).not.toBe(0)
+
+    const allowed = await runCli(root, [
+      'secret',
+      'get',
+      'production',
+      'PLACEHOLDER',
+      '--allow-blank',
+    ])
+    expect(allowed.exitCode).toBe(0)
+    expect(allowed.stdout).toBe('\n')
+  })
+
+  test('an environment the project does not declare is refused by name', async () => {
+    const root = makeProject({ secrets: 'A: b\n' })
+
+    const result = await runCli(root, ['secret', 'get', 'staging', 'A'])
+
+    expect(result.exitCode).not.toBe(0)
+    expect(result.stderr).toContain('staging')
   })
 })
