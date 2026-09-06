@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, test } from 'bun:test'
+import * as fs from 'node:fs'
 import * as path from 'node:path'
 import { cleanupProjects, makeProject, runCli } from './fixtures'
 
@@ -96,6 +97,17 @@ describe('zbc list', () => {
     expect(result.exitCode).toBe(0)
     expect(result.stderr).not.toContain('provider called')
     expect(JSON.parse(result.stdout).instances).toHaveLength(1)
+  })
+
+  test('an environment directory that does not exist says so, rather than raising ENOENT', async () => {
+    const root = makeProject({ env: 'preview' })
+    fs.rmSync(path.join(root, 'packages/infra/environments/preview'), { recursive: true })
+
+    const result = await runCli(root, ['list', 'preview'])
+
+    expect(result.exitCode).not.toBe(0)
+    expect(result.stderr).toContain('packages/infra/environments/preview')
+    expect(result.stderr).not.toContain('ENOENT')
   })
 
   test('an environment the project does not declare is refused by name', async () => {
