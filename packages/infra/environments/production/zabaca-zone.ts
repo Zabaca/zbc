@@ -79,6 +79,8 @@ export default cloudflareZoneModule.instance({
       // zbc's own site. The route itself is declared on the `landing` instance,
       // not here and not in wrangler.jsonc.
       { type: 'AAAA', name: 'zbc.zabaca.com', content: '100::', proxied: true },
+      // Zabaca/claude-mitm-proxy's fleet control plane (a Worker routed on this host).
+      { type: 'AAAA', name: 'proxy.zabaca.com', content: '100::', proxied: true },
       { type: 'AAAA', name: 'ceo.zabaca.com', content: '100::', proxied: true },
       { type: 'AAAA', name: 'crux.zabaca.com', content: '100::', proxied: true },
       { type: 'AAAA', name: 'ledger.zabaca.com', content: '100::', proxied: true },
