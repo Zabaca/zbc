@@ -11,10 +11,12 @@ import {
   pairingCode,
   type SubmissionPayload,
 } from '../../templates/apps/secret-relay/src/crypto'
+import { resolveSecret } from '../../templates/infra/src/context'
 import { applyEnvironment } from '../engine/apply'
 import { discoverInstances } from '../engine/discover'
 import { loadSecrets } from '../engine/secrets'
 import { findProjectRoot } from '../utils/find-project-root'
+import { loadConfig } from '../utils/load-config'
 
 const POLL_INTERVAL_MS = 250
 
@@ -119,7 +121,7 @@ async function resolveRelayUrl(projectRoot: string): Promise<string> {
     const envDir = path.join(environmentsDir, env)
     const instances = await discoverInstances(envDir)
     if (!instances.some((i) => i.name === 'secret-relay')) continue
-    const outputs = await applyEnvironment(projectRoot, envDir, 'secret-relay')
+    const { outputs } = await applyEnvironment(projectRoot, envDir, 'secret-relay')
     const relayOutputs = outputs.get('secret-relay') as { deployUrl?: string } | undefined
     if (!relayOutputs?.deployUrl) {
       throw new Error(`secret-relay instance in ${env} did not emit a deployUrl output`)
@@ -286,6 +288,71 @@ async function declaredSecretKeys(projectRoot: string): Promise<Set<string>> {
   return declared
 }
 
+/**
+ * One decrypted value on stdout, and nothing else on it.
+ *
+ * This is the shape a shell substitution needs — `TOKEN=$(zbc secret get
+ * production TURSO_API_TOKEN)` — and it is what eight sites across two
+ * consumers had each rebuilt as `sops -d … | grep`/`sed`, decrypting the whole
+ * file to plaintext to read one key out of it. The engine already decrypts;
+ * this is the missing way to ask it for one value.
+ *
+ * Absence and blankness are `ctx.secret`'s rules, not new ones: a module and a
+ * script disagreeing about whether `KEY:` counts as set is exactly the drift
+ * `resolveSecret` was centralized to end.
+ */
+const getCommand = defineCommand({
+  meta: {
+    name: 'get',
+    description: 'Print one decrypted secret value (nothing else) on stdout',
+  },
+  args: {
+    env: {
+      type: 'positional',
+      description: 'Environment to read (e.g., production, preview)',
+      required: true,
+    },
+    key: {
+      type: 'positional',
+      description: 'Secret key to print',
+      required: true,
+    },
+    'allow-blank': {
+      type: 'boolean',
+      description: 'Accept a key that is present but intentionally empty',
+      default: false,
+    },
+  },
+  async run({ args }) {
+    const projectRoot = await findProjectRoot()
+    const config = await loadConfig(projectRoot)
+
+    if (!config.environments.includes(args.env)) {
+      console.error(
+        `Unknown environment: "${args.env}". Available: ${config.environments.join(', ')}`,
+      )
+      process.exit(1)
+    }
+
+    const envDir = path.join(projectRoot, 'packages/infra/environments', args.env)
+    const secrets = await loadSecrets(envDir)
+
+    let value: string
+    try {
+      value = resolveSecret(secrets, args.key, { allowBlank: args['allow-blank'] })
+    } catch (err) {
+      // stdout stays empty on failure: a caller substituting this into a
+      // command line must not receive an error message as the value.
+      console.error((err as Error).message)
+      process.exit(1)
+    }
+
+    // `write`, not `console.log`: the value is data, and nothing may be
+    // appended to it but the newline a shell substitution strips.
+    process.stdout.write(`${value}\n`)
+  },
+})
+
 const listCommand = defineCommand({
   meta: {
     name: 'list',
@@ -418,10 +485,11 @@ const editorCommand = defineCommand({
 export const secretCommand = defineCommand({
   meta: {
     name: 'secret',
-    description: 'Manage environment secrets (request, list, edit)',
+    description: 'Manage environment secrets (request, get, list, edit)',
   },
   subCommands: {
     request: requestCommand,
+    get: getCommand,
     list: listCommand,
     edit: editCommand,
     _editor: editorCommand,

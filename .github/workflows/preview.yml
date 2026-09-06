@@ -39,17 +39,15 @@ jobs:
           # never ran, and every failed preview apply produced a red job with an
           # empty log. The error was captured into OUTPUT and then thrown away.
           set +e
-          OUTPUT=$(bun run --cwd packages/cli src/index.ts apply preview 2>&1)
+          bun run --cwd packages/cli src/index.ts apply preview --json apply-result.json
           STATUS=$?
           set -e
-          echo "$OUTPUT"
 
-          # Pair each "Deployed:" URL with the most recent "→ <module>:<name>" header
-          # (module-agnostic: works for cloudflare and any future provider).
-          LIST=$(echo "$OUTPUT" | awk '
-            /^→ /{name=$2; sub(/^[^:]*:/, "", name)}
-            /Deployed:/{print "- **" name "**: " $NF}
-          ')
+          # The URLs come from the engine's own result document rather than a
+          # grep over its logs: `--json` writes what each instance emitted.
+          # Deleted immediately after reading — module outputs carry credentials.
+          LIST=$(jq -r '.instances[] | select(.outputs.deployUrl) | "- **\(.name)**: \(.outputs.deployUrl)"' apply-result.json 2>/dev/null || true)
+          rm -f apply-result.json
 
           if [ -z "$LIST" ]; then
             LIST="(no deployments captured — see logs)"

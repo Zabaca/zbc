@@ -25,6 +25,12 @@ export const applyCommand = defineCommand({
       description: 'Comma-separated instances to apply (+ their dependencies)',
       required: false,
     },
+    json: {
+      type: 'string',
+      description:
+        'Write the apply result (instance outputs) as JSON to this path. Treat the file as secret: outputs carry credentials.',
+      required: false,
+    },
   },
   async run({ args }) {
     const projectRoot = await findProjectRoot()
@@ -63,9 +69,37 @@ export const applyCommand = defineCommand({
 
     const envDir = path.join(projectRoot, 'packages', 'infra', 'environments', args.env)
 
+    // A path, not a flag on stdout: modules run child processes with inherited
+    // stdio (the cloudflare and fly build steps), so stdout is not a channel
+    // this CLI controls and could never be promised to hold only JSON.
+    if (args.json !== undefined && (typeof args.json !== 'string' || args.json.length === 0)) {
+      console.error('--json needs a path to write the result document to.')
+      process.exit(1)
+    }
+
     const scope = target ? ` (instance: ${[target].flat().join(', ')})` : ''
     console.log(`Applying ${args.env}${scope}...`)
-    await applyEnvironment(projectRoot, envDir, target)
+    const result = await applyEnvironment(projectRoot, envDir, target)
+
+    if (args.json) {
+      // Written only once the apply has finished: a document listing half an
+      // environment reads exactly like one listing all of it.
+      const jsonPath = path.resolve(process.cwd(), args.json)
+      const document = { env: args.env, instances: result.instances }
+      try {
+        await Bun.write(jsonPath, `${JSON.stringify(document, null, 2)}\n`)
+      } catch (err) {
+        // The apply already happened. Saying so is the difference between "the
+        // deploy failed" and "the deploy worked and I could not tell you what
+        // it produced" — one of those is a rollback and the other is a path.
+        console.error(
+          `Applied ${args.env}, but could not write ${args.json}: ${(err as Error).message}`,
+        )
+        process.exit(1)
+      }
+      console.log(`\nWrote ${args.json}`)
+    }
+
     console.log('\nDone.')
   },
 })

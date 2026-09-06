@@ -51,7 +51,10 @@ zbc init --subtree                          # …vendoring engine + modules as a
 zbc add <module>                            # add a built-in module (turso, cloudflare, …)
 zbc apply <env>                             # apply all module instances for an environment
 zbc apply <env> <instance>                  # apply a specific instance (+ its dependencies)
+zbc apply <env> --json <path>               # …and write the result (instance outputs) as JSON
+zbc list <env>                              # list what an environment declares, in dependency order
 zbc destroy <env>                           # tear down every instance that defines destroy
+zbc secret get <env> <key>                  # print one decrypted secret value on stdout
 zbc update                                  # subtree projects: pull a newer zbc-core into vendor/zbc
 ```
 
@@ -60,6 +63,42 @@ zbc update                                  # subtree projects: pull a newer zbc
 **`add`** brings in a single module: in a subtree project it resolves the module from `vendor/zbc/modules/<name>/` (nothing to copy — it installs dependencies and prints the secrets/instructions); in copy mode it copies `index.ts` into `packages/infra/modules/<name>/` first. Either way it runs `bun add` for declared dependencies and prints the secrets you need to put in `secrets.yaml` along with the provider's signup/token URLs.
 
 **`update`** (subtree projects only) pulls a newer zbc-core tag into `vendor/zbc` via `git subtree pull --squash`. Contributions flow the other way with `git subtree push` — which is why consumer commits must stay purely inside or purely outside `vendor/zbc/`: a mixed commit gets half-split upstream. Consumer-owned modules belong outside the prefix (`packages/infra/modules/`), committed normally.
+
+**Getting things back out.** Three surfaces exist because consumers kept
+rebuilding them in shell:
+
+- **`zbc secret get <env> <key>`** prints one decrypted value and nothing else,
+  so a local script can do `TOKEN=$(zbc secret get production TURSO_API_TOKEN)`
+  instead of `sops -d … | grep`. Absence and blankness are `ctx.secret`'s rules,
+  not new ones: a missing key exits non-zero with the key named and writes
+  nothing to stdout, and a present-but-empty one needs `--allow-blank`.
+- **`zbc apply <env> --json <path>`** writes `{ env, instances: [{ name, module,
+  outputs }] }` once the apply succeeds — the preview workflow reads its deploy
+  URLs from it with `jq` rather than grepping them out of the log. It takes a
+  path rather than printing to stdout because modules run build steps with
+  inherited stdio, so stdout is not a channel the CLI can promise to keep clean.
+  **Treat the file as secret** — module outputs carry credentials — and delete
+  it after reading, as the workflow does.
+- **`zbc list <env> [--json]`** reports what the environment declares, in the
+  order apply would run it: module, `ephemeral`, whether the module defines a
+  `destroy`, and each instance's imports. It runs no module and calls no
+  provider. It answers "what should exist"; enumerating what a provider
+  actually holds is not something the engine can do yet.
+
+**Testing a module.** `createTestContext` (exported from `packages/infra/src`,
+`vendor/zbc/src` in a subtree project) builds an `ApplyContext` over stubbed
+secrets and imports, so a module's real `apply` is callable from a test with no
+engine and no provider. It applies the engine's own `secret`/`output` rules —
+so a test sees the failure a deploy would — and records what the module asked
+for as `ctx.secretsRead` / `ctx.outputsRead`.
+
+```ts
+const ctx = createTestContext({
+  secrets: { CLOUDFLARE_API_TOKEN: 'tok' },
+  imports: { 'main-db': { databaseUrl: 'libsql://test' } },
+})
+const outputs = await myModule.apply({ … }, ctx)
+```
 
 **`apply`** is declarative and idempotent. Run it the first time — everything is provisioned and deployed. Run it again — no-op except code deploy. Config changed — it converges. Same command locally and in CI.
 

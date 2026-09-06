@@ -13,7 +13,7 @@
     "src",
     "templates",
     "!src/**/*.test.ts",
-    "!src/engine/fixtures.ts",
+    "!src/**/fixtures.ts",
     "!templates/**/*.test.ts",
     "!templates/**/.wrangler",
     "!templates/**/.DS_Store"

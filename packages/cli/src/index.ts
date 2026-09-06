@@ -5,6 +5,7 @@ import { addCommand } from './commands/add'
 import { applyCommand } from './commands/apply'
 import { destroyCommand } from './commands/destroy'
 import { initCommand } from './commands/init'
+import { listCommand } from './commands/list'
 import { secretCommand } from './commands/secret'
 import { updateCommand } from './commands/update'
 
@@ -19,6 +20,7 @@ const main = defineCommand({
     destroy: destroyCommand,
     init: initCommand,
     add: addCommand,
+    list: listCommand,
     secret: secretCommand,
     update: updateCommand,
   },
