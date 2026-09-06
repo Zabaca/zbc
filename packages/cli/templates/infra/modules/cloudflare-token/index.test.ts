@@ -476,6 +476,7 @@ describe('rootTokenSecret — which root credential an instance mints from', () 
       secrets: { LEEANDCO_ROOT_TOKEN: 'client-root-tok' },
     })
     expect(error).toBeUndefined()
+    expect(calls.length).toBeGreaterThan(0)
     for (const c of calls) expect(c.authorization).toBe('Bearer root-tok')
   })
 
@@ -519,6 +520,9 @@ describe('rootTokenSecret — which root credential an instance mints from', () 
       error = e as Error
     }
     expect(error?.message).toContain('LEEANDCO_ROOT_TOKEN')
+    // The default being present must not satisfy the instance, and must not be
+    // what the error talks about — that would send someone to the wrong key.
+    expect(error?.message).not.toContain('CLOUDFLARE_ROOT_TOKEN')
     expect(stub.calls).toHaveLength(0)
   })
 })
