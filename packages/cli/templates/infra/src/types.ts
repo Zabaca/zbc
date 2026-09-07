@@ -5,6 +5,54 @@ export type ApplyFn<TConfig, TOutputs> = (config: TConfig, ctx: ApplyContext) =>
 export type DestroyFn<TConfig> = (config: TConfig, ctx: ApplyContext) => Promise<void>
 
 /**
+ * The proof that a just-created resource is USABLE, not merely created.
+ *
+ * Throwing — or returning `false` — means "not ready yet", and the engine
+ * retries. Nothing here can tell a transient refusal from a permanent one, and
+ * neither could the four hand-rolled loops this replaced: the budget expiring
+ * is what turns one into the other.
+ */
+export type ReadyFn<TConfig, TOutputs> = (
+  outputs: TOutputs,
+  config: TConfig,
+  ctx: ApplyContext,
+) => Promise<boolean | void>
+
+/**
+ * What a module declares to say "created is not the same as usable here".
+ *
+ * Every provider in the consumer survey returns success from a create call
+ * before the created thing works — a fresh GCP service account 404s its own
+ * keys endpoint, a fresh Cloudflare token is refused by the very scope it was
+ * granted, a fresh Tailscale device reports no state at all. Four consumers
+ * each wrote a retry loop inside their module because there was nowhere
+ * reusable to put one.
+ *
+ * The reusable place is not a retry helper — everyone could write that. It is
+ * this declaration plus the engine's rule about it: an instance's outputs do
+ * not cross an `imports` edge until the probe succeeds. Which is also why the
+ * probe is the MODULE's and not the engine's: leeandco measured
+ * `/tokens/verify` answering 200 while the scope-gated call was still refusing
+ * half a second later, so a generic liveness check proves the wrong thing.
+ * Readiness has to be probed against the capability the caller will use, and
+ * only the module knows what that is.
+ */
+export interface ReadinessDeclaration<TConfig, TOutputs> {
+  /**
+   * What a passing probe proves, phrased as a claim — e.g. "the minted token
+   * can exercise the read permissions it was granted". It is the whole of the
+   * timeout error's diagnostic value: the operator needs to know which
+   * capability was still being refused, not that "something" timed out.
+   */
+  proves: string
+  probe: ReadyFn<TConfig, TOutputs>
+  /** How long to keep probing before failing the apply. Default 60s. */
+  timeoutMs?: number
+  /** How long to wait between attempts. Default 1s. */
+  intervalMs?: number
+}
+
+/**
  * The three raw fields a caller has to supply. `defineModule` turns one of
  * these into a full `ApplyContext` before the module body sees it (see
  * `context.ts`), which is why the engine — and a test — may hand `apply` a
@@ -79,12 +127,30 @@ export type BoundApplyFn<TConfig, TOutputs> = (
 
 export type BoundDestroyFn<TConfig> = (config: TConfig, ctx: ApplyContextInput) => Promise<void>
 
+export type BoundReadyFn<TConfig, TOutputs> = (
+  outputs: TOutputs,
+  config: TConfig,
+  ctx: ApplyContextInput,
+) => Promise<boolean | void>
+
+/** A published `ready`, with the probe bound the way `apply` and `destroy` are. */
+export interface BoundReadiness<TConfig, TOutputs> extends Omit<
+  ReadinessDeclaration<TConfig, TOutputs>,
+  'probe'
+> {
+  probe: BoundReadyFn<TConfig, TOutputs>
+}
+
 export interface ModuleDefinition<TConfig extends z.ZodType, TOutputs extends z.ZodType> {
   name: string
   configSchema: TConfig
   outputsSchema: TOutputs
   apply: BoundApplyFn<z.infer<TConfig>, z.infer<TOutputs>>
   destroy?: BoundDestroyFn<z.infer<TConfig>>
+  /** See `ReadinessDeclaration`. Absent on every module that has no gap
+   * between "created" and "usable" — which is most of them, and they pay
+   * nothing for this. */
+  ready?: BoundReadiness<z.infer<TConfig>, z.infer<TOutputs>>
   instance: (opts: InstanceOptions<TConfig>) => ModuleInstance<TOutputs>
 }
 

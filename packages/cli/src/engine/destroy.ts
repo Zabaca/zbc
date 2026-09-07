@@ -5,14 +5,13 @@ import type {
   OutputOptions,
   OutputRef,
 } from '../../templates/infra/src/types'
-import { applyInstance } from './apply'
+import { applyInstance, type InstanceRunOptions } from './apply'
 import { discoverInstances } from './discover'
+import { createReadinessGate } from './readiness'
 import { resolveOrder } from './resolve'
 import { loadSecrets } from './secrets'
 
-export interface DestroyInstancesOptions {
-  secrets: Record<string, string>
-  projectRoot: string
+export interface DestroyInstancesOptions extends InstanceRunOptions {
   /** Destroy only this instance — see the comment on the filter below. */
   target?: string
   /** Where the instances came from, for error messages. */
@@ -70,6 +69,8 @@ export async function destroyInstances(
   // Outputs of instances applied on demand, shared across the whole run: a
   // credential minted for one teardown is the same credential for the next.
   const outputs = new Map<string, unknown>()
+  // …and so is the proof that it works. Same gate for the same reason.
+  const runOpts: DestroyInstancesOptions = { ...opts, gate: opts.gate ?? createReadinessGate() }
 
   for (const instance of reversed) {
     const { destroy } = instance._definition
@@ -86,7 +87,7 @@ export async function destroyInstances(
     // applies is guaranteed to be torn down later in the same pass: an import
     // sorts before its importer, so it sorts after it in reverse. A targeted
     // destroy has no such pass — it would provision shared infra and walk away.
-    const ctx = destroyContext(instance, opts, outputs, { onDemand: !opts.target })
+    const ctx = destroyContext(instance, runOpts, outputs, { onDemand: !opts.target })
 
     // One extra pass per import, at most: each retry applies an instance that
     // was not applied before, and the set of imports is finite.
@@ -164,6 +165,9 @@ function destroyContext(
     if (name in importOutputs) throw new Error(`Import "${name}" was already applied`)
 
     await ensureApplied(dep, `${instance.name}'s destroy`, opts, outputs)
+    // THE EDGE, again: the value this destroy is about to read is held until
+    // the module that minted it says it is usable.
+    await opts.gate?.ensureReady(name)
     importOutputs[name] = outputs.get(name)
   }
 

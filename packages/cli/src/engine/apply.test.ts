@@ -289,3 +289,185 @@ function fakeModuleWithDefault(spy: (config: unknown) => void) {
   inst._definition.configSchema = z.object({ group: z.string().default('default') })
   return inst
 }
+
+// ── readiness ───────────────────────────────────────────────────────────────
+//
+// Every provider in the consumer survey returns success from a create call
+// before the created thing works, and four consumers hand-rolled a retry loop
+// because there was nowhere to put the fix. The gate is the place: a module
+// declares what proves its resource usable, and the engine holds the output at
+// the imports edge until that proof succeeds.
+
+describe('the readiness gate', () => {
+  test("an importer sees a dependency's output only after its probe has passed", async () => {
+    const ran: string[] = []
+    let attempts = 0
+    const token = fakeInstance('token', {
+      apply: async () => {
+        ran.push('apply:token')
+        return { tokenValue: 'v' }
+      },
+      ready: {
+        proves: 'the minted token can act',
+        intervalMs: 1,
+        timeoutMs: 1_000,
+        probe: async () => {
+          attempts += 1
+          ran.push(`probe:${attempts}`)
+          if (attempts < 3) throw new Error('10000: Authentication error')
+        },
+      },
+    })
+    const web = fakeInstance('web', {
+      imports: [token],
+      apply: async (_config, ctx) => {
+        ran.push(`read:${ctx.output({ from: 'token', output: 'tokenValue' }, 'apiToken')}`)
+        return {}
+      },
+    })
+
+    await applyInstances([token, web], opts)
+
+    expect(ran).toEqual(['apply:token', 'probe:1', 'probe:2', 'probe:3', 'read:v'])
+  })
+
+  test('a probe that never clears fails the apply, naming what it could not prove', async () => {
+    const token = probing('token', { proves: 'the minted token can act' }, async () => {
+      throw new Error('10000: Authentication error')
+    })
+    const web = fakeInstance('web', {
+      imports: [token],
+      apply: async (_config, ctx) => {
+        ctx.output({ from: 'token', output: 'tokenValue' }, 'apiToken')
+        return {}
+      },
+    })
+
+    const err = await failure(() => applyInstances([token, web], opts))
+
+    // Four facts, because each one is a different next move for the operator:
+    // which instance, which module, what was being proven, and what the
+    // provider actually said while refusing.
+    expect(err?.message).toContain('Instance "token" (module "mod-token")')
+    expect(err?.message).toContain('is not usable yet: the minted token can act')
+    expect(err?.message).toContain('Last failure: 10000: Authentication error')
+    expect(err?.message).toMatch(/\d+ attempts/)
+  })
+
+  test('the importer never runs when the probe never clears', async () => {
+    const ran: string[] = []
+    const token = probing('token', { proves: 'p' }, async () => {
+      throw new Error('nope')
+    })
+    const web = fakeInstance('web', {
+      imports: [token],
+      apply: async () => {
+        ran.push('apply:web')
+        return {}
+      },
+    })
+
+    await failure(() => applyInstances([token, web], opts))
+    expect(ran).toEqual([])
+  })
+
+  test('a dependency two instances import is probed once', async () => {
+    let probes = 0
+    const token = probing('token', { proves: 'p' }, async () => {
+      probes += 1
+    })
+    const reader = (name: string) =>
+      fakeInstance(name, {
+        imports: [token],
+        apply: async (_config, ctx) => {
+          ctx.output({ from: 'token', output: 'tokenValue' }, 'apiToken')
+          return {}
+        },
+      })
+
+    await applyInstances([token, reader('web'), reader('api')], opts)
+    expect(probes).toBe(1)
+  })
+
+  test('an instance nothing imports is never probed — the gate is on the edge', async () => {
+    let probes = 0
+    const lonely = probing('lonely', { proves: 'p' }, async () => {
+      probes += 1
+    })
+    await applyInstances([lonely], opts)
+    expect(probes).toBe(0)
+  })
+
+  test('a false verdict is a refusal, and any other return value is not', async () => {
+    const verdicts: Array<boolean | undefined> = [false, false, true]
+    let attempts = 0
+    const device = probing('device', { proves: 'the device reports online' }, async () => {
+      return verdicts[attempts++]
+    })
+    const job = fakeInstance('job', {
+      imports: [device],
+      apply: async (_config, ctx) => {
+        ctx.output({ from: 'device', output: 'tokenValue' }, 'ref')
+        return {}
+      },
+    })
+
+    await applyInstances([device, job], opts)
+    expect(attempts).toBe(3)
+  })
+
+  test('the probe reads the same secrets and imports its apply did', async () => {
+    const root = fakeInstance('root', { apply: async () => ({ tokenValue: 'root-v' }) })
+    let seen: string | undefined
+    const minted = fakeInstance('minted', {
+      imports: [root],
+      apply: async () => ({ tokenValue: 'minted-v' }),
+      ready: {
+        proves: 'p',
+        probe: async (outputs, _config, ctx) => {
+          seen = [
+            ctx.secret('ROOT'),
+            ctx.output({ from: 'root', output: 'tokenValue' }, 'ref'),
+            (outputs as { tokenValue: string }).tokenValue,
+          ].join('|')
+        },
+      },
+    })
+    const web = fakeInstance('web', {
+      imports: [minted],
+      apply: async (_config, ctx) => {
+        ctx.output({ from: 'minted', output: 'tokenValue' }, 'apiToken')
+        return {}
+      },
+    })
+
+    await applyInstances([root, minted, web], { ...opts, secrets: { ROOT: 'r' } })
+    expect(seen).toBe('r|root-v|minted-v')
+  })
+
+  /** An instance whose module declares `ready`, on a budget no test waits out. */
+  function probing(
+    name: string,
+    ready: { proves: string },
+    probe: (
+      outputs: Record<string, unknown>,
+      config: Record<string, unknown>,
+      ctx: ApplyContext,
+    ) => Promise<boolean | void>,
+  ) {
+    return fakeInstance(name, {
+      apply: async () => ({ tokenValue: 'v' }),
+      ready: { proves: ready.proves, intervalMs: 1, timeoutMs: 20, probe },
+    })
+  }
+})
+
+/** What `run` threw, or undefined. */
+async function failure(run: () => Promise<unknown>): Promise<Error | undefined> {
+  try {
+    await run()
+    return undefined
+  } catch (err) {
+    return err as Error
+  }
+}

@@ -2,12 +2,24 @@ import { createApplyContext } from '../../templates/infra/src/context'
 import { legacyConfigEphemeral } from '../../templates/infra/src/define-module'
 import type { ApplyContext, ModuleInstance } from '../../templates/infra/src/types'
 import { discoverInstances } from './discover'
+import { createReadinessGate, type ReadinessGate } from './readiness'
 import { assertEphemeralDestroyable, isEphemeral, resolveOrder } from './resolve'
 import { loadSecrets } from './secrets'
 
-export interface ApplyInstancesOptions {
+/** What one instance's apply needs, whichever path called it. */
+export interface InstanceRunOptions {
   secrets: Record<string, string>
   projectRoot: string
+  /**
+   * The run's readiness gate. Optional so a caller with a single instance and
+   * no imports need not build one; both engine paths pass theirs, because the
+   * memo of "already proven" is per RUN and a fresh gate per instance would
+   * re-probe a dependency once per importer.
+   */
+  gate?: ReadinessGate
+}
+
+export interface ApplyInstancesOptions extends InstanceRunOptions {
   /** Apply only these instances and their transitive imports. */
   target?: string | string[]
   /** Where the instances came from, for error messages. */
@@ -24,10 +36,10 @@ export interface ApplyInstancesOptions {
  */
 export async function applyInstance(
   instance: ModuleInstance,
-  opts: { secrets: Record<string, string>; projectRoot: string },
+  opts: InstanceRunOptions,
   outputs: Map<string, unknown>,
 ): Promise<unknown> {
-  const ctx = instanceContext(instance, opts, outputs)
+  const ctx = await instanceContext(instance, opts, outputs)
 
   const validatedConfig = instance._definition.configSchema.parse(instance.config)
 
@@ -36,6 +48,9 @@ export async function applyInstance(
   instance._definition.outputsSchema.parse(result)
 
   outputs.set(instance.name, result)
+  // Recorded, not probed. Whether this instance's resource has to prove itself
+  // usable is decided by whoever imports it — see `readiness.ts`.
+  opts.gate?.record(instance, validatedConfig, result, ctx)
   return result
 }
 
@@ -44,13 +59,16 @@ export async function applyInstance(
  * instances ahead of it in the sort emitted, which is the whole of the ordering
  * guarantee.
  */
-function instanceContext(
+async function instanceContext(
   instance: ModuleInstance,
-  opts: { secrets: Record<string, string>; projectRoot: string },
+  opts: InstanceRunOptions,
   outputs: Map<string, unknown>,
-): ApplyContext {
+): Promise<ApplyContext> {
   const importOutputs: Record<string, unknown> = {}
   for (const dep of instance.imports) {
+    // THE EDGE. Everything this instance is about to read from `dep` is held
+    // here until `dep`'s own module says its resource is usable.
+    await opts.gate?.ensureReady(dep.name)
     importOutputs[dep.name] = outputs.get(dep.name)
   }
   return createApplyContext({
@@ -77,13 +95,13 @@ function instanceContext(
  */
 async function destroyEphemeral(
   instance: ModuleInstance,
-  opts: { secrets: Record<string, string>; projectRoot: string },
+  opts: InstanceRunOptions,
   outputs: Map<string, unknown>,
 ): Promise<void> {
   // `assertEphemeralDestroyable` has already run over the whole graph.
   const destroy = instance._definition.destroy!
   const validatedConfig = instance._definition.configSchema.parse(instance.config)
-  await destroy(validatedConfig, instanceContext(instance, opts, outputs))
+  await destroy(validatedConfig, await instanceContext(instance, opts, outputs))
 }
 
 /** The graph half of `zbc apply`: pure over in-memory instances, no I/O of its own. */
@@ -94,6 +112,7 @@ export async function applyInstances(
   const sorted = resolveOrder(instances, { target: opts.target, envLabel: opts.envLabel })
   assertEphemeralDestroyable(sorted)
   const outputs = new Map<string, unknown>()
+  const runOpts: InstanceRunOptions = { ...opts, gate: opts.gate ?? createReadinessGate() }
 
   for (const instance of sorted) {
     console.log(`\n→ ${instance.moduleName}:${instance.name}`)
@@ -104,9 +123,9 @@ export async function applyInstances(
         )
       }
       console.log(`  ephemeral: destroying before re-apply`)
-      await destroyEphemeral(instance, opts, outputs)
+      await destroyEphemeral(instance, runOpts, outputs)
     }
-    await applyInstance(instance, opts, outputs)
+    await applyInstance(instance, runOpts, outputs)
     console.log(`✓ ${instance.moduleName}:${instance.name} applied`)
   }
 
