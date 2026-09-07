@@ -130,14 +130,23 @@ export function deriveS3Credentials(
  * Extending it is adding a line. A permission with no line simply contributes
  * no probe — the table is allowed to be incomplete, and never wrong.
  */
-const READ_PROBES: Record<string, (accountId: string) => string> = {
-  'D1 Read': (id) => `/accounts/${id}/d1/database`,
-  'Workers Scripts Read': (id) => `/accounts/${id}/workers/scripts`,
-  'Workers KV Storage Read': (id) => `/accounts/${id}/storage/kv/namespaces`,
-  'Workers R2 Storage Read': (id) => `/accounts/${id}/r2/buckets`,
-  'Account Settings Read': (id) => `/accounts/${id}`,
-  'Zone Read': () => `/zones?per_page=1`,
-}
+/*
+ * A Map rather than an object literal, for one reason: a permission name is
+ * untrusted input as far as this lookup is concerned, and `{}[name]` finds
+ * `Object.prototype`'s keys. A permission called `constructor` would hit a real
+ * function and probe a nonsense path — breaking the promise made just above,
+ * that a permission with no entry contributes no probe. A Map has no prototype
+ * chain to fall through, and its `get` returns `undefined` honestly, which is
+ * also what `noUncheckedIndexedAccess` wants to see checked.
+ */
+const READ_PROBES = new Map<string, (accountId: string) => string>([
+  ['D1 Read', (id) => `/accounts/${id}/d1/database`],
+  ['Workers Scripts Read', (id) => `/accounts/${id}/workers/scripts`],
+  ['Workers KV Storage Read', (id) => `/accounts/${id}/storage/kv/namespaces`],
+  ['Workers R2 Storage Read', (id) => `/accounts/${id}/r2/buckets`],
+  ['Account Settings Read', (id) => `/accounts/${id}`],
+  ['Zone Read', () => `/zones?per_page=1`],
+])
 
 /**
  * The calls that prove a minted token usable, given what it was granted.
@@ -150,13 +159,10 @@ export function readinessProbes(
   permissions: readonly string[],
   accountId: string,
 ): Array<{ permission: string; path: string }> {
-  const probes = permissions
-    // `hasOwn`, not `in`: `in` finds `Object.prototype`'s keys, so a permission
-    // called `constructor` or `toString` would "match" and probe a nonsense path
-    // — breaking the promise the table makes two lines up, that a permission
-    // with no entry contributes no probe.
-    .filter((permission) => Object.hasOwn(READ_PROBES, permission))
-    .map((permission) => ({ permission, path: READ_PROBES[permission](accountId) }))
+  const probes = permissions.flatMap((permission) => {
+    const build = READ_PROBES.get(permission)
+    return build === undefined ? [] : [{ permission, path: build(accountId) }]
+  })
   // `/accounts/{id}/tokens/verify`, not `/user/tokens/verify`: this module
   // creates ACCOUNT-owned tokens (`POST /accounts/{id}/tokens`), and the
   // user-scoped verify is a different endpoint for a different kind of token.

@@ -127,18 +127,30 @@ export type BoundApplyFn<TConfig, TOutputs> = (
 
 export type BoundDestroyFn<TConfig> = (config: TConfig, ctx: ApplyContextInput) => Promise<void>
 
-export type BoundReadyFn<TConfig, TOutputs> = (
-  outputs: TOutputs,
-  config: TConfig,
-  ctx: ApplyContextInput,
-) => Promise<boolean | void>
-
-/** A published `ready`, with the probe bound the way `apply` and `destroy` are. */
+/**
+ * A published `ready`, with the probe bound the way `apply` and `destroy` are.
+ *
+ * `probe` is declared as a METHOD rather than as a function-typed property, and
+ * that is load-bearing rather than stylistic. `TOutputs` reaches every other
+ * member of `ModuleDefinition` in an output position — `outputsSchema`,
+ * `apply`'s return — which leaves `ModuleDefinition<any, X>` covariant in it, so
+ * a `ModuleInstance<ZodObject<{bucketName}>>` is assignable to the
+ * `ModuleInstance<z.ZodType>` that `imports` is typed as. `probe` is the first
+ * member to take `TOutputs` as a PARAMETER, and under `strictFunctionTypes` one
+ * contravariant occurrence makes the whole type invariant — which broke every
+ * `imports: [r2Bucket]` in `packages/infra/environments/`, six files that never
+ * mention readiness.
+ *
+ * Method syntax is checked bivariantly, which restores that assignability. The
+ * unsoundness it admits is unreachable here: the engine is the only caller of a
+ * probe, and it passes exactly the outputs that instance's own `apply` returned,
+ * after `outputsSchema.parse` has validated them.
+ */
 export interface BoundReadiness<TConfig, TOutputs> extends Omit<
   ReadinessDeclaration<TConfig, TOutputs>,
   'probe'
 > {
-  probe: BoundReadyFn<TConfig, TOutputs>
+  probe(outputs: TOutputs, config: TConfig, ctx: ApplyContextInput): Promise<boolean | void>
 }
 
 export interface ModuleDefinition<TConfig extends z.ZodType, TOutputs extends z.ZodType> {
