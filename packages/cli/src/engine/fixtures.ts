@@ -1,6 +1,10 @@
 import { z } from 'zod'
 import { defineModule } from '../../templates/infra/src/define-module'
-import type { ApplyContext, ModuleInstance } from '../../templates/infra/src/types'
+import type {
+  ApplyContext,
+  ModuleInstance,
+  ReadinessDeclaration,
+} from '../../templates/infra/src/types'
 
 /**
  * A module whose `apply`/`destroy` are whatever the test needs.
@@ -15,6 +19,9 @@ export interface FakeModuleOptions {
   /** Outputs schema; defaults to "any record of strings". */
   outputs?: z.ZodType
   withDestroy?: boolean
+  /** What proves this fake's resource usable. Absent on almost every fake —
+   * the gate must cost a module that declares nothing exactly nothing. */
+  ready?: ReadinessDeclaration<Record<string, unknown>, Record<string, unknown>>
 }
 
 export function fakeModule(name: string, opts: FakeModuleOptions = {}) {
@@ -24,6 +31,7 @@ export function fakeModule(name: string, opts: FakeModuleOptions = {}) {
     outputs: (opts.outputs ?? z.record(z.string())) as z.ZodType<Record<string, unknown>>,
     apply: opts.apply ?? (async () => ({})),
     ...(opts.destroy || opts.withDestroy ? { destroy: opts.destroy ?? (async () => {}) } : {}),
+    ...(opts.ready ? { ready: opts.ready } : {}),
   })
 }
 

@@ -275,3 +275,45 @@ describe('a destroy that reads an import', () => {
     expect(seen).toBe('tok')
   })
 })
+
+// ── readiness on the destroy path ───────────────────────────────────────────
+//
+// A destroy that reads an import gets that instance applied on demand, which
+// makes the handover the same edge the apply path gates — and the same
+// just-minted credential, with the same window where it authenticates and
+// cannot act.
+
+describe('readiness on the on-demand apply', () => {
+  test("the destroy waits for the probe before it sees the import's output", async () => {
+    const ran: string[] = []
+    let attempts = 0
+    const token = fakeInstance('deploy-token', {
+      apply: async () => {
+        ran.push('apply:deploy-token')
+        return { tokenValue: 'minted' }
+      },
+      ready: {
+        proves: 'the minted token can act',
+        intervalMs: 1,
+        timeoutMs: 1_000,
+        probe: async () => {
+          attempts += 1
+          ran.push(`probe:${attempts}`)
+          if (attempts < 3) throw new Error('10000: Authentication error')
+        },
+      },
+    })
+    const web = fakeInstance('web', {
+      imports: [token],
+      destroy: async (_config, ctx) => {
+        ran.push(
+          `destroy:${ctx.output({ from: 'deploy-token', output: 'tokenValue' }, 'apiToken')}`,
+        )
+      },
+    })
+
+    await destroyInstances([token, web], opts)
+
+    expect(ran).toEqual(['apply:deploy-token', 'probe:1', 'probe:2', 'probe:3', 'destroy:minted'])
+  })
+})
