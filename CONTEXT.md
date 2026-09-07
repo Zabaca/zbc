@@ -42,6 +42,10 @@ _Avoid_: thin module
 A typed reference from one Instance to another in the same environment. The engine applies the imported Instance first and hands its outputs to the importer through the context — `ctx.output({ from, output }, field)` — which is the only way a Module learns another Module's result. A Module never reads another Module's resource directly. At destroy time the same call still answers: a full-environment destroy applies the imported Instance on demand — only if the destroy asks, and only because the same run tears it down again afterwards. A targeted destroy refuses, since the Instance it would create is shared infra nothing in that run would remove.
 _Avoid_: dependency (says nothing about outputs flowing), link
 
+**Binding**:
+A named handle a Worker reads a resource through (`env.DB`, `env.RAW`), declared in the consuming package's own `wrangler.jsonc`. Its *identifier* — `database_id`, `bucket_name`, a queue name — is not the package's business: the `cloudflare` module's `bindings` config fills it in from an **Import**'s outputs before deploy, by patching a throwaway copy of that file. The declaration must already exist; zbc supplies the identifier, never the binding. See [ADR-0014](./docs/adr/0014-a-binding-is-filled-in-by-the-deploying-module.md).
+_Avoid_: env var (a binding is not in the environment — that is `workerSecrets`/`workerVars`), resource reference
+
 **Readiness Probe**:
 A Module's declaration of what proves its just-applied resource *usable*, as opposed to merely created — `ready: { proves, probe }`. The engine holds that Instance's outputs at every **Import** edge until the probe succeeds, retrying while it throws or returns `false`. It belongs to the Module, not the engine, because readiness is a claim about the capability the importer is about to exercise: a Cloudflare token answers `/tokens/verify` long before it may act on the scope it was granted. An Instance nothing imports is never probed. See [ADR-0013](./docs/adr/0013-readiness-is-a-precondition-of-the-imports-edge.md).
 _Avoid_: health check (says nothing about which capability), retry loop (the retrying is the least interesting part)
