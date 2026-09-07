@@ -227,15 +227,17 @@ interface ResolvedBinding {
   binding: string
   field: string
   value: string
+  /** Which config key this came from — `bindings` or `r2Bindings` — so an
+   * error points the operator at a key their instance file actually has. */
+  label: string
 }
 
 function resolveBinding(entry: BindingEntry, ctx: ApplyContext): ResolvedBinding {
   const { type, binding, field } = entry
-  if ('value' in entry) return { type, binding, field, value: entry.value }
+  const common = { type, binding, field, label: 'bindings' }
+  if ('value' in entry) return { ...common, value: entry.value }
   return {
-    type,
-    binding,
-    field,
+    ...common,
     value: ctx.output(entry, `bindings entry "${type}.${binding}.${field}"`),
   }
 }
@@ -265,7 +267,12 @@ const r2BindingSchema = z.union([
 type R2BindingEntry = z.infer<typeof r2BindingSchema>
 
 function resolveR2Binding(entry: R2BindingEntry, ctx: ApplyContext): ResolvedBinding {
-  const common = { type: 'r2_buckets', binding: entry.binding, field: 'bucket_name' }
+  const common = {
+    type: 'r2_buckets',
+    binding: entry.binding,
+    field: 'bucket_name',
+    label: 'r2Bindings',
+  }
   if ('bucketName' in entry) return { ...common, value: entry.bucketName }
   return { ...common, value: ctx.output(entry, `r2Bindings entry "${entry.binding}"`) }
 }
@@ -357,40 +364,44 @@ function bindingArrayAt(
 }
 
 /**
- * Set each resolved binding's field, in the top-level config and (when
- * `wranglerEnv` is set) the matching `env.<name>` block. Wrangler's binding
- * arrays key on `binding`; `durable_objects.bindings` and friends key on
- * `name`, so an entry with no `binding` key is matched by `name` instead.
- * A binding no declaration matches is a hard config error.
+ * Set each resolved binding's field on the declaration the deploy will
+ * actually use.
+ *
+ * Which block that is turns on `wranglerEnv`, and it is not "both": wrangler's
+ * binding keys (`d1_databases`, `r2_buckets`, `kv_namespaces`, `queues`,
+ * `durable_objects`, …) are NOT inheritable, so a `--env preview` deploy reads
+ * `env.preview`'s arrays and ignores the top-level ones entirely. Patching a
+ * top-level declaration and reporting the binding as wired would ship a worker
+ * with no such binding at all — wrangler only warns — which is the failure this
+ * whole config key exists to prevent. So with `wranglerEnv` set, only that
+ * env block is searched.
+ *
+ * Wrangler's binding arrays key on `binding`; `durable_objects.bindings` and
+ * friends key on `name`, so an entry with no `binding` key is matched by
+ * `name` instead. A binding no declaration matches is a hard config error.
  */
 function patchBindings(
   config: Record<string, unknown>,
   resolved: ResolvedBinding[],
   wranglerEnv?: string,
 ): void {
-  const blocks: Array<Record<string, unknown>> = [config]
-  if (wranglerEnv) {
-    const envBlock = (config.env as Record<string, Record<string, unknown>> | undefined)?.[
-      wranglerEnv
-    ]
-    if (envBlock) blocks.push(envBlock)
-  }
-  for (const { type, binding, field, value } of resolved) {
-    let found = false
-    for (const block of blocks) {
-      const entry = bindingArrayAt(block, type)?.find(
-        (e) => e.binding === binding || (e.binding === undefined && e.name === binding),
-      )
-      if (entry) {
-        entry[field] = value
-        found = true
-      }
+  const envBlock = wranglerEnv
+    ? (config.env as Record<string, Record<string, unknown>> | undefined)?.[wranglerEnv]
+    : undefined
+  const block = wranglerEnv ? envBlock : config
+  const where = wranglerEnv
+    ? `the "env.${wranglerEnv}" block of the package's wrangler config (binding keys are not inherited from the top level)`
+    : `the package's wrangler config`
+  for (const { type, binding, field, value, label } of resolved) {
+    const entry = block
+      ? bindingArrayAt(block, type)?.find(
+          (e) => e.binding === binding || (e.binding === undefined && e.name === binding),
+        )
+      : undefined
+    if (!entry) {
+      throw new Error(`${label} entry "${binding}" has no matching ${type} binding in ${where}`)
     }
-    if (!found) {
-      throw new Error(
-        `bindings entry "${binding}" has no matching ${type} binding in the package's wrangler config`,
-      )
-    }
+    entry[field] = value
   }
 }
 
@@ -442,6 +453,10 @@ export const cloudflareModule = defineModule({
      * output }` references into an imported instance's outputs (the r2 module
      * emits `bucketName`). Lets the package's wrangler config stay generic —
      * the per-project bucket lives here, next to the other identifiers.
+     *
+     * Shorthand for `bindings` below, which does the same for any binding
+     * type; both go through one resolver, and a new resource type wants
+     * `bindings`, not a second key like this one.
      */
     r2Bindings: z.array(r2BindingSchema).default([]),
     /**

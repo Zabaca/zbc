@@ -56,6 +56,14 @@ edge.** Two consequences follow, and both are the point:
   no declaration matches is a hard error naming the type and the binding —
   before wrangler runs, so there is no half-deployed worker.
 
+**With `wranglerEnv` set, only that `env.<name>` block is searched.** Wrangler's
+binding keys are not inheritable — a `--env preview` deploy reads
+`env.preview`'s arrays and ignores the top-level ones — so patching a top-level
+declaration and reporting the binding as wired would ship a worker with no such
+binding at all, which wrangler answers with a warning and a running worker whose
+`env.DB` is `undefined`. That is the exact failure this key exists to prevent,
+so a binding declared only at the top level under `wranglerEnv` is an error.
+
 Resolution happens with the other pre-deploy resolutions (`workerVars`,
 `workerSecrets`, `apiToken`), so an unresolvable reference fails fast for the
 same reason and with the same shape of message.

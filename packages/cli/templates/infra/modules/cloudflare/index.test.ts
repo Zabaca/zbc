@@ -692,6 +692,45 @@ describe('cloudflare apply — bindings resolve into the wrangler config', () =>
     expect(dos[0].class_name).toBe('Room')
   })
 
+  /**
+   * Wrangler's binding keys are NOT inheritable: `d1_databases`, `r2_buckets`,
+   * `kv_namespaces`, `queues` and friends declared at the top level are not
+   * merged into `env.<name>`. Patching the top-level entry and deploying with
+   * `--env` would therefore ship a worker with no such binding at all —
+   * wrangler only warns — while this module printed the binding as wired.
+   */
+  test('with wranglerEnv, a binding declared only at the top level is an error', async () => {
+    const { error, calls } = await runApply({
+      wranglerConfig: `{
+  "name": "my-worker",
+  "d1_databases": [{ "binding": "DB", "database_id": "PLACEHOLDER" }],
+  "env": { "preview": {} },
+}`,
+      config: {
+        wranglerEnv: 'preview',
+        bindings: [
+          { type: 'd1_databases', binding: 'DB', field: 'database_id', value: 'preview-db-id' },
+        ],
+      },
+    })
+    expect(error).toBeDefined()
+    expect(error!.message).toContain('DB')
+    expect(error!.message).toContain('d1_databases')
+    expect(error!.message).toContain('preview')
+    expect(calls).toHaveLength(0)
+  })
+
+  test('an unmatched r2Bindings entry names r2Bindings, not the key it came from', async () => {
+    const { error, calls } = await runApply({
+      wranglerConfig: `{ "name": "my-worker", "r2_buckets": [{ "binding": "RAW_BUCKET" }] }`,
+      config: { r2Bindings: [{ binding: 'RAW', bucketName: 'zbc-inbox-raw' }] },
+    })
+    expect(error).toBeDefined()
+    expect(error!.message).toContain('r2Bindings')
+    expect(error!.message).toContain('RAW')
+    expect(calls).toHaveLength(0)
+  })
+
   test('with wranglerEnv, a binding declared only in that env block is patched', async () => {
     const { error, configs } = await runApply({
       wranglerConfig: `{
