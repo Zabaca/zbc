@@ -38,7 +38,9 @@ The same rule holds on the destroy path, where `ctx.output` applies an imported 
 
 **The knobs live on the module, not the instance.** How long a provider takes to make a thing usable is a fact about the provider, not a per-environment preference. Defaults are 60s at 1s intervals; `cloudflare-token` declares 30s at 2s.
 
-**The proof is memoised per run, not per edge.** Two importers of one instance wait on one probe — the promise is memoised, so they do not race two.
+**The budget bounds the attempt, not just the gap between attempts.** `fetch` carries no timeout of its own, so a connection that is accepted and never answered would leave a probe pending forever behind a deadline that is only checked after the `await` — and `zbc apply` would hang with no output until CI's own wall clock killed the job.
+
+**A proof is memoised; a failure is not.** Two importers of one instance wait on one probe — the promise is memoised, so they do not race two. A rejection is dropped from the memo, so a gate that outlives one apply does not keep answering "not usable yet" about a resource that became usable a second after the budget expired.
 
 ## The first module to declare one
 

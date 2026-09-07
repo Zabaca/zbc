@@ -445,6 +445,47 @@ describe('the readiness gate', () => {
     expect(seen).toBe('r|root-v|minted-v')
   })
 
+  test('a probe that never answers is bounded by the budget, not by the provider', async () => {
+    // `fetch` carries no timeout of its own. A connection that is accepted and
+    // never answered leaves the probe pending forever, and a deadline checked
+    // only after the await is never reached — `zbc apply` then hangs with no
+    // output until CI's own wall clock kills the job.
+    const token = probing(
+      'token',
+      { proves: 'the minted token can act' },
+      () => new Promise(() => {}),
+    )
+    const web = fakeInstance('web', {
+      imports: [token],
+      apply: async (_config, ctx) => {
+        ctx.output({ from: 'token', output: 'tokenValue' }, 'apiToken')
+        return {}
+      },
+    })
+
+    const err = await failure(() => applyInstances([token, web], opts))
+    expect(err?.message).toContain('is not usable yet: the minted token can act')
+    expect(err?.message).toContain('did not answer within')
+  })
+
+  test('a budget of zero is refused as the declaration bug it is', async () => {
+    const token = fakeInstance('token', {
+      apply: async () => ({ tokenValue: 'v' }),
+      ready: { proves: 'p', timeoutMs: 0, intervalMs: 1, probe: async () => {} },
+    })
+    const web = fakeInstance('web', {
+      imports: [token],
+      apply: async (_config, ctx) => {
+        ctx.output({ from: 'token', output: 'tokenValue' }, 'apiToken')
+        return {}
+      },
+    })
+
+    const err = await failure(() => applyInstances([token, web], opts))
+    expect(err?.message).toContain('ready.timeoutMs=0')
+    expect(err?.message).toContain('must be greater than 0')
+  })
+
   /** An instance whose module declares `ready`, on a budget no test waits out. */
   function probing(
     name: string,

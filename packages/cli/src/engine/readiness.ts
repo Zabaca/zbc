@@ -25,6 +25,9 @@ import type { ApplyContext, ModuleInstance } from '../../templates/infra/src/typ
 const DEFAULT_TIMEOUT_MS = 60_000
 const DEFAULT_INTERVAL_MS = 1_000
 
+/** How long a probe may go on refusing before the wait is reported as progress. */
+const PROGRESS_EVERY_MS = 10_000
+
 /** What was applied, kept so the probe can be run later — at the edge. */
 interface Recorded {
   instance: ModuleInstance
@@ -48,15 +51,41 @@ export interface ReadinessGate {
   ensureReady(name: string): Promise<void>
 }
 
-export interface ReadinessGateOptions {
-  /** Swapped by tests that must not sleep in real time. Defaults to `setTimeout`. */
-  sleep?: (ms: number) => Promise<void>
+const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms))
+
+/**
+ * `work`, or a rejection once `ms` has passed — whichever settles first.
+ *
+ * The budget has to bound the ATTEMPT, not just the gap between attempts. A
+ * probe reaches a provider over `fetch`, which carries no timeout of its own: a
+ * connection that is accepted and then never answered leaves the probe pending
+ * forever, and a deadline checked only after `await` is never reached. What the
+ * operator sees then is `zbc apply` hanging with no output until CI's own
+ * wall-clock kills the job — the exact failure a 30s budget was written to
+ * prevent.
+ */
+async function withDeadline<T>(work: Promise<T>, ms: number): Promise<T> {
+  // The loser of the race still settles. Without a handler of its own, a probe
+  // that rejects after the deadline is an unhandled rejection — which in Bun and
+  // in Node kills the process rather than the apply.
+  work.catch(() => {})
+  let timer: ReturnType<typeof setTimeout> | undefined
+  try {
+    return await Promise.race([
+      work,
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(
+          () => reject(new Error(`the probe did not answer within ${(ms / 1000).toFixed(1)}s`)),
+          ms,
+        )
+      }),
+    ])
+  } finally {
+    if (timer !== undefined) clearTimeout(timer)
+  }
 }
 
-const realSleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms))
-
-export function createReadinessGate(opts: ReadinessGateOptions = {}): ReadinessGate {
-  const sleep = opts.sleep ?? realSleep
+export function createReadinessGate(): ReadinessGate {
   const applied = new Map<string, Recorded>()
   // The PROMISE is memoised, not the boolean: two importers of the same
   // instance in the same run must wait on one probe, not race two.
@@ -72,7 +101,15 @@ export function createReadinessGate(opts: ReadinessGateOptions = {}): ReadinessG
       const recorded = applied.get(name)
       const ready = recorded?.instance._definition.ready
       if (!recorded || !ready) return Promise.resolve()
-      const pending = probeUntilReady(recorded, ready)
+      const pending = probeUntilReady(recorded, ready).catch((err: unknown) => {
+        // A FAILURE is not memoised, only a proof. `gate` is a public field on
+        // both engine paths' options, so one gate can outlive a single apply —
+        // and a cached rejection would answer "not usable yet", with a stale
+        // last failure, for a resource that became usable a second after the
+        // budget expired.
+        proven.delete(name)
+        throw err
+      })
       proven.set(name, pending)
       return pending
     },
@@ -83,11 +120,23 @@ export function createReadinessGate(opts: ReadinessGateOptions = {}): ReadinessG
     ready: NonNullable<ModuleInstance['_definition']['ready']>,
   ): Promise<void> {
     const { instance } = recorded
+    const where = `Instance "${instance.name}" (module "${instance.moduleName}")`
     const timeoutMs = ready.timeoutMs ?? DEFAULT_TIMEOUT_MS
     const intervalMs = ready.intervalMs ?? DEFAULT_INTERVAL_MS
+    // A zero or negative budget is a declaration bug, and both spellings of it
+    // fail silently otherwise: a zero timeout aborts every probe, and a zero
+    // interval turns the loop into an unthrottled hammer on the provider.
+    if (!(timeoutMs > 0) || !(intervalMs > 0)) {
+      throw new Error(
+        `${where} declares ready.timeoutMs=${timeoutMs} and ready.intervalMs=${intervalMs}; both must be greater than 0`,
+      )
+    }
     const startedAt = Date.now()
+    const deadline = startedAt + timeoutMs
+    const elapsed = () => ((Date.now() - startedAt) / 1000).toFixed(1)
     let attempts = 0
     let lastFailure = 'the probe returned false'
+    let reportedAt = startedAt
 
     for (;;) {
       attempts += 1
@@ -96,35 +145,40 @@ export function createReadinessGate(opts: ReadinessGateOptions = {}): ReadinessG
         // Only an explicit `false` is a refusal. A probe whose whole body is a
         // provider call returns that call's result, and demanding `true` back
         // would make every such probe a silent forever-loop.
-        passed = (await ready.probe(recorded.outputs, recorded.config, recorded.ctx)) !== false
+        const verdict = await withDeadline(
+          Promise.resolve(ready.probe(recorded.outputs, recorded.config, recorded.ctx)),
+          Math.max(deadline - Date.now(), 1),
+        )
+        passed = verdict !== false
         if (!passed) lastFailure = 'the probe returned false'
       } catch (err) {
         lastFailure = err instanceof Error ? err.message : String(err)
       }
       if (passed) {
         if (attempts > 1) {
-          const waited = ((Date.now() - startedAt) / 1000).toFixed(1)
           console.log(
-            `  ready: ${instance.name} — ${ready.proves} (after ${waited}s, ${attempts} attempts)`,
+            `  ready: ${instance.name} — ${ready.proves} (after ${elapsed()}s, ${attempts} attempts)`,
           )
         }
         return
       }
-      // Checked AFTER an attempt, so a zero budget still probes once and a
-      // module that is ready immediately never sleeps.
-      if (Date.now() - startedAt >= timeoutMs) {
+      if (Date.now() >= deadline) {
         throw new Error(
-          `Instance "${instance.name}" (module "${instance.moduleName}") was applied, but is not ` +
-            `usable yet: ${ready.proves}. Gave up after ${((Date.now() - startedAt) / 1000).toFixed(1)}s ` +
-            `and ${attempts} attempts. Last failure: ${lastFailure}`,
+          `${where} was applied, but is not usable yet: ${ready.proves}. ` +
+            `Gave up after ${elapsed()}s and ${attempts} attempts. Last failure: ${lastFailure}`,
         )
       }
-      if (attempts === 1) {
+      // Silence for a whole minute is indistinguishable from a wedged apply, so
+      // say something on the first refusal and then keep saying it — but only
+      // when there is news: a new failure, or ten more seconds of the same one.
+      if (attempts === 1 || Date.now() - reportedAt >= PROGRESS_EVERY_MS) {
+        reportedAt = Date.now()
         console.log(
-          `  ${instance.name} not ready yet: ${ready.proves} — retrying. Last failure: ${lastFailure}`,
+          `  ${instance.name} not ready yet (${elapsed()}s, ${attempts} attempts): ` +
+            `${ready.proves} — retrying. Last failure: ${lastFailure}`,
         )
       }
-      await sleep(intervalMs)
+      await sleep(Math.min(intervalMs, Math.max(deadline - Date.now(), 0)))
     }
   }
 }

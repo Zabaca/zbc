@@ -151,7 +151,11 @@ export function readinessProbes(
   accountId: string,
 ): Array<{ permission: string; path: string }> {
   const probes = permissions
-    .filter((permission) => permission in READ_PROBES)
+    // `hasOwn`, not `in`: `in` finds `Object.prototype`'s keys, so a permission
+    // called `constructor` or `toString` would "match" and probe a nonsense path
+    // — breaking the promise the table makes two lines up, that a permission
+    // with no entry contributes no probe.
+    .filter((permission) => Object.hasOwn(READ_PROBES, permission))
     .map((permission) => ({ permission, path: READ_PROBES[permission](accountId) }))
   // `/accounts/{id}/tokens/verify`, not `/user/tokens/verify`: this module
   // creates ACCOUNT-owned tokens (`POST /accounts/{id}/tokens`), and the
