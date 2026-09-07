@@ -119,7 +119,7 @@ export function deriveS3Credentials(
  * seconds after it was minted; write does not imply read on Cloudflare, so a
  * write-only grant has no safe probe here — asking anyway would fail forever on
  * a token that is working perfectly. What is left for that case is
- * `/user/tokens/verify` (see `readinessProbes`), which is a weaker claim,
+ * the account-owned token verify (see `readinessProbes`), which is a weaker claim,
  * honestly weaker: measured across three trials on 2026-08-15 it answered 200
  * at 112/111/202 ms while the scope-gated call was still refusing at
  * 1621/610/808 ms.
@@ -153,9 +153,12 @@ export function readinessProbes(
   const probes = permissions
     .filter((permission) => permission in READ_PROBES)
     .map((permission) => ({ permission, path: READ_PROBES[permission](accountId) }))
+  // `/accounts/{id}/tokens/verify`, not `/user/tokens/verify`: this module
+  // creates ACCOUNT-owned tokens (`POST /accounts/{id}/tokens`), and the
+  // user-scoped verify is a different endpoint for a different kind of token.
   return probes.length > 0
     ? probes
-    : [{ permission: 'token authentication', path: '/user/tokens/verify' }]
+    : [{ permission: 'token authentication', path: `/accounts/${accountId}/tokens/verify` }]
 }
 
 /** Account-owned token with the given name, if any. Single page by design —

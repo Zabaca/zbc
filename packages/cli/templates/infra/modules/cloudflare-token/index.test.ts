@@ -78,7 +78,7 @@ function installFetchStub(state: StubState): { calls: RecordedCall[] } {
     // The readiness probe's endpoints. An account with none of a resource
     // answers 200 with an empty list, which is a pass — the probe asks whether
     // the token may look, not whether there is anything to see.
-    if (method === 'GET' && path === '/client/v4/user/tokens/verify') {
+    if (method === 'GET' && path.endsWith('/tokens/verify')) {
       return respond(envelope({ status: 'active' }))
     }
     if (
@@ -634,8 +634,10 @@ describe('cloudflare-token readiness', () => {
       state: { createdValue: 'v-minted' },
     })
     expect(error).toBeUndefined()
+    // Account-owned, because that is what this module mints — the user-scoped
+    // verify is a different endpoint for a different kind of token.
     expect(probeCalls.map((c) => new URL(c.url).pathname)).toEqual([
-      '/client/v4/user/tokens/verify',
+      '/client/v4/accounts/acct-1/tokens/verify',
     ])
   })
 })

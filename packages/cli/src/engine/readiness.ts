@@ -120,7 +120,9 @@ export function createReadinessGate(opts: ReadinessGateOptions = {}): ReadinessG
         )
       }
       if (attempts === 1) {
-        console.log(`  not ready yet: ${ready.proves} — retrying. Last failure: ${lastFailure}`)
+        console.log(
+          `  ${instance.name} not ready yet: ${ready.proves} — retrying. Last failure: ${lastFailure}`,
+        )
       }
       await sleep(intervalMs)
     }
