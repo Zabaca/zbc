@@ -54,6 +54,7 @@ describe('zbc update in copy mode', () => {
     const minePath = path.join(consumer, 'packages/infra/modules/mine/index.ts')
     fs.mkdirSync(path.dirname(minePath), { recursive: true })
     fs.writeFileSync(minePath, 'export const mine = 1\n')
+    sh(consumer, 'git add -A && git commit -qm scaffold')
 
     const res = zbc(consumer, ['update'])
     expect(res.status).toBe(0)
@@ -76,6 +77,7 @@ describe('zbc update in copy mode', () => {
       path.join(consumer, '.zbc-vendor.json'),
       JSON.stringify({ mode: 'copy', cliVersion: '0.0.1', vendoredAt: '2026-01-01T00:00:00.000Z' }),
     )
+    sh(consumer, 'git add -A && git commit -qm scaffold')
     expect(zbc(consumer, ['update']).status).toBe(0)
     const stamp = JSON.parse(
       fs.readFileSync(path.join(consumer, '.zbc-vendor.json'), 'utf8'),
@@ -92,6 +94,7 @@ describe('zbc update in copy mode', () => {
     fs.rmSync(srcDir, { recursive: true, force: true })
     fs.rmSync(path.join(consumer, '.zbc-vendor.json'))
     fs.symlinkSync(real, srcDir)
+    sh(consumer, 'git add -A && git commit -qm scaffold')
 
     const res = zbc(consumer, ['update'])
     expect(res.status).toBe(0)
@@ -99,5 +102,64 @@ describe('zbc update in copy mode', () => {
     expect(fs.readFileSync(path.join(real, 'define-module.ts'), 'utf8')).toBe('// linked\n')
     // A repo that develops zbc in place has no vendored vintage to record.
     expect(fs.existsSync(path.join(consumer, '.zbc-vendor.json'))).toBe(false)
+  })
+})
+
+describe('zbc update refuses to lose work', () => {
+  test('a dirty tree stops the refresh before it overwrites anything', () => {
+    const consumer = initCopy()
+    sh(consumer, 'git add -A && git commit -qm scaffold')
+    const enginePath = path.join(consumer, 'packages/infra/src/define-module.ts')
+    fs.writeFileSync(enginePath, '// uncommitted local engine edit\n')
+
+    const res = zbc(consumer, ['update'])
+    expect(res.status).not.toBe(0)
+    expect(res.out).toMatch(/uncommitted/i)
+    expect(fs.readFileSync(enginePath, 'utf8')).toBe('// uncommitted local engine edit\n')
+  })
+
+  test('a broken subtree prefix is repaired, not relabelled as copy mode', () => {
+    const consumer = initCopy()
+    fs.writeFileSync(
+      path.join(consumer, '.zbc-vendor.json'),
+      JSON.stringify({
+        mode: 'subtree',
+        cliVersion: '0.15.0',
+        coreRef: 'zbc-core-v0.15.0',
+        vendoredAt: '2026-01-01T00:00:00.000Z',
+      }),
+    )
+    sh(consumer, 'git add -A && git commit -qm scaffold')
+
+    const res = zbc(consumer, ['update'])
+    expect(res.status).not.toBe(0)
+    expect(res.out).toContain('vendor/zbc')
+    // The record of what this project actually is survives.
+    const stamp = JSON.parse(
+      fs.readFileSync(path.join(consumer, '.zbc-vendor.json'), 'utf8'),
+    ) as Record<string, unknown>
+    expect(stamp.mode).toBe('subtree')
+  })
+})
+
+describe('zbc update leaves no mixed vintage behind', () => {
+  test('drops engine files this CLI no longer ships, and names deps to install', () => {
+    const consumer = initCopy()
+    const strayPath = path.join(consumer, 'packages/infra/src/removed-upstream.ts')
+    fs.writeFileSync(strayPath, 'export const gone = 1\n')
+    const tursoDir = path.join(consumer, 'packages/infra/modules/turso')
+    fs.mkdirSync(tursoDir, { recursive: true })
+    fs.copyFileSync(path.join(TEMPLATES, 'modules/turso/index.ts'), path.join(tursoDir, 'index.ts'))
+    fs.copyFileSync(
+      path.join(TEMPLATES, 'modules/turso/registry.json'),
+      path.join(tursoDir, 'registry.json'),
+    )
+    sh(consumer, 'git add -A && git commit -qm scaffold')
+
+    const res = zbc(consumer, ['update'])
+    expect(res.status).toBe(0)
+    expect(fs.existsSync(strayPath)).toBe(false)
+    // turso declares @tursodatabase/api; the project has never installed it.
+    expect(res.out).toContain('@tursodatabase/api')
   })
 })

@@ -108,6 +108,19 @@ export function vendorVintage(input: {
 
   if (input.engineIsLinked) return { stale: false, warnings: [] }
 
+  // A stamp that says subtree with no engine under the prefix is the failure
+  // this whole surface exists for: the vendoring did not land. Telling that
+  // project to "try --subtree" is the misdiagnosis, so name the prefix instead.
+  if (!vendorMode && stamp?.mode === 'subtree') {
+    return {
+      stale: true,
+      warnings: [
+        `⚠ ${STAMP_FILE} says this project vendors zbc at ${VENDOR_PREFIX}/, but no engine is there — the subtree never landed, or was removed.`,
+        '  Run `zbc update` for the exact re-vendoring command.',
+      ],
+    }
+  }
+
   if (!vendorMode) {
     // Copy mode is loudly temporary: template changes never flow into it, which
     // is how three consumers ended up reimplementing shipped engine features.
@@ -131,11 +144,14 @@ export function vendorVintage(input: {
     }
   }
 
+  // Exact string match is the only "current": 0.15.0 and 0.15.0-rc.1 compare
+  // equal numerically but are different engines.
+  if (stamp.cliVersion === cliVersion) return { stale: false, warnings: [] }
+
   const cmp = compareVersions(stamp.cliVersion, cliVersion)
-  if (cmp === 0) return { stale: false, warnings: [] }
 
   const ref = stamp.coreRef ?? `zbc-core-v${stamp.cliVersion}`
-  if (cmp < 0) {
+  if (cmp <= 0) {
     return {
       stale: true,
       warnings: [

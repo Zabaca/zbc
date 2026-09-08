@@ -90,3 +90,33 @@ describe('the zbc repo itself', () => {
     expect(v.warnings).toEqual([])
   })
 })
+
+describe('a subtree project whose vendoring did not land', () => {
+  test('is told the prefix is missing, not that it should try subtree mode', () => {
+    const v = vendorVintage({
+      vendorMode: false,
+      cliVersion: '0.15.0',
+      stamp: {
+        mode: 'subtree',
+        cliVersion: '0.15.0',
+        coreRef: 'zbc-core-v0.15.0',
+        vendoredAt: '',
+      },
+    })
+    expect(v.stale).toBe(true)
+    const text = v.warnings.join('\n')
+    expect(text).toContain('vendor/zbc')
+    expect(text).not.toContain('zbc init --subtree')
+  })
+})
+
+describe('prerelease CLI builds', () => {
+  test('a 0.15.0 stamp under a 0.15.0-rc.1 CLI is not silently called current', () => {
+    const v = vendorVintage({
+      vendorMode: true,
+      cliVersion: '0.15.0-rc.1',
+      stamp: { mode: 'subtree', cliVersion: '0.15.0', coreRef: 'zbc-core-v0.15.0', vendoredAt: '' },
+    })
+    expect(v.warnings.length).toBeGreaterThan(0)
+  })
+})

@@ -1,3 +1,4 @@
+import { spawnSync } from 'node:child_process'
 import * as fs from 'node:fs/promises'
 import * as path from 'node:path'
 import { templatesRoot } from './copy-template'
@@ -15,8 +16,22 @@ import { VENDOR_PREFIX } from './subtree'
  * warning by default, and a hard failure only under --strict).
  */
 
-/** Files git actually tracks — an untracked scratch file can't ride a push. */
-const IGNORED_BASENAMES = new Set(['.DS_Store'])
+/**
+ * Files git tracks under the prefix, relative to it. Only a tracked file can
+ * ride a `subtree push`; node_modules, build output and editor scratch under
+ * vendor/zbc cannot, and must not be reported as consumer-authored.
+ */
+function trackedVendorFiles(projectRoot: string): string[] {
+  const res = spawnSync('git', ['ls-files', '-z', '--', VENDOR_PREFIX], {
+    cwd: projectRoot,
+    encoding: 'utf8',
+  })
+  if (res.status !== 0 || res.error) return []
+  return res.stdout
+    .split('\0')
+    .filter((line) => line.length > 0)
+    .map((line) => path.posix.relative(VENDOR_PREFIX, line))
+}
 
 async function walk(root: string, base = ''): Promise<string[]> {
   let entries: Awaited<ReturnType<typeof fs.readdir>>
@@ -27,7 +42,7 @@ async function walk(root: string, base = ''): Promise<string[]> {
   }
   const out: string[] = []
   for (const entry of entries) {
-    if (entry.name === '.git' || IGNORED_BASENAMES.has(entry.name)) continue
+    if (entry.name === '.git') continue
     const rel = base ? `${base}/${entry.name}` : entry.name
     if (entry.isDirectory()) out.push(...(await walk(root, rel)))
     else out.push(rel)
@@ -35,16 +50,10 @@ async function walk(root: string, base = ''): Promise<string[]> {
   return out
 }
 
-/**
- * Paths (relative to VENDOR_PREFIX) that upstream does not ship at that path.
- * Test files are excluded from the comparison: the published core drops them,
- * so their absence upstream is not consumer authorship.
- */
 export async function foreignVendorFiles(projectRoot: string): Promise<string[]> {
-  const prefixDir = path.join(projectRoot, VENDOR_PREFIX)
   const upstreamDir = path.join(templatesRoot(), 'infra')
   const upstream = new Set(await walk(upstreamDir))
-  const vendored = await walk(prefixDir)
+  const vendored = trackedVendorFiles(projectRoot)
   return vendored.filter((rel) => !rel.endsWith('.test.ts') && !upstream.has(rel)).toSorted()
 }
 

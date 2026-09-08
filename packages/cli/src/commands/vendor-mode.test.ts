@@ -176,6 +176,7 @@ describe('zbc update', () => {
     makeRepo(consumer)
     // A copy-mode zbc project: config present, no vendor/zbc.
     fs.writeFileSync(path.join(consumer, 'zbc.config.ts'), 'export default {}\n')
+    sh(consumer, 'git add . && git commit -qm config')
     const res = zbc(consumer, ['update'])
     expect(res.status).toBe(0)
     expect(res.out).toMatch(/copy mode/i)
