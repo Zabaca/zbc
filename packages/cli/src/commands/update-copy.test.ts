@@ -84,17 +84,20 @@ describe('zbc update in copy mode', () => {
     expect(stamp.cliVersion).not.toBe('0.0.1')
   })
 
-  test('never writes through a symlinked engine dir', () => {
+  test('never writes through a symlinked engine dir, and stamps nothing there', () => {
     const consumer = initCopy()
     const srcDir = path.join(consumer, 'packages/infra/src')
     const real = tmpdir('linked-src-')
     fs.writeFileSync(path.join(real, 'define-module.ts'), '// linked\n')
     fs.rmSync(srcDir, { recursive: true, force: true })
+    fs.rmSync(path.join(consumer, '.zbc-vendor.json'))
     fs.symlinkSync(real, srcDir)
 
     const res = zbc(consumer, ['update'])
     expect(res.status).toBe(0)
     expect(res.out).toMatch(/symlink/i)
     expect(fs.readFileSync(path.join(real, 'define-module.ts'), 'utf8')).toBe('// linked\n')
+    // A repo that develops zbc in place has no vendored vintage to record.
+    expect(fs.existsSync(path.join(consumer, '.zbc-vendor.json'))).toBe(false)
   })
 })

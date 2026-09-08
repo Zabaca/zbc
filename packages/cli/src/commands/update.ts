@@ -2,7 +2,7 @@ import { defineCommand } from 'citty'
 import { findProjectRoot } from '../utils/find-project-root'
 import { refreshCopiedTemplates } from '../utils/copy-refresh'
 import { describeForeignFiles, foreignVendorFiles } from '../utils/vendor-audit'
-import { writeStamp } from '../utils/vendor-stamp'
+import { engineIsLinked, writeStamp } from '../utils/vendor-stamp'
 import {
   coreRefForVersion,
   DEFAULT_CORE_URL,
@@ -39,6 +39,14 @@ export const updateCommand = defineCommand({
     // fix was a hand diff, which is how consumers ended up reimplementing what
     // we ship. The CLI carries the templates, so it can re-lay them in place.
     if (!(await isVendorMode(projectRoot))) {
+      // The zbc repo itself consumes its own templates through symlinks: there
+      // is nothing vendored to refresh, and nothing to stamp.
+      if (await engineIsLinked(projectRoot)) {
+        console.log(
+          'zbc update: packages/infra/src is a symlink into the templates — this project develops zbc itself, nothing to refresh.',
+        )
+        return
+      }
       console.log(`zbc update: copy mode — refreshing bundled templates from zbc v${pkg.version}`)
       const result = await refreshCopiedTemplates(projectRoot)
       for (const skip of result.skipped) console.log(`  skip ${skip.path} (${skip.reason})`)
