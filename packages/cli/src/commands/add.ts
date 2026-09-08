@@ -283,7 +283,12 @@ async function installApp(
   projectRoot: string,
   infraDir: string,
 ): Promise<void> {
-  const destDir = path.join(projectRoot, registry.targetDir ?? '')
+  // `validateRegistry` already refused an app with no targetDir; this keeps the
+  // failure a named error rather than a join that resolves to the project root.
+  if (!registry.targetDir) {
+    throw new Error(`app template "${registry.name}" is missing targetDir in registry.json`)
+  }
+  const destDir = path.join(projectRoot, registry.targetDir)
 
   if (await Bun.file(path.join(destDir, 'package.json')).exists()) {
     console.log(`✓ ${registry.name} already scaffolded at ${registry.targetDir}/ — skipping`)

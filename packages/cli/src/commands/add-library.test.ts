@@ -70,8 +70,9 @@ test('a library is added as a library — no instance file to write', () => {
   expect(res.out).not.toContain('create an instance file')
 })
 
-test('a library is refused as an instance-bearing module would be misread', () => {
+test('a name that resolves to nothing still fails before anything is written', () => {
   const dir = project()
   const res = zbc(dir, ['add', 'no-such-library', '--no-prompt'])
   expect(res.status).not.toBe(0)
+  expect(fs.existsSync(path.join(dir, 'packages/infra/modules'))).toBe(false)
 })
