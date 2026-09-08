@@ -4,6 +4,7 @@ import type {
   ApplyContext,
   ModuleInstance,
   ReadinessDeclaration,
+  SecretOutputs,
 } from '../../templates/infra/src/types'
 
 /**
@@ -22,6 +23,8 @@ export interface FakeModuleOptions {
   /** What proves this fake's resource usable. Absent on almost every fake —
    * the gate must cost a module that declares nothing exactly nothing. */
   ready?: ReadinessDeclaration<Record<string, unknown>, Record<string, unknown>>
+  /** Which of this fake's outputs are credentials. */
+  secretOutputs?: SecretOutputs<Record<string, unknown>>
 }
 
 export function fakeModule(name: string, opts: FakeModuleOptions = {}) {
@@ -32,6 +35,7 @@ export function fakeModule(name: string, opts: FakeModuleOptions = {}) {
     apply: opts.apply ?? (async () => ({})),
     ...(opts.destroy || opts.withDestroy ? { destroy: opts.destroy ?? (async () => {}) } : {}),
     ...(opts.ready ? { ready: opts.ready } : {}),
+    ...(opts.secretOutputs ? { secretOutputs: opts.secretOutputs } : {}),
   })
 }
 
