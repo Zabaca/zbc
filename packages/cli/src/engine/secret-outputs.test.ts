@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import { applyInstances } from './apply'
+import { destroyInstances } from './destroy'
 import { fakeInstance } from './fixtures'
 import { createSecretOutputRegistry } from './secret-outputs'
 
@@ -108,5 +109,25 @@ describe('ephemeral outputs', () => {
     expect(applied).toBe(false)
     expect(err.message).toContain('"service-token" is ephemeral')
     expect(err.message).toContain('"clientSecret"')
+  })
+
+  test('a credential minted by an on-demand apply is redacted out of a destroy failure', async () => {
+    const minter = fakeInstance('token', {
+      withDestroy: true,
+      secretOutputs: { tokenValue: { rotates: 'each-apply' } },
+      apply: async () => ({ tokenValue: 'v1.0-supersecret' }),
+    })
+    const web = fakeInstance('web', {
+      imports: [minter],
+      destroy: async (_config, ctx) => {
+        throw new Error(
+          `deleting the worker failed: Bearer ${ctx.output({ from: 'token', output: 'tokenValue' }, 'x')}`,
+        )
+      },
+    })
+
+    const err = await asError(destroyInstances([minter, web], opts))
+
+    expect(err.message).toBe('deleting the worker failed: Bearer [redacted: token.tokenValue]')
   })
 })

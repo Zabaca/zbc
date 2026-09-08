@@ -8,6 +8,7 @@ import type {
 import { applyInstance, type InstanceRunOptions } from './apply'
 import { discoverInstances } from './discover'
 import { createReadinessGate } from './readiness'
+import { createSecretOutputRegistry, redactError } from './secret-outputs'
 import { resolveOrder } from './resolve'
 import { loadSecrets } from './secrets'
 
@@ -69,8 +70,15 @@ export async function destroyInstances(
   // Outputs of instances applied on demand, shared across the whole run: a
   // credential minted for one teardown is the same credential for the next.
   const outputs = new Map<string, unknown>()
-  // …and so is the proof that it works. Same gate for the same reason.
-  const runOpts: DestroyInstancesOptions = { ...opts, gate: opts.gate ?? createReadinessGate() }
+  // …and so is the proof that it works. Same gate for the same reason — and the
+  // same registry, because this path APPLIES instances on demand and so mints
+  // exactly the credentials the apply path does.
+  const registry = opts.secretOutputs ?? createSecretOutputRegistry()
+  const runOpts: DestroyInstancesOptions = {
+    ...opts,
+    secretOutputs: registry,
+    gate: opts.gate ?? createReadinessGate({ redact: (text) => registry.redactText(text) }),
+  }
 
   for (const instance of reversed) {
     const { destroy } = instance._definition
@@ -91,14 +99,22 @@ export async function destroyInstances(
 
     // One extra pass per import, at most: each retry applies an instance that
     // was not applied before, and the set of imports is finite.
-    for (;;) {
-      try {
-        await destroy(validatedConfig, ctx.value)
-        break
-      } catch (err) {
-        if (!(err instanceof ImportNotYetApplied)) throw err
-        await ctx.provide(err.instanceName)
+    // Every failure that leaves this loop — the module's own, and an on-demand
+    // apply's — can be carrying a credential this run just minted. They leave
+    // through one place so each is scrubbed. `ImportNotYetApplied` is the
+    // loop's own signal and never reaches it.
+    try {
+      for (;;) {
+        try {
+          await destroy(validatedConfig, ctx.value)
+          break
+        } catch (err) {
+          if (!(err instanceof ImportNotYetApplied)) throw err
+          await ctx.provide(err.instanceName)
+        }
       }
+    } catch (err) {
+      throw redactError(registry, err)
     }
 
     ctx.warnIfSignalSwallowed()
