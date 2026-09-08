@@ -113,6 +113,33 @@ export function assertEphemeralDestroyable(instances: ModuleInstance[]): void {
   }
 }
 
+/**
+ * An `ephemeral` instance of a module whose credential nobody may rotate is a
+ * contradiction, and it is refused before anything is applied.
+ *
+ * `ephemeral` means destroy-then-apply on every run. For a `rotates: 'never'`
+ * secret output — leeandco's `cloudflare-access-service-token`, whose consumer
+ * is an agent holding the value on its own cadence — that IS a rotation, and a
+ * silent one: the apply succeeds, and every holder is broken until someone
+ * hands them the new value. The instance file is the only place this can be
+ * caught, so it is caught there rather than at the provider.
+ */
+export function assertRotationSafe(instances: ModuleInstance[]): void {
+  for (const inst of instances) {
+    if (!isEphemeral(inst)) continue
+    const declared = inst._definition.secretOutputs ?? {}
+    for (const [key, decl] of Object.entries(declared)) {
+      if (decl?.rotates !== 'never') continue
+      throw new Error(
+        `Instance "${inst.name}" is ephemeral, but module "${inst.moduleName}" emits ` +
+          `"${key}" as a credential that rotates: 'never' — destroying and re-creating it ` +
+          `would silently rotate a value held outside this apply. Drop ephemeral, or hand ` +
+          `the new value to its holders yourself.`,
+      )
+    }
+  }
+}
+
 function collectTransitiveDeps(instance: ModuleInstance): ModuleInstance[] {
   const collected = new Set<string>()
   const result: ModuleInstance[] = []
