@@ -3,7 +3,7 @@
 // failure mode nothing else in the repo would notice.
 import { execFile as execFileCb } from 'node:child_process'
 import { existsSync } from 'node:fs'
-import { mkdtemp, readFile, stat as statFile, writeFile } from 'node:fs/promises'
+import { mkdtemp, readFile, rm, stat as statFile, writeFile } from 'node:fs/promises'
 import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
@@ -225,8 +225,25 @@ test('the kernel actually enforces it — a denied read fails under the settings
   const srt = (args: string[]) =>
     execFile(process.execPath, [srtExecutable(), '-s', settings, ...args])
 
-  await expect(srt(['/bin/cat', join(homedir(), '.zshrc')])).rejects.toThrow(
-    /Operation not permitted/,
+  // The denied path is CREATED here rather than assumed to exist. It was
+  // `~/.zshrc`, and on a machine without one the read failed with "No such
+  // file or directory" — the assertion passed for a while because the message
+  // happened to differ, and then failed for a reason that says nothing about
+  // containment. A file we just wrote can only fail one way.
+  const denied = join(homedir(), `.zbc-sandbox-probe-${process.pid}`)
+  await writeFile(denied, 'outside the workspace\n')
+  cleanup.push(() => rm(denied, { force: true }))
+
+  // It reads fine OUTSIDE the sandbox — without this the assertion below could
+  // pass on a file that was simply never there.
+  expect(await readFile(denied, 'utf8')).toContain('outside the workspace')
+
+  // Two spellings, one fact: macOS's seatbelt refuses the open with EPERM
+  // ("Operation not permitted"), while the Linux sandbox does not put the path
+  // in the namespace at all, so the kernel answers ENOENT. Either way the read
+  // of a file that demonstrably exists did not happen, which is the claim.
+  await expect(srt(['/bin/cat', denied])).rejects.toThrow(
+    /Operation not permitted|No such file or directory/,
   )
 
   // ...and the workspace stays readable, or the sandbox is merely obstructive.
