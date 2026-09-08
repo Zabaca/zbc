@@ -95,9 +95,12 @@ imports edge the act needs. A module may declare `actions: { <name>: {
 description, irreversible?, run } }`, reachable only as `zbc run <env> <instance>
 <action>`: never from `apply` or `destroy`, never applying the instance itself,
 emitting nothing, and refused without `--yes` when `irreversible` — before the
-config is parsed or any import applied. Its imports resolve on demand exactly as
-a full-environment `destroy`'s do. `zbc run <env> <instance>` (no action) lists
-what an instance declares, and `zbc list` reports the same.
+config is parsed or any import applied. Its imports resolve as a
+full-environment `destroy`'s do — applied when the body asks — except for an
+`irreversible` action, whose imports are applied up front so the body is never
+re-entered mid-purchase. An action body must read imports through
+`ctx.output`/`ctx.outputValue`, never `ctx.imports`. `zbc run <env> <instance>`
+(no action) lists what an instance declares, and `zbc list` reports the same.
 
 **Outputs are values, not only strings.** `ctx.output` still returns a `string`,
 because a worker secret, a `--var` and a binding field all are one. An output

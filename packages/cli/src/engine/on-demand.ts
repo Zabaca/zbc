@@ -9,6 +9,11 @@
 // `apiToken`).
 //
 // So: the context resolves an import by applying it, on demand, only if asked.
+// Which is also why a body outside `apply` must read its imports through
+// `ctx.output`/`ctx.outputValue` and never through `ctx.imports` directly: the
+// raw record holds only what is applied ALREADY, and a module reaching past the
+// two methods gets "not in this instance's imports" for an instance that is
+// simply not applied yet.
 // This file is that mechanism, shared by `destroy.ts` and `actions.ts` so the
 // two cannot drift about what "not applied yet" means.
 
@@ -46,20 +51,30 @@ export class ImportNotYetApplied extends Error {
   }
 }
 
-export interface OnDemandMode {
-  /**
-   * May this run apply an import that is not applied yet? A full-environment
-   * destroy may (whatever it applies is torn down later in the same pass); a
-   * targeted destroy may not (it would provision shared infra and walk away).
-   */
-  onDemand: boolean
+interface OnDemandCommon {
   /** How the asker reads in log lines: `web's destroy`, `domain's action "purchase"`. */
   asker: string
-  /** The error for a ref this run refuses to resolve. Required when `onDemand` is false. */
-  refuse?: (ref: { from: string }, field: string) => string
   /** An extra line after an on-demand apply — a destroy says it will tear it down again. */
   afterApply?: (name: string) => string
 }
+
+/**
+ * May this run apply an import that is not applied yet? A full-environment
+ * destroy may (whatever it applies is torn down later in the same pass); a
+ * targeted destroy may not — it would provision shared infra and walk away, so
+ * it owes the operator a message saying what to run instead.
+ *
+ * A union rather than a boolean plus an optional function: "required when
+ * `onDemand` is false" was a sentence in a doc comment, and the cost of getting
+ * it wrong was a `TypeError` thrown from inside the engine at the moment a
+ * module read an import.
+ */
+export type OnDemandMode =
+  | (OnDemandCommon & { onDemand: true })
+  | (OnDemandCommon & {
+      onDemand: false
+      refuse: (ref: { from: string }, field: string) => string
+    })
 
 /**
  * Run `body` with a context whose imports are fetched as it asks for them,
@@ -84,6 +99,29 @@ export async function withOnDemandImports<T>(
       if (!(err instanceof ImportNotYetApplied)) throw err
       await ctx.provide(err.instanceName)
     }
+  }
+}
+
+/**
+ * Apply every import this instance declares, before its body runs.
+ *
+ * The lazy path re-runs the body once per import it turns out to need, which is
+ * what buys a synchronous `ctx.output` — and is safe only while the body
+ * resolves everything it reads before its first side effect. That is auditable
+ * for the `destroy`s in core; it is not auditable for an operator's
+ * irreversible action, where being re-entered means buying the domain twice.
+ * So `runAction` calls this first for those: nothing is left to discover, the
+ * retry cannot fire, and the body runs exactly once.
+ */
+export async function applyImportsEagerly(
+  instance: ModuleInstance,
+  opts: InstanceRunOptions,
+  outputs: Map<string, unknown>,
+  asker: string,
+): Promise<void> {
+  for (const dep of instance.imports) {
+    await ensureApplied(dep, asker, opts, outputs, { onDemand: true, asker })
+    await opts.gate?.ensureReady(dep.name)
   }
 }
 
@@ -119,7 +157,7 @@ function onDemandContext(
     // the typo it is instead of provisioning an instance and THEN failing.
     if (!ref.from || !ref.output) return
     if (!declared.has(ref.from) || ref.from in importOutputs) return
-    if (!mode.onDemand) throw new Error(mode.refuse!({ from: ref.from }, field))
+    if (!mode.onDemand) throw new Error(mode.refuse({ from: ref.from }, field))
     signalled.add(ref.from)
     throw new ImportNotYetApplied(ref.from)
   }
@@ -145,8 +183,7 @@ function onDemandContext(
     if (!dep) throw new Error(`Cannot apply "${name}": it is not among ${instance.name}'s imports`)
     if (name in importOutputs) throw new Error(`Import "${name}" was already applied`)
 
-    await ensureApplied(dep, mode.asker, opts, outputs)
-    if (mode.afterApply) console.log(mode.afterApply(name))
+    await ensureApplied(dep, mode.asker, opts, outputs, mode)
     // THE EDGE, again: the value this body is about to read is held until the
     // module that minted it says it is usable.
     await opts.gate?.ensureReady(name)
@@ -178,14 +215,22 @@ async function ensureApplied(
   neededBy: string,
   opts: InstanceRunOptions,
   outputs: Map<string, unknown>,
+  mode: OnDemandMode,
 ): Promise<void> {
+  // Also the guard on `afterApply` below: that line claims this run created the
+  // resource, and an instance a previous body already pulled in was created by
+  // that one.
   if (outputs.has(instance.name)) return
   // `neededBy` is the immediate asker, not the instance at the root: a
   // transitive dependency is needed by the import that reads it, and saying
   // otherwise points at a file that never mentions it.
   for (const dep of instance.imports) {
-    await ensureApplied(dep, instance.name, opts, outputs)
+    await ensureApplied(dep, instance.name, opts, outputs, mode)
   }
   console.log(`→ applying ${instance.name} (needed by ${neededBy})`)
   await applyInstance(instance, opts, outputs)
+  // Inside, so a transitively applied instance gets the same confirmation the
+  // directly requested one does: a `→ applying` with no `✓` under it reads like
+  // the apply hung.
+  if (mode.afterApply) console.log(mode.afterApply(instance.name))
 }

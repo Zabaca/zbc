@@ -17,9 +17,14 @@ import type {
 export interface FakeModuleOptions {
   apply?: (config: Record<string, unknown>, ctx: ApplyContext) => Promise<Record<string, unknown>>
   destroy?: (config: Record<string, unknown>, ctx: ApplyContext) => Promise<void>
-  /** Outputs schema; defaults to "any record of anything" — an output is
-   * whatever the emitting module says it is, strings included. */
+  /** Outputs schema; defaults to "any record of strings". */
   outputs?: z.ZodType
+  /**
+   * Emit outputs of any shape — for a fake standing in for a module whose
+   * outputs are not all strings (`nameServers: string[]`). Separate from
+   * `outputs` because an instance file in a temp project cannot import zod.
+   */
+  anyOutputs?: boolean
   withDestroy?: boolean
   /** What proves this fake's resource usable. Absent on almost every fake —
    * the gate must cost a module that declares nothing exactly nothing. */
@@ -32,7 +37,10 @@ export function fakeModule(name: string, opts: FakeModuleOptions = {}) {
   return defineModule({
     name,
     configSchema: z.record(z.unknown()).default({}),
-    outputs: (opts.outputs ?? z.record(z.unknown())) as z.ZodType<Record<string, unknown>>,
+    outputs: (opts.outputs ??
+      (opts.anyOutputs ? z.record(z.unknown()) : z.record(z.string()))) as z.ZodType<
+      Record<string, unknown>
+    >,
     apply: opts.apply ?? (async () => ({})),
     ...(opts.destroy || opts.withDestroy ? { destroy: opts.destroy ?? (async () => {}) } : {}),
     ...(opts.ready ? { ready: opts.ready } : {}),

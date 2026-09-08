@@ -52,7 +52,7 @@ A Module's declaration of what proves its just-applied resource *usable*, as opp
 _Avoid_: health check (says nothing about which capability), retry loop (the retrying is the least interesting part)
 
 **Action**:
-A named verb a Module declares beside `apply`/`destroy` for something an operator does to one Instance, once, on purpose — registering a domain, rotating a key. Run only by `zbc run <env> <instance> <action>`, never by `zbc apply` or `zbc destroy`, and it emits nothing: an Instance's outputs are its `apply`'s. One marked `irreversible` is refused without `--yes`, before anything is applied. Its **Import**s resolve on demand, as a full-environment destroy's do. See [ADR-0015](./docs/adr/0015-a-third-verb-and-a-value-typed-imports-edge.md).
+A named verb a Module declares beside `apply`/`destroy` for something an operator does to one Instance, once, on purpose — registering a domain, rotating a key. Run only by `zbc run <env> <instance> <action>`, never by `zbc apply` or `zbc destroy`, and it emits nothing: an Instance's outputs are its `apply`'s. One marked `irreversible` is refused without `--yes`, before anything is applied. Its **Import**s resolve as a full-environment destroy's do — applied when the body asks — except for an irreversible one, whose imports are applied before it starts so the body is never re-entered. See [ADR-0015](./docs/adr/0015-a-third-verb-and-a-value-typed-imports-edge.md).
 _Avoid_: task, script, command (an action is not a shell entry point — the whole point is that it is inside the graph, the secrets and the imports edge)
 
 **Ephemeral**:

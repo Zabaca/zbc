@@ -74,14 +74,32 @@ Four rules, and they are the whole design:
   parsed and before any import is applied — so a refusal has provisioned
   nothing.
 
-An action's imports resolve exactly as a full-environment `destroy`'s do: on
-demand, applied when the body asks, never when it doesn't. That mechanism was
-already in `destroy.ts` for #124; it now lives in `engine/on-demand.ts` and both
-verbs share it, so they cannot drift about what "not applied yet" means. The one
-difference is deliberate: what an action's on-demand apply creates is left
-standing, because it is a thing the environment declares and `zbc apply <env>
-<instance>` would have created it anyway — whereas a destroy's on-demand apply
-is only ever torn down again in the same pass.
+An action's imports resolve as a full-environment `destroy`'s do: applied when
+the body asks, never when it doesn't. That mechanism was already in `destroy.ts`
+for #124; it now lives in `engine/on-demand.ts` and both verbs share it, so they
+cannot drift about what "not applied yet" means. Two differences are deliberate,
+and both are about what re-entry and leftovers cost:
+
+- **An `irreversible` action's imports are applied up front instead.** The lazy
+  path re-runs the body from the top once per import it discovers, which is safe
+  only while the body resolves everything it reads before its first side effect.
+  That is auditable for the `destroy`s in core — the credential is their first
+  line — and it is not auditable for an operator's action, where being
+  re-entered means buying the domain twice. So for those the engine leaves
+  nothing to discover, and the body runs exactly once.
+- **What an action applies is left standing**, where a destroy's on-demand apply
+  is torn down again in the same pass. That is deliberate for an instance the
+  environment declares — but it is an *apply*, not a converge: `ephemeral` is
+  the apply loop's rule, so an ephemeral import is not destroyed first and, with
+  nothing in the run to remove it, outlives the action. The destroy path has
+  always behaved this way; `zbc run` inherits it rather than fixing it here.
+
+One rule falls out of on-demand resolution for module authors, and it is not new
+— it is simply now load-bearing in two verbs: a body outside `apply` must read
+imports through `ctx.output`/`ctx.outputValue`, never `ctx.imports` directly.
+The raw record holds only what is applied already, so reaching past the two
+methods reports "not in this instance's imports" for an instance that is merely
+not applied yet.
 
 `zbc run <env> <instance>` with no action lists what the instance declares, and
 `zbc list` reports actions per instance, so the verb is discoverable without

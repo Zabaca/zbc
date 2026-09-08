@@ -10,7 +10,7 @@
 import type { ApplyContext, ModuleInstance } from '../../templates/infra/src/types'
 import type { InstanceRunOptions } from './apply'
 import { discoverInstances } from './discover'
-import { withOnDemandImports } from './on-demand'
+import { applyImportsEagerly, withOnDemandImports } from './on-demand'
 import { createReadinessGate } from './readiness'
 import { resolveOrder } from './resolve'
 import { loadSecrets } from './secrets'
@@ -58,10 +58,21 @@ export function findInstance(instances: ModuleInstance[], name: string): ModuleI
  *
  * Deliberately NOT an apply: the instance's own `apply` does not run, because
  * an action is not a converge and the operator asked for one specific thing.
- * Its imports are another matter — the act needs them, and they are resolved
- * exactly as a full-environment `destroy` resolves its own: on demand, applied
- * when the body asks. Unlike a destroy's, what an action applies is left
- * standing, which is what `zbc apply <env> <instance>` would have done anyway.
+ * Its imports are another matter — the act needs them, and they are resolved as
+ * a full-environment `destroy` resolves its own: applied when the body asks,
+ * never when it doesn't. Unlike a destroy's, what an action applies is left
+ * standing.
+ *
+ * Two caveats on that, both real:
+ *
+ * - An **irreversible** action's imports are applied UP FRONT instead (see
+ *   `applyImportsEagerly`). The lazy path re-runs the body once per import it
+ *   discovers, and "buys the domain twice" is not a failure mode to leave
+ *   resting on a doc comment about side-effect ordering.
+ * - An import applied here is applied, not converged: `ephemeral` is the apply
+ *   loop's rule, not `applyInstance`'s, so an ephemeral import is NOT destroyed
+ *   first and — nothing in this run tearing it down — is left standing like any
+ *   other. Same as the destroy path, which has always worked this way.
  */
 export async function runAction(
   instances: ModuleInstance[],
@@ -75,10 +86,16 @@ export async function runAction(
 
   if (available.length === 0) {
     throw new Error(
-      `Instance "${instance.name}" has no actions — module "${instance.moduleName}" declares none.`,
+      `Instance "${instance.name}" has no actions — module "${instance.moduleName}" declares none. ` +
+        `(If it does declare some, the vendored define-module at vendor/zbc/src predates actions — run \`zbc update\`.)`,
     )
   }
-  const action = instance._definition.actions?.[opts.action]
+  // `Object.hasOwn`, not a truthiness check: `bindActions` builds the record
+  // with `Object.fromEntries`, so `actions['constructor']` is a truthy function
+  // off the prototype — enough to pass an unknown-action check, skip the
+  // irreversible gate, and then fail with "action.run is not a function".
+  const declared = instance._definition.actions ?? {}
+  const action = Object.hasOwn(declared, opts.action) ? declared[opts.action] : undefined
   if (!action) {
     throw new Error(
       `Module "${instance.moduleName}" has no action "${opts.action}". ` +
@@ -98,13 +115,17 @@ export async function runAction(
   const validatedConfig = instance._definition.configSchema.parse(instance.config)
   const runOpts: InstanceRunOptions = { ...opts, gate: opts.gate ?? createReadinessGate() }
   const outputs = new Map<string, unknown>()
+  const asker = `${instance.name}'s action "${opts.action}"`
 
   console.log(`\n→ ${instance.moduleName}:${instance.name} ${opts.action}`)
+  // Before the body, so the body cannot be re-entered halfway through an
+  // irreversible act. An action that reads no import pays one no-op loop.
+  if (action.irreversible) await applyImportsEagerly(instance, runOpts, outputs, asker)
   await withOnDemandImports(
     instance,
     runOpts,
     outputs,
-    { onDemand: true, asker: `${instance.name}'s action "${opts.action}"` },
+    { onDemand: true, asker },
     (ctx: ApplyContext) => action.run(validatedConfig, ctx),
   )
   console.log(`✓ ${instance.moduleName}:${instance.name} ${opts.action} done`)

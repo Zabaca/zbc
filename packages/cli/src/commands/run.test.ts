@@ -124,12 +124,63 @@ describe('zbc run', () => {
     expect(result.stderr).toContain('no actions')
   })
 
+  test('an inherited Object property is not an action', async () => {
+    const root = makeProject({ instances: { 'domain.ts': domainInstance() } })
+
+    const result = await runCli(root, ['run', 'production', 'domain', 'constructor'])
+
+    expect(result.exitCode).not.toBe(0)
+    expect(result.stderr).toContain('has no action "constructor"')
+  })
+
+  test('an irreversible action resolves its imports before it starts, and runs once', async () => {
+    // The lazy path re-runs the body once per import it discovers. For a
+    // purchase, being re-entered means buying the domain twice.
+    const root = makeProject({
+      instances: {
+        'acct.ts': `
+          import { fakeModule } from '${FIXTURES}'
+          export default fakeModule('client-account', {
+            apply: async () => ({ zoneId: 'zone-1' }),
+          }).instance({ name: 'acct', config: {} })
+        `,
+        'domain.ts': `
+          import { fakeModule } from '${FIXTURES}'
+          import * as fs from 'node:fs'
+          import acct from './acct'
+          export default fakeModule('client-domain', {
+            actions: {
+              purchase: {
+                description: 'Buy the domain',
+                irreversible: true,
+                run: async (_c, ctx) => {
+                  // A body that spends money BEFORE it reads an import — the
+                  // ordering the lazy retry cannot survive.
+                  fs.appendFileSync(ctx.projectRoot + '/charges.txt', 'charged\\n')
+                  const zone = ctx.output({ from: 'acct', output: 'zoneId' }, 'purchase')
+                  fs.writeFileSync(ctx.projectRoot + '/zone.txt', zone)
+                },
+              },
+            },
+          }).instance({ name: 'domain', config: {}, imports: [acct] })
+        `,
+      },
+    })
+
+    const result = await runCli(root, ['run', 'production', 'domain', 'purchase', '--yes'])
+
+    expect(result.exitCode).toBe(0)
+    expect(fs.readFileSync(path.join(root, 'charges.txt'), 'utf8')).toBe('charged\n')
+    expect(fs.readFileSync(path.join(root, 'zone.txt'), 'utf8')).toBe('zone-1')
+  })
+
   test("an action reads an import's output, applying it on demand", async () => {
     const root = makeProject({
       instances: {
         'acct.ts': `
           import { fakeModule } from '${FIXTURES}'
           export default fakeModule('client-account', {
+            anyOutputs: true,
             apply: async () => ({ nameServers: ['ada.ns.example', 'bob.ns.example'] }),
           }).instance({ name: 'acct', config: {} })
         `,

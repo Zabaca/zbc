@@ -157,9 +157,19 @@ export function createApplyContext(input: ApplyContextInput): ApplyContext {
  */
 export function ensureApplyContext(ctx: ApplyContextInput | ApplyContext): ApplyContext {
   const candidate = ctx as ApplyContext
-  return typeof candidate.secret === 'function' &&
-    typeof candidate.output === 'function' &&
-    typeof candidate.outputValue === 'function'
-    ? candidate
-    : createApplyContext(ctx)
+  if (typeof candidate.secret !== 'function' || typeof candidate.output !== 'function') {
+    return createApplyContext(ctx)
+  }
+  // A full context from before `outputValue` existed — a consumer's own harness,
+  // or an engine one step behind this file. It is still a real context with its
+  // own `output`, so the missing method is ADDED rather than the whole thing
+  // rebuilt: rebuilding would discard a lazy `output` and silently reinstate the
+  // `imports: {}` behaviour that on-demand resolution replaced.
+  if (typeof candidate.outputValue !== 'function') {
+    return {
+      ...candidate,
+      outputValue: (ref, field) => resolveOutputValue(ref, candidate.imports, field),
+    }
+  }
+  return candidate
 }

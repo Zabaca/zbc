@@ -21,7 +21,12 @@ export type ActionFn<TConfig> = (config: TConfig, ctx: ApplyContext) => Promise<
  * not there either.
  *
  * An action is never run by `zbc apply` or `zbc destroy`, only by
- * `zbc run <env> <instance> <action>`. It returns nothing: an instance's
+ * `zbc run <env> <instance> <action>`. Read its imports through `ctx.output` /
+ * `ctx.outputValue` — never `ctx.imports`, which outside an apply pass holds
+ * only what is applied already. A non-`irreversible` action's body may be
+ * RE-ENTERED once per import it turns out to need, so resolve everything you
+ * read before the first side effect; an `irreversible` one is never re-entered,
+ * because the engine applies its imports before it starts. It returns nothing: an instance's
  * outputs are its `apply`'s, and an action that wanted to change them would be
  * converging — which is `apply`'s job.
  */

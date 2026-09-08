@@ -117,6 +117,33 @@ describe('outputValue', () => {
   })
 })
 
+describe('ensureApplyContext', () => {
+  test('a context from before outputValue keeps its own output, and gains the new method', () => {
+    // The shape that matters is the engine's on-demand context: a `output` that
+    // can apply an import. Rebuilding it to add `outputValue` would throw that
+    // away silently.
+    const calls: string[] = []
+    const legacy = {
+      secrets: {},
+      imports: { acct: { nameServers: ['ada.ns.example'] } },
+      projectRoot: '/root',
+      secret: () => 'from-legacy',
+      output: (_ref: unknown, field: string) => {
+        calls.push(field)
+        return 'from-legacy-output'
+      },
+    }
+
+    const ctx = ensureApplyContext(legacy as unknown as ApplyContext)
+
+    expect(ctx.output({ from: 'acct', output: 'nameServers' }, 'f')).toBe('from-legacy-output')
+    expect(calls).toEqual(['f'])
+    expect(ctx.outputValue({ from: 'acct', output: 'nameServers' }, 'f')).toEqual([
+      'ada.ns.example',
+    ])
+  })
+})
+
 describe('createApplyContext', () => {
   test('keeps the three raw fields alongside the two rules', () => {
     const ctx = createApplyContext({
