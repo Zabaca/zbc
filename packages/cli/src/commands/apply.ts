@@ -28,7 +28,7 @@ export const applyCommand = defineCommand({
     json: {
       type: 'string',
       description:
-        'Write the apply result (instance outputs) as JSON to this path. Treat the file as secret: outputs carry credentials.',
+        'Write the apply result (instance outputs) as JSON to this path. Declared secret outputs are written as [redacted]; treat the file as sensitive regardless.',
       required: false,
     },
   },
