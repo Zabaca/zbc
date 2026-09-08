@@ -1,5 +1,11 @@
 import { describe, expect, test } from 'bun:test'
-import { createApplyContext, ensureApplyContext, resolveOutput, resolveSecret } from './context'
+import {
+  createApplyContext,
+  ensureApplyContext,
+  resolveOutput,
+  resolveOutputValue,
+  resolveSecret,
+} from './context'
 import { defineModule } from './define-module'
 import type { ApplyContext } from './types'
 import { z } from 'zod'
@@ -67,8 +73,45 @@ describe('output', () => {
     )
   })
 
-  test('a non-string output is not coerced', () => {
+  test('a non-string output is not coerced, and the message says what it is instead', () => {
+    // "doesn't emit it" sent the reader to the emitting module to add an output
+    // it already emits. The fix is at the READING end — `outputValue`.
     expect(() => resolveOutput({ from: 'n', output: 'count' }, { n: { count: 3 } }, 'f')).toThrow(
+      /f references output "count" on instance "n", which emits a number, not a string — read it with ctx\.outputValue/,
+    )
+  })
+})
+
+describe('outputValue', () => {
+  // varnick's `client-account` emits `nameServers: string[]` annotated "Ticket
+  // 05 consumes this" — and could not hand it across an imports edge at all.
+  const imports = { acct: { nameServers: ['a.ns.example', 'b.ns.example'], zero: 0, none: null } }
+
+  test('returns a non-string output whole', () => {
+    expect(resolveOutputValue({ from: 'acct', output: 'nameServers' }, imports, 'f')).toEqual([
+      'a.ns.example',
+      'b.ns.example',
+    ])
+  })
+
+  test('a falsy-but-present value is a value', () => {
+    expect(resolveOutputValue({ from: 'acct', output: 'zero' }, imports, 'f')).toBe(0)
+  })
+
+  test('the same three failures, told apart the same way', () => {
+    expect(() => resolveOutputValue({ from: 'acct' }, imports, 'f')).toThrow(
+      /f must name both an instance \(`from`\) and an output \(`output`\)/,
+    )
+    expect(() => resolveOutputValue({ from: 'ghost', output: 'x' }, imports, 'f')).toThrow(
+      /f references instance "ghost", which is not in this instance's imports/,
+    )
+    expect(() => resolveOutputValue({ from: 'acct', output: 'x' }, imports, 'f')).toThrow(
+      /f references output "x" on instance "acct", which doesn't emit it/,
+    )
+  })
+
+  test('an output emitted as null is absent, not a value', () => {
+    expect(() => resolveOutputValue({ from: 'acct', output: 'none' }, imports, 'f')).toThrow(
       /doesn't emit it/,
     )
   })

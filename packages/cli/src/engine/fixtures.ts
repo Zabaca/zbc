@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import { defineModule } from '../../templates/infra/src/define-module'
 import type {
+  ActionDeclaration,
   ApplyContext,
   ModuleInstance,
   ReadinessDeclaration,
@@ -16,22 +17,26 @@ import type {
 export interface FakeModuleOptions {
   apply?: (config: Record<string, unknown>, ctx: ApplyContext) => Promise<Record<string, unknown>>
   destroy?: (config: Record<string, unknown>, ctx: ApplyContext) => Promise<void>
-  /** Outputs schema; defaults to "any record of strings". */
+  /** Outputs schema; defaults to "any record of anything" — an output is
+   * whatever the emitting module says it is, strings included. */
   outputs?: z.ZodType
   withDestroy?: boolean
   /** What proves this fake's resource usable. Absent on almost every fake —
    * the gate must cost a module that declares nothing exactly nothing. */
   ready?: ReadinessDeclaration<Record<string, unknown>, Record<string, unknown>>
+  /** Operator-invoked verbs this fake declares. Absent on almost every one. */
+  actions?: Record<string, ActionDeclaration<Record<string, unknown>>>
 }
 
 export function fakeModule(name: string, opts: FakeModuleOptions = {}) {
   return defineModule({
     name,
     configSchema: z.record(z.unknown()).default({}),
-    outputs: (opts.outputs ?? z.record(z.string())) as z.ZodType<Record<string, unknown>>,
+    outputs: (opts.outputs ?? z.record(z.unknown())) as z.ZodType<Record<string, unknown>>,
     apply: opts.apply ?? (async () => ({})),
     ...(opts.destroy || opts.withDestroy ? { destroy: opts.destroy ?? (async () => {}) } : {}),
     ...(opts.ready ? { ready: opts.ready } : {}),
+    ...(opts.actions ? { actions: opts.actions } : {}),
   })
 }
 
