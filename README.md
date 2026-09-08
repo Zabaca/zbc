@@ -53,6 +53,7 @@ zbc apply <env>                             # apply all module instances for an 
 zbc apply <env> <instance>                  # apply a specific instance (+ its dependencies)
 zbc apply <env> --json <path>               # …and write the result (instance outputs) as JSON
 zbc list <env>                              # list what an environment declares, in dependency order
+zbc run <env> <instance> <action>           # run one operator-invoked module action (--yes if irreversible)
 zbc destroy <env>                           # tear down every instance that defines destroy
 zbc secret get <env> <key>                  # print one decrypted secret value on stdout
 zbc update                                  # bring the vendored engine + built-in modules up to this CLI's version
@@ -90,6 +91,30 @@ rebuilding them in shell:
   `destroy`, and each instance's imports. It runs no module and calls no
   provider. It answers "what should exist"; enumerating what a provider
   actually holds is not something the engine can do yet.
+
+**Actions** ([ADR-0017](./docs/adr/0017-a-third-verb-and-a-value-typed-imports-edge.md))
+are the third verb. `apply` converges and `destroy` tears down; neither is a home
+for a one-shot irreversible act an operator performs deliberately — buying a
+domain, rotating a key — so consumers put those *outside* zbc, in scripts no
+module imports, and therefore outside the graph, the decrypted secrets and the
+imports edge the act needs. A module may declare `actions: { <name>: {
+description, irreversible?, run } }`, reachable only as `zbc run <env> <instance>
+<action>`: never from `apply` or `destroy`, never applying the instance itself,
+emitting nothing, and refused without `--yes` when `irreversible` — before the
+config is parsed or any import applied. Its imports resolve as a
+full-environment `destroy`'s do — applied when the body asks — except for an
+`irreversible` action, whose imports are applied up front so the body is never
+re-entered mid-purchase. An action body must read imports through
+`ctx.output`/`ctx.outputValue`, never `ctx.imports`. `zbc run <env> <instance>`
+(no action) lists what an instance declares, and `zbc list` reports the same.
+
+**Outputs are values, not only strings.** `ctx.output` still returns a `string`,
+because a worker secret, a `--var` and a binding field all are one. An output
+whose shape is the point — `nameServers: string[]` — is read with
+`ctx.outputValue(ref, field)`: the same edge and the same three absence
+failures, without the string rule and without `allowBlank` (`0`, `false` and
+`''` are values). `ctx.output` on a present non-string now names the type it
+found and points here.
 
 **Testing a module.** `createTestContext` (exported from `packages/infra/src`,
 `vendor/zbc/src` in a subtree project) builds an `ApplyContext` over stubbed

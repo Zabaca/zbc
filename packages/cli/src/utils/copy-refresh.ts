@@ -1,3 +1,4 @@
+import type { Dirent } from 'node:fs'
 import * as fs from 'node:fs/promises'
 import * as path from 'node:path'
 import { copyTemplateDir, templatesRoot } from './copy-template'
@@ -51,7 +52,11 @@ async function exists(target: string): Promise<boolean> {
 
 /** Relative file paths under root, ignoring dotfiles and nested .git. */
 async function walk(root: string, base = ''): Promise<string[]> {
-  let entries: Awaited<ReturnType<typeof fs.readdir>>
+  // `Dirent[]`, not `Awaited<ReturnType<typeof fs.readdir>>`: `readdir` is
+  // overloaded, and `ReturnType` resolves to the LAST overload — the
+  // `encoding: 'buffer'` one — so that spelling types `entry.name` as a Buffer
+  // and every use of it as a string fails.
+  let entries: Dirent[]
   try {
     entries = await fs.readdir(path.join(root, base), { withFileTypes: true })
   } catch {
