@@ -645,11 +645,10 @@ export const cloudflareZoneModule = defineModule({
     // reach Cloudflare as a PATCH with an empty body — after the records had
     // already been written, which is the one thing the plan-first order exists
     // to prevent.
-    const desiredSettings: Record<string, string> = Object.fromEntries(
-      Object.entries(config.settings).filter(
-        (entry): entry is [string, string] => entry[1] !== undefined,
-      ),
-    )
+    const desiredSettings: Record<string, string> = {}
+    for (const [id, value] of Object.entries(config.settings)) {
+      if (value !== undefined) desiredSettings[id] = value
+    }
     let settingsPlan: SettingsPlan = { change: [], unchanged: [], notEditable: [], missing: [] }
     if (Object.keys(desiredSettings).length > 0) {
       const actualSettings = await cf<ActualSetting[]>(token, 'GET', `/zones/${zone.id}/settings`)
