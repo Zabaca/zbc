@@ -68,11 +68,17 @@ describe('a declared kind matches the code in the directory', () => {
   }
 })
 
-test('the four shared libraries are named as such', () => {
+test('the five shared libraries are named as such', () => {
   const libraries = moduleDirs.filter((m) => m.manifest.kind === 'library').map((m) => m.dirName)
   // Named, not counted: these are the directories whose instructions used to
   // open "Not a module:", and the list a reader should have to edit on purpose.
-  expect(libraries).toEqual(['cloudflare-api', 'host-exec', 'incus-core', 'provision-core'])
+  expect(libraries).toEqual([
+    'cloudflare-api',
+    'gcp-api',
+    'host-exec',
+    'incus-core',
+    'provision-core',
+  ])
 })
 
 describe('every sibling a module imports is declared, and every declaration resolves', () => {
