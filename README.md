@@ -111,6 +111,8 @@ Modules live in `packages/infra/modules/` (consumer-side) — really at `package
 - `index.ts` — schema (zod) + `apply`/`destroy` logic via `defineModule`
 - `registry.json` — manifest read by `zbc add`: files to copy, npm dependencies, required secrets, signup/token URLs, post-install instructions
 
+Not every directory under `modules/` is a module. `registry.json`'s **`kind`** says which of three it is: `module` (the default), **`library`** — code the modules beside it import as `../<name>`, defining no module (`cloudflare-api`, `host-exec`, `incus-core`, `provision-core`) — and `app`. A manifest's **`modules`** key names the siblings its code imports, and `zbc add` installs that graph first, transitively, so a copy-mode install never leaves a relative import dangling ([ADR-0015](./docs/adr/0015-a-library-is-a-registry-kind.md)).
+
 A new built-in module = drop a directory under `packages/cli/templates/infra/modules/<name>/` containing those two files. It's then available via `zbc add <name>` in any consumer repo.
 
 Module shape (`index.ts`):
