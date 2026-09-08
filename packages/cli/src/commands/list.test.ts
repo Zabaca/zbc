@@ -54,6 +54,7 @@ describe('zbc list', () => {
           ephemeral: true,
           destroyable: true,
           imports: [],
+          actions: [],
         },
         {
           name: 'web',
@@ -61,6 +62,7 @@ describe('zbc list', () => {
           ephemeral: false,
           destroyable: false,
           imports: ['main-db'],
+          actions: [],
         },
       ],
     })
@@ -77,6 +79,34 @@ describe('zbc list', () => {
     expect(result.stdout).toContain('web')
     expect(result.stdout).toContain('cloudflare')
     expect(result.stdout).toContain('ephemeral')
+  })
+
+  test('an instance whose module declares actions reports them, and never runs one', async () => {
+    const root = makeProject({
+      env: 'preview',
+      instances: {
+        'domain.ts': `
+          import { fakeModule } from '${FIXTURES}'
+          export default fakeModule('client-domain', {
+            actions: {
+              purchase: {
+                description: 'Buy the domain',
+                irreversible: true,
+                run: async () => { throw new Error('action ran') },
+              },
+            },
+          }).instance({ name: 'domain', config: {} })
+        `,
+      },
+    })
+
+    const result = await runCli(root, ['list', 'preview', '--json'])
+
+    expect(result.exitCode).toBe(0)
+    expect(JSON.parse(result.stdout).instances[0].actions).toEqual([
+      { name: 'purchase', description: 'Buy the domain', irreversible: true },
+    ])
+    expect(result.stderr).not.toContain('action ran')
   })
 
   test('listing runs nothing — a module whose apply would throw still lists', async () => {

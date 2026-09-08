@@ -53,6 +53,7 @@ zbc apply <env>                             # apply all module instances for an 
 zbc apply <env> <instance>                  # apply a specific instance (+ its dependencies)
 zbc apply <env> --json <path>               # …and write the result (instance outputs) as JSON
 zbc list <env>                              # list what an environment declares, in dependency order
+zbc run <env> <instance> <action>           # run one operator-invoked module action (--yes if irreversible)
 zbc destroy <env>                           # tear down every instance that defines destroy
 zbc secret get <env> <key>                  # print one decrypted secret value on stdout
 zbc update                                  # bring the vendored engine + built-in modules up to this CLI's version
@@ -90,6 +91,30 @@ rebuilding them in shell:
   `destroy`, and each instance's imports. It runs no module and calls no
   provider. It answers "what should exist"; enumerating what a provider
   actually holds is not something the engine can do yet.
+
+**Actions** ([ADR-0017](./docs/adr/0017-a-third-verb-and-a-value-typed-imports-edge.md))
+are the third verb. `apply` converges and `destroy` tears down; neither is a home
+for a one-shot irreversible act an operator performs deliberately — buying a
+domain, rotating a key — so consumers put those *outside* zbc, in scripts no
+module imports, and therefore outside the graph, the decrypted secrets and the
+imports edge the act needs. A module may declare `actions: { <name>: {
+description, irreversible?, run } }`, reachable only as `zbc run <env> <instance>
+<action>`: never from `apply` or `destroy`, never applying the instance itself,
+emitting nothing, and refused without `--yes` when `irreversible` — before the
+config is parsed or any import applied. Its imports resolve as a
+full-environment `destroy`'s do — applied when the body asks — except for an
+`irreversible` action, whose imports are applied up front so the body is never
+re-entered mid-purchase. An action body must read imports through
+`ctx.output`/`ctx.outputValue`, never `ctx.imports`. `zbc run <env> <instance>`
+(no action) lists what an instance declares, and `zbc list` reports the same.
+
+**Outputs are values, not only strings.** `ctx.output` still returns a `string`,
+because a worker secret, a `--var` and a binding field all are one. An output
+whose shape is the point — `nameServers: string[]` — is read with
+`ctx.outputValue(ref, field)`: the same edge and the same three absence
+failures, without the string rule and without `allowBlank` (`0`, `false` and
+`''` are values). `ctx.output` on a present non-string now names the type it
+found and points here.
 
 **Testing a module.** `createTestContext` (exported from `packages/infra/src`,
 `vendor/zbc/src` in a subtree project) builds an `ApplyContext` over stubbed
@@ -189,6 +214,8 @@ Imports (`imports: [mainDb]`) are between instances, typed, refactor-safe, with 
 **Readiness** ([ADR-0013](./docs/adr/0013-readiness-is-a-precondition-of-the-imports-edge.md)) is the second rule on that edge. Every provider returns success from a create call before the created thing works — a fresh Cloudflare token is refused by the very scope it was granted, a fresh GCP service account 404s its own keys endpoint — and four consumers each hand-rolled a retry loop inside their module because there was nowhere else to put one. A module may now declare `ready: { proves, probe, timeoutMs?, intervalMs? }` alongside `apply`, and the engine **holds that instance's outputs at every `imports` edge until the probe passes**, retrying while it throws or returns `false`. The probe belongs to the module because readiness is a claim about *the capability the caller will use*: leeandco measured `/tokens/verify` answering 200 at ~112ms while the scope-gated call was still refusing at ~1621ms. An instance nothing imports is never probed, and a module that declares no `ready` pays nothing. `cloudflare-token` is the first to declare one — it probes the minted token against the **read** permission groups it was granted (write does not imply read on Cloudflare), falling back to the account-owned token verify when it was granted no probeable read group.
 
 **Secret outputs** ([ADR-0016](./docs/adr/0016-a-credential-is-an-output-the-engine-refuses-to-write-down.md)) are the third rule on that edge, and the survey's largest convergent case: four consumers mint a credential inside `apply` — a GCP service-account key, a Tailscale auth key, a scoped Cloudflare token — and each hand-rolled the discipline of keeping it out of logs and off disk. A module now declares which outputs are credentials: `secretOutputs: { tokenValue: { rotates: 'each-apply' } }`. The value still crosses an `imports` edge in memory verbatim; the engine replaces it with `[redacted: <instance>.<output>]` in every message it prints or throws (a provider echoing the `Authorization` header it refused is how the leak actually happens), and with `[redacted]` in `zbc apply --json` (by declared key on the minting instance, and by value everywhere else in the document, so an importer re-emitting it does not put it on disk either). `rotates` names *who consumes* the credential — `'each-apply'` when the apply itself does, so rolling is free, or `'never'` when a holder outside the apply does, in which case an `ephemeral: true` instance of that module is refused before anything applies, because destroy-and-recreate is a silent rotation. It cannot reach a module's own `console.log`, a spawned child's stdio, or a credential the minting module leaks before it returns — the engine never sees those bytes, and in the last case has not yet been told the value. `cloudflare-token` is the first declarer.
+
+**`d1`** provisions a Cloudflare D1 database (idempotent list→create, `destroy` tolerating an already-absent database) and emits `{ databaseName, databaseId }`. It exists because five consumers each wrote it and none could close the gap after it: they all still hardcoded `database_id` in `wrangler.jsonc`. With ADR-0014's `bindings` they no longer have to — `{ type: 'd1_databases', binding: 'DB', field: 'database_id', from: 'app-db', output: 'databaseId' }` fills it in at deploy time. It also converges schema inside `apply`: `statements` is end-state DDL replayed every run (so each must be idempotent), and `additiveColumns` issues the one thing SQLite has no `IF NOT EXISTS` spelling for, treating "duplicate column name" as success. A versioned migrations *directory* is not here — that needs somewhere to run after the deploy. `CLOUDFLARE_API_TOKEN` needs Account → D1: Edit.
 
 **`cloudflare-email`** provisions Cloudflare Email Service (public beta) for a domain via the REST API (the first REST-direct CF module — wrangler has no Email onboarding surface): outbound sending (SPF/DKIM/DMARC/bounce-MX auto-provisioned) and inbound routing (literal rules + catch-all → `forward` / `worker` / `drop`). It reuses `CLOUDFLARE_API_TOKEN` but needs extra token scopes (Email Routing Rules Edit, Zone Settings Edit, and DNS Edit on the zone; Email Sending Edit and Email Routing Addresses Edit on the account) and a Workers Paid plan for sending. Beta caveats: 5 MiB outbound cap, unpublished rate limits (pilot before high-volume use), and `forward` destinations require a manual email-click verification — apply triggers the email, then fails with instructions until you re-run. In this repo it powers `mail.cedarpad.com`, whose catch-all routes into the `zbc-inbox` worker (`packages/inbox/`) — an agent-accessible inbox with a bearer-authed JSON API (threads/messages/search/send/drafts/scheduled/webhooks/labels), an MCP server at `/mcp` (Streamable HTTP, same bearer token — point Claude Code or claude.ai at it directly), and a minimal web UI.
 

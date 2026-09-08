@@ -225,28 +225,26 @@ test('the kernel actually enforces it — a denied read fails under the settings
   const srt = (args: string[]) =>
     execFile(process.execPath, [srtExecutable(), '-s', settings, ...args])
 
-  // The denied file is CREATED rather than assumed. This read used to target
-  // `~/.zshrc`, so on a host without one `/bin/cat` failed with ENOENT — which
-  // is also a rejection, and the test passed on the strength of the file being
-  // missing rather than the sandbox doing anything. A file this test wrote is
-  // provably there, so the failure inside can only be the boundary.
-  const denied = join(homedir(), `.zbc-sandbox-denial-probe-${process.pid}`)
-  await writeFile(denied, 'unreachable\n')
-  try {
-    // The control: readable from outside, one line above the same read failing.
-    expect(await readFile(denied, 'utf8')).toContain('unreachable')
-    // Two kernels, two spellings of the same denial, and the pattern must
-    // accept both. Seatbelt refuses the open and `cat` reports EPERM. srt on
-    // Linux works by mount namespace — a denied path is replaced by an empty
-    // tmpfs, so $HOME is not forbidden, it is EMPTY, and `cat` reports ENOENT
-    // for a file that demonstrably exists outside. Asserting EPERM alone
-    // asserts the implementation of one platform, not the containment.
-    await expect(srt(['/bin/cat', denied])).rejects.toThrow(
-      /Operation not permitted|No such file or directory/,
-    )
-  } finally {
-    await rm(denied, { force: true })
-  }
+  // The denied path is CREATED here rather than assumed to exist. It was
+  // `~/.zshrc`, and on a machine without one the read failed with "No such
+  // file or directory" — the assertion passed for a while because the message
+  // happened to differ, and then failed for a reason that says nothing about
+  // containment. A file we just wrote can only fail one way.
+  const denied = join(homedir(), `.zbc-sandbox-probe-${process.pid}`)
+  await writeFile(denied, 'outside the workspace\n')
+  cleanup.push(() => rm(denied, { force: true }))
+
+  // It reads fine OUTSIDE the sandbox — without this the assertion below could
+  // pass on a file that was simply never there.
+  expect(await readFile(denied, 'utf8')).toContain('outside the workspace')
+
+  // Two spellings, one fact: macOS's seatbelt refuses the open with EPERM
+  // ("Operation not permitted"), while the Linux sandbox does not put the path
+  // in the namespace at all, so the kernel answers ENOENT. Either way the read
+  // of a file that demonstrably exists did not happen, which is the claim.
+  await expect(srt(['/bin/cat', denied])).rejects.toThrow(
+    /Operation not permitted|No such file or directory/,
+  )
 
   // ...and the workspace stays readable, or the sandbox is merely obstructive.
   const { stdout } = await srt(['/bin/cat', join(ws.dir, 'README.md')])
