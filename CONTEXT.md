@@ -40,6 +40,7 @@ _Avoid_: thin module
 
 **Import**:
 A typed reference from one Instance to another in the same environment. The engine applies the imported Instance first and hands its outputs to the importer through the context — `ctx.output({ from, output }, field)` — which is the only way a Module learns another Module's result. A Module never reads another Module's resource directly. At destroy time the same call still answers: a full-environment destroy applies the imported Instance on demand — only if the destroy asks, and only because the same run tears it down again afterwards. A targeted destroy refuses, since the Instance it would create is shared infra nothing in that run would remove.
+An output is a string when read with `ctx.output` — what a worker secret, a `--var` or a binding field needs — and any shape when read with `ctx.outputValue`, for the outputs whose shape is the point (`nameServers: string[]`). Absence fails identically either way.
 _Avoid_: dependency (says nothing about outputs flowing), link
 
 **Binding**:
@@ -50,6 +51,10 @@ _Avoid_: env var (a binding is not in the environment — that is `workerSecrets
 A Module's declaration of what proves its just-applied resource *usable*, as opposed to merely created — `ready: { proves, probe }`. The engine holds that Instance's outputs at every **Import** edge until the probe succeeds, retrying while it throws or returns `false`. It belongs to the Module, not the engine, because readiness is a claim about the capability the importer is about to exercise: a Cloudflare token answers `/tokens/verify` long before it may act on the scope it was granted. An Instance nothing imports is never probed. See [ADR-0013](./docs/adr/0013-readiness-is-a-precondition-of-the-imports-edge.md).
 _Avoid_: health check (says nothing about which capability), retry loop (the retrying is the least interesting part)
 
+**Action**:
+A named verb a Module declares beside `apply`/`destroy` for something an operator does to one Instance, once, on purpose — registering a domain, rotating a key. Run only by `zbc run <env> <instance> <action>`, never by `zbc apply` or `zbc destroy`, and it emits nothing: an Instance's outputs are its `apply`'s. One marked `irreversible` is refused without `--yes`, before anything is applied. Its **Import**s resolve as a full-environment destroy's do — applied when the body asks — except for an irreversible one, whose imports are applied before it starts so the body is never re-entered. See [ADR-0017](./docs/adr/0017-a-third-verb-and-a-value-typed-imports-edge.md).
+_Avoid_: task, script, command (an action is not a shell entry point — the whole point is that it is inside the graph, the secrets and the imports edge)
+
 **Ephemeral**:
 An Instance the engine destroys and re-applies on every `zbc apply`, so each run starts from a clean resource. A property of the Instance, not of the Module — any Module with a `destroy` can be ephemeral, and an Instance marked ephemeral whose Module has none is refused before anything is applied. Distinct from `zbc destroy`, which tears down every Instance with a `destroy`, ephemeral or not.
 _Avoid_: temporary, disposable (the Agent context's Workspace owns "disposable")
@@ -57,6 +62,10 @@ _Avoid_: temporary, disposable (the Agent context's Workspace owns "disposable")
 **Shared Library**:
 A `kind: "library"` directory under `modules/` holding code the Modules beside it import as `../<name>` — an API envelope, a host `exec` seam, a zod schema fragment — and defining no Module of its own. It has no config, no `apply` and no Instance; `zbc add` installs it like a Module and says so. A Module or Library names the ones it imports in its manifest's `modules` key, and `zbc add` installs that graph first. See [ADR-0015](./docs/adr/0015-a-library-is-a-registry-kind.md).
 _Avoid_: core module (the four bundled ones are named `*-core`, but "module" is the thing it is not), util
+
+**Secret Output**:
+An Output a Module declares as a *credential* — `secretOutputs: { tokenValue: { rotates: 'each-apply' } }`. It crosses an **Import** edge in memory exactly like any other Output; what changes is everywhere else: the engine replaces the literal with `[redacted: <instance>.<output>]` in the text it prints and throws, and writes `[redacted]` in its place in `zbc apply --json` — by declared key on the minting Instance, and by value everywhere else in that document — so a minted credential does not land on disk. It cannot reach a Module's own logging or a child process's stdio. `rotates` names *who consumes it* — `'each-apply'` (the apply itself, so rolling is free) or `'never'` (a holder outside the apply, so an **Ephemeral** Instance of that Module is refused). See [ADR-0016](./docs/adr/0016-a-credential-is-an-output-the-engine-refuses-to-write-down.md).
+_Avoid_: sensitive output (says it should be handled carefully; this says where it may go), ephemeral output (collides with the Instance-level `ephemeral`)
 
 **App Template**:
 A `kind: "app"` template that scaffolds a full package into the consumer's `packages/<name>/` — real application code (worker routes, business logic), not just a resource's config schema. Declares its module dependencies in `registry.json`, which `zbc add <app>` auto-vendors. `inbox`, `secret-relay`, and `warehouse` are app templates. What earns a template is the third principle above, not this structural definition.

@@ -1,14 +1,10 @@
-import { createApplyContext } from '../../templates/infra/src/context'
-import type {
-  ApplyContext,
-  ModuleInstance,
-  OutputOptions,
-  OutputRef,
-} from '../../templates/infra/src/types'
-import { applyInstance, type InstanceRunOptions } from './apply'
+import type { ModuleInstance } from '../../templates/infra/src/types'
+import type { InstanceRunOptions } from './apply'
 import { discoverInstances } from './discover'
+import { withOnDemandImports } from './on-demand'
 import { createReadinessGate } from './readiness'
 import { resolveOrder } from './resolve'
+import { createSecretOutputRegistry, redactError } from './secret-outputs'
 import { loadSecrets } from './secrets'
 
 export interface DestroyInstancesOptions extends InstanceRunOptions {
@@ -16,31 +12,6 @@ export interface DestroyInstancesOptions extends InstanceRunOptions {
   target?: string
   /** Where the instances came from, for error messages. */
   envLabel?: string
-}
-
-/**
- * Raised by a destroy context's `output` for an import that has not been
- * applied yet in this run. `destroyInstances` catches it, applies that
- * instance, and re-runs the destroy.
- *
- * Re-running is what buys a SYNCHRONOUS `ctx.output` — the same call, with the
- * same three error messages, in `apply` and in `destroy` — and it is safe for
- * exactly one reason, which every module in core already honours and which this
- * note is here to keep true: **a destroy resolves everything it reads from
- * imports before it performs its first side effect.** The credential is the
- * first line of every `destroy` in core. A module that deleted something and
- * then asked for an import would delete it twice.
- *
- * The other way to break it is to CATCH this — the shape the old `cloudflare`
- * destroy had, and therefore the shape a consumer's fork most likely copied.
- * Nothing in JavaScript survives a bare `catch`, so instead the engine notices
- * afterwards and says so: see `warnIfSignalSwallowed`.
- */
-class ImportNotYetApplied extends Error {
-  constructor(readonly instanceName: string) {
-    super(`import "${instanceName}" is not applied yet`)
-    this.name = 'ImportNotYetApplied'
-  }
 }
 
 /** The graph half of `zbc destroy`: pure over in-memory instances. */
@@ -69,8 +40,15 @@ export async function destroyInstances(
   // Outputs of instances applied on demand, shared across the whole run: a
   // credential minted for one teardown is the same credential for the next.
   const outputs = new Map<string, unknown>()
-  // …and so is the proof that it works. Same gate for the same reason.
-  const runOpts: DestroyInstancesOptions = { ...opts, gate: opts.gate ?? createReadinessGate() }
+  // …and so is the proof that it works. Same gate for the same reason — and the
+  // same registry, because this path APPLIES instances on demand and so mints
+  // exactly the credentials the apply path does.
+  const registry = opts.secretOutputs ?? createSecretOutputRegistry()
+  const runOpts: DestroyInstancesOptions = {
+    ...opts,
+    secretOutputs: registry,
+    gate: opts.gate ?? createReadinessGate({ redact: (text) => registry.redactText(text) }),
+  }
 
   for (const instance of reversed) {
     const { destroy } = instance._definition
@@ -87,127 +65,32 @@ export async function destroyInstances(
     // applies is guaranteed to be torn down later in the same pass: an import
     // sorts before its importer, so it sorts after it in reverse. A targeted
     // destroy has no such pass — it would provision shared infra and walk away.
-    const ctx = destroyContext(instance, runOpts, outputs, { onDemand: !opts.target })
-
-    // One extra pass per import, at most: each retry applies an instance that
-    // was not applied before, and the set of imports is finite.
-    for (;;) {
-      try {
-        await destroy(validatedConfig, ctx.value)
-        break
-      } catch (err) {
-        if (!(err instanceof ImportNotYetApplied)) throw err
-        await ctx.provide(err.instanceName)
-      }
+    // Every failure that leaves this call — the module's own, and an on-demand
+    // apply's — can be carrying a credential this run just minted. They leave
+    // through one place so each is scrubbed.
+    try {
+      await withOnDemandImports(
+        instance,
+        runOpts,
+        outputs,
+        {
+          onDemand: !opts.target,
+          asker: `${instance.name}'s destroy`,
+          refuse: (ref, field) =>
+            `${field} references instance "${ref.from}", whose outputs a targeted destroy will not create. ` +
+            `Run \`zbc destroy <env>\` for the whole environment, which applies "${ref.from}" only to tear ` +
+            `it down again, or apply "${ref.from}" yourself first.`,
+          afterApply: (name) =>
+            `✓ ${name} applied — this destroy created it; the run tears it down below`,
+        },
+        (ctx) => destroy(validatedConfig, ctx),
+      )
+    } catch (err) {
+      throw redactError(registry, err)
     }
-
-    ctx.warnIfSignalSwallowed()
 
     console.log(`✓ ${instance.moduleName}:${instance.name} destroyed`)
   }
-}
-
-/**
- * The context a `destroy` gets: the same two methods, with `output` reporting
- * an import it can still fetch rather than failing on one the engine used to
- * refuse to look up at all (it passed `imports: {}`, and `cloudflare` carried a
- * swallowed catch and a secrets.yaml fallback to work around it).
- *
- * Opt-by-use: a destroy that never calls `output` applies nothing.
- */
-function destroyContext(
-  instance: ModuleInstance,
-  opts: DestroyInstancesOptions,
-  outputs: Map<string, unknown>,
-  mode: { onDemand: boolean },
-) {
-  const declared = new Map(instance.imports.map((dep) => [dep.name, dep]))
-  const importOutputs: Record<string, unknown> = {}
-  for (const dep of instance.imports) {
-    if (outputs.has(dep.name)) importOutputs[dep.name] = outputs.get(dep.name)
-  }
-  /** Imports this destroy asked for. Compared against what was provided, below. */
-  const signalled = new Set<string>()
-
-  const base = createApplyContext({
-    secrets: opts.secrets,
-    imports: importOutputs,
-    projectRoot: opts.projectRoot,
-  })
-
-  const value: ApplyContext = {
-    ...base,
-    output(ref: OutputRef, field: string, outputOpts?: OutputOptions): string {
-      // `ref.output` is checked here too, so a half-written ref is reported as
-      // the typo it is instead of provisioning an instance and THEN failing.
-      if (ref.from && ref.output && declared.has(ref.from) && !(ref.from in importOutputs)) {
-        if (!mode.onDemand) {
-          throw new Error(
-            `${field} references instance "${ref.from}", whose outputs a targeted destroy will not create. ` +
-              `Run \`zbc destroy <env>\` for the whole environment, which applies "${ref.from}" only to tear ` +
-              `it down again, or apply "${ref.from}" yourself first.`,
-          )
-        }
-        signalled.add(ref.from)
-        throw new ImportNotYetApplied(ref.from)
-      }
-      return base.output(ref, field, outputOpts)
-    },
-  }
-
-  /** Apply `name` (and whatever it imports) so the retry can resolve it. */
-  async function provide(name: string): Promise<void> {
-    const dep = declared.get(name)
-    // Both are unreachable through `value.output` above; a module that
-    // swallowed the signal and rethrew it could still get here, and a silent
-    // retry loop is worse than the original error.
-    if (!dep) throw new Error(`Cannot apply "${name}": it is not among ${instance.name}'s imports`)
-    if (name in importOutputs) throw new Error(`Import "${name}" was already applied`)
-
-    await ensureApplied(dep, `${instance.name}'s destroy`, opts, outputs)
-    // THE EDGE, again: the value this destroy is about to read is held until
-    // the module that minted it says it is usable.
-    await opts.gate?.ensureReady(name)
-    importOutputs[name] = outputs.get(name)
-  }
-
-  /**
-   * A `destroy` that wraps `ctx.output` in a try/catch swallows the engine's
-   * signal, applies nothing, and takes its fallback branch — which is exactly
-   * the shape the old `cloudflare` destroy had, and therefore the shape a
-   * consumer's fork is most likely to be carrying. Silence there looks like
-   * success, so say it.
-   */
-  function warnIfSignalSwallowed(): void {
-    for (const name of signalled) {
-      if (name in importOutputs) continue
-      console.log(
-        `⚠ ${instance.name}'s destroy asked for import "${name}" and then swallowed the error — ` +
-          `"${name}" was NOT applied, and whatever the destroy used instead is not its output.`,
-      )
-    }
-  }
-
-  return { value, provide, warnIfSignalSwallowed }
-}
-
-/** Apply an instance and its transitive imports, once per run. */
-async function ensureApplied(
-  instance: ModuleInstance,
-  neededBy: string,
-  opts: DestroyInstancesOptions,
-  outputs: Map<string, unknown>,
-): Promise<void> {
-  if (outputs.has(instance.name)) return
-  // `neededBy` is the immediate asker, not the instance being destroyed: a
-  // transitive dependency is needed by the import that reads it, and saying
-  // otherwise points at a file that never mentions it.
-  for (const dep of instance.imports) {
-    await ensureApplied(dep, instance.name, opts, outputs)
-  }
-  console.log(`→ applying ${instance.name} (needed by ${neededBy})`)
-  await applyInstance(instance, opts, outputs)
-  console.log(`✓ ${instance.name} applied — this destroy created it; the run tears it down below`)
 }
 
 /** The I/O half: discover the environment's instances, decrypt its secrets, destroy. */

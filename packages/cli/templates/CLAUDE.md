@@ -7,7 +7,8 @@ This project uses [zbc](https://github.com/Zabaca/zbc) for infrastructure scaffo
 - `packages/infra/` — infrastructure code (zbc modules)
 - `packages/infra/environments/` — per-environment config (`production`, `preview`)
 - `packages/infra/modules/` — copy-mode: vendored infra modules (re-vendor with `zbc add`, don't edit); subtree-mode: your own modules (edit freely)
-- `vendor/zbc/` — subtree-mode only: the zbc engine + built-in modules as a git subtree of Zabaca/zbc-core. Update with `bunx @zabaca/zbc update`; never mix `vendor/zbc/` and other paths in one commit
+- `vendor/zbc/` — subtree-mode only: the zbc engine + built-in modules as a git subtree of Zabaca/zbc-core. Update with `bunx @zabaca/zbc update`; never mix `vendor/zbc/` and other paths in one commit, and never write your own files under `vendor/zbc/` — the prefix is upstream's, a `subtree push` carries anything in it, and `zbc update` will name them
+- `.zbc-vendor.json` — which zbc engine this project vendored (mode, CLI version, core ref). Committed; refreshed by `zbc update`; `zbc apply` warns when it has drifted from the CLI running it
 - `zbc.config.ts` — project-level zbc config
 - `.sops.yaml` — SOPS encryption rules for secrets
 
