@@ -4,6 +4,7 @@ import { discoverInstances } from './discover'
 import { withOnDemandImports } from './on-demand'
 import { createReadinessGate } from './readiness'
 import { resolveOrder } from './resolve'
+import { createSecretOutputRegistry, redactError } from './secret-outputs'
 import { loadSecrets } from './secrets'
 
 export interface DestroyInstancesOptions extends InstanceRunOptions {
@@ -39,8 +40,15 @@ export async function destroyInstances(
   // Outputs of instances applied on demand, shared across the whole run: a
   // credential minted for one teardown is the same credential for the next.
   const outputs = new Map<string, unknown>()
-  // …and so is the proof that it works. Same gate for the same reason.
-  const runOpts: DestroyInstancesOptions = { ...opts, gate: opts.gate ?? createReadinessGate() }
+  // …and so is the proof that it works. Same gate for the same reason — and the
+  // same registry, because this path APPLIES instances on demand and so mints
+  // exactly the credentials the apply path does.
+  const registry = opts.secretOutputs ?? createSecretOutputRegistry()
+  const runOpts: DestroyInstancesOptions = {
+    ...opts,
+    secretOutputs: registry,
+    gate: opts.gate ?? createReadinessGate({ redact: (text) => registry.redactText(text) }),
+  }
 
   for (const instance of reversed) {
     const { destroy } = instance._definition
@@ -57,22 +65,29 @@ export async function destroyInstances(
     // applies is guaranteed to be torn down later in the same pass: an import
     // sorts before its importer, so it sorts after it in reverse. A targeted
     // destroy has no such pass — it would provision shared infra and walk away.
-    await withOnDemandImports(
-      instance,
-      runOpts,
-      outputs,
-      {
-        onDemand: !opts.target,
-        asker: `${instance.name}'s destroy`,
-        refuse: (ref, field) =>
-          `${field} references instance "${ref.from}", whose outputs a targeted destroy will not create. ` +
-          `Run \`zbc destroy <env>\` for the whole environment, which applies "${ref.from}" only to tear ` +
-          `it down again, or apply "${ref.from}" yourself first.`,
-        afterApply: (name) =>
-          `✓ ${name} applied — this destroy created it; the run tears it down below`,
-      },
-      (ctx) => destroy(validatedConfig, ctx),
-    )
+    // Every failure that leaves this call — the module's own, and an on-demand
+    // apply's — can be carrying a credential this run just minted. They leave
+    // through one place so each is scrubbed.
+    try {
+      await withOnDemandImports(
+        instance,
+        runOpts,
+        outputs,
+        {
+          onDemand: !opts.target,
+          asker: `${instance.name}'s destroy`,
+          refuse: (ref, field) =>
+            `${field} references instance "${ref.from}", whose outputs a targeted destroy will not create. ` +
+            `Run \`zbc destroy <env>\` for the whole environment, which applies "${ref.from}" only to tear ` +
+            `it down again, or apply "${ref.from}" yourself first.`,
+          afterApply: (name) =>
+            `✓ ${name} applied — this destroy created it; the run tears it down below`,
+        },
+        (ctx) => destroy(validatedConfig, ctx),
+      )
+    } catch (err) {
+      throw redactError(registry, err)
+    }
 
     console.log(`✓ ${instance.moduleName}:${instance.name} destroyed`)
   }

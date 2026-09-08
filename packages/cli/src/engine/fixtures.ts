@@ -5,6 +5,7 @@ import type {
   ApplyContext,
   ModuleInstance,
   ReadinessDeclaration,
+  SecretOutputs,
 } from '../../templates/infra/src/types'
 
 /**
@@ -31,6 +32,8 @@ export interface FakeModuleOptions {
   ready?: ReadinessDeclaration<Record<string, unknown>, Record<string, unknown>>
   /** Operator-invoked verbs this fake declares. Absent on almost every one. */
   actions?: Record<string, ActionDeclaration<Record<string, unknown>>>
+  /** Which of this fake's outputs are credentials. */
+  secretOutputs?: SecretOutputs<Record<string, unknown>>
 }
 
 export function fakeModule(name: string, opts: FakeModuleOptions = {}) {
@@ -45,6 +48,7 @@ export function fakeModule(name: string, opts: FakeModuleOptions = {}) {
     ...(opts.destroy || opts.withDestroy ? { destroy: opts.destroy ?? (async () => {}) } : {}),
     ...(opts.ready ? { ready: opts.ready } : {}),
     ...(opts.actions ? { actions: opts.actions } : {}),
+    ...(opts.secretOutputs ? { secretOutputs: opts.secretOutputs } : {}),
   })
 }
 

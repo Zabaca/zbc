@@ -25,6 +25,7 @@ import type {
   OutputRef,
 } from '../../templates/infra/src/types'
 import { applyInstance, type InstanceRunOptions } from './apply'
+import { heldCredentials } from './secret-outputs'
 
 /**
  * Raised by an on-demand context's `output`/`outputValue` for an import that
@@ -226,6 +227,20 @@ async function ensureApplied(
   // otherwise points at a file that never mentions it.
   for (const dep of instance.imports) {
     await ensureApplied(dep, instance.name, opts, outputs, mode)
+  }
+  // The same rule `assertRotationSafe` enforces on the apply path, at the only
+  // other place the engine applies a resource on its own initiative: a
+  // credential whose holders live outside this run must not be rotated because
+  // something else needed the instance that mints it.
+  const held = heldCredentials(instance)
+  if (held.length > 0) {
+    throw new Error(
+      `${neededBy} needs "${instance.name}" applied first, but module ` +
+        `"${instance.moduleName}" emits ${held.map((key) => `"${key}"`).join(', ')} as a ` +
+        `credential that rotates: 'never' — applying it here would rotate a value held ` +
+        `outside this run. Apply "${instance.name}" deliberately, or run this with the ` +
+        `outputs it needs already present.`,
+    )
   }
   console.log(`→ applying ${instance.name} (needed by ${neededBy})`)
   await applyInstance(instance, opts, outputs)

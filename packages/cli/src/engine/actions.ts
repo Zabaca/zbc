@@ -13,6 +13,7 @@ import { discoverInstances } from './discover'
 import { applyImportsEagerly, withOnDemandImports } from './on-demand'
 import { createReadinessGate } from './readiness'
 import { resolveOrder } from './resolve'
+import { createSecretOutputRegistry, redactError } from './secret-outputs'
 import { loadSecrets } from './secrets'
 
 export interface RunActionOptions extends InstanceRunOptions {
@@ -113,21 +114,32 @@ export async function runAction(
   }
 
   const validatedConfig = instance._definition.configSchema.parse(instance.config)
-  const runOpts: InstanceRunOptions = { ...opts, gate: opts.gate ?? createReadinessGate() }
+  // This path applies instances on demand, so it mints exactly the credentials
+  // the apply path does — and owes them the same scrubbing (ADR-0016).
+  const registry = opts.secretOutputs ?? createSecretOutputRegistry()
+  const runOpts: InstanceRunOptions = {
+    ...opts,
+    secretOutputs: registry,
+    gate: opts.gate ?? createReadinessGate({ redact: (text) => registry.redactText(text) }),
+  }
   const outputs = new Map<string, unknown>()
   const asker = `${instance.name}'s action "${opts.action}"`
 
   console.log(`\n→ ${instance.moduleName}:${instance.name} ${opts.action}`)
   // Before the body, so the body cannot be re-entered halfway through an
   // irreversible act. An action that reads no import pays one no-op loop.
-  if (action.irreversible) await applyImportsEagerly(instance, runOpts, outputs, asker)
-  await withOnDemandImports(
-    instance,
-    runOpts,
-    outputs,
-    { onDemand: true, asker },
-    (ctx: ApplyContext) => action.run(validatedConfig, ctx),
-  )
+  try {
+    if (action.irreversible) await applyImportsEagerly(instance, runOpts, outputs, asker)
+    await withOnDemandImports(
+      instance,
+      runOpts,
+      outputs,
+      { onDemand: true, asker },
+      (ctx: ApplyContext) => action.run(validatedConfig, ctx),
+    )
+  } catch (err) {
+    throw redactError(registry, err)
+  }
   console.log(`✓ ${instance.moduleName}:${instance.name} ${opts.action} done`)
 }
 

@@ -4,6 +4,7 @@ import { defineCommand } from 'citty'
 import { detectMode } from '../utils/detect-mode'
 import { copyTemplateDir, copyTemplateFile, templatesRoot } from '../utils/copy-template'
 import { coreRefForVersion, DEFAULT_CORE_URL, subtreeAdd, VENDOR_PREFIX } from '../utils/subtree'
+import { STAMP_FILE, writeStamp } from '../utils/vendor-stamp'
 import pkg from '../../package.json' with { type: 'json' }
 
 async function ensureDir(dir: string): Promise<void> {
@@ -79,9 +80,11 @@ export const initCommand = defineCommand({
 
     // 0. Subtree mode: vendor zbc-core FIRST — `git subtree add` demands a
     //    clean tree, so it must run before any scaffold file is written.
+    let vendoredRef: string | undefined
     if (args.subtree) {
       const url = args['core-url'] ?? DEFAULT_CORE_URL
       const ref = args['core-ref'] ?? coreRefForVersion(pkg.version)
+      vendoredRef = ref
       console.log(`  vendoring: ${url} @ ${ref} → ${VENDOR_PREFIX}`)
       try {
         subtreeAdd(cwd, { url, ref })
@@ -173,6 +176,15 @@ export const initCommand = defineCommand({
       vars,
     })
     await copyTemplateDir(path.join(tplRoot, 'claude'), path.join(cwd, '.claude'))
+
+    // 8. Vintage stamp — which engine this project is running, recorded at the
+    //    project root so `git subtree push` can never carry it upstream.
+    await writeStamp(cwd, {
+      mode: args.subtree ? 'subtree' : 'copy',
+      cliVersion: pkg.version,
+      ...(vendoredRef ? { coreRef: vendoredRef } : {}),
+    })
+    console.log(`  write ${STAMP_FILE}`)
 
     console.log('')
     console.log('✓ init done')

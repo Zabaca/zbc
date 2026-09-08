@@ -16,16 +16,66 @@ interface RegistryFile {
   path: string
 }
 
+/**
+ * What a `registry.json` directory *is*.
+ *
+ * `library` is the third kind because the first two did not cover what four
+ * bundled directories already were: `cloudflare-api`, `host-exec`,
+ * `incus-core` and `provision-core` define no module, and said so in prose, in
+ * a field meant for the human reading post-install output ("Not a module: it
+ * exports no defineModule…"). Two consumers reached the same shape
+ * independently — varnick's `client-core`, foundry's `tailscale-core`, the
+ * latter naming `provision-core` as the precedent it copied. Naming the kind
+ * is what lets `zbc add` stop offering a library an instance file, and what
+ * gives a later engine change something to branch on other than parsing the
+ * module's source.
+ */
+export type RegistryKind = 'module' | 'library' | 'app'
+
+const REGISTRY_KINDS: readonly RegistryKind[] = ['module', 'library', 'app']
+
+/**
+ * Refuse a manifest whose kind is not one of the three, or which carries a
+ * field belonging to a kind it is not. Runs before anything is copied: a
+ * typo'd kind that silently fell through to the `module` default would install
+ * a library and then tell the caller to write an instance file importing it.
+ */
+export function validateRegistry(
+  registry: { kind?: string; targetDir?: string; instanceFile?: string },
+  dirName: string,
+): void {
+  const kind = registry.kind ?? 'module'
+  if (!REGISTRY_KINDS.includes(kind as RegistryKind)) {
+    throw new Error(
+      `${dirName}/registry.json declares kind "${String(kind)}" — expected one of ${REGISTRY_KINDS.join(', ')}.`,
+    )
+  }
+  if (kind !== 'app' && (registry.targetDir || registry.instanceFile)) {
+    throw new Error(
+      `${dirName}/registry.json is kind "${kind}" but declares targetDir/instanceFile, which only an app template has.`,
+    )
+  }
+  if (kind === 'app' && !registry.targetDir) {
+    throw new Error(`app template "${dirName}" is missing targetDir in registry.json`)
+  }
+}
+
 interface RegistryManifest {
   name: string
-  /** 'module' (default): vendored into packages/infra/modules/. 'app': a full
-   *  package scaffolded into targetDir (e.g. packages/inbox). */
-  kind?: 'module' | 'app'
+  /** 'module' (default): a resource-owning module, vendored into
+   *  packages/infra/modules/. 'library': code the modules beside it import and
+   *  that defines no module — same directory shape, same install path, but
+   *  nothing to write an instance file for. 'app': a full package scaffolded
+   *  into targetDir (e.g. packages/inbox). */
+  kind?: RegistryKind
   description?: string
   files?: RegistryFile[]
   /** app only: where the package lands, relative to the project root. */
   targetDir?: string
-  /** app only: infra modules this app depends on — auto-vendored first. */
+  /** The sibling directories under modules/ this one imports as `../<name>` —
+   *  a module's or library's code dependencies, an app's infra dependencies.
+   *  Installed first, transitively, so a copy-mode `zbc add` never leaves a
+   *  relative import dangling. */
   modules?: string[]
   dependencies?: Record<string, string>
   devDependencies?: Record<string, string>
@@ -120,7 +170,7 @@ function bunAdd(
 
 function printPostInstall(registry: RegistryManifest): void {
   console.log('')
-  console.log(`✓ ${registry.name} installed`)
+  console.log(`✓ ${registry.name} installed${registry.kind === 'library' ? ' (library)' : ''}`)
   console.log('')
   if (registry.secrets && registry.secrets.length > 0) {
     console.log('Required secrets:')
@@ -141,16 +191,36 @@ async function installModule(
   moduleName: string,
   projectRoot: string,
   infraDir: string,
-  opts: { quietSkip?: boolean } = {},
+  opts: { quietSkip?: boolean; seen?: Set<string>; asDependency?: boolean } = {},
 ): Promise<RegistryManifest | null> {
   const source = await resolveModuleSource(projectRoot, moduleName)
 
   const registry = (await Bun.file(
     path.join(source.dir, 'registry.json'),
   ).json()) as RegistryManifest
+  validateRegistry(registry, moduleName)
 
   if (registry.kind === 'app') {
     throw new Error(`"${moduleName}" is an app template, not an infra module`)
+  }
+
+  // The sibling directories this one imports as `../<name>`, first. The graph
+  // is walked with a seen-set rather than a depth counter because a library may
+  // depend on a library (incus-core → host-exec) and two modules routinely name
+  // the same one.
+  const seen = opts.seen ?? new Set<string>()
+  seen.add(moduleName)
+  for (const dep of registry.modules ?? []) {
+    if (seen.has(dep)) continue
+    const depRegistry = await installModule(dep, projectRoot, infraDir, {
+      quietSkip: true,
+      seen,
+      asDependency: true,
+    })
+    if (depRegistry) {
+      console.log(`  ↳ ${depRegistry.kind === 'library' ? 'library' : 'module'} it imports: ${dep}`)
+      printPostInstall(depRegistry)
+    }
   }
 
   if (source.vendored) {
@@ -162,7 +232,11 @@ async function installModule(
     if (registry.optionalDependencies) {
       await bunAdd(infraDir, registry.optionalDependencies, '--optional')
     }
-    return registry
+    // A vendored dependency was already on disk before this command ran, so it
+    // has no post-install worth printing — copy mode signals the same thing by
+    // returning null when the directory is already there. Only a name the
+    // caller typed earns the full block.
+    return opts.asDependency ? null : registry
   }
 
   const destDir = path.join(infraDir, 'modules', moduleName)
@@ -217,6 +291,8 @@ async function installApp(
   projectRoot: string,
   infraDir: string,
 ): Promise<void> {
+  // `validateRegistry` already refused an app with no targetDir; this keeps the
+  // failure a named error rather than a join that resolves to the project root.
   if (!registry.targetDir) {
     throw new Error(`app template "${registry.name}" is missing targetDir in registry.json`)
   }
@@ -229,9 +305,18 @@ async function installApp(
 
   console.log(`zbc add: ${registry.name} (app)`)
 
-  // 1. Auto-vendor the infra modules this app depends on.
+  // 1. Auto-vendor the infra modules this app depends on. One seen-set across
+  //    the whole list: `inbox` names `cloudflare-email` and `r2`, and both of
+  //    those now name `cloudflare-api` — a fresh walk per entry would install
+  //    it twice.
+  const seen = new Set<string>()
   for (const dep of registry.modules ?? []) {
-    const depRegistry = await installModule(dep, projectRoot, infraDir, { quietSkip: true })
+    if (seen.has(dep)) continue
+    const depRegistry = await installModule(dep, projectRoot, infraDir, {
+      quietSkip: true,
+      seen,
+      asDependency: true,
+    })
     if (depRegistry) {
       console.log(`  ↳ vendored dependency module: ${dep}`)
       printPostInstall(depRegistry)
@@ -341,6 +426,7 @@ export const addCommand = defineCommand({
     const registry = (await Bun.file(
       path.join(source.dir, 'registry.json'),
     ).json()) as RegistryManifest
+    validateRegistry(registry, name)
 
     if (registry.kind === 'app') {
       await installApp(registry, source.dir, projectRoot, infraDir)
@@ -360,8 +446,12 @@ export const addCommand = defineCommand({
         ? `../../../../${VENDOR_PREFIX}/modules/${name}`
         : `../../modules/${name}`
       console.log('')
+      // A library defines no module, so there is no instance to declare — it is
+      // imported by the modules beside it, as `../<name>`.
       console.log(
-        `Next: create an instance file under packages/infra/environments/<env>/ that imports from ${importPath}.`,
+        registry.kind === 'library'
+          ? `Next: import it from a module beside it as \`../${name}\`.`
+          : `Next: create an instance file under packages/infra/environments/<env>/ that imports from ${importPath}.`,
       )
     }
     await collectDeclaredSecrets(registry, projectRoot, args.env, args.prompt)

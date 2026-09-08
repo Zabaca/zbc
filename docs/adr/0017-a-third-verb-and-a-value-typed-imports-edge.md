@@ -3,7 +3,11 @@
 **Status:** accepted (2026-09-08). Extends the Import rule in [`CONTEXT.md`](../../CONTEXT.md)
 and sits alongside [ADR-0013](./0013-readiness-is-a-precondition-of-the-imports-edge.md)
 (readiness) and [ADR-0014](./0014-a-binding-is-filled-in-by-the-deploying-module.md)
-(bindings). Nothing about the dependency sort, `ephemeral`, or `destroy` changes,
+(bindings). It inherits [ADR-0016](./0016-a-credential-is-an-output-the-engine-refuses-to-write-down.md)
+whole: `zbc run` applies instances on demand, so it mints the same credentials an
+apply does, scrubs them from anything it raises, and is refused by the same
+`rotates: 'never'` rule before it applies an instance whose credential someone
+outside the run is holding. Nothing about the dependency sort, `ephemeral`, or `destroy` changes,
 and no existing module has to change at all.
 
 Two changes, both additive:

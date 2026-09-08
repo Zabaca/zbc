@@ -9,6 +9,7 @@ import type {
   ModuleDefinition,
   ModuleInstance,
   ReadinessDeclaration,
+  SecretOutputs,
 } from './types'
 
 interface DefineModuleOptions<TConfig extends z.ZodType, TOutputs extends z.ZodType> {
@@ -21,6 +22,8 @@ interface DefineModuleOptions<TConfig extends z.ZodType, TOutputs extends z.ZodT
   ready?: ReadinessDeclaration<z.infer<TConfig>, z.infer<TOutputs>>
   /** Operator-invoked verbs, by name — see `ActionDeclaration`. */
   actions?: Record<string, ActionDeclaration<z.infer<TConfig>>>
+  /** Which outputs are credentials, and on what cadence — see `SecretOutputs`. */
+  secretOutputs?: SecretOutputs<z.infer<TOutputs>>
 }
 
 /**
@@ -90,6 +93,10 @@ export function defineModule<TConfig extends z.ZodType, TOutputs extends z.ZodTy
     // Same normalization, same reason: an action body is a module body, and
     // it reaches its credential and its imports exactly as `apply` does.
     actions: opts.actions && bindActions(opts.actions),
+    // A declaration, not behaviour: the engine reads it, the module body never
+    // does. Carried verbatim so `undefined` stays absent rather than becoming a
+    // present-but-empty key the engine would have to special-case.
+    ...(opts.secretOutputs ? { secretOutputs: opts.secretOutputs } : {}),
     instance(instanceOpts: InstanceOptions<TConfig>): ModuleInstance<TOutputs> {
       return {
         name: instanceOpts.name,
