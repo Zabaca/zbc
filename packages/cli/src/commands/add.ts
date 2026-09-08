@@ -191,7 +191,7 @@ async function installModule(
   moduleName: string,
   projectRoot: string,
   infraDir: string,
-  opts: { quietSkip?: boolean; seen?: Set<string> } = {},
+  opts: { quietSkip?: boolean; seen?: Set<string>; asDependency?: boolean } = {},
 ): Promise<RegistryManifest | null> {
   const source = await resolveModuleSource(projectRoot, moduleName)
 
@@ -212,7 +212,11 @@ async function installModule(
   seen.add(moduleName)
   for (const dep of registry.modules ?? []) {
     if (seen.has(dep)) continue
-    const depRegistry = await installModule(dep, projectRoot, infraDir, { quietSkip: true, seen })
+    const depRegistry = await installModule(dep, projectRoot, infraDir, {
+      quietSkip: true,
+      seen,
+      asDependency: true,
+    })
     if (depRegistry) {
       console.log(`  ↳ ${depRegistry.kind === 'library' ? 'library' : 'module'} it imports: ${dep}`)
       printPostInstall(depRegistry)
@@ -228,7 +232,11 @@ async function installModule(
     if (registry.optionalDependencies) {
       await bunAdd(infraDir, registry.optionalDependencies, '--optional')
     }
-    return registry
+    // A vendored dependency was already on disk before this command ran, so it
+    // has no post-install worth printing — copy mode signals the same thing by
+    // returning null when the directory is already there. Only a name the
+    // caller typed earns the full block.
+    return opts.asDependency ? null : registry
   }
 
   const destDir = path.join(infraDir, 'modules', moduleName)
@@ -297,9 +305,18 @@ async function installApp(
 
   console.log(`zbc add: ${registry.name} (app)`)
 
-  // 1. Auto-vendor the infra modules this app depends on.
+  // 1. Auto-vendor the infra modules this app depends on. One seen-set across
+  //    the whole list: `inbox` names `cloudflare-email` and `r2`, and both of
+  //    those now name `cloudflare-api` — a fresh walk per entry would install
+  //    it twice.
+  const seen = new Set<string>()
   for (const dep of registry.modules ?? []) {
-    const depRegistry = await installModule(dep, projectRoot, infraDir, { quietSkip: true })
+    if (seen.has(dep)) continue
+    const depRegistry = await installModule(dep, projectRoot, infraDir, {
+      quietSkip: true,
+      seen,
+      asDependency: true,
+    })
     if (depRegistry) {
       console.log(`  ↳ vendored dependency module: ${dep}`)
       printPostInstall(depRegistry)

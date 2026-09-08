@@ -38,6 +38,16 @@ function manifests(dir: string): { dirName: string; manifest: Manifest }[] {
     .toSorted((a, b) => a.dirName.localeCompare(b.dirName))
 }
 
+/** Every non-test .ts file in the directory — a sibling import is not obliged
+ *  to live in index.ts (incus-core ships two more files), and a check that read
+ *  only index.ts would miss exactly the dangling import it exists to catch. */
+function sources(dir: string): string[] {
+  return fs
+    .readdirSync(dir, { withFileTypes: true })
+    .filter((e) => e.isFile() && e.name.endsWith('.ts') && !e.name.endsWith('.test.ts'))
+    .map((e) => fs.readFileSync(path.join(dir, e.name), 'utf8'))
+}
+
 const moduleDirs = manifests(MODULES)
 const appDirs = manifests(APPS)
 
@@ -50,8 +60,9 @@ describe('a declared kind matches the code in the directory', () => {
   for (const { dirName, manifest } of moduleDirs) {
     test(dirName, () => {
       validateRegistry(manifest, dirName)
-      const source = fs.readFileSync(path.join(MODULES, dirName, 'index.ts'), 'utf8')
-      const definesModule = source.includes('defineModule(')
+      const definesModule = sources(path.join(MODULES, dirName)).some((src) =>
+        src.includes('defineModule('),
+      )
       expect(manifest.kind ?? 'module').toBe(definesModule ? 'module' : 'library')
     })
   }
@@ -72,9 +83,10 @@ describe('every sibling a module imports is declared, and every declaration reso
         expect(known).toContain(dep)
         expect(dep).not.toBe(dirName)
       }
-      // The other direction: what the source actually imports as `../<name>`.
-      const source = fs.readFileSync(path.join(MODULES, dirName, 'index.ts'), 'utf8')
-      const imported = [...source.matchAll(/from '\.\.\/([a-z0-9-]+)'/g)].map((m) => m[1] ?? '')
+      // The other direction: what the sources actually import as `../<name>`.
+      const imported = sources(path.join(MODULES, dirName)).flatMap((src) =>
+        [...src.matchAll(/from '\.\.\/([a-z0-9-]+)'/g)].map((m) => m[1] ?? ''),
+      )
       const declared = new Set(manifest.modules ?? [])
       for (const name of imported) expect(declared).toContain(name)
     })
