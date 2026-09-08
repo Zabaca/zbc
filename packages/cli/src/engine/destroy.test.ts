@@ -240,6 +240,38 @@ describe('a destroy that reads an import', () => {
     }
   })
 
+  test('every instance applied on demand is confirmed, transitive ones included', async () => {
+    // A `→ applying X` with no `✓` under it reads like the apply hung, and the
+    // line is also a claim — "this destroy created it" — that must not be
+    // printed for an instance an earlier body already pulled in.
+    const lines: string[] = []
+    const log = console.log
+    console.log = (...args: unknown[]) => void lines.push(args.join(' '))
+    try {
+      const root = fakeInstance('root-cred', { apply: async () => ({ v: 'r' }) })
+      const token = fakeInstance('deploy-token', {
+        imports: [root],
+        apply: async () => ({ tokenValue: 'minted' }),
+      })
+      const web = fakeInstance('web', {
+        imports: [token],
+        destroy: async (_config, ctx) => {
+          ctx.output({ from: 'deploy-token', output: 'tokenValue' }, 'apiToken')
+        },
+      })
+
+      await destroyInstances([root, token, web], opts)
+
+      const created = lines.filter((line) => line.includes('this destroy created it'))
+      expect(created).toEqual([
+        '✓ root-cred applied — this destroy created it; the run tears it down below',
+        '✓ deploy-token applied — this destroy created it; the run tears it down below',
+      ])
+    } finally {
+      console.log = log
+    }
+  })
+
   test('a reference to an instance that is not imported still fails by name', async () => {
     const web = fakeInstance('web', {
       destroy: async (_config, ctx) => {

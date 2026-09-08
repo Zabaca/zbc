@@ -1,4 +1,5 @@
 import { spawnSync } from 'node:child_process'
+import type { Dirent } from 'node:fs'
 import * as fs from 'node:fs/promises'
 import * as path from 'node:path'
 import { templatesRoot } from './copy-template'
@@ -34,7 +35,11 @@ function trackedVendorFiles(projectRoot: string): string[] {
 }
 
 async function walk(root: string, base = ''): Promise<string[]> {
-  let entries: Awaited<ReturnType<typeof fs.readdir>>
+  // `Dirent[]`, not `Awaited<ReturnType<typeof fs.readdir>>`: `readdir` is
+  // overloaded, and `ReturnType` resolves to the LAST overload — the
+  // `encoding: 'buffer'` one — so that spelling types `entry.name` as a Buffer
+  // and every use of it as a string fails.
+  let entries: Dirent[]
   try {
     entries = await fs.readdir(path.join(root, base), { withFileTypes: true })
   } catch {

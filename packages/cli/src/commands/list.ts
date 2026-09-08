@@ -1,5 +1,6 @@
 import * as path from 'node:path'
 import { defineCommand } from 'citty'
+import { listActions, type ListedAction } from '../engine/actions'
 import { discoverInstances } from '../engine/discover'
 import { isEphemeral, resolveOrder } from '../engine/resolve'
 import { findProjectRoot } from '../utils/find-project-root'
@@ -13,6 +14,8 @@ export interface ListedInstance {
   /** Whether the module defines `destroy` — i.e. whether `zbc destroy` reaches it. */
   destroyable: boolean
   imports: string[]
+  /** Operator-invoked verbs the module declares — see `zbc run`. Usually empty. */
+  actions: ListedAction[]
 }
 
 /**
@@ -62,6 +65,7 @@ export const listCommand = defineCommand({
       ephemeral: isEphemeral(instance),
       destroyable: instance._definition.destroy !== undefined,
       imports: instance.imports.map((dep) => dep.name),
+      actions: listActions(instance),
     }))
 
     if (args.json) {
@@ -80,6 +84,9 @@ export const listCommand = defineCommand({
         instance.ephemeral ? 'ephemeral' : '',
         instance.destroyable ? 'destroyable' : 'no destroy',
         instance.imports.length > 0 ? `imports: ${instance.imports.join(', ')}` : '',
+        instance.actions.length > 0
+          ? `actions: ${instance.actions.map((action) => action.name).join(', ')}`
+          : '',
       ].filter((note) => note.length > 0)
       console.log(`${instance.name.padEnd(24)} ${instance.module.padEnd(20)} ${notes.join('  ')}`)
     }
