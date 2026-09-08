@@ -3,7 +3,17 @@ import { legacyConfigEphemeral } from '../../templates/infra/src/define-module'
 import type { ApplyContext, ModuleInstance } from '../../templates/infra/src/types'
 import { discoverInstances } from './discover'
 import { createReadinessGate, type ReadinessGate } from './readiness'
-import { assertEphemeralDestroyable, isEphemeral, resolveOrder } from './resolve'
+import {
+  assertEphemeralDestroyable,
+  assertRotationSafe,
+  isEphemeral,
+  resolveOrder,
+} from './resolve'
+import {
+  createSecretOutputRegistry,
+  redactError,
+  type SecretOutputRegistry,
+} from './secret-outputs'
 import { loadSecrets } from './secrets'
 
 /** What one instance's apply needs, whichever path called it. */
@@ -17,6 +27,12 @@ export interface InstanceRunOptions {
    * re-probe a dependency once per importer.
    */
   gate?: ReadinessGate
+  /**
+   * The run's credential registry. Run-scoped for the same reason the gate is:
+   * a credential minted by one instance can be echoed back in an error raised
+   * by another, several instances later.
+   */
+  secretOutputs?: SecretOutputRegistry
 }
 
 export interface ApplyInstancesOptions extends InstanceRunOptions {
@@ -48,6 +64,8 @@ export async function applyInstance(
   instance._definition.outputsSchema.parse(result)
 
   outputs.set(instance.name, result)
+  // Before anything else can print or persist this instance's outputs.
+  opts.secretOutputs?.record(instance, result)
   // Recorded, not probed. Whether this instance's resource has to prove itself
   // usable is decided by whoever imports it — see `readiness.ts`.
   opts.gate?.record(instance, validatedConfig, result, ctx)
@@ -111,21 +129,35 @@ export async function applyInstances(
 ): Promise<Map<string, unknown>> {
   const sorted = resolveOrder(instances, { target: opts.target, envLabel: opts.envLabel })
   assertEphemeralDestroyable(sorted)
+  assertRotationSafe(sorted)
   const outputs = new Map<string, unknown>()
-  const runOpts: InstanceRunOptions = { ...opts, gate: opts.gate ?? createReadinessGate() }
+  const registry = opts.secretOutputs ?? createSecretOutputRegistry()
+  const runOpts: InstanceRunOptions = {
+    ...opts,
+    secretOutputs: registry,
+    gate: opts.gate ?? createReadinessGate({ redact: (text) => registry.redactText(text) }),
+  }
 
   for (const instance of sorted) {
     console.log(`\n→ ${instance.moduleName}:${instance.name}`)
-    if (isEphemeral(instance)) {
-      if (legacyConfigEphemeral(instance.moduleName, instance.config)) {
-        console.log(
-          `  ⚠ ${instance.name}: config.ephemeral is deprecated — set ephemeral: true on the instance`,
-        )
+    // Every failure below this line leaves through one place, because every one
+    // of them can be carrying a minted credential: a provider echoing the
+    // Authorization header it refused, a probe's last failure, a module's own
+    // `throw new Error(\`... ${token}\`)`.
+    try {
+      if (isEphemeral(instance)) {
+        if (legacyConfigEphemeral(instance.moduleName, instance.config)) {
+          console.log(
+            `  ⚠ ${instance.name}: config.ephemeral is deprecated — set ephemeral: true on the instance`,
+          )
+        }
+        console.log(`  ephemeral: destroying before re-apply`)
+        await destroyEphemeral(instance, runOpts, outputs)
       }
-      console.log(`  ephemeral: destroying before re-apply`)
-      await destroyEphemeral(instance, runOpts, outputs)
+      await applyInstance(instance, runOpts, outputs)
+    } catch (err) {
+      throw redactError(registry, err)
     }
-    await applyInstance(instance, runOpts, outputs)
     console.log(`✓ ${instance.moduleName}:${instance.name} applied`)
   }
 
@@ -155,22 +187,31 @@ export async function applyEnvironment(
 ): Promise<ApplyEnvironmentResult> {
   const instances = await discoverInstances(envDir)
   const secrets = await loadSecrets(envDir)
+  const secretOutputs = createSecretOutputRegistry()
   const outputs = await applyInstances(instances, {
     secrets,
     projectRoot,
     target,
     envLabel: envDir,
+    secretOutputs,
   })
 
   // `outputs` is written once per instance as the sorted loop runs, so its
   // insertion order IS the apply order — which is what a reader of the result
   // wants, and what a re-sort here would have to reconstruct.
   const byName = new Map(instances.map((instance) => [instance.name, instance]))
-  const applied: AppliedInstance[] = Array.from(outputs, ([name, value]) => ({
-    name,
-    module: byName.get(name)?.moduleName ?? 'unknown',
-    outputs: value,
-  }))
+  const applied: AppliedInstance[] = Array.from(outputs, ([name, value]) => {
+    const instance = byName.get(name)
+    return {
+      name,
+      module: instance?.moduleName ?? 'unknown',
+      // `instances` is what a caller SERIALIZES — `zbc apply --json` writes it
+      // to a file. A declared credential does not go there. `outputs` (the map)
+      // is the in-memory half and keeps the real values, because that is the
+      // channel `ctx.output` reads.
+      outputs: instance ? secretOutputs.redactOutputs(instance, value) : value,
+    }
+  })
 
   return { outputs, instances: applied }
 }

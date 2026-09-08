@@ -8,6 +8,7 @@ import type {
 import { applyInstance, type InstanceRunOptions } from './apply'
 import { discoverInstances } from './discover'
 import { createReadinessGate } from './readiness'
+import { createSecretOutputRegistry, heldCredentials, redactError } from './secret-outputs'
 import { resolveOrder } from './resolve'
 import { loadSecrets } from './secrets'
 
@@ -69,8 +70,15 @@ export async function destroyInstances(
   // Outputs of instances applied on demand, shared across the whole run: a
   // credential minted for one teardown is the same credential for the next.
   const outputs = new Map<string, unknown>()
-  // …and so is the proof that it works. Same gate for the same reason.
-  const runOpts: DestroyInstancesOptions = { ...opts, gate: opts.gate ?? createReadinessGate() }
+  // …and so is the proof that it works. Same gate for the same reason — and the
+  // same registry, because this path APPLIES instances on demand and so mints
+  // exactly the credentials the apply path does.
+  const registry = opts.secretOutputs ?? createSecretOutputRegistry()
+  const runOpts: DestroyInstancesOptions = {
+    ...opts,
+    secretOutputs: registry,
+    gate: opts.gate ?? createReadinessGate({ redact: (text) => registry.redactText(text) }),
+  }
 
   for (const instance of reversed) {
     const { destroy } = instance._definition
@@ -91,14 +99,22 @@ export async function destroyInstances(
 
     // One extra pass per import, at most: each retry applies an instance that
     // was not applied before, and the set of imports is finite.
-    for (;;) {
-      try {
-        await destroy(validatedConfig, ctx.value)
-        break
-      } catch (err) {
-        if (!(err instanceof ImportNotYetApplied)) throw err
-        await ctx.provide(err.instanceName)
+    // Every failure that leaves this loop — the module's own, and an on-demand
+    // apply's — can be carrying a credential this run just minted. They leave
+    // through one place so each is scrubbed. `ImportNotYetApplied` is the
+    // loop's own signal and never reaches it.
+    try {
+      for (;;) {
+        try {
+          await destroy(validatedConfig, ctx.value)
+          break
+        } catch (err) {
+          if (!(err instanceof ImportNotYetApplied)) throw err
+          await ctx.provide(err.instanceName)
+        }
       }
+    } catch (err) {
+      throw redactError(registry, err)
     }
 
     ctx.warnIfSignalSwallowed()
@@ -204,6 +220,21 @@ async function ensureApplied(
   // otherwise points at a file that never mentions it.
   for (const dep of instance.imports) {
     await ensureApplied(dep, instance.name, opts, outputs)
+  }
+  // The same rule `assertRotationSafe` enforces on the apply path, at the only
+  // other place the engine replaces a resource on its own initiative: this
+  // instance is applied here and torn down later in the same reverse pass, so
+  // for a credential whose holders live outside the apply that is a rotation
+  // nobody asked for and nobody is told about.
+  const held = heldCredentials(instance)
+  if (held.length > 0) {
+    throw new Error(
+      `Destroying "${neededBy}" needs "${instance.name}" applied first, but module ` +
+        `"${instance.moduleName}" emits ${held.map((key) => `"${key}"`).join(', ')} as a ` +
+        `credential that rotates: 'never' — applying it here would rotate a value held ` +
+        `outside this run. Apply "${instance.name}" deliberately, or destroy ` +
+        `"${neededBy}" with the outputs it needs already present.`,
+    )
   }
   console.log(`→ applying ${instance.name} (needed by ${neededBy})`)
   await applyInstance(instance, opts, outputs)

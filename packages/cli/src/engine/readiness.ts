@@ -85,7 +85,18 @@ async function withDeadline<T>(work: Promise<T>, ms: number): Promise<T> {
   }
 }
 
-export function createReadinessGate(): ReadinessGate {
+export interface ReadinessGateOptions {
+  /**
+   * Scrub credentials out of the text this gate prints and throws. A probe's
+   * "last failure" is provider text, and the provider was handed a minted
+   * token — several of them echo it straight back. Defaults to identity, so a
+   * caller with no registry (a test, a single-instance apply) is unchanged.
+   */
+  redact?: (text: string) => string
+}
+
+export function createReadinessGate(opts: ReadinessGateOptions = {}): ReadinessGate {
+  const redact = opts.redact ?? ((text: string) => text)
   const applied = new Map<string, Recorded>()
   // The PROMISE is memoised, not the boolean: two importers of the same
   // instance in the same run must wait on one probe, not race two.
@@ -152,7 +163,7 @@ export function createReadinessGate(): ReadinessGate {
         passed = verdict !== false
         if (!passed) lastFailure = 'the probe returned false'
       } catch (err) {
-        lastFailure = err instanceof Error ? err.message : String(err)
+        lastFailure = redact(err instanceof Error ? err.message : String(err))
       }
       if (passed) {
         if (attempts > 1) {
