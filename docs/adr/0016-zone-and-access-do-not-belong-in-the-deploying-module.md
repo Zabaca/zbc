@@ -1,6 +1,6 @@
 # Zone settings and Access do not belong in the deploying module
 
-**Status:** accepted (2026-09-08). Answers the question posed by the `cloudflare` consumer case: whether one consumer inlined zone settings, Zero Trust organisation identity, Access applications and pre-deploy R2 by preference, or because our split could not express the ordering they needed.
+**Status:** accepted (2026-09-08). Numbered 0016; [ADR-0015](./0015-a-library-is-a-registry-kind.md) landed on main while this was being written. Answers the question posed by the `cloudflare` consumer case: whether one consumer inlined zone settings, Zero Trust organisation identity, Access applications and pre-deploy R2 by preference, or because our split could not express the ordering they needed.
 
 **They inlined by preference.** Composition expresses every one of those four orderings today, through the `imports` edge and the two rules already hung on it — [ADR-0013](./0013-readiness-is-a-precondition-of-the-imports-edge.md)'s readiness gate and [ADR-0014](./0014-a-binding-is-filled-in-by-the-deploying-module.md)'s `bindings`. So `cloudflare` stops growing: it gains nothing from this decision and remains the repo's only Deploy Module, orchestrating build and deploy against topology the consuming package owns.
 

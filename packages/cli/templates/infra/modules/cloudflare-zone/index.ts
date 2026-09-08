@@ -57,7 +57,7 @@ import { cf, cfRaw } from '../cloudflare-api'
 // `settings` converges zone-level settings — `always_use_https` and its
 // neighbours. It lives here rather than in the deploying module because it is
 // state about the ZONE, and a Worker that happens to sit on a hostname in it is
-// not the thing that owns it (see ADR-0015).
+// not the thing that owns it (see ADR-0016).
 //
 // The rule is deliberately NOT the record rule. A zone carries every setting at
 // all times, so "present in Cloudflare, declared nowhere" — the sentence the

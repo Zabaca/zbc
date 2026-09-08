@@ -47,7 +47,7 @@ A named handle a Worker reads a resource through (`env.DB`, `env.RAW`), declared
 _Avoid_: env var (a binding is not in the environment — that is `workerSecrets`/`workerVars`), resource reference
 
 **Zone Setting**:
-A zone-level Cloudflare setting (`always_use_https`, `ssl`, …) converged by a `cloudflare-zone` instance's `settings`. **Forward-only**, and deliberately not the record rule: a zone carries every setting at all times, so an undeclared setting is not drift and there is nothing to delete — what is declared is converged, what is not is never read or touched. It lives on the zone rather than in the deploying module because a Worker that happens to sit on a hostname does not own the zone. See [ADR-0015](./docs/adr/0015-zone-and-access-do-not-belong-in-the-deploying-module.md).
+A zone-level Cloudflare setting (`always_use_https`, `ssl`, …) converged by a `cloudflare-zone` instance's `settings`. **Forward-only**, and deliberately not the record rule: a zone carries every setting at all times, so an undeclared setting is not drift and there is nothing to delete — what is declared is converged, what is not is never read or touched. It lives on the zone rather than in the deploying module because a Worker that happens to sit on a hostname does not own the zone. See [ADR-0016](./docs/adr/0016-zone-and-access-do-not-belong-in-the-deploying-module.md).
 _Avoid_: zone config (collides with the instance's `config`), DNS setting (a setting is not a record)
 
 **Readiness Probe**:
@@ -57,6 +57,10 @@ _Avoid_: health check (says nothing about which capability), retry loop (the ret
 **Ephemeral**:
 An Instance the engine destroys and re-applies on every `zbc apply`, so each run starts from a clean resource. A property of the Instance, not of the Module — any Module with a `destroy` can be ephemeral, and an Instance marked ephemeral whose Module has none is refused before anything is applied. Distinct from `zbc destroy`, which tears down every Instance with a `destroy`, ephemeral or not.
 _Avoid_: temporary, disposable (the Agent context's Workspace owns "disposable")
+
+**Shared Library**:
+A `kind: "library"` directory under `modules/` holding code the Modules beside it import as `../<name>` — an API envelope, a host `exec` seam, a zod schema fragment — and defining no Module of its own. It has no config, no `apply` and no Instance; `zbc add` installs it like a Module and says so. A Module or Library names the ones it imports in its manifest's `modules` key, and `zbc add` installs that graph first. See [ADR-0015](./docs/adr/0015-a-library-is-a-registry-kind.md).
+_Avoid_: core module (the four bundled ones are named `*-core`, but "module" is the thing it is not), util
 
 **App Template**:
 A `kind: "app"` template that scaffolds a full package into the consumer's `packages/<name>/` — real application code (worker routes, business logic), not just a resource's config schema. Declares its module dependencies in `registry.json`, which `zbc add <app>` auto-vendors. `inbox`, `secret-relay`, and `warehouse` are app templates. What earns a template is the third principle above, not this structural definition.
