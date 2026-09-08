@@ -59,21 +59,34 @@ test('resuming without the original workspace is refused, not silently restarted
   )
 })
 
-test('a borrowed workspace survives a failed run', async () => {
-  // The caller passed it in because it outlives the call; disposing it on error
-  // would throw away work from earlier runs in the same session.
-  const borrowed = await createWorkspace({ repo: origin })
-  await expect(
-    runSandboxed(coding, 'anything', {
-      workspace: borrowed,
-      // No credential reaches the wire: an impossible model fails at the CLI.
-      overrides: { model: 'no-such-model-zbc-test' },
-      maxTurns: 1,
-    }),
-  ).rejects.toThrow()
-  expect(existsSync(borrowed.dir)).toBe(true)
-  await borrowed.dispose()
-})
+// Explicit, and much larger than bun's 5s default: this is the one test here
+// that starts the real CLI. Spawning it inside the sandbox and letting it fail
+// took ~18s on a Linux CI box, so the default timeout failed the test while the
+// run was still on its way to the rejection this asserts.
+const CLI_FAILURE_TIMEOUT_MS = 120_000
+
+test(
+  'a borrowed workspace survives a failed run',
+  async () => {
+    // The caller passed it in because it outlives the call; disposing it on error
+    // would throw away work from earlier runs in the same session.
+    const borrowed = await createWorkspace({ repo: origin })
+    await expect(
+      runSandboxed(coding, 'anything', {
+        // The placeholder credential cannot authenticate and the model does not
+        // exist, so the CLI fails whether or not it reaches the network — which
+        // is all this needs. WHY it failed is not the assertion; that the
+        // borrowed workspace outlived the failure is.
+        workspace: borrowed,
+        overrides: { model: 'no-such-model-zbc-test' },
+        maxTurns: 1,
+      }),
+    ).rejects.toThrow()
+    expect(existsSync(borrowed.dir)).toBe(true)
+    await borrowed.dispose()
+  },
+  CLI_FAILURE_TIMEOUT_MS,
+)
 
 for (const [name, profile] of PROFILES) {
   describe(name, () => {

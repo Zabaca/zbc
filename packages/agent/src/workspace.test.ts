@@ -3,7 +3,7 @@
 // failure mode nothing else in the repo would notice.
 import { execFile as execFileCb } from 'node:child_process'
 import { existsSync } from 'node:fs'
-import { mkdtemp, readFile, stat as statFile, writeFile } from 'node:fs/promises'
+import { mkdtemp, readFile, rm, stat as statFile, writeFile } from 'node:fs/promises'
 import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
@@ -225,9 +225,28 @@ test('the kernel actually enforces it — a denied read fails under the settings
   const srt = (args: string[]) =>
     execFile(process.execPath, [srtExecutable(), '-s', settings, ...args])
 
-  await expect(srt(['/bin/cat', join(homedir(), '.zshrc')])).rejects.toThrow(
-    /Operation not permitted/,
-  )
+  // The denied file is CREATED rather than assumed. This read used to target
+  // `~/.zshrc`, so on a host without one `/bin/cat` failed with ENOENT — which
+  // is also a rejection, and the test passed on the strength of the file being
+  // missing rather than the sandbox doing anything. A file this test wrote is
+  // provably there, so the failure inside can only be the boundary.
+  const denied = join(homedir(), `.zbc-sandbox-denial-probe-${process.pid}`)
+  await writeFile(denied, 'unreachable\n')
+  try {
+    // The control: readable from outside, one line above the same read failing.
+    expect(await readFile(denied, 'utf8')).toContain('unreachable')
+    // Two kernels, two spellings of the same denial, and the pattern must
+    // accept both. Seatbelt refuses the open and `cat` reports EPERM. srt on
+    // Linux works by mount namespace — a denied path is replaced by an empty
+    // tmpfs, so $HOME is not forbidden, it is EMPTY, and `cat` reports ENOENT
+    // for a file that demonstrably exists outside. Asserting EPERM alone
+    // asserts the implementation of one platform, not the containment.
+    await expect(srt(['/bin/cat', denied])).rejects.toThrow(
+      /Operation not permitted|No such file or directory/,
+    )
+  } finally {
+    await rm(denied, { force: true })
+  }
 
   // ...and the workspace stays readable, or the sandbox is merely obstructive.
   const { stdout } = await srt(['/bin/cat', join(ws.dir, 'README.md')])
