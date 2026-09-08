@@ -32,9 +32,9 @@ repos.
 **no `handlers`** (that is what makes it raw pass-through),
 `auto_start_machines = true`, `min_machines_running = 0`.
 
-| | latency to first byte |
-| --- | --- |
-| warm (machine `started`) | 67, 74, 76, 85 ms |
+|                                  | latency to first byte         |
+| -------------------------------- | ----------------------------- |
+| warm (machine `started`)         | 67, 74, 76, 85 ms             |
 | **cold (`stopped` → autostart)** | **1302, 1360, 1400, 1416 ms** |
 
 Machine state was verified `stopped` before each cold sample and `started`
@@ -57,14 +57,14 @@ Load-bearing: with no Durable Object, this is the only serialization mechanism
 for `index.json`. Client is `aws4fetch` against
 `https://<account>.r2.cloudflarestorage.com`. Script: `test2-r2-cas.ts`.
 
-| case | result |
-| --- | --- |
-| `If-None-Match: *` on absent key | 200 — creates |
-| `If-None-Match: *` on existing key | 412 |
-| `If-Match: <current etag>` | 200, ETag changes |
-| `If-Match: <stale etag>` | 412, **stored value unchanged** |
-| conditional GET with `If-None-Match: <current>` | **304** |
-| **16 concurrent writers, same ETag** | **1 × 200, 15 × 412, 0 other** |
+| case                                            | result                          |
+| ----------------------------------------------- | ------------------------------- |
+| `If-None-Match: *` on absent key                | 200 — creates                   |
+| `If-None-Match: *` on existing key              | 412                             |
+| `If-Match: <current etag>`                      | 200, ETag changes               |
+| `If-Match: <stale etag>`                        | 412, **stored value unchanged** |
+| conditional GET with `If-None-Match: <current>` | **304**                         |
+| **16 concurrent writers, same ETag**            | **1 × 200, 15 × 412, 0 other**  |
 
 Exactly one winner, every loser a clean 412, no torn writes, no surprise status
 codes. The 304 is the read path: a replica checks whether it is current for the
@@ -122,7 +122,7 @@ rejected pushes left **3 packs and 12 objects, of which 3 were reachable**.
 Two consequences:
 
 - A WAL entry uploaded during `pre-receive` for a push that later loses CAS
-  becomes an **orphan object in object storage**. It is correctly *unpublished* —
+  becomes an **orphan object in object storage**. It is correctly _unpublished_ —
   nothing in `index.json` references it — but it needs a GC path, and the design
   as written never mentions orphan WAL entries.
 - The local repo gains one pack per rejected push. Unreferenced and gc-able, but

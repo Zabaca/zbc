@@ -24,7 +24,7 @@ the value; the relay forwards; the CLI decrypts and runs `sops set`.
 A capability-URL design, deliberately not just "unguessable link":
 
 - **E2E encryption** — the CLI generates an ephemeral keypair; the public key travels
-  in the URL *fragment* (never sent to the server); the page encrypts with WebCrypto.
+  in the URL _fragment_ (never sent to the server); the page encrypts with WebCrypto.
   The relay carries ciphertext only, so a compromised relay reads nothing.
 - **Single-use + TTL** — a channel accepts one submission and expires with the CLI's
   timeout (default 5 min); a leaked URL is worthless after use.

@@ -27,7 +27,7 @@ Every line here was run before it was written down, because the obvious assumpti
 
 ## What is verified, and what is not
 
-**The push certificate**, not the commit signature. The certificate is a claim about *who moved this ref*, which is what ownership will need, and it carries the nonce that makes replay somebody else's problem. A commit signature is a claim about *who authored this content* — a different and equally real claim, but one that survives being cloned and re-pushed by an agent who signed nothing, so treating it as the identity of a push would attribute work to the wrong party.
+**The push certificate**, not the commit signature. The certificate is a claim about _who moved this ref_, which is what ownership will need, and it carries the nonce that makes replay somebody else's problem. A commit signature is a claim about _who authored this content_ — a different and equally real claim, but one that survives being cloned and re-pushed by an agent who signed nothing, so treating it as the identity of a push would attribute work to the wrong party.
 
 Commit-signature status is recorded opportunistically when present. It is never required.
 
@@ -47,7 +47,7 @@ Three constraints forced this shape:
 - **A ref-only push appends no WAL Entry.** A push that moves a ref without new objects bumps no sequence number and adds no entry (`src/push.ts`), so provenance hung off entries would be blind to a whole class of push. It is not blind to `index.json`, which every publish rewrites.
 - **`refs` must keep its shape.** Widening `ref → oid` into `ref → {oid, signer}` would touch reconcile, materialize, verify, usage and gc, and would contradict the sentence in ADR-0007 that describes the Index. A separate optional map costs nothing when absent and changes no existing reader.
 
-It is latest-state, per ref, like everything else here. There is no provenance history, and the absence is deliberate: the audit trail of *content* is the commit graph and its signatures, and a second ledger would be a second thing to keep true.
+It is latest-state, per ref, like everything else here. There is no provenance history, and the absence is deliberate: the audit trail of _content_ is the commit graph and its signatures, and a second ledger would be a second thing to keep true.
 
 ## How it is read
 
@@ -69,7 +69,7 @@ The recommended form is **`--signed=if-asked`**, never `--signed=yes`: it signs 
 
 Verification and recording are **mechanism**, so they ship in the walgit app template, **off unless `WALGIT_PUSH_CERT_SEED` is set** — the seed joins the forwarded environment (`shared/container-env.ts`), and `openssh-keygen` joins the container image, which currently installs only `git` and `git-daemon`. A deployment that never sets the seed advertises no capability, and git therefore never signs against it: unchanged in every observable way.
 
-Ownership policy, when it comes, is **opinion** and belongs to agentgit as instance configuration. *Capabilities, never opinions* (`CONTEXT-MAP.md`).
+Ownership policy, when it comes, is **opinion** and belongs to agentgit as instance configuration. _Capabilities, never opinions_ (`CONTEXT-MAP.md`).
 
 ## Consequences
 
