@@ -12,7 +12,7 @@ the same shape.
 Machines API directly (create app, allocate IPs, create/update a Machine running
 `nats:latest`)" — a module that owned the topology of what it deployed. Its
 stated preference was the opposite: a Deploy Module that "only orchestrates
-build+deploy against topology the *consuming package* defines itself".
+build+deploy against topology the _consuming package_ defines itself".
 
 **What this adds** is that second shape. `fly` runs `fly deploy` against a
 package's own `fly.toml`, exactly as `cloudflare` runs `wrangler deploy` against
@@ -66,7 +66,7 @@ and the reason scale-to-zero survives the move.
 - **`fly secrets set` triggers a deployment by default.** The module stages them
   (`--stage`) and lets the following `fly deploy` pick them up, so one apply is
   one deployment rather than two. This differs from `cloudflare`, which pushes
-  Worker secrets *after* deploy because the script must exist first.
+  Worker secrets _after_ deploy because the script must exist first.
 - **Auth is non-interactive** via `FLY_API_TOKEN`, the same shape as
   `CLOUDFLARE_API_TOKEN`. Note that Fly macaroon tokens contain a literal space
   (`FlyV1 fm2_…`) — any code that strips whitespace from the secret will produce

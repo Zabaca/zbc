@@ -65,8 +65,8 @@ general runtime env.
   container-local, which meant every run re-extracted in full and raw history was
   unrecoverable if a transform was later found wrong). dlt's filesystem destination writes
   `s3://<bucket>/raw` directly and dbt reads it back over DuckDB's `httpfs`; the container's
-  disk holds nothing that must survive. Raw growth is now proportional to *change volume*
-  rather than *run count*, which is what makes an unbounded-looking append-only layer
+  disk holds nothing that must survive. Raw growth is now proportional to _change volume_
+  rather than _run count_, which is what makes an unbounded-looking append-only layer
   bounded in practice.
 
   The load-bearing part is not the parquet — it is dlt's **cursor**. `_dlt_pipeline_state`
@@ -80,6 +80,7 @@ general runtime env.
   (dlt's own `unique_hashes` drops the rows GitHub returns twice, since `since` is
   inclusive); resetting the cursor re-extracted all 18 alongside the originals, and the mart
   still published exactly 18 distinct issues.
+
 - **Raw is append-only, so the mart layer must deduplicate.** `write_disposition: "append"`
   is what makes raw a history rather than a mirror of the current state; the same issue lands
   once per run that touched it. `stg_github_issues.sql` keeps the newest row per `issue_id`,
@@ -89,19 +90,19 @@ general runtime env.
   duplicates while doing nothing — the filesystem destination silently falls back to append.
 - **`union_by_name := true` is mandatory when reading the raw glob.** Raw spans files written
   months apart and their schemas diverge as GitHub adds response fields. Measured on duckdb
-  1.5.5: the default `read_parquet` binds to the *first* file's schema and **silently drops**
+  1.5.5: the default `read_parquet` binds to the _first_ file's schema and **silently drops**
   a column present in every other file — no error, no warning, the data simply isn't there.
   A loud failure would be safe; this isn't.
-- **Raw schema drift has two shapes, and only one of them is handled quietly.** A *new*
+- **Raw schema drift has two shapes, and only one of them is handled quietly.** A _new_
   column is absorbed: `union_by_name` fills it with NULL for older files, and since the
-  staging model selects columns explicitly, the mart is unaffected. A *type change* for an
+  staging model selects columns explicitly, the mart is unaffected. A _type change_ for an
   existing column name is different — measured on duckdb 1.5.5, `union_by_name` silently
   promotes the conflict to VARCHAR (a BIGINT `5` becomes the string `"5"`), with no error.
   Nothing in the raw layer objects to this.
 
   **The staging layer is where that is handled, by casting every column explicitly** — the
   reason a staging layer exists at all. `stg_github_issues.sql` casts all eleven columns, not
-  just the timestamps that originally needed it, so the mart's types are *declared* rather
+  just the timestamps that originally needed it, so the mart's types are _declared_ rather
   than inherited from whatever type raw happened to hold on the day a file was written. It
   uses `cast`, never `try_cast`: a recoverable drift is recovered (`'5'` → `5`, an ISO string
   → the right instant) and an unrecoverable one aborts the run naming the column and the
@@ -110,14 +111,15 @@ general runtime env.
   type-drifted raw file: recoverable drift republished a correct 18-row mart with
   `comment_count` back to int64, and an unconvertible `'many'` failed with
   `Conversion Error: Could not convert string 'many' to INT64 when casting from source column
-  comments`, leaving the previous mart intact.
+comments`, leaving the previous mart intact.
 
   The mart contract's type verification remains as the backstop behind it (a column the
   staging model forgets to cast, or casts to something `schema.yml` does not declare, still
   cannot publish) — defence in depth rather than the only guard, which is what it briefly was
   when raw first became durable. (dlt's own schema evolution likely avoids producing the
   conflict at all, by emitting a variant column rather than retyping one; that behaviour is
-  *assumed here, not verified*, which is why neither guard leans on it.)
+  _assumed here, not verified_, which is why neither guard leans on it.)
+
 - **A durable cursor is durable when it is wrong, too.** Found the hard way: GitHub answers
   `200` with an empty array for a `since` at or before the Unix epoch
   (`1970-01-01T00:00:00Z` → 0 issues, `1971-01-01T00:00:00Z` → 18), so the obvious spelling
@@ -141,11 +143,11 @@ general runtime env.
   `key`/`secret`/`client_kwargs.endpoint_url`. dlt raises `ConfigFieldMissingException` on an
   fsspec-shaped dict because it does not read the alien keys at all. dbt needs a third
   spelling: a `secrets:` entry in `profiles.yml` with `url_style: path`, `region: auto`, and
-  a *scheme-stripped* endpoint, since DuckDB's `CREATE SECRET` wants a bare host where every
+  a _scheme-stripped_ endpoint, since DuckDB's `CREATE SECRET` wants a bare host where every
   other consumer wants a URL.
 - **The `/dev/shm` workaround is scoped to dbt, not global.** `container/sitecustomize.py` only
   acts when `WAREHOUSE_PATCH_MP_LOCKS=1`, which `container/materialize.ts` sets on the `dbt`
-  invocation alone. This matters because the patch is safe for dbt and *not* safe in general:
+  invocation alone. This matters because the patch is safe for dbt and _not_ safe in general:
   reading dbt-core/dbt-adapters/dbt-duckdb source confirms dbt never creates a real OS process
   (its `threads:` is a `ThreadPool`, and every `mp_context` consumer builds a lock used only for
   cross-thread synchronization), whereas dlt's normalize step defaults to `pool_type="process"`
@@ -154,8 +156,8 @@ general runtime env.
   single-process extraction an explicit invariant rather than a property that currently holds
   only because the reference connector's row count keeps dlt on its single-threaded path.
 - **Mart publication is ordered retire-sidecar → write-parquet → write-sidecar.** The obvious
-  order (parquet then sidecar) makes a failed sidecar upload leave *today's* parquet described by
-  *yesterday's* sidecar — served as a confident 200 with a stale `rowCount` and a column list that
+  order (parquet then sidecar) makes a failed sidecar upload leave _today's_ parquet described by
+  _yesterday's_ sidecar — served as a confident 200 with a stale `rowCount` and a column list that
   no longer matches the data, which is silently wrong rather than merely missing. Deleting the
   sidecar first means any failure leaves the mart with no sidecar at all, which the reader already
   treats as absent — so "a partial write reads as absent" is true on every write, not just the
@@ -163,7 +165,7 @@ general runtime env.
   whose `name` disagrees with its storage key.
 - **Timestamps are pinned to UTC in three places, because getting it wrong is invisible.**
   dlt lands timestamps as `TIMESTAMP WITH TIME ZONE`, and DuckDB's cast to `TIMESTAMP`
-  resolves against the *session* zone before dropping the offset — so a stray `TZ` rewrites
+  resolves against the _session_ zone before dropping the offset — so a stray `TZ` rewrites
   every timestamp in every mart while the column names, types, and every schema check stay
   valid, and dbt reports success. Measured: `TZ=America/New_York` shifted values four hours
   off the GitHub API's ground truth. Hence the dbt models cast `at time zone 'UTC'`
@@ -177,7 +179,7 @@ general runtime env.
   validated container-side before dbt runs: they are interpolated straight into DuckDB
   string literals inside dbt models, and a quote in either escapes into arbitrary SQL — a
   forged row landed in a published mart passes every downstream schema check, since its
-  column names and types are unchanged. (Validating `config.location` *after* dbt returns,
+  column names and types are unchanged. (Validating `config.location` _after_ dbt returns,
   which the code already did, cannot prevent this — dbt has executed by then.)
 - **An empty mart is genuinely empty.** dbt-duckdb's `external` materialization deliberately
   inserts one all-NULL row when a model produces no rows ("write a non-empty table with
@@ -211,7 +213,7 @@ general runtime env.
   every `dbt run` failed in real production even though the identical image worked under plain
   Docker and `wrangler dev` (both are ordinary Docker, not Firecracker, so this gap is invisible
   until you actually deploy). Fixed by `container/sitecustomize.py`, appended to the base image's
-  own `/usr/lib/python3.10/sitecustomize.py` (Python only auto-imports the *first*
+  own `/usr/lib/python3.10/sitecustomize.py` (Python only auto-imports the _first_
   `sitecustomize.py` on `sys.path`, and that one resolves before `dist-packages` — a second copy
   placed there silently never loads): it monkeypatches `multiprocessing.context.BaseContext.RLock`
   to a `threading.RLock`-backed shim. Safe here specifically because dbt's own `threads:` config

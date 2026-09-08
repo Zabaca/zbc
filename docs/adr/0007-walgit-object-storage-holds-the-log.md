@@ -62,7 +62,7 @@ Measurements: [`docs/research/walgit-m0-spike/`](../research/walgit-m0-spike/).
   builds it, so this trades bandwidth for CPU on the restoring node, which is
   the cost-sensitive one.
 - **Orphan WAL entries are a first-class category.** Rejecting at
-  `reference-transaction` does *not* roll back git's object migration — the
+  `reference-transaction` does _not_ roll back git's object migration — the
   quarantine is merged as soon as `pre-receive` passes, and only the ref aborts.
   So a pack uploaded for a push that then loses CAS stays in object storage,
   correctly unpublished but real. It needs a GC path alongside compaction's,
@@ -90,7 +90,7 @@ Measurements: [`docs/research/walgit-m0-spike/`](../research/walgit-m0-spike/).
   live server-side; it cannot key off a client-visible status.
 - **Idle GC is nearly free** — `min_machines_running = 0` is the mechanism, so
   the milestone that was going to build it mostly disappears. The corollary is
-  that materialize is the *normal* path rather than disaster recovery, and gets
+  that materialize is the _normal_ path rather than disaster recovery, and gets
   exercised continuously instead of only in a crisis.
 - **One class-A operation per push.** Cheap on R2, but batching several pushes
   into one index write is the known optimisation, deliberately deferred. The
