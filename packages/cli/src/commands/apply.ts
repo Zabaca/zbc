@@ -3,6 +3,9 @@ import { defineCommand } from 'citty'
 import { findProjectRoot } from '../utils/find-project-root'
 import { loadConfig } from '../utils/load-config'
 import { applyEnvironment } from '../engine/apply'
+import { isVendorMode } from '../utils/subtree'
+import { engineIsLinked, readStamp, vendorVintage } from '../utils/vendor-stamp'
+import pkg from '../../package.json' with { type: 'json' }
 
 export const applyCommand = defineCommand({
   meta: {
@@ -34,6 +37,17 @@ export const applyCommand = defineCommand({
   },
   async run({ args }) {
     const projectRoot = await findProjectRoot()
+
+    // Say what engine this project is on before anything runs. Three consumers
+    // reimplemented shipped engine features because nothing ever told them.
+    const vintage = vendorVintage({
+      vendorMode: await isVendorMode(projectRoot),
+      cliVersion: pkg.version,
+      stamp: await readStamp(projectRoot),
+      engineIsLinked: await engineIsLinked(projectRoot),
+    })
+    for (const line of vintage.warnings) console.warn(line)
+
     const config = await loadConfig(projectRoot)
 
     if (!config.environments.includes(args.env)) {
