@@ -1,5 +1,8 @@
 import { defineCommand } from 'citty'
 import { findProjectRoot } from '../utils/find-project-root'
+import { refreshCopiedTemplates } from '../utils/copy-refresh'
+import { describeForeignFiles, foreignVendorFiles } from '../utils/vendor-audit'
+import { writeStamp } from '../utils/vendor-stamp'
 import {
   coreRefForVersion,
   DEFAULT_CORE_URL,
@@ -12,7 +15,7 @@ import pkg from '../../package.json' with { type: 'json' }
 export const updateCommand = defineCommand({
   meta: {
     name: 'update',
-    description: `Pull a newer zbc-core into ${VENDOR_PREFIX} (subtree projects only)`,
+    description: `Bring the vendored zbc engine + built-in modules up to this CLI's version`,
   },
   args: {
     'core-url': {
@@ -23,15 +26,33 @@ export const updateCommand = defineCommand({
       type: 'string',
       description: 'zbc-core ref to pull (default: the tag matching this CLI version)',
     },
+    strict: {
+      type: 'boolean',
+      description: `Exit non-zero if ${VENDOR_PREFIX}/ holds files zbc-core does not ship`,
+      default: false,
+    },
   },
   async run({ args }) {
     const projectRoot = await findProjectRoot()
 
+    // Copy mode used to be a dead end here — the only way to receive an engine
+    // fix was a hand diff, which is how consumers ended up reimplementing what
+    // we ship. The CLI carries the templates, so it can re-lay them in place.
     if (!(await isVendorMode(projectRoot))) {
-      console.error(
-        `✗ ${VENDOR_PREFIX}/ not found — this project doesn't consume zbc as a subtree. (Copy-mode projects re-vendor modules with \`zbc add\`.)`,
+      console.log(`zbc update: copy mode — refreshing bundled templates from zbc v${pkg.version}`)
+      const result = await refreshCopiedTemplates(projectRoot)
+      for (const skip of result.skipped) console.log(`  skip ${skip.path} (${skip.reason})`)
+      if (result.refreshed.length === 0) {
+        console.log('  nothing to refresh (no copied engine or built-in modules found)')
+      }
+      await writeStamp(projectRoot, { mode: 'copy', cliVersion: pkg.version })
+      console.log(
+        `✓ refreshed ${result.refreshed.length} path(s) — review the diff before committing.`,
       )
-      process.exit(1)
+      console.log(
+        `  Copy mode still receives nothing automatically: \`zbc init --subtree\` vendors ${VENDOR_PREFIX}/ with upstream history so updates flow.`,
+      )
+      return
     }
 
     const url = args['core-url'] ?? DEFAULT_CORE_URL
@@ -43,6 +64,12 @@ export const updateCommand = defineCommand({
       console.error(`✗ ${(err as Error).message}`)
       process.exit(1)
     }
+    await writeStamp(projectRoot, { mode: 'subtree', cliVersion: pkg.version, coreRef: ref })
     console.log('✓ vendor/zbc updated — review the squash merge commit and push')
+
+    // The push direction nobody watches: files written inside the prefix.
+    const foreign = await foreignVendorFiles(projectRoot)
+    for (const line of describeForeignFiles(foreign)) console.warn(line)
+    if (args.strict && foreign.length > 0) process.exit(1)
   },
 })

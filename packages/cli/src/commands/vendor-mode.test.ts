@@ -171,13 +171,30 @@ describe('zbc update', () => {
     expect(fs.existsSync(path.join(consumer, 'vendor/zbc/modules/newmod/index.ts'))).toBe(true)
   })
 
-  test('outside vendor mode (copy-mode project) → clear error', () => {
+  test('outside vendor mode it refreshes copied templates instead of refusing', () => {
     const consumer = tmpdir('consumer-')
     makeRepo(consumer)
     // A copy-mode zbc project: config present, no vendor/zbc.
     fs.writeFileSync(path.join(consumer, 'zbc.config.ts'), 'export default {}\n')
-    const res = zbc(consumer, ['update', '--core-url', makeCore(), '--core-ref', 'main'])
-    expect(res.status).not.toBe(0)
-    expect(res.out).toMatch(/vendor|subtree/i)
+    const res = zbc(consumer, ['update'])
+    expect(res.status).toBe(0)
+    expect(res.out).toMatch(/copy mode/i)
+  })
+
+  test('names consumer-authored files inside the prefix, and --strict fails on them', () => {
+    const core = makeCore()
+    const consumer = initSubtree(core)
+    sh(consumer, 'git add . && git commit -qm scaffold')
+    fs.writeFileSync(path.join(consumer, 'vendor/zbc/VENDORING.md'), '# how we vendor\n')
+    sh(consumer, 'git add . && git commit -qm vendoring-doc')
+
+    const res = zbc(consumer, ['update', '--core-url', core, '--core-ref', 'main'])
+    expect(res.status).toBe(0)
+    expect(res.out).toContain('vendor/zbc/VENDORING.md')
+    expect(res.out).toMatch(/subtree push/i)
+
+    sh(consumer, 'git add -A && git commit -qm stamp')
+    const strict = zbc(consumer, ['update', '--core-url', core, '--core-ref', 'main', '--strict'])
+    expect(strict.status).not.toBe(0)
   })
 })
