@@ -13,9 +13,9 @@ secretOutputs: {
 
 The engine then does three things, and only three:
 
-1. **Redacts.** Every declared value recorded in a run is scrubbed out of the text the engine prints or throws — an apply's error, a readiness probe's last failure — as `[redacted: <instance>.<output>]`.
-2. **Does not persist.** `zbc apply --json` writes `[redacted]` in place of the value. The in-memory `outputs` map, which is what `ctx.output` reads, is untouched.
-3. **Refuses an unsafe rotation.** An `ephemeral: true` instance of a module that emits a `rotates: 'never'` credential is a hard error before anything is applied.
+1. **Redacts.** Every declared value recorded in a run is scrubbed out of the text the engine prints or throws — an apply's error, a destroy's, a readiness probe's last failure — as `[redacted: <instance>.<output>]`. A failure that reaches the engine is also *reduced* to a message and a stack: an SDK error's `request`/`response`/`cause` field holds the bearer token it was refused with, and the CLI's top-level handler prints the whole object.
+2. **Does not persist.** `zbc apply --json` writes `[redacted]` for the declaring instance's declared keys, and scrubs the recorded literals out of every other string in the document too — so an importer that re-emits an imported credential as an output of its own does not put it on disk either. The in-memory `outputs` map, which is what `ctx.output` reads, is untouched.
+3. **Refuses an unsafe rotation.** An `ephemeral: true` instance of a module that emits a `rotates: 'never'` credential is a hard error before anything is applied — as is `zbc destroy` applying such an instance **on demand** to satisfy a dependent's `destroy`, which is apply-then-destroy and therefore the same rotation.
 
 A module that declares nothing pays nothing: no new call, no new failure mode, not one changed byte of its output.
 
@@ -40,6 +40,8 @@ Rule 1 is the engine's because the leak is the engine's output. It is deliberate
 
 - It does not reach a **module's own** `console.log`, or the inherited stdio of a child process a module spawns (`wrangler`, a build command). Those bytes never pass through the engine. A module that prints its own credential is still the module's bug.
 - It does not decide **retention or mint-avoidance**. `gcp` pruning to `maxKeys` so in-flight preview Workers keep working, and `tailscale-authkey` skipping the mint when the node is already online, are policies about a provider's own resource lifecycle; they are module config, and this ADR is what lets them be written without also hand-rolling redaction.
+- It cannot protect a credential the **minting module itself** leaks before returning it. The value is recorded once `apply` resolves and its outputs validate; a follow-up provider call that fails inside the same `apply`, quoting the token it just minted, throws before the registry has ever seen it.
+- It does not redact a value shorter than 8 characters — substituting a 3-character "credential" destroys the message and protects nothing. Declaring one prints a warning saying it will not be scrubbed, rather than implying it was.
 - It does not redact **ids**. `tokenId` and `s3AccessKeyId` name the credential rather than being it, and hiding them costs the operator the one field that finds the token in a dashboard.
 
 ## Alternatives considered

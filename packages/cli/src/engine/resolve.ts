@@ -1,5 +1,6 @@
 import { legacyConfigEphemeral } from '../../templates/infra/src/define-module'
 import type { ModuleInstance } from '../../templates/infra/src/types'
+import { heldCredentials } from './secret-outputs'
 
 export interface ResolveOptions {
   /**
@@ -127,16 +128,14 @@ export function assertEphemeralDestroyable(instances: ModuleInstance[]): void {
 export function assertRotationSafe(instances: ModuleInstance[]): void {
   for (const inst of instances) {
     if (!isEphemeral(inst)) continue
-    const declared = inst._definition.secretOutputs ?? {}
-    for (const [key, decl] of Object.entries(declared)) {
-      if (decl?.rotates !== 'never') continue
-      throw new Error(
-        `Instance "${inst.name}" is ephemeral, but module "${inst.moduleName}" emits ` +
-          `"${key}" as a credential that rotates: 'never' — destroying and re-creating it ` +
-          `would silently rotate a value held outside this apply. Drop ephemeral, or hand ` +
-          `the new value to its holders yourself.`,
-      )
-    }
+    const held = heldCredentials(inst)
+    if (held.length === 0) continue
+    throw new Error(
+      `Instance "${inst.name}" is ephemeral, but module "${inst.moduleName}" emits ` +
+        `${held.map((key) => `"${key}"`).join(', ')} as a credential that rotates: 'never' — ` +
+        `destroying and re-creating it would silently rotate a value held outside this apply. ` +
+        `Drop ephemeral, or hand the new value to its holders yourself.`,
+    )
   }
 }
 

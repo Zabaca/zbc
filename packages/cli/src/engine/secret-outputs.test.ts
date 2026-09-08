@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test'
+import { z } from 'zod'
 import { applyInstances } from './apply'
 import { destroyInstances } from './destroy'
 import { fakeInstance } from './fixtures'
@@ -16,7 +17,7 @@ async function asError(run: Promise<unknown>): Promise<Error> {
   throw new Error('expected the apply to throw, and it did not')
 }
 
-describe('ephemeral outputs', () => {
+describe('secret outputs', () => {
   test('a declared secret output still reaches an importer verbatim', async () => {
     const minter = fakeInstance('token', {
       secretOutputs: { tokenValue: { rotates: 'each-apply' } },
@@ -129,5 +130,95 @@ describe('ephemeral outputs', () => {
     const err = await asError(destroyInstances([minter, web], opts))
 
     expect(err.message).toBe('deleting the worker failed: Bearer [redacted: token.tokenValue]')
+  })
+
+  test('a credential that is not a string is redacted from printed text too', async () => {
+    const minter = fakeInstance('sa', {
+      outputs: z.record(z.unknown()),
+      secretOutputs: { key: { rotates: 'each-apply' } },
+      apply: async () => ({ key: { private_key: '-----BEGIN PRIVATE KEY-----abc' } }),
+    })
+    const web = fakeInstance('web', {
+      imports: [minter],
+      apply: async (_config, ctx) => {
+        throw new Error(`google refused ${JSON.stringify(ctx.imports.sa)}`)
+      },
+    })
+
+    const err = await asError(applyInstances([web, minter], opts))
+
+    expect(err.message).not.toContain('BEGIN PRIVATE KEY')
+    expect(err.message).toContain('[redacted: sa.key]')
+  })
+
+  test('an error carrying the credential in a field, not its message, is reduced to a plain Error', async () => {
+    const minter = fakeInstance('token', {
+      secretOutputs: { tokenValue: { rotates: 'each-apply' } },
+      apply: async () => ({ tokenValue: 'v1.0-supersecret' }),
+    })
+    const web = fakeInstance('web', {
+      imports: [minter],
+      apply: async (_config, ctx) => {
+        const err = new Error('HTTP 403') as Error & { request?: unknown }
+        err.request = {
+          headers: {
+            authorization: `Bearer ${ctx.output({ from: 'token', output: 'tokenValue' }, 'x')}`,
+          },
+        }
+        throw err
+      },
+    })
+
+    const err = await asError(applyInstances([web, minter], opts))
+
+    expect(err.message).toBe('HTTP 403')
+    expect(JSON.stringify(err, Object.getOwnPropertyNames(err))).not.toContain('v1.0-supersecret')
+  })
+
+  test('an importer that re-emits a credential as its own output still writes [redacted]', async () => {
+    const minter = fakeInstance('token', {
+      secretOutputs: { tokenValue: { rotates: 'each-apply' } },
+      apply: async () => ({ tokenValue: 'v1.0-supersecret' }),
+    })
+    const web = fakeInstance('web', {
+      imports: [minter],
+      apply: async (_config, ctx) => ({
+        deployUrl: 'https://web.example.com',
+        // Undeclared, and a credential all the same.
+        usedToken: ctx.output({ from: 'token', output: 'tokenValue' }, 'x'),
+      }),
+    })
+    const secretOutputs = createSecretOutputRegistry()
+
+    const outputs = await applyInstances([web, minter], { ...opts, secretOutputs })
+
+    expect(secretOutputs.redactOutputs(web, outputs.get('web'))).toEqual({
+      deployUrl: 'https://web.example.com',
+      usedToken: '[redacted: token.tokenValue]',
+    })
+  })
+
+  test("destroy refuses to apply a rotates: 'never' instance on demand", async () => {
+    let applied = false
+    const held = fakeInstance('service-token', {
+      withDestroy: true,
+      secretOutputs: { clientSecret: { rotates: 'never' } },
+      apply: async () => {
+        applied = true
+        return { clientSecret: 'held-by-an-agent' }
+      },
+    })
+    const web = fakeInstance('web', {
+      imports: [held],
+      destroy: async (_config, ctx) => {
+        ctx.output({ from: 'service-token', output: 'clientSecret' }, 'x')
+      },
+    })
+
+    const err = await asError(destroyInstances([held, web], opts))
+
+    expect(applied).toBe(false)
+    expect(err.message).toContain('"clientSecret"')
+    expect(err.message).toContain("rotates: 'never'")
   })
 })

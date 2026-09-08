@@ -8,7 +8,7 @@ import type {
 import { applyInstance, type InstanceRunOptions } from './apply'
 import { discoverInstances } from './discover'
 import { createReadinessGate } from './readiness'
-import { createSecretOutputRegistry, redactError } from './secret-outputs'
+import { createSecretOutputRegistry, heldCredentials, redactError } from './secret-outputs'
 import { resolveOrder } from './resolve'
 import { loadSecrets } from './secrets'
 
@@ -220,6 +220,21 @@ async function ensureApplied(
   // otherwise points at a file that never mentions it.
   for (const dep of instance.imports) {
     await ensureApplied(dep, instance.name, opts, outputs)
+  }
+  // The same rule `assertRotationSafe` enforces on the apply path, at the only
+  // other place the engine replaces a resource on its own initiative: this
+  // instance is applied here and torn down later in the same reverse pass, so
+  // for a credential whose holders live outside the apply that is a rotation
+  // nobody asked for and nobody is told about.
+  const held = heldCredentials(instance)
+  if (held.length > 0) {
+    throw new Error(
+      `Destroying "${neededBy}" needs "${instance.name}" applied first, but module ` +
+        `"${instance.moduleName}" emits ${held.map((key) => `"${key}"`).join(', ')} as a ` +
+        `credential that rotates: 'never' — applying it here would rotate a value held ` +
+        `outside this run. Apply "${instance.name}" deliberately, or destroy ` +
+        `"${neededBy}" with the outputs it needs already present.`,
+    )
   }
   console.log(`→ applying ${instance.name} (needed by ${neededBy})`)
   await applyInstance(instance, opts, outputs)
