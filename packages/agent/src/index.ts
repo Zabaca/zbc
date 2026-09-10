@@ -8,7 +8,13 @@
 // request body; the SDK's own system prompt is one 62-character sentence, so
 // there is nothing to win there and no reason to hand-write a replacement
 // unless the agent actually needs instructions.
-import { type Options, query } from '@anthropic-ai/claude-agent-sdk'
+import {
+  type ModelUsage,
+  type NonNullableUsage,
+  type Options,
+  query,
+  type SDKMessage,
+} from '@anthropic-ai/claude-agent-sdk'
 
 /** Default model for zbc agents. Cheapest tier that handles routine work. */
 export const DEFAULT_MODEL = 'claude-haiku-4-5'
@@ -233,18 +239,91 @@ export function minimalOptions({
 }
 
 /**
+ * What a run came back with: the agent's text plus the SDK's `result` message,
+ * flattened. Field names follow `RunResult` in `sandboxed.ts`.
+ */
+export type RunOutcome = {
+  /** The agent's prose, trimmed. Tool calls and thinking blocks are dropped. */
+  text: string
+  turns: number
+  /**
+   * The `result` message's `subtype`: `'success'`, `'error_during_execution'`,
+   * `'error_max_turns'`, `'error_max_budget_usd'`, … — or `'unknown'` when the
+   * stream ended without a `result` message at all.
+   */
+  stopReason: string
+  isError: boolean
+  errors: string[]
+  usage: NonNullableUsage | undefined
+  modelUsage: Record<string, ModelUsage> | undefined
+  totalCostUsd: number
+  sessionId: string
+}
+
+export type RunHooks = {
+  /** The query function. A seam for tests; defaults to the SDK's. */
+  query?: typeof query
+  /**
+   * Called for every SDK message as it arrives, including the ones `run` does
+   * not read — `rate_limit_event` is the reason this exists. It cannot
+   * influence the run.
+   */
+  onMessage?: (message: SDKMessage) => void
+}
+
+/**
+ * Run a prompt and return what came back, `result` message included.
+ *
+ * `ask` is this with everything but the text dropped. Reach for `run` when the
+ * caller needs usage, cost or why the run stopped — a stream that ends in an
+ * error result is reported, not thrown, so the caller can classify it.
+ */
+export async function run(
+  prompt: string,
+  options: Options = minimalOptions(),
+  hooks: RunHooks = {},
+): Promise<RunOutcome> {
+  const q = hooks.query ?? query
+  let text = ''
+  let outcome: Omit<RunOutcome, 'text'> = {
+    turns: 0,
+    stopReason: 'unknown',
+    isError: true,
+    errors: ['the stream ended without a result message'],
+    usage: undefined,
+    modelUsage: undefined,
+    totalCostUsd: 0,
+    sessionId: '',
+  }
+  for await (const message of q({ prompt, options })) {
+    hooks.onMessage?.(message)
+    if (message.type === 'assistant') {
+      for (const block of message.message?.content ?? []) {
+        if (block.type === 'text') text += block.text
+      }
+    } else if (message.type === 'result') {
+      outcome = {
+        turns: message.num_turns,
+        stopReason: message.subtype,
+        isError: message.is_error,
+        errors: message.subtype === 'success' ? [] : message.errors,
+        usage: message.usage,
+        modelUsage: message.modelUsage,
+        totalCostUsd: message.total_cost_usd,
+        sessionId: message.session_id,
+      }
+    }
+  }
+  return { text: text.trim(), ...outcome }
+}
+
+/**
  * Run a prompt and collect the agent's text as a single string.
  *
  * Tool calls and thinking blocks are dropped; this returns what the agent
- * said, not what it did. Use `query()` directly when you need the events.
+ * said, not what it did. Use `run()` for the result message, or `query()`
+ * directly when you need the events.
  */
 export async function ask(prompt: string, options: Options = minimalOptions()): Promise<string> {
-  let out = ''
-  for await (const message of query({ prompt, options })) {
-    if (message.type !== 'assistant') continue
-    for (const block of message.message?.content ?? []) {
-      if (block.type === 'text') out += block.text
-    }
-  }
-  return out.trim()
+  return (await run(prompt, options)).text
 }
