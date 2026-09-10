@@ -1,25 +1,68 @@
 {
-  "name": "@zbc/agent",
-  "version": "0.0.1",
-  "private": true,
+  "name": "@zabaca/agent",
+  "version": "0.1.0",
+  "description": "A Claude Agent SDK configuration that sends 97% fewer input tokens than the defaults, plus sandboxed and remote profiles",
+  "license": "MIT",
   "type": "module",
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "CONTEXT.md"
+  ],
   "exports": {
-    ".": "./src/index.ts",
-    "./profiles": "./src/profiles.ts",
-    "./traits": "./src/traits.ts",
-    "./sandboxed": "./src/sandboxed.ts",
-    "./coding": "./src/coding.ts",
-    "./review": "./src/review.ts",
-    "./workspace": "./src/workspace.ts",
-    "./sandbox": "./src/sandbox.ts",
-    "./initialize": "./src/initialize.ts"
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./profiles": {
+      "types": "./dist/profiles.d.ts",
+      "default": "./dist/profiles.js"
+    },
+    "./traits": {
+      "types": "./dist/traits.d.ts",
+      "default": "./dist/traits.js"
+    },
+    "./sandboxed": {
+      "types": "./dist/sandboxed.d.ts",
+      "default": "./dist/sandboxed.js"
+    },
+    "./coding": {
+      "types": "./dist/coding.d.ts",
+      "default": "./dist/coding.js"
+    },
+    "./review": {
+      "types": "./dist/review.d.ts",
+      "default": "./dist/review.js"
+    },
+    "./workspace": {
+      "types": "./dist/workspace.d.ts",
+      "default": "./dist/workspace.js"
+    },
+    "./sandbox": {
+      "types": "./dist/sandbox.d.ts",
+      "default": "./dist/sandbox.js"
+    },
+    "./initialize": {
+      "types": "./dist/initialize.d.ts",
+      "default": "./dist/initialize.js"
+    },
+    "./remote": {
+      "types": "./dist/remote.d.ts",
+      "default": "./dist/remote.js"
+    }
   },
   "scripts": {
     "dev": "bun run src/cli.ts",
     "test": "bun test src",
     "e2e": "bun run e2e/smoke.ts",
     "typecheck": "tsc --noEmit",
-    "ui": "bun run ui/server.ts"
+    "ui": "bun run ui/server.ts",
+    "build": "rm -rf dist && tsc -p tsconfig.build.json",
+    "prepublishOnly": "bun run typecheck && bun test src && bun run build",
+    "publish:npm": "bun run build && bun publish --access public"
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.3.220",
@@ -28,5 +71,8 @@
   "devDependencies": {
     "@types/bun": "^1.3.14",
     "typescript": "^7.0.2"
+  },
+  "engines": {
+    "node": ">=20"
   }
 }

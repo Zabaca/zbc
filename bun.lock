@@ -15,8 +15,8 @@
       },
     },
     "packages/agent": {
-      "name": "@zbc/agent",
-      "version": "0.0.1",
+      "name": "@zabaca/agent",
+      "version": "0.1.0",
       "dependencies": {
         "@anthropic-ai/claude-agent-sdk": "^0.3.220",
         "@anthropic-ai/sandbox-runtime": "0.0.67",
@@ -742,13 +742,13 @@
 
     "@vitejs/plugin-react": ["@vitejs/plugin-react@5.2.0", "", { "dependencies": { "@babel/core": "^7.29.0", "@babel/plugin-transform-react-jsx-self": "^7.27.1", "@babel/plugin-transform-react-jsx-source": "^7.27.1", "@rolldown/pluginutils": "1.0.0-rc.3", "@types/babel__core": "^7.20.5", "react-refresh": "^0.18.0" }, "peerDependencies": { "vite": "^4.2.0 || ^5.0.0 || ^6.0.0 || ^7.0.0 || ^8.0.0" } }, "sha512-YmKkfhOAi3wsB1PhJq5Scj3GXMn3WvtQ/JC0xoopuHoXSdmtdStOpFrYaT1kie2YgFBcIe64ROzMYRjCrYOdYw=="],
 
+    "@zabaca/agent": ["@zabaca/agent@workspace:packages/agent"],
+
     "@zabaca/agentgit": ["@zabaca/agentgit@workspace:packages/agentgit"],
 
     "@zabaca/c9s": ["@zabaca/c9s@workspace:packages/c9s"],
 
     "@zabaca/zbc": ["@zabaca/zbc@workspace:packages/cli"],
-
-    "@zbc/agent": ["@zbc/agent@workspace:packages/agent"],
 
     "@zbc/design-system": ["@zbc/design-system@workspace:packages/design-system"],
 

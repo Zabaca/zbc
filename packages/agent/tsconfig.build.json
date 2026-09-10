@@ -1,0 +1,15 @@
+{
+  // What ships to npm: compiled JS plus declarations, from `src` alone. The
+  // base config is `noEmit` because the workspace runs the `.ts` directly; a
+  // consumer outside the workspace cannot, hence this one.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true,
+    "outDir": "dist",
+    "rootDir": "src"
+  },
+  "exclude": ["src/**/*.test.ts", "src/cli.ts"]
+}

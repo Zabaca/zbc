@@ -1,14 +1,55 @@
-# @zbc/agent
+# @zabaca/agent
 
 The base every zbc agent is built on: a Claude Agent SDK configuration that
 sends **97% fewer input tokens** than the SDK's defaults.
 
 ```ts
-import { ask, minimalOptions } from '@zbc/agent'
+import { ask, minimalOptions } from '@zabaca/agent'
 
 await ask('Classify this ticket as bug/feature/question: ...')
 await ask('Summarise this file', minimalOptions({ tools: ['Read'] }))
 ```
+
+Published to npm as `@zabaca/agent`. Entry points: `.`, `./profiles`,
+`./traits`, `./sandboxed`, `./coding`, `./review`, `./workspace`, `./sandbox`,
+`./initialize`, `./remote`.
+
+### `run` — when you need more than the text
+
+`ask` drops the SDK's `result` message. `run` keeps it: usage, cost, turns and
+why the run stopped, with an error result *reported* rather than thrown so the
+caller can classify it.
+
+```ts
+import { run, minimalOptions } from '@zabaca/agent'
+
+const out = await run('Summarise these events as XML', minimalOptions())
+out.text          // the agent's prose
+out.stopReason    // 'success' | 'error_during_execution' | 'error_max_budget_usd' | … | 'unknown'
+out.isError       // true on an error result, or when the stream ended without one
+out.usage         // input/output/cache tokens, from the result message
+out.totalCostUsd
+```
+
+The optional third argument takes `onMessage` (every SDK message, for things
+`run` does not read such as `rate_limit_event`) and `query` (a test seam).
+
+### Cancelling: `abortController`
+
+The SDK's `Options` has `abortController`, not `signal`, and a caller-owned
+controller is the only immediate cancel. A timeout is built on it:
+
+```ts
+const controller = new AbortController()
+const timer = setTimeout(() => controller.abort(), 120_000)
+try {
+  await run(prompt, minimalOptions({ abortController: controller }))
+} finally {
+  clearTimeout(timer)
+}
+```
+
+The key is absent from `minimalOptions()` unless given, like `effort`.
 
 ## Why this package exists
 
@@ -135,7 +176,7 @@ _is_ — instructions, tools, model tier — and composes through the base, so i
 cannot quietly undo a lever (there is a test for that).
 
 ```ts
-import { askAs, profileOptions } from '@zbc/agent/profiles'
+import { askAs, profileOptions } from '@zabaca/agent/profiles'
 
 await askAs('caveman', 'What is a bloom filter and when would you use one?')
 await askAs('caveman', 'Summarise this', { tools: ['Read'] }) // overrides win
@@ -192,8 +233,8 @@ Keychain by spawning `/usr/bin/security`, and a sandbox that allows that binary
 lets the agent read every Keychain item too, so it is denied.
 
 ```ts
-import { code } from '@zbc/agent/coding'
-import { collect } from '@zbc/agent/workspace'
+import { code } from '@zabaca/agent/coding'
+import { collect } from '@zabaca/agent/workspace'
 
 const run = await code('Fix the failing test in src/parser.ts')
 
@@ -242,7 +283,7 @@ Opus 5 at **high** effort — the inverse of `coding`'s low, because a review is
 few turns whose whole value is catching what a cheaper pass misses.
 
 ```ts
-import { review } from '@zbc/agent/review'
+import { review } from '@zabaca/agent/review'
 
 const r = await review('main..my-feature')
 console.log(r.text) // the review is the product; it leaves no commits
@@ -272,7 +313,7 @@ model's answer (3.1s restore + 12.1s turn there).
 `remote.ts` is the client for that tier:
 
 ```ts
-import { runRemote, continueRemote, collectRemote, destroyRemote } from '@zbc/agent/remote'
+import { runRemote, continueRemote, collectRemote, destroyRemote } from '@zabaca/agent/remote'
 
 const config = { host: 'http://100.67.134.53:8794', token: process.env.AGENT_HOST_TOKEN! }
 const run = await runRemote('coding', 'Fix the failing test', config, {
