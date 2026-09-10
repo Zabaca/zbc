@@ -19,9 +19,9 @@ import { mkdtemp, writeFile } from 'node:fs/promises'
 import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
-import { code } from '@zbc/agent/coding'
-import { committing, focused } from '@zbc/agent/traits'
-import { collect } from '@zbc/agent/workspace'
+import { code } from '@zabaca/agent/coding'
+import { committing, focused } from '@zabaca/agent/traits'
+import { collect } from '@zabaca/agent/workspace'
 
 const execFile = promisify(execFileCb)
 const git = async (args: string[]) => (await execFile('git', args)).stdout.trim()

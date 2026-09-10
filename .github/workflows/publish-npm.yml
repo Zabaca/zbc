@@ -63,6 +63,14 @@ jobs:
             # is `npx` — neither the typechecker nor `bun test` alone can.
             test: bun test packages/agentgit/src
             build: bun run build
+          - package: '@zabaca/agent'
+            dir: packages/agent
+            # First consumer outside the workspace is the Zabaca fork of
+            # claude-mem, which installs from npm — so unlike the other two
+            # this is compiled with tsc, not bundled: it is a library, and the
+            # consumer's own bundler wants the SDK as a real dependency.
+            test: bun test packages/agent/src
+            build: bun run build
     name: ${{ matrix.package }}
     steps:
       - uses: actions/checkout@v4
