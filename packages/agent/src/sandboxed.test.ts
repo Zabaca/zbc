@@ -73,7 +73,9 @@ test('a borrowed workspace survives a failed run', async () => {
   ).rejects.toThrow()
   expect(existsSync(borrowed.dir)).toBe(true)
   await borrowed.dispose()
-})
+  // This one really spawns the CLI inside sandbox-runtime, and bun's default
+  // 5s is not enough for that on a busy machine.
+}, 30_000)
 
 for (const [name, profile] of PROFILES) {
   describe(name, () => {
