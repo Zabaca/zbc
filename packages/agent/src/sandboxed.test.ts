@@ -73,9 +73,12 @@ test('a borrowed workspace survives a failed run', async () => {
   ).rejects.toThrow()
   expect(existsSync(borrowed.dir)).toBe(true)
   await borrowed.dispose()
-  // This one really spawns the CLI inside sandbox-runtime, and bun's default
-  // 5s is not enough for that on a busy machine.
-}, 30_000)
+  // The only test here that SPAWNS the CLI, so it is the only one whose cost is
+  // a real process start rather than a function call. It took ~18s on a cold
+  // Linux VM against bun's 5s default, which failed as a timeout and reported
+  // the assertion that never got to run — a failure that says nothing about
+  // workspace ownership, the thing under test.
+}, 120000)
 
 for (const [name, profile] of PROFILES) {
   describe(name, () => {

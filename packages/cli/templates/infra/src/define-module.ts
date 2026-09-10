@@ -1,6 +1,16 @@
 import type { z } from 'zod'
 import { ensureApplyContext } from './context'
-import type { ApplyFn, DestroyFn, ModuleDefinition, ModuleInstance, InstanceOptions } from './types'
+import type {
+  ActionDeclaration,
+  ApplyFn,
+  BoundAction,
+  DestroyFn,
+  InstanceOptions,
+  ModuleDefinition,
+  ModuleInstance,
+  ReadinessDeclaration,
+  SecretOutputs,
+} from './types'
 
 interface DefineModuleOptions<TConfig extends z.ZodType, TOutputs extends z.ZodType> {
   name: string
@@ -8,6 +18,12 @@ interface DefineModuleOptions<TConfig extends z.ZodType, TOutputs extends z.ZodT
   outputs: TOutputs
   apply: ApplyFn<z.infer<TConfig>, z.infer<TOutputs>>
   destroy?: DestroyFn<z.infer<TConfig>>
+  /** What proves the applied resource is usable — see `ReadinessDeclaration`. */
+  ready?: ReadinessDeclaration<z.infer<TConfig>, z.infer<TOutputs>>
+  /** Operator-invoked verbs, by name — see `ActionDeclaration`. */
+  actions?: Record<string, ActionDeclaration<z.infer<TConfig>>>
+  /** Which outputs are credentials, and on what cadence — see `SecretOutputs`. */
+  secretOutputs?: SecretOutputs<z.infer<TOutputs>>
 }
 
 /**
@@ -42,6 +58,17 @@ export function legacyConfigEphemeral(moduleName: string, config: unknown): bool
   )
 }
 
+function bindActions<TConfig>(
+  actions: Record<string, ActionDeclaration<TConfig>>,
+): Record<string, BoundAction<TConfig>> {
+  return Object.fromEntries(
+    Object.entries(actions).map(([name, action]) => [
+      name,
+      { ...action, run: (config: TConfig, ctx) => action.run(config, ensureApplyContext(ctx)) },
+    ]),
+  )
+}
+
 export function defineModule<TConfig extends z.ZodType, TOutputs extends z.ZodType>(
   opts: DefineModuleOptions<TConfig, TOutputs>,
 ): ModuleDefinition<TConfig, TOutputs> {
@@ -56,6 +83,20 @@ export function defineModule<TConfig extends z.ZodType, TOutputs extends z.ZodTy
     // passed through untouched.
     apply: (config, ctx) => opts.apply(config, ensureApplyContext(ctx)),
     destroy: opts.destroy && ((config, ctx) => opts.destroy!(config, ensureApplyContext(ctx))),
+    // A probe is a module body like any other: it reaches the provider, and it
+    // reads its credential the same way `apply` did. So it gets the same
+    // context, normalized in the same place.
+    ready: opts.ready && {
+      ...opts.ready,
+      probe: (outputs, config, ctx) => opts.ready!.probe(outputs, config, ensureApplyContext(ctx)),
+    },
+    // Same normalization, same reason: an action body is a module body, and
+    // it reaches its credential and its imports exactly as `apply` does.
+    actions: opts.actions && bindActions(opts.actions),
+    // A declaration, not behaviour: the engine reads it, the module body never
+    // does. Carried verbatim so `undefined` stays absent rather than becoming a
+    // present-but-empty key the engine would have to special-case.
+    ...(opts.secretOutputs ? { secretOutputs: opts.secretOutputs } : {}),
     instance(instanceOpts: InstanceOptions<TConfig>): ModuleInstance<TOutputs> {
       return {
         name: instanceOpts.name,

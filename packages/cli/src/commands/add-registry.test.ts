@@ -79,8 +79,15 @@ test('the built-in registry census is non-empty and holds the promoted host prim
 
 test('`zbc add <unknown>` names every module and app it could have resolved', () => {
   const expected = [...census(MODULES), ...census(APPS)].toSorted()
-  const listed = addUnknown()
-    .match(/Available: ([^.]+)\./)?.[1]
+  // Narrowed rather than asserted: `?.[1]` is `string | undefined`, and calling
+  // `.split` on it straight away both fails the typecheck and — when the CLI
+  // ever stops printing the list — reports a TypeError instead of the fact that
+  // there was no list to compare.
+  const available = addUnknown().match(/Available: ([^.]+)\./)?.[1]
+  if (available === undefined) {
+    throw new Error('`zbc add <unknown>` printed no "Available: …" list to compare against')
+  }
+  const listed = available
     .split(',')
     .map((s) => s.trim())
     .toSorted()

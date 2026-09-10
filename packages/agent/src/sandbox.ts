@@ -166,6 +166,17 @@ export function srtSettings(
         '/usr',
         '/bin',
         '/sbin',
+        // The same dual-spelling rule as /private below, for the other platform.
+        // On a merged-/usr Linux, /lib is a SYMLINK to usr/lib — and `srt`
+        // tmpfs-es every top-level name it was not given, *after* it has
+        // re-bound /usr. So an unlisted /lib mounts an empty tmpfs straight
+        // through the symlink onto /usr/lib, taking the dynamic loader with it,
+        // and every binary in the sandbox then fails to exec with a bare
+        // `No such file or directory` naming the binary rather than the loader.
+        // Naming it widens nothing: /usr is already allowed, and /lib IS
+        // /usr/lib. /lib64 is the same story on x86_64.
+        '/lib',
+        '/lib64',
         '/opt',
         '/System',
         '/Library',
