@@ -70,6 +70,12 @@ test('CLAUDE.md can be restored without giving up the other levers', () => {
   expect(o.strictMcpConfig).toBe(true)
 })
 
+test('abortController is absent unless given — the SDK has no signal option', () => {
+  expect('abortController' in minimalOptions()).toBe(false)
+  const controller = new AbortController()
+  expect(minimalOptions({ abortController: controller }).abortController).toBe(controller)
+})
+
 // A fake query: the stream shape is all `run` depends on.
 function fakeQuery(messages: unknown[]): typeof query {
   return async function* () {

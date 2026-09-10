@@ -104,6 +104,14 @@ export type MinimalOptions = {
    */
   effort?: Options['effort']
   /**
+   * Cancellation. The SDK's `Options` has `abortController`, not `signal`
+   * (sdk.d.ts, `Options.abortController`), so a caller-owned controller is the
+   * only way to stop a run immediately — a timeout has to be built on it.
+   * Omitted by default, and the key is absent rather than `undefined`, as with
+   * `effort`.
+   */
+  abortController?: AbortController
+  /**
    * Extra environment for the subprocess, merged over the inherited environment
    * but under this module's own flags, so a caller cannot accidentally
    * re-enable attribution or non-essential traffic by passing an env bag.
@@ -191,6 +199,7 @@ export function minimalOptions({
   settingSources = [],
   thinking = { type: 'disabled' },
   effort,
+  abortController,
   env: extraEnv,
   inheritEnv = true,
   autoMemory = false,
@@ -204,6 +213,7 @@ export function minimalOptions({
     settingSources,
     thinking,
     ...(effort === undefined ? {} : { effort }),
+    ...(abortController === undefined ? {} : { abortController }),
 
     // The spread is load-bearing: `env` REPLACES the subprocess environment
     // rather than merging into it, so dropping it would take PATH and HOME
