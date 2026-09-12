@@ -18,8 +18,10 @@
  */
 
 import { parseArgs, type WatchOptions } from './args'
+import { readAuthorization, realCredentialDeps, runCredential } from './credential'
 import { remoteList, symbolicHead, toplevel } from './git'
-import { parseHead, parseRemoteList, pickRemote } from './remote'
+import { originOf, parseHead, parseRemoteList, pickRemote } from './remote'
+import { realSetupDeps, runSetup } from './setup'
 import { watch } from './watch'
 
 const VERSION = '0.1.0'
@@ -28,6 +30,8 @@ const HELP = `agentgit — watch a walgit repository and keep a clone current
 
 USAGE
   agentgit watch [<repo>[=<dir>] …] [options]
+  agentgit setup [<host>] [--local]
+  agentgit credential get|store|erase
 
   Run it inside a clone with no arguments and it reads the host, the
   repository and the ref from the remote and the branch you are on.
@@ -45,8 +49,19 @@ OPTIONS
   -h, --help        this
   -v, --version     version
 
+PRIVATE REPOSITORIES
+  A walgit repository carrying a Reader List refuses every read until a listed
+  key signs the host's challenge. agentgit setup writes the one config line
+  that makes git ask this client for that signature:
+
+    git config --global credential.https://<host>.helper '!agentgit credential'
+
+  After it, clone, fetch, push and watch need nothing typed. The key is the one
+  git already signs pushes with (user.signingkey); nothing is stored.
+
 EXAMPLES
   agentgit watch                        # in a clone: everything is inferred
+  agentgit setup                        # in a clone: turn the helper on for its host
   agentgit watch --once                 # block until the other agent pushes
   agentgit watch --on 'bun test'        # and run the suite when it lands
   agentgit watch a=../a b=../b          # one socket, several checkouts
@@ -75,6 +90,8 @@ function resolve(options: WatchOptions): Parameters<typeof watch>[0] {
 
   let host = options.host ?? envHost
   let remoteName = 'origin'
+  /** The remote's scheme and host, for the credential the event socket needs. */
+  let origin: string | null = null
   const targets = new Map(options.targets)
   const refs = [...options.refs]
 
@@ -92,10 +109,12 @@ function resolve(options: WatchOptions): Parameters<typeof watch>[0] {
       if (host === null)
         fail('no --host and no $AGENTGIT_HOST, and not inside a clone to read one from')
     } else {
-      const found = pickRemote(parseRemoteList(remoteList(root)))
+      const remotes = parseRemoteList(remoteList(root))
+      const found = pickRemote(remotes)
       if (found) {
         remoteName = found.name
         host ??= found.host
+        origin = originOf(remotes.find((remote) => remote.name === found.name)?.url ?? '')
         if (targets.size === 0) targets.set(found.repo, root)
       } else if (targets.size === 0) {
         fail('no https remote here that looks like a walgit repository — pass <repo> and --host')
@@ -119,6 +138,15 @@ function resolve(options: WatchOptions): Parameters<typeof watch>[0] {
   return {
     host,
     token: options.token ?? envToken,
+    // Only where no token was given: a deployment token and a Read Challenge
+    // signature arrive in the same header, and presenting both is not a thing
+    // one request can do. Re-derived on every connect rather than cached — a
+    // nonce stands for five minutes, and a stale one is a socket that is
+    // refused rather than one that reconnects.
+    credential:
+      (options.token ?? envToken) !== null
+        ? null
+        : () => readAuthorization(origin ?? `https://${host}`, realCredentialDeps()),
     targets,
     refs: options.allRefs ? [] : refs,
     remoteName,
@@ -145,4 +173,25 @@ switch (parsed.kind) {
   case 'watch':
     watch(resolve(parsed.options))
     break
+  case 'credential': {
+    // git writes the request and closes the pipe; reading it to the end before
+    // answering is what keeps `get` from racing its own stdout. Iterated
+    // rather than piped through a `Response`, because `process.stdin` is a
+    // node stream under node and a web stream is what that constructor takes.
+    const chunks: Buffer[] = []
+    for await (const chunk of process.stdin) chunks.push(Buffer.from(chunk))
+    const stdin = Buffer.concat(chunks).toString('utf8')
+    const answered = await runCredential(parsed.operation, stdin, realCredentialDeps())
+    if (answered.stdout) process.stdout.write(answered.stdout)
+    if (answered.stderr) process.stderr.write(answered.stderr)
+    process.exitCode = answered.code
+    break
+  }
+  case 'setup': {
+    const done = await runSetup({ host: parsed.host, global: parsed.global }, realSetupDeps())
+    if (done.stdout) process.stdout.write(done.stdout)
+    if (done.stderr) process.stderr.write(done.stderr)
+    process.exitCode = done.code
+    break
+  }
 }

@@ -40,6 +40,8 @@ interface Outcome {
   n: number
   name: string
   ok: boolean
+  /** Why it did not run, for a scenario this checkout cannot run at all. */
+  skipped?: string
   ms: number
   notes: string[]
   error?: string
@@ -86,6 +88,12 @@ try {
   for (const scenario of selected) {
     const startedAt = performance.now()
     process.stdout.write(`[${scenario.n}/${SCENARIOS.length}] ${scenario.name}\n`)
+    const skipped = scenario.skip?.() ?? null
+    if (skipped !== null) {
+      outcomes.push({ n: scenario.n, name: scenario.name, ok: true, skipped, ms: 0, notes: [] })
+      console.log(`      SKIP — ${skipped}\n`)
+      continue
+    }
     try {
       const notes = await scenario.run(run, { quick })
       const ms = Math.round(performance.now() - startedAt)
@@ -111,11 +119,16 @@ function indent(text: string): string {
 }
 
 const failed = outcomes.filter((o) => !o.ok)
+const skippedOutcomes = outcomes.filter((o) => o.skipped)
+const ran = outcomes.length - failed.length - skippedOutcomes.length
 console.log('─'.repeat(72))
-for (const o of outcomes) console.log(`${o.ok ? 'PASS' : 'FAIL'}  ${o.n}. ${o.name} (${o.ms}ms)`)
+for (const o of outcomes) {
+  const verdict = o.skipped ? 'SKIP' : o.ok ? 'PASS' : 'FAIL'
+  console.log(`${verdict}  ${o.n}. ${o.name} (${o.ms}ms)${o.skipped ? ` — ${o.skipped}` : ''}`)
+}
+const notRun = SCENARIOS.length - selected.length + skippedOutcomes.length
 console.log(
-  `${outcomes.length - failed.length}/${SCENARIOS.length} scenarios passed` +
-    (selected.length < SCENARIOS.length ? ` (${SCENARIOS.length - selected.length} not run)` : ''),
+  `${ran}/${SCENARIOS.length} scenarios passed` + (notRun > 0 ? ` (${notRun} not run)` : ''),
 )
 
 if (process.env.WALGIT_E2E_JSON) {
@@ -128,7 +141,7 @@ if (process.env.WALGIT_E2E_JSON) {
 // 1 = something is broken. 2 = nothing broke but the suite ran less than the
 // full set, which must not be readable as a clean sweep by a script either.
 if (failed.length > 0) process.exit(1)
-if (selected.length < SCENARIOS.length) {
+if (notRun > 0) {
   console.log('PARTIAL RUN — exiting 2 so this cannot be mistaken for a full pass.')
   process.exit(2)
 }
