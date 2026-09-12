@@ -57,3 +57,21 @@ const round = (n: number) => String(Math.round(n * 100) / 100)
 export function flagEnabled(raw: string | undefined): boolean {
   return raw === '1' || raw === 'true'
 }
+
+/**
+ * A configured secret seed, or `null` for "this deployment does not offer the
+ * capability that seed IS".
+ *
+ * walgit has two of them — the push-certificate nonce seed (docs/adr/0011) and
+ * the Private one the Read Challenge's nonce is derived from (docs/adr/0013) —
+ * and they must not acquire two readings of "unset". Blank collapses to unset
+ * for the reason a limit's blank does: a variable cleared to an empty string is
+ * a capability turned off, not one seeded with nothing. git would take `""` as
+ * a seed and derive perfectly usable nonces from it, so the collapse has to
+ * happen here rather than at whatever writes the config.
+ */
+export function seedValue(raw: string | undefined): string | null {
+  if (raw === undefined) return null
+  const seed = raw.trim()
+  return seed === '' ? null : seed
+}

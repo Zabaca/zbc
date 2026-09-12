@@ -35,7 +35,7 @@
  */
 
 import type { ContainerEnvName } from './container-env'
-import { flagEnabled, positiveNumber } from './policy'
+import { flagEnabled, positiveNumber, seedValue } from './policy'
 import { signedPushEnabled } from './provenance'
 
 /**
@@ -61,6 +61,7 @@ type CapabilityVar = Extract<
   | 'WALGIT_EVENTS_TOKEN'
   | 'WALGIT_PUSH_CERT_SEED'
   | 'WALGIT_SIGNER_LISTS'
+  | 'WALGIT_PRIVATE_REPOS'
 >
 
 /**
@@ -131,6 +132,18 @@ export type Capabilities = {
    * it, its own included, with no way to sign out of it.
    */
   namesCanBeClaimed: boolean
+  /**
+   * A name can refuse a stranger READING it: the Private seed is set, and the
+   * name can be claimed at all (docs/adr/0013).
+   *
+   * Everything `namesCanBeClaimed` needs, plus its own seed — because a Reader
+   * List lives in the Signer List's tree and is written by a push that list
+   * judged, so on a name anyone may write to it protects nothing. The seed is
+   * its own variable for the reason ownership's flag is not the certificate
+   * seed: a deployment that turned on ownership must not acquire read gating as
+   * a side effect.
+   */
+  namesCanBePrivate: boolean
   /** A repository is collected this many hours after its last push. */
   retentionHours: number | null
   /** Largest single push, in bytes. */
@@ -180,6 +193,8 @@ export function capabilitiesFrom(
     signedPushes,
     namesCanRefuse,
     namesCanBeClaimed: namesCanRefuse && signedPushes,
+    namesCanBePrivate:
+      namesCanRefuse && signedPushes && seedValue(env.WALGIT_PRIVATE_REPOS) !== null,
     retentionHours: positiveNumber(env.WALGIT_RETENTION_HOURS),
     maxPushBytes: positiveNumber(env.WALGIT_MAX_PUSH_BYTES),
     maxRepoBytes: positiveNumber(env.WALGIT_MAX_REPO_BYTES),

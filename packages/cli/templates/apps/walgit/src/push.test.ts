@@ -470,7 +470,11 @@ describe('the Signer List', () => {
   const listMove = (oldOid = ZERO_OID, newOid = LIST_OID) => change(SIGNERS_REF, oldOid, newOid)
 
   /** `pre-receive` for a push carrying a pack and writing `signerList`. */
-  const preReceiveListing = async (store: MemoryStore, signerList: string[] | null) => {
+  const preReceiveListing = async (
+    store: MemoryStore,
+    signerList: string[] | null,
+    readerList: string[] | null = null,
+  ) => {
     const dir = scratch()
     const quarantine = path.join(dir, 'tmp_objdir-incoming-abc')
     fs.mkdirSync(path.join(quarantine, 'pack'), { recursive: true })
@@ -483,6 +487,7 @@ describe('the Signer List', () => {
       now: () => new Date(AT),
       signer: anonymous,
       signerList,
+      readerList,
     })
     return readPending(dir)!
   }
@@ -515,6 +520,47 @@ describe('the Signer List', () => {
     // where nobody claims anything writes byte-for-byte what it wrote before.
     const body = new TextDecoder().decode((await store.get('repos/r/index.json'))!.body)
     expect(body).not.toContain('claim')
+  })
+
+  /**
+   * The Reader List rides the same Claim to the same compare-and-swap
+   * (docs/adr/0013): one field beside the signers, written by the push that
+   * moved the ref, absent when the tree holds no `readers` file.
+   */
+  test('a push that writes a Reader List records it beside the signers', async () => {
+    const store = new MemoryStore()
+    const recorded = await preReceiveListing(store, [KEY], [OTHER])
+    expect(recorded.claim).toEqual({ signers: [KEY], readers: [OTHER], ts: AT })
+
+    expect((await publishPush(store, 'r', recorded, [listMove()])).ok).toBe(true)
+    expect((await loadIndex(store, 'r')).index.claim).toEqual({
+      signers: [KEY],
+      readers: [OTHER],
+      ts: AT,
+    })
+  })
+
+  test('a Reader List naming nobody is recorded as naming nobody, not as absent', async () => {
+    // The spelling of "private, and only the Signers read it". Collapsing it
+    // into absence would make the repository world-readable on the strength of
+    // a file that says the opposite.
+    const store = new MemoryStore()
+    const recorded = await preReceiveListing(store, [KEY], [])
+    expect(recorded.claim).toEqual({ signers: [KEY], readers: [], ts: AT })
+
+    await publishPush(store, 'r', recorded, [listMove()])
+    expect((await loadIndex(store, 'r')).index.claim?.readers).toEqual([])
+  })
+
+  test('a claim with no Reader List has no readers field at all', async () => {
+    const store = new MemoryStore()
+    const recorded = await preReceiveListing(store, [KEY])
+    expect(recorded.claim).toEqual({ signers: [KEY], ts: AT })
+
+    await publishPush(store, 'r', recorded, [listMove()])
+    const body = new TextDecoder().decode((await store.get('repos/r/index.json'))!.body)
+    expect(body).toContain('"signers"')
+    expect(body).not.toContain('readers')
   })
 
   test('an ordinary push to a claimed repository leaves the list alone', async () => {

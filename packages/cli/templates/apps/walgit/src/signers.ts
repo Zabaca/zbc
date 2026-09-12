@@ -73,7 +73,7 @@ export function signerListsEnabled(env: Record<string, string | undefined> = pro
 // ── The file ────────────────────────────────────────────────────────────────
 
 export type ParsedList =
-  | { ok: true; signers: string[] }
+  | { ok: true; fingerprints: string[] }
   /** A line that is neither blank, a comment, nor a fingerprint. */
   | { ok: false; line: string; lineNumber: number }
 
@@ -93,8 +93,8 @@ export type ParsedList =
  * A comment may trail a fingerprint (`SHA256:… # alice's laptop`), which is
  * free — `#` cannot occur in base64, so the two readings cannot collide.
  */
-export function parseSignerList(text: string): ParsedList {
-  const signers: string[] = []
+export function parseKeyList(text: string): ParsedList {
+  const fingerprints: string[] = []
   const seen = new Set<string>()
   const lines = text.split('\n')
   for (let i = 0; i < lines.length; i += 1) {
@@ -104,19 +104,46 @@ export function parseSignerList(text: string): ParsedList {
     if (!isFingerprint(entry)) return { ok: false, line: entry, lineNumber: i + 1 }
     if (seen.has(entry)) continue
     seen.add(entry)
-    signers.push(entry)
+    fingerprints.push(entry)
   }
-  return { ok: true, signers }
+  return { ok: true, fingerprints }
 }
 
 const commentAt = (line: string) => (line.includes('#') ? line.indexOf('#') : line.length)
 
 // ── Finding the file ────────────────────────────────────────────────────────
 
-export type SignersFile =
+export type ListFile =
   | { found: true; text: string }
-  /** Why not, in the words the refusal message repeats back to the pusher. */
-  | { found: false; why: string }
+  | {
+      found: false
+      /** Why not, in the words the refusal message repeats back to the pusher. */
+      why: string
+      /**
+       * Is this simply a commit with no such file in it, as opposed to a file
+       * walgit could not read (a directory, one past the cap, a failed read)?
+       *
+       * Said as a field rather than inferred from `why`, because one caller
+       * acts on the difference and matching on a sentence would make the copy
+       * load-bearing: a missing `signers` is a refusal, while a missing
+       * `readers` is the ordinary answer — presence is the switch, so a
+       * repository without the file is world-readable rather than broken
+       * (docs/adr/0013).
+       */
+      absent: boolean
+    }
+
+/**
+ * Which of the two lists a tree holds — the keys that may PUSH to this name,
+ * and the keys that may READ it (docs/adr/0013).
+ *
+ * Both live in the same commit on `refs/walgit/signers`, which is what lets a
+ * Reader List inherit everything ownership already bought: writing it is a
+ * signed push judged by the Signer List that stood before it, the Index carries
+ * a derived copy beside the signers, and reading it is a clone. A second ref
+ * would have needed a second authorization model for writes.
+ */
+export type ListName = 'signers' | 'readers'
 
 /**
  * Read the `signers` file out of the commit a push points the list ref at.
@@ -126,7 +153,7 @@ export type SignersFile =
  * `push-cert.ts` puts in front of its blob reader and `announce.ts` puts in
  * front of `fetch`.
  */
-export type SignersSource = (oid: string) => SignersFile
+export type ListSource = (oid: string, file: ListName) => ListFile
 
 /**
  * The most a `signers` file walgit will read, in bytes — roughly a thousand
@@ -142,7 +169,7 @@ export type SignersSource = (oid: string) => SignersFile
  * exactly the "a key drops out and nobody notices" failure the strict parser
  * below exists to prevent. Refusing early is the only reading that cannot lie.
  */
-export const MAX_SIGNER_LIST_BYTES = 64 * 1024
+export const MAX_KEY_LIST_BYTES = 64 * 1024
 
 /**
  * The real source: `git cat-file`, against the repository the hook runs in.
@@ -165,51 +192,64 @@ export const MAX_SIGNER_LIST_BYTES = 64 * 1024
  * special handling: git puts the quarantine on the hook's object path, so
  * `cat-file` sees them exactly as `merge-base` does in `append-only.ts`.
  */
-export function gitSignersSource(gitDir: string): SignersSource {
-  return (oid) => {
+export function gitListSource(gitDir: string): ListSource {
+  return (oid, file) => {
     const checked = git(['--git-dir', gitDir, 'cat-file', '--batch-check'], {
-      input: `${oid}\n${oid}:signers\n`,
+      input: `${oid}\n${oid}:${file}\n`,
     })
-    const [tip, file] = checked.stdout.split('\n')
-    if (checked.status !== 0 || tip === undefined || file === undefined) {
-      return { found: false, why: `git could not read ${SIGNERS_REF} at ${oid}` }
+    const [tip, found] = checked.stdout.split('\n')
+    if (checked.status !== 0 || tip === undefined || found === undefined) {
+      return { found: false, absent: false, why: `git could not read ${SIGNERS_REF} at ${oid}` }
     }
 
     const tipType = batchCheckType(tip)
     if (tipType !== 'commit') {
-      return { found: false, why: `${SIGNERS_REF} points at ${tipType ?? 'no such object'}` }
-    }
-
-    const fileType = batchCheckType(file)
-    if (fileType === null) return { found: false, why: NO_FILE }
-    if (fileType !== 'blob') {
-      return { found: false, why: '`signers` in that commit is a directory, not a file' }
-    }
-
-    const size = batchCheckSize(file)
-    if (size === null) return { found: false, why: NO_FILE }
-    if (size > MAX_SIGNER_LIST_BYTES) {
       return {
         found: false,
-        why:
-          `the \`signers\` file is ${size} bytes, and walgit reads at most ` +
-          `${MAX_SIGNER_LIST_BYTES}`,
+        absent: false,
+        why: `${SIGNERS_REF} points at ${tipType ?? 'no such object'}`,
       }
     }
 
-    const blob = git(['--git-dir', gitDir, 'cat-file', 'blob', `${oid}:signers`])
+    const fileType = batchCheckType(found)
+    if (fileType === null) return { found: false, absent: true, why: noFile(file) }
+    if (fileType !== 'blob') {
+      return {
+        found: false,
+        absent: false,
+        why: `\`${file}\` in that commit is a directory, not a file`,
+      }
+    }
+
+    const size = batchCheckSize(found)
+    if (size === null) return { found: false, absent: true, why: noFile(file) }
+    if (size > MAX_KEY_LIST_BYTES) {
+      return {
+        found: false,
+        absent: false,
+        why:
+          `the \`${file}\` file is ${size} bytes, and walgit reads at most ` +
+          `${MAX_KEY_LIST_BYTES}`,
+      }
+    }
+
+    const blob = git(['--git-dir', gitDir, 'cat-file', 'blob', `${oid}:${file}`])
     // It was there a moment ago and a git object is immutable, so this is a
     // read that failed rather than a file that is absent — and saying "add a
     // `signers` file" to someone who just pushed one is worse than saying
     // nothing.
     if (blob.status !== 0) {
-      return { found: false, why: `git could not read the \`signers\` file at ${oid}` }
+      return {
+        found: false,
+        absent: false,
+        why: `git could not read the \`${file}\` file at ${oid}`,
+      }
     }
     return { found: true, text: blob.stdout }
   }
 }
 
-const NO_FILE = 'that commit has no file named `signers` in it'
+const noFile = (file: ListName) => `that commit has no file named \`${file}\` in it`
 
 /** `<sha> <type> <size>` → the type; `<input> missing` → `null`. */
 function batchCheckType(line: string): string | null {
@@ -251,8 +291,32 @@ export type SignerListVerdict =
       ok: true
       /** The list this push writes, or `null` when it writes none. */
       signers: string[] | null
+      /**
+       * The Reader List this push writes, or `null` when the tree holds no
+       * `readers` file — and `null` too whenever the caller did not ask for one,
+       * which is every deployment without the Private seed (docs/adr/0013).
+       *
+       * `[]` is a value and not an absence: an empty Reader List is valid, and
+       * it means "private, and only the Signers read it". Collapsing the two
+       * would make a repository world-readable by writing a file that says the
+       * opposite.
+       */
+      readers: string[] | null
     }
   | { ok: false; kind: ListRefusal; message: string }
+
+/** What the caller wants resolved out of the tree, beyond the Signer List. */
+export interface ListOptions {
+  /**
+   * Resolve the `readers` file too. Off unless the deployment sets the Private
+   * seed (`privateReposEnabled`, `src/private.ts`): the derived copy in the
+   * Index is maintained only while that is set, exactly as the Claim is only
+   * maintained under the Signer List flag, and a deployment that is not doing
+   * Private repositories must not start refusing pushes over a file it would
+   * never act on.
+   */
+  readers?: boolean
+}
 
 /**
  * Judge what a push does to a repository's Signer List, and resolve it.
@@ -270,39 +334,79 @@ export type SignerListVerdict =
 export function checkSignerList(
   repoId: string,
   changes: readonly RefChange[],
-  read: SignersSource,
+  read: ListSource,
+  options: ListOptions = {},
 ): SignerListVerdict {
   // The last one wins, matching what the ref will hold: git applies a push's
   // updates in order, and a push naming one ref twice is a client bug rather
   // than a case with a meaning of its own.
   const moved = changes.filter((c) => c.ref === SIGNERS_REF).at(-1)
-  if (!moved) return { ok: true, signers: null }
+  if (!moved) return { ok: true, signers: null, readers: null }
 
   if (moved.newOid === ZERO_OID) {
-    return refuse(repoId, 'empty-list', `this push deletes ${SIGNERS_REF}`)
+    return refuse(repoId, 'empty-list', `this push deletes ${SIGNERS_REF}`, 'signers')
   }
 
-  const file = read(moved.newOid)
-  if (!file.found) return refuse(repoId, 'unreadable-list', file.why)
+  const file = read(moved.newOid, 'signers')
+  if (!file.found) return refuse(repoId, 'unreadable-list', file.why, 'signers')
 
-  const parsed = parseSignerList(file.text)
+  const parsed = parseKeyList(file.text)
   if (!parsed.ok) {
-    return refuse(
-      repoId,
-      'unreadable-list',
-      `line ${parsed.lineNumber} is not a key fingerprint: ${JSON.stringify(parsed.line)}`,
-    )
+    return refuse(repoId, 'unreadable-list', badLine(parsed), 'signers')
   }
-  if (parsed.signers.length === 0) {
-    return refuse(repoId, 'empty-list', 'the file you pushed names no keys')
+  if (parsed.fingerprints.length === 0) {
+    return refuse(repoId, 'empty-list', 'the file you pushed names no keys', 'signers')
   }
-  return { ok: true, signers: parsed.signers }
+
+  // The Reader List, read out of the SAME commit and only after the Signer List
+  // resolved. The order is the rule ADR-0013 states: a Reader List on a name
+  // anyone can write to protects nothing, because the next stranger's push can
+  // add themselves to it — so `readers` beside no readable `signers` is refused
+  // as an unreadable list, which is exactly what the failure above already
+  // says, in walgit's words, before this line is reached.
+  const readers = options.readers ? readReaders(repoId, moved.newOid, read) : null
+  if (readers !== null && 'ok' in readers) return readers
+  return { ok: true, signers: parsed.fingerprints, readers }
 }
 
-const refuse = (repoId: string, kind: ListRefusal, why: string): SignerListVerdict => ({
+/**
+ * The `readers` file, or `null` when the tree holds none — or a refusal.
+ *
+ * Absence is not a failure here and that is the whole switch: a repository is
+ * Private if the file exists and world-readable if it does not, so the source's
+ * "no such file" is the ordinary answer rather than an error. Every OTHER way
+ * of not being able to read it — a directory, a file past the cap, a bad line —
+ * refuses the push, because an unreadable Reader List would leave an agent
+ * believing a repository is private when the host does not think so.
+ */
+function readReaders(
+  repoId: string,
+  oid: string,
+  read: ListSource,
+): string[] | Extract<SignerListVerdict, { ok: false }> | null {
+  const file = read(oid, 'readers')
+  if (!file.found) {
+    return file.absent ? null : refuse(repoId, 'unreadable-list', file.why, 'readers')
+  }
+  const parsed = parseKeyList(file.text)
+  // An empty Reader List is valid, unlike an empty Signer List: it loses
+  // nothing, because Signers read without being listed (docs/adr/0013).
+  if (!parsed.ok) return refuse(repoId, 'unreadable-list', badLine(parsed), 'readers')
+  return parsed.fingerprints
+}
+
+const badLine = (parsed: Extract<ParsedList, { ok: false }>): string =>
+  `line ${parsed.lineNumber} is not a key fingerprint: ${JSON.stringify(parsed.line)}`
+
+const refuse = (
+  repoId: string,
+  kind: ListRefusal,
+  why: string,
+  list: ListName,
+): Extract<SignerListVerdict, { ok: false }> => ({
   ok: false,
   kind,
-  message: rejectionMessage(repoId, kind, why),
+  message: rejectionMessage(repoId, kind, why, list),
 })
 
 /**
@@ -310,33 +414,56 @@ const refuse = (repoId: string, kind: ListRefusal, why: string): SignerListVerdi
  * one: it states what walgit found, the format it wanted, and the one thing to
  * do next — an agent that cannot act on a refusal has been told nothing.
  */
-function rejectionMessage(repoId: string, kind: ListRefusal, why: string): string {
+function rejectionMessage(repoId: string, kind: ListRefusal, why: string, list: ListName): string {
   const what =
-    kind === 'empty-list'
+    list === 'readers'
       ? [
-          `An empty Signer List would leave ${repoId} claimable by anyone, which is a`,
-          'way to lose the name rather than a way to release it. To hand the name on,',
-          'push a list naming the other key; to stop using it, simply stop pushing.',
+          `walgit could not read a Reader List out of what you pushed to ${SIGNERS_REF},`,
+          `so it will not record one: an unreadable list would leave ${repoId} looking`,
+          'private to you and world-readable to the host.',
+        ]
+      : kind === 'empty-list'
+        ? [
+            `An empty Signer List would leave ${repoId} claimable by anyone, which is a`,
+            'way to lose the name rather than a way to release it. To hand the name on,',
+            'push a list naming the other key; to stop using it, simply stop pushing.',
+          ]
+        : [
+            `walgit could not read a Signer List out of what you pushed to ${SIGNERS_REF},`,
+            `so it will not record one: an unreadable list would leave ${repoId} looking`,
+            'claimed to you and unclaimed to the host.',
+          ]
+  const format =
+    list === 'readers'
+      ? [
+          'A Reader List is a file named `readers` in the SAME commit as `signers` on',
+          `${SIGNERS_REF}, one SSH key fingerprint per line:`,
+          '',
+          '    # the agent that reads this',
+          '    SHA256:BMBEMXbMBsnjXwgNs+86IiJrPgYlZEsWxaKZW/2/1dw',
+          '',
+          'Blank lines and `#` comments are ignored. A fingerprint is what',
+          '`ssh-keygen -lf <key>` prints. An EMPTY `readers` file is valid and means the',
+          'Signer List reads it and nobody else; no `readers` file at all means the',
+          'repository is world-readable, as every repository is until someone writes one.',
         ]
       : [
-          `walgit could not read a Signer List out of what you pushed to ${SIGNERS_REF},`,
-          `so it will not record one: an unreadable list would leave ${repoId} looking`,
-          'claimed to you and unclaimed to the host.',
+          `A Signer List is a COMMIT on ${SIGNERS_REF} whose tree holds a file named`,
+          '`signers`, one SSH key fingerprint per line:',
+          '',
+          '    # laptop',
+          '    SHA256:BMBEMXbMBsnjXwgNs+86IiJrPgYlZEsWxaKZW/2/1dw',
+          '',
+          'Blank lines and `#` comments are ignored. A fingerprint is what',
+          '`ssh-keygen -lf <key>` prints. List at least two keys if you can: there is no',
+          'recovery path for a lost one.',
         ]
   return [
     `walgit: refused — ${why}.`,
     '',
     ...what,
     '',
-    `A Signer List is a COMMIT on ${SIGNERS_REF} whose tree holds a file named`,
-    '`signers`, one SSH key fingerprint per line:',
-    '',
-    '    # laptop',
-    '    SHA256:BMBEMXbMBsnjXwgNs+86IiJrPgYlZEsWxaKZW/2/1dw',
-    '',
-    'Blank lines and `#` comments are ignored. A fingerprint is what',
-    '`ssh-keygen -lf <key>` prints. List at least two keys if you can: there is no',
-    'recovery path for a lost one.',
+    ...format,
     '',
     'Nothing was uploaded; the repository is unchanged.',
   ].join('\n')

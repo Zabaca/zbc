@@ -21,15 +21,15 @@ import {
   checkSignerAllowed,
   checkSignerList,
   describeSigner,
-  gitSignersSource,
-  MAX_SIGNER_LIST_BYTES,
-  parseSignerList,
+  gitListSource,
+  MAX_KEY_LIST_BYTES,
+  parseKeyList,
   signerListsEnabled,
   type PushSigner,
   type GateRefusal,
   type ListRefusal,
-  type SignersFile,
-  type SignersSource,
+  type ListFile,
+  type ListSource,
 } from './signers'
 import { FileStore } from './store'
 import { commitIndex, emptyIndex, type RefChange } from './wal-index'
@@ -54,7 +54,7 @@ const change = (ref: string, newOid = OID, oldOid = ZERO_OID): RefChange => ({
 
 /** A source that hands back one file for any oid, or one refusal. */
 const source =
-  (file: SignersFile): SignersSource =>
+  (file: ListFile): ListSource =>
   () =>
     file
 const holding = (text: string) => source({ found: true, text })
@@ -83,11 +83,11 @@ describe('the flag', () => {
   })
 })
 
-describe('parseSignerList', () => {
+describe('parseKeyList', () => {
   const reads = (text: string) => {
-    const parsed = parseSignerList(text)
+    const parsed = parseKeyList(text)
     if (!parsed.ok) throw new Error(`expected a readable list, got line ${parsed.lineNumber}`)
-    return parsed.signers
+    return parsed.fingerprints
   }
 
   const cases: [name: string, text: string, signers: string[]][] = [
@@ -138,7 +138,7 @@ describe('parseSignerList', () => {
       // Skipping is the dangerous reading: a typo'd key would drop out
       // silently, and the agent that pushed it would believe it had granted
       // access it had not.
-      const parsed = parseSignerList(text)
+      const parsed = parseKeyList(text)
       expect(parsed.ok).toBe(false)
       if (parsed.ok) return
       expect(parsed.lineNumber).toBe(line)
@@ -151,11 +151,15 @@ describe('checkSignerList', () => {
     const verdict = checkSignerList('alpha', [change('refs/heads/main')], () => {
       throw new Error('the source must not be consulted for a push that moves no list')
     })
-    expect(verdict).toEqual({ ok: true, signers: null })
+    expect(verdict).toEqual({ ok: true, signers: null, readers: null })
   })
 
   test('a push with no ref changes at all writes none, and is allowed', () => {
-    expect(checkSignerList('alpha', [], holding(`${KEY_A}\n`))).toEqual({ ok: true, signers: null })
+    expect(checkSignerList('alpha', [], holding(`${KEY_A}\n`))).toEqual({
+      ok: true,
+      signers: null,
+      readers: null,
+    })
   })
 
   test('a readable list is resolved to the keys it names', () => {
@@ -164,7 +168,7 @@ describe('checkSignerList', () => {
       [change('refs/heads/main'), change(SIGNERS_REF)],
       holding(`# keys\n${KEY_A}\n${KEY_B}\n${KEY_A}\n`),
     )
-    expect(verdict).toEqual({ ok: true, signers: [KEY_A, KEY_B] })
+    expect(verdict).toEqual({ ok: true, signers: [KEY_A, KEY_B], readers: null })
   })
 
   test('the list is read from the oid the push moves the ref TO', () => {
@@ -182,10 +186,10 @@ describe('checkSignerList', () => {
       [change(SIGNERS_REF, OID), change(SIGNERS_REF, OTHER_OID, OID)],
       (oid) => ({ found: true, text: oid === OTHER_OID ? `${KEY_B}\n` : `${KEY_A}\n` }),
     )
-    expect(verdict).toEqual({ ok: true, signers: [KEY_B] })
+    expect(verdict).toEqual({ ok: true, signers: [KEY_B], readers: null })
   })
 
-  const refused: [name: string, changes: RefChange[], read: SignersSource, kind: ListRefusal][] = [
+  const refused: [name: string, changes: RefChange[], read: ListSource, kind: ListRefusal][] = [
     [
       'a list naming no keys',
       [change(SIGNERS_REF)],
@@ -202,13 +206,13 @@ describe('checkSignerList', () => {
     [
       'a ref pointed straight at a blob',
       [change(SIGNERS_REF)],
-      source({ found: false, why: `${SIGNERS_REF} points at blob` }),
+      source({ found: false, absent: false, why: `${SIGNERS_REF} points at blob` }),
       'unreadable-list',
     ],
     [
       'a commit with no signers file in its tree',
       [change(SIGNERS_REF)],
-      source({ found: false, why: 'that commit has no file named `signers` in it' }),
+      source({ found: false, absent: true, why: 'that commit has no file named `signers` in it' }),
       'unreadable-list',
     ],
     [
@@ -234,19 +238,106 @@ describe('checkSignerList', () => {
     expect(checkSignerList('alpha', [change(SIGNERS_REF)], holding(`${KEY_B}\n`))).toEqual({
       ok: true,
       signers: [KEY_B],
+      readers: null,
     })
+  })
+})
+
+/**
+ * The Reader List: the same file, the same parser, one difference
+ * (docs/adr/0013).
+ *
+ * It is resolved only when the caller asks — the derived copy is maintained
+ * while the Private seed is set, exactly as the Claim is maintained while the
+ * Signer List flag is on — and it is read out of the same tree, so everything
+ * ADR-0012 bought applies to it unchanged.
+ */
+describe('the Reader List', () => {
+  /** A tree holding `signers`, and `readers` only when one is given. */
+  const tree =
+    (signers: string, readers?: string): ListSource =>
+    (_oid, file) => {
+      if (file === 'signers') return { found: true, text: signers }
+      return readers === undefined
+        ? { found: false, absent: true, why: 'that commit has no file named `readers` in it' }
+        : { found: true, text: readers }
+    }
+
+  const resolve = (signers: string, readers?: string) =>
+    checkSignerList('alpha', [change(SIGNERS_REF)], tree(signers, readers), { readers: true })
+
+  test('is resolved beside the signers when the caller asks for it', () => {
+    expect(resolve(`${KEY_A}\n`, `# who may read\n${KEY_B}\n${KEY_B}\n`)).toEqual({
+      ok: true,
+      signers: [KEY_A],
+      readers: [KEY_B],
+    })
+  })
+
+  test('is absent when the file is absent — one spelling of world-readable', () => {
+    expect(resolve(`${KEY_A}\n`)).toEqual({ ok: true, signers: [KEY_A], readers: null })
+  })
+
+  /**
+   * The one difference from the Signer List, and it is on purpose: an empty
+   * Signer List hands the name to the next stranger, while an empty Reader List
+   * loses nothing, because Signers read without being listed. It is the
+   * spelling of "private, and only I read it".
+   */
+  test('is valid when it names nobody, unlike the Signer List', () => {
+    expect(resolve(`${KEY_A}\n`, '# nobody but me\n\n')).toEqual({
+      ok: true,
+      signers: [KEY_A],
+      readers: [],
+    })
+    expect(resolve(`${KEY_A}\n`, '')).toEqual({ ok: true, signers: [KEY_A], readers: [] })
+  })
+
+  test('fails the whole push on a bad line, quoting it and naming the file', () => {
+    const verdict = resolve(`${KEY_A}\n`, `${KEY_B}\nSHA256:oops\n`)
+    expect(verdict.ok).toBe(false)
+    if (verdict.ok) return
+    expect(verdict.kind).toBe('unreadable-list')
+    expect(verdict.message).toContain('"SHA256:oops"')
+    expect(verdict.message).toContain('`readers`')
+  })
+
+  test("is refused unread when the source refuses it, in the source's words", () => {
+    const verdict = checkSignerList(
+      'alpha',
+      [change(SIGNERS_REF)],
+      (_oid, file) =>
+        file === 'signers'
+          ? { found: true, text: `${KEY_A}\n` }
+          : { found: false, absent: false, why: 'the `readers` file is 200000 bytes' },
+      { readers: true },
+    )
+    expect(verdict.ok).toBe(false)
+    if (verdict.ok) return
+    expect(verdict.kind).toBe('unreadable-list')
+    expect(verdict.message).toContain('200000 bytes')
+  })
+
+  test('is not read at all when the caller does not ask', () => {
+    const asked: string[] = []
+    const verdict = checkSignerList('alpha', [change(SIGNERS_REF)], (_oid, file) => {
+      asked.push(file)
+      return { found: true, text: `${KEY_A}\n` }
+    })
+    expect(asked).toEqual(['signers'])
+    expect(verdict).toEqual({ ok: true, signers: [KEY_A], readers: null })
   })
 })
 
 /**
  * The one thing here that cannot be a table entry.
  *
- * `gitSignersSource` IS `git cat-file`, so a double for it would be the bug
+ * `gitListSource` IS `git cat-file`, so a double for it would be the bug
  * restated — the same reason `append-only.test.ts` runs its ancestry test
  * against a real repository. Everything that decides anything sits above this
  * and is tested without it.
  */
-describe('gitSignersSource', () => {
+describe('gitListSource', () => {
   let work: string
   let gitDir: string
   let withList = ''
@@ -255,6 +346,8 @@ describe('gitSignersSource', () => {
   let asDirectory = ''
   let oversized = ''
   let nearCap = ''
+  let withBoth = ''
+  let readersOnly = ''
 
   const nearCapKeys = 1000
 
@@ -299,23 +392,31 @@ describe('gitSignersSource', () => {
     fs.writeFileSync(path.join(work, 'signers'), listOf(nearCapKeys))
     gitOrThrow(['-C', work, 'add', 'signers'])
     nearCap = commit('a lot of keys, but not too many')
+
+    fs.writeFileSync(path.join(work, 'signers'), `${KEY_A}\n`)
+    fs.writeFileSync(path.join(work, 'readers'), `${KEY_B}\n`)
+    gitOrThrow(['-C', work, 'add', 'signers', 'readers'])
+    withBoth = commit('claim, and close it')
+
+    gitOrThrow(['-C', work, 'rm', '--quiet', 'signers'])
+    readersOnly = commit('a Reader List on a name nobody holds')
   })
 
   afterAll(() => fs.rmSync(work, { recursive: true, force: true }))
 
   test('reads the signers file out of a commit', () => {
-    const file = gitSignersSource(gitDir)(withList)
+    const file = gitListSource(gitDir)(withList, 'signers')
     expect(file).toEqual({ found: true, text: `# laptop\n${KEY_A}\n` })
   })
 
   test('and the whole way through, that commit resolves to the key it names', () => {
     expect(
-      checkSignerList('alpha', [change(SIGNERS_REF, withList)], gitSignersSource(gitDir)),
-    ).toEqual({ ok: true, signers: [KEY_A] })
+      checkSignerList('alpha', [change(SIGNERS_REF, withList)], gitListSource(gitDir)),
+    ).toEqual({ ok: true, signers: [KEY_A], readers: null })
   })
 
   test('a commit with no signers file is not a list', () => {
-    const file = gitSignersSource(gitDir)(withoutList)
+    const file = gitListSource(gitDir)(withoutList, 'signers')
     expect(file.found).toBe(false)
     if (file.found) return
     expect(file.why).toContain('`signers`')
@@ -326,21 +427,21 @@ describe('gitSignersSource', () => {
     // fails `merge-base --is-ancestor` with exit 128, which the append-only
     // judge reads as a rewrite — so it could be created once and never edited,
     // leaving no way to grant or revoke (docs/adr/0012).
-    const file = gitSignersSource(gitDir)(blob)
+    const file = gitListSource(gitDir)(blob, 'signers')
     expect(file.found).toBe(false)
     if (file.found) return
     expect(file.why).toContain('blob')
   })
 
   test('an oid this repository has never heard of is not a list', () => {
-    const file = gitSignersSource(gitDir)('f'.repeat(40))
+    const file = gitListSource(gitDir)('f'.repeat(40), 'signers')
     expect(file.found).toBe(false)
   })
 
   test('a directory named signers is refused as a directory, not as a missing file', () => {
     // Telling an agent to add a file it demonstrably just pushed is a refusal
     // it cannot act on, which is the same as no refusal at all.
-    const file = gitSignersSource(gitDir)(asDirectory)
+    const file = gitListSource(gitDir)(asDirectory, 'signers')
     expect(file.found).toBe(false)
     if (file.found) return
     expect(file.why).toContain('directory')
@@ -351,10 +452,10 @@ describe('gitSignersSource', () => {
     // oversized read there can come back TRUNCATED with a zero exit — which
     // would resolve a list that is not the one the ref holds, silently, which
     // is the whole failure the strict parser exists to prevent.
-    const file = gitSignersSource(gitDir)(oversized)
+    const file = gitListSource(gitDir)(oversized, 'signers')
     expect(file.found).toBe(false)
     if (file.found) return
-    expect(file.why).toContain(String(MAX_SIGNER_LIST_BYTES))
+    expect(file.why).toContain(String(MAX_KEY_LIST_BYTES))
     expect(file.why).toMatch(/is \d+ bytes/)
   })
 
@@ -362,13 +463,40 @@ describe('gitSignersSource', () => {
     // The other side of the cap: right under it, every byte survives the
     // subprocess. A truncation here would drop keys off the end of the list
     // and nothing downstream would notice.
-    const file = gitSignersSource(gitDir)(nearCap)
+    const file = gitListSource(gitDir)(nearCap, 'signers')
     expect(file.found).toBe(true)
     if (!file.found) return
-    const parsed = parseSignerList(file.text)
+    const parsed = parseKeyList(file.text)
     expect(parsed.ok).toBe(true)
     if (!parsed.ok) return
-    expect(parsed.signers).toHaveLength(nearCapKeys)
+    expect(parsed.fingerprints).toHaveLength(nearCapKeys)
+  })
+
+  test('both files are read out of the one tree', () => {
+    expect(
+      checkSignerList('alpha', [change(SIGNERS_REF, withBoth)], gitListSource(gitDir), {
+        readers: true,
+      }),
+    ).toEqual({ ok: true, signers: [KEY_A], readers: [KEY_B] })
+  })
+
+  /**
+   * The order ADR-0013 forces: a Reader List on a name anyone can write to
+   * protects nothing, because the next stranger's push adds themselves to it.
+   * So privacy requires a Signer List, and `readers` beside no `signers` is
+   * refused as an unreadable list — on any repository, claimed or not.
+   */
+  test('a readers file with no signers beside it is refused as an unreadable list', () => {
+    const verdict = checkSignerList(
+      'alpha',
+      [change(SIGNERS_REF, readersOnly)],
+      gitListSource(gitDir),
+      { readers: true },
+    )
+    expect(verdict.ok).toBe(false)
+    if (verdict.ok) return
+    expect(verdict.kind).toBe('unreadable-list')
+    expect(verdict.message).toContain('`signers`')
   })
 })
 

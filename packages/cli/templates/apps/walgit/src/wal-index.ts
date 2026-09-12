@@ -144,11 +144,27 @@ export interface Provenance {
 export interface Claim {
   /**
    * Fingerprints, in the order the file names them and with duplicates already
-   * collapsed — the list as `parseSignerList` read it, never the raw file. What
+   * collapsed — the list as `parseKeyList` read it, never the raw file. What
    * is stored is the resolved answer, so a reader never re-parses and cannot
    * reach a different one.
    */
   signers: string[]
+  /**
+   * The keys the repository lets READ it — its Reader List (docs/adr/0013) —
+   * as `parseKeyList` read the `readers` file beside `signers` in the same
+   * commit. Absent when that file is absent, which is every repository until
+   * someone writes one: presence is the switch, so there is no `private`
+   * marker and no third state.
+   *
+   * `[]` is a value rather than an absence, and the difference is the whole
+   * capability: an empty Reader List is valid and means the Signer List reads
+   * this repository and nobody else, while no field at all means anyone does.
+   *
+   * Maintained only while the Private seed is set, exactly as the Claim around
+   * it is maintained only under the Signer List flag — the ref is what is
+   * authoritative and this is a derived copy (see `applyClaim`).
+   */
+  readers?: string[]
   /** ISO instant the push that wrote this list was received. */
   ts: string
 }

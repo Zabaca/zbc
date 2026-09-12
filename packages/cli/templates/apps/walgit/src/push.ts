@@ -139,6 +139,16 @@ export interface PreReceiveContext {
    * does is the hook, which had to resolve it before the upload anyway.
    */
   signerList?: readonly string[] | null
+  /**
+   * The Reader List this push writes, already resolved by the hook, or `null`
+   * when the tree holds no `readers` file — and `null` too on any deployment
+   * without the Private seed, which never reads one (docs/adr/0013).
+   *
+   * Optional for the reason `signerList` is, and empty is NOT null: `[]` is a
+   * Reader List naming nobody, which is valid and means the Signers read this
+   * repository and nobody else.
+   */
+  readerList?: readonly string[] | null
 }
 
 /**
@@ -170,7 +180,21 @@ export async function preReceive(ctx: PreReceiveContext): Promise<void> {
     signer.kind === 'signed' ? { signer: signer.fingerprint, ts } : null
   // `length` and not truthiness: an empty array is truthy, and recording an
   // empty list is the state `src/signers.ts` refuses a push for reaching.
-  const claim: Claim | null = ctx.signerList?.length ? { signers: [...ctx.signerList], ts } : null
+  // `length` and not truthiness: an empty array is truthy, and recording an
+  // empty list is the state `src/signers.ts` refuses a push for reaching.
+  //
+  // The Reader List hangs off the same Claim, and the test is presence rather
+  // than length: an empty `readers` file is valid and means something an absent
+  // one does not. It cannot arrive without a Signer List beside it — `readers`
+  // on a tree with no readable `signers` is refused before this — so there is
+  // no shape where a Reader List is dropped for want of one.
+  const claim: Claim | null = ctx.signerList?.length
+    ? {
+        signers: [...ctx.signerList],
+        ...(ctx.readerList ? { readers: [...ctx.readerList] } : {}),
+        ts,
+      }
+    : null
   // `signer` unconditionally, unlike the two beside it: the publish re-asks the
   // ownership question and needs the answer whatever it was, including the two
   // shapes that record nothing.
