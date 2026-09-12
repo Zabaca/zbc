@@ -19,6 +19,7 @@ import {
   INTERNAL_HEADER,
   PROVENANCE_PATH,
   READ_CHALLENGE_SCHEME,
+  READ_VERDICT_PATH,
   REFS_PATH,
   REJECT_HEADER,
   SERVED_HEADER,
@@ -135,6 +136,17 @@ export type PrivateReads = {
    * revocation that does not take.
    */
   readClaim: (repoId: string) => Promise<Claim | undefined>
+  /**
+   * The secret the edge presents when it asks for a read verdict on a
+   * subscriber's behalf (`READ_VERDICT_PATH`) — `WALGIT_EVENTS_TOKEN`, or
+   * `undefined` on a deployment with no event stream, where nothing would ask
+   * and the route should not exist.
+   *
+   * The announce secret rather than a fourth one, because it already means
+   * exactly this: "this is walgit's own edge, not a client". A verdict route a
+   * client could reach would be an oracle for who may read what.
+   */
+  announceSecret?: string | undefined
   /**
    * Verify an SSH signature over `message` in the `walgit-read` namespace and
    * name the key that made it, or `null`.
@@ -256,7 +268,7 @@ function createRouter(deps: HttpHandlerDeps): (req: Request) => Promise<Response
   ): Promise<Response | null> {
     if (!priv) return null
     if (!claim?.readers) return null
-    const presented = provedFingerprint(priv, request)
+    const presented = provedFingerprint(priv, request.headers.get('authorization'))
     if (readAllowed({ enabled: true, claim, presented })) return null
     const nonce = readChallengeNonce(priv.seed, priv.now?.() ?? Date.now())
     return reject(401, 'unauthorized', renderReadChallenge(publicOrigin(request, url)), {
@@ -298,6 +310,47 @@ function createRouter(deps: HttpHandlerDeps): (req: Request) => Promise<Response
       const refs = await deps.readRefs(repoId)
       return new Response(`${JSON.stringify({ repo: repoId, refs })}\n`, {
         headers: { 'content-type': 'application/json; charset=utf-8' },
+      })
+    }
+
+    // Read verdicts for the edge, which gates the event stream and cannot
+    // verify a signature itself (docs/adr/0013). Above the deployment
+    // credential gate because the caller presents the announce secret rather
+    // than a read token, and a 404 rather than a 401 for everyone else, for
+    // the same reason every other unroutable path gets one: an endpoint
+    // nobody may call should not advertise that it exists.
+    if (url.pathname === READ_VERDICT_PATH) {
+      if (!priv?.announceSecret || request.method !== 'POST') return NOT_FOUND()
+      if (!authorizedBy(request.headers.get('authorization'), [priv.announceSecret])) {
+        return NOT_FOUND()
+      }
+      const body = (await request.json().catch(() => null)) as {
+        credential?: unknown
+        repos?: unknown
+      } | null
+      const repos = body?.repos
+      const credential = body?.credential ?? null
+      if (!Array.isArray(repos) || repos.some((repo) => typeof repo !== 'string')) {
+        return new Response('walgit: expected { credential, repos: string[] }\n', { status: 400 })
+      }
+      if (credential !== null && typeof credential !== 'string') {
+        return new Response('walgit: "credential" must be a string or null\n', { status: 400 })
+      }
+      // Verified ONCE for the whole list: one nonce stands for the window, so a
+      // reader signs once and spends it on every repository it names, exactly
+      // as it does across several clones.
+      const presented = provedFingerprint(priv, credential)
+      const verdicts: Record<string, boolean> = {}
+      for (const repo of repos as string[]) {
+        verdicts[repo] = await readVerdict(priv, deps.reposDir, repo, presented)
+      }
+      return new Response(`${JSON.stringify({ verdicts })}\n`, {
+        headers: {
+          'content-type': 'application/json; charset=utf-8',
+          // The Reader List it was read from can change with the next push, and
+          // a cached "yes" is a revocation that does not take.
+          'cache-control': 'no-store',
+        },
       })
     }
 
@@ -450,14 +503,44 @@ function createRouter(deps: HttpHandlerDeps): (req: Request) => Promise<Response
  * its challenge just before a window boundary signed the older one and must not
  * be refused for the network's timing.
  */
-function provedFingerprint(priv: PrivateReads, request: Request): string | null {
-  const signature = presentedSignature(request.headers.get('authorization') ?? '')
+function provedFingerprint(priv: PrivateReads, authorization: string | null): string | null {
+  const signature = presentedSignature(authorization ?? '')
   if (!signature) return null
   for (const nonce of acceptedNonces(priv.seed, priv.now?.() ?? Date.now())) {
     const fingerprint = priv.verifyRead(nonce, signature)
     if (fingerprint) return fingerprint
   }
   return null
+}
+
+/**
+ * May this proved key read this repository? The verdict route's per-repository
+ * answer, and `readAllowed` again rather than a second rule.
+ *
+ * Fails closed twice over: a name walgit would not serve is refused rather
+ * than resolved into one it would, and an Index this instance cannot reach is
+ * read as `LOCKED` — the same substitution the clone path makes, for the same
+ * reason. Handing out a Private repository is the unrecoverable direction.
+ */
+async function readVerdict(
+  priv: PrivateReads,
+  reposDir: string,
+  repo: string,
+  presented: string | null,
+): Promise<boolean> {
+  let repoId: string
+  try {
+    repoId = resolveRepo(reposDir, repo).repoId
+  } catch {
+    return false
+  }
+  let claim: Claim | undefined
+  try {
+    claim = await priv.readClaim(repoId)
+  } catch {
+    claim = LOCKED
+  }
+  return readAllowed({ enabled: true, claim, presented })
 }
 
 /**

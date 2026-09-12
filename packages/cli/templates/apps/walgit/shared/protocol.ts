@@ -99,6 +99,23 @@ export const PROVENANCE_PATH = '/_walgit/provenance'
 export const CHALLENGE_PATH = '/_walgit/challenge'
 
 /**
+ * Whether one presented credential may read each of several repositories
+ * (docs/adr/0013).
+ *
+ * The Worker gates the event stream and cannot spawn `ssh-keygen`, so it asks
+ * the half that can: it POSTs `{ credential, repos }` and is answered
+ * `{ verdicts: { <repo>: boolean } }`. A second verifier at the edge — an SSH
+ * signature parser over WebCrypto — would have to agree with `ssh-keygen`
+ * forever, which is the second authorization model ADR-0013 refuses.
+ *
+ * Authenticated like Announce rather than by `INTERNAL_HEADER`: it is the
+ * mirror of that call, the same secret proves the same "this is walgit's own
+ * edge", and a route that hands out read verdicts should carry a credential of
+ * its own rather than a header's absence.
+ */
+export const READ_VERDICT_PATH = '/_walgit/read-verdict'
+
+/**
  * The signature namespace a reader proves a key in.
  *
  * `walgit-read`, never `git`. `ssh-keygen` binds the namespace into the signed

@@ -22,7 +22,7 @@
  */
 
 import { eventsFromChanges } from '../shared/events'
-import { ANNOUNCE_PATH } from '../shared/protocol'
+import { ANNOUNCE_PATH, SIGNERS_REF } from '../shared/protocol'
 import type { RefChange } from './wal-index'
 
 export interface AnnounceConfig {
@@ -73,6 +73,11 @@ export async function announce(
 ): Promise<boolean> {
   const events = eventsFromChanges(repoId, changes)
   if (events.length === 0) return false
+  // A Reader List lives on the Signer List's ref (docs/adr/0013), so a push
+  // that moved it may have revoked a reader whose socket is open right now.
+  // Named here, where what the push touched is known, rather than re-derived
+  // at the edge from a ref name the Fan-out would have to learn the meaning of.
+  const readersChanged = changes.some((change) => change.ref === SIGNERS_REF) ? [repoId] : []
   try {
     const response = await fetchImpl(`${config.url}${ANNOUNCE_PATH}`, {
       method: 'POST',
@@ -80,7 +85,7 @@ export async function announce(
         'content-type': 'application/json',
         authorization: `Bearer ${config.token}`,
       },
-      body: JSON.stringify({ events }),
+      body: JSON.stringify({ events, readersChanged }),
       signal: AbortSignal.timeout(ANNOUNCE_TIMEOUT_MS),
     })
     if (!response.ok) {
