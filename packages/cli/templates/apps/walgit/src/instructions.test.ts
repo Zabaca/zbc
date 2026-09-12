@@ -350,7 +350,7 @@ describe('the terse document never explains how to hold a name', () => {
         (config) => renderInstructions('https://agentgit.zabaca.com', config).length,
       ),
     )
-    // 2,997 bytes at the widest today — three under. Whatever breaks this did
+    // 2,970 bytes at the widest today — thirty under. Whatever breaks this did
     // not break the budget, it spent the last of it: the fix is to decide what
     // comes OUT of this page, not to raise the number.
     expect(worst).toBeLessThan(3000)
@@ -360,9 +360,9 @@ describe('the terse document never explains how to hold a name', () => {
    * Private is the capability this page deliberately does not take
    * (docs/adr/0013).
    *
-   * There were three bytes of headroom when the ownership gate was bought here,
-   * and read gating needs a helper, a config line and an exchange — none of
-   * which fit, and all of which land where they are relevant: in `/llms.txt`
+   * There are thirty bytes of headroom, and read gating needs a helper, a
+   * config line and an exchange — none of which fit in thirty bytes, and all of
+   * which land where they are relevant instead: in `/llms.txt`
    * for an agent that came looking, and in the 401 itself for one that did not.
    * Asserted as EQUALITY rather than as an absent string, because that is the
    * claim: the field changes this document in no way at all.

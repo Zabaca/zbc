@@ -791,4 +791,23 @@ describe('Private moves from the roadmap to the rules', () => {
       expect(html).toContain('<h3>Private</h3>')
     }
   })
+
+  /**
+   * Nor does a deployment that asks for a token at the front door.
+   *
+   * `The rules.` would otherwise carry two adjacent terms answering one
+   * question in opposite directions — `Credentialed` saying there is no
+   * per-repository privacy and one credential reads every name, and `Private`
+   * saying a name can refuse a reader with no account and no token. The second
+   * is the false one there: a Read Challenge is Basic auth in the header the
+   * deployment token occupies, so nobody can present one.
+   */
+  test('and a credentialed deployment keeps the term that is true there', () => {
+    const html = renderLanding(HOST, caps({ ...SEED, ...GATE, ...PRIVATE }))
+    expect(html).toContain('<span class="k">Credentialed</span>')
+    expect(html).toContain('no per-repository privacy')
+    expect(html).not.toContain('<span class="k">Private</span>')
+    // And the roadmap row stays, because it is still what is missing there.
+    expect(html).toContain('<h3>Private</h3>')
+  })
 })

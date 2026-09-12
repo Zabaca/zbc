@@ -509,11 +509,22 @@ repository until someone writes one — is world-readable exactly as before.
 it** (and without an object store, which is where the Reader List is read from):
 a Reader List on a name anyone may push to protects nothing, because the next
 stranger can rewrite it. It deliberately does not ride the signer-list flag —
-turning on ownership must not acquire read gating as a side effect — which is
-why `namesCanBePrivate` (`shared/capabilities.ts`) is the seed AND
-`namesCanBeClaimed`, and why it is the one field `/llms.txt` and the landing
-page render every Private sentence from. With it unset, no document mentions
-readers, privacy or the credential helper.
+turning on ownership must not acquire read gating as a side effect.
+
+**It also requires `WALGIT_PUBLIC`**, and this one is a transport limit rather
+than a policy: the Read Challenge is presented as Basic auth, in the one
+`authorization` header a credentialed deployment's token already occupies, and
+the token gate is answered first. On a deployment that asks for a token, nobody
+can present a signature — so a Private repository there is unreadable by
+everyone, its owner included. Do not configure that combination. The documents
+already refuse to describe it (`namesCanBePrivate` is false), but the read gate
+itself is still wired from the seed, so the container will gate reads nothing
+can open.
+
+`namesCanBePrivate` (`shared/capabilities.ts`) is therefore the seed AND
+`namesCanBeClaimed` AND `publicAccess`, and it is the one field `/llms.txt` and
+the landing page render every Private sentence from. With it false, no document
+mentions readers, privacy or the credential helper.
 
 Readers need no account and no token: `@zabaca/agentgit` ships a credential
 helper, configured once per machine with `git config --global

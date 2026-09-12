@@ -134,10 +134,32 @@ describe('the two strengths of the gate', () => {
    */
   test('namesCanBePrivate needs its own seed and a claimable name', () => {
     const PRIVATE = { WALGIT_PRIVATE_REPOS: 'read-seed' }
-    expect(caps({ ...GATE, ...SEED }).namesCanBePrivate).toBe(false)
-    expect(caps({ ...GATE, ...PRIVATE }).namesCanBePrivate).toBe(false)
-    expect(caps({ ...SEED, ...PRIVATE }).namesCanBePrivate).toBe(false)
-    expect(caps({ ...GATE, ...SEED, ...PRIVATE }).namesCanBePrivate).toBe(true)
+    const OPEN = { WALGIT_PUBLIC: '1' }
+    expect(caps({ ...OPEN, ...GATE, ...SEED }).namesCanBePrivate).toBe(false)
+    expect(caps({ ...OPEN, ...GATE, ...PRIVATE }).namesCanBePrivate).toBe(false)
+    expect(caps({ ...OPEN, ...SEED, ...PRIVATE }).namesCanBePrivate).toBe(false)
+    expect(caps({ ...OPEN, ...GATE, ...SEED, ...PRIVATE }).namesCanBePrivate).toBe(true)
+  })
+
+  /**
+   * And a deployment whose front door already takes a token, because the two
+   * credentials cannot both occupy the one `authorization` header.
+   *
+   * A Read Challenge is Basic auth — fingerprint as the user, signature as the
+   * password — and a credentialed deployment answers the token gate FIRST
+   * (`src/http.ts`), against the same header. A reader presenting a signature
+   * is refused as an unknown token before the read gate is consulted, and a
+   * reader presenting the token proves no key: a Private repository there is
+   * unreadable by everyone, its owner included. Every document renders Private
+   * from this field, so the field is where that has to be false.
+   */
+  test('and a front door a reader can present a signature to', () => {
+    const CLOSED = { WALGIT_SIGNER_LISTS: '1', ...SEED, WALGIT_PRIVATE_REPOS: 'read-seed' }
+    expect(caps(CLOSED).namesCanBePrivate).toBe(false)
+    expect(caps({ ...CLOSED, WALGIT_PUBLIC: '1' }).namesCanBePrivate).toBe(true)
+    // Unchanged by it: ownership is a PUSH gate, and a push carries its
+    // certificate in the pack rather than in the header a token arrives in.
+    expect(caps(CLOSED).namesCanBeClaimed).toBe(true)
   })
 })
 

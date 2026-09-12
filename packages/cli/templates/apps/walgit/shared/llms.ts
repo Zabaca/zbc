@@ -542,7 +542,14 @@ There is no \`seq\` field and no cursor anywhere in this protocol. The omission 
 
 Limits: at most **${MAX_WATCH_ENTRIES} repositories** per connection and **${MAX_REFS_PER_ENTRY} refs** per repository, and there is no wildcard. Over either, the subscription is refused with a message naming the cap and what you asked for. A socket that stops draining is closed rather than buffered; reconnect and the handshake makes you current.
 
-Use the same credential a clone needs. A public deployment has a public stream.
+Use the same credential a clone needs.${
+        caps.namesCanBePrivate
+          ? ` A watch on a Private repository takes the
+same proof a clone of it takes, and is refused whole rather than silently
+narrowed — a subscriber left waiting on a repository it will never hear from is
+the worse failure. Everything else on this host has a public stream.`
+          : ' A public deployment has a public stream.'
+      }
 `
     : ''
 

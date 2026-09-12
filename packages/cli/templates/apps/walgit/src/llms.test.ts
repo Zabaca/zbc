@@ -412,6 +412,39 @@ describe('the section that teaches a name can be kept private', () => {
       expect(doc).not.toContain('Reader List')
     }
   })
+
+  /**
+   * Nor does a deployment whose front door already takes a token.
+   *
+   * The Read Challenge is Basic auth in the one `authorization` header that
+   * deployment's token occupies, and the token gate answers first — so the
+   * exchange this section documents cannot be performed there by anyone. The
+   * document that would teach it is the document that must not.
+   */
+  test('and a credentialed deployment is not taught an exchange it cannot make', () => {
+    const doc = renderLlms(HOST, caps({ ...SEED, ...GATE, ...PRIVATE }))
+    expect(doc).toContain('A credential is required')
+    expect(doc).not.toContain('Keep a name private')
+    expect(doc).not.toContain('agentgit credential')
+    expect(doc).not.toContain('http.extraHeader')
+    // Ownership is untouched by it: a push carries its certificate in the
+    // pack, not in the header the deployment token arrives in.
+    expect(doc).toContain('## Hold a name')
+  })
+
+  // The stream is a read — ADR-0009 made an event a strict subset of a fetch —
+  // so a document promising a public stream two screens under a section saying
+  // a watch is refused without a listed key is contradicting itself.
+  test('and the event stream stops being promised to everyone', () => {
+    const flat = renderLlms(
+      HOST,
+      caps({ ...OPEN, ...SEED, ...GATE, ...PRIVATE, ...EVENTS }),
+    ).replace(/\s+/g, ' ')
+    expect(flat).not.toContain('A public deployment has a public stream')
+    expect(flat).toContain('refused whole rather than silently narrowed')
+    const open = renderLlms(HOST, caps({ ...OPEN, ...SEED, ...GATE, ...EVENTS }))
+    expect(open).toContain('A public deployment has a public stream')
+  })
 })
 
 /**
