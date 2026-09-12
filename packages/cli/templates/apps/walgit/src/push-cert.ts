@@ -28,19 +28,14 @@
  * for why git's own verdict on the signature is unusable.
  */
 
-import { spawnSync } from 'node:child_process'
-import * as fs from 'node:fs'
-import * as os from 'node:os'
-import * as path from 'node:path'
-
 import {
-  fingerprintIn,
   PUSH_CERT_NAMESPACE,
   pushCertSeed as seedFrom,
   splitPushCertificate,
   type SplitCertificate,
 } from '../shared/provenance'
 import { git } from './git'
+import { checkNovalidate } from './ssh-signature'
 
 /**
  * The seed this deployment configures, or `null` when it configures none.
@@ -198,34 +193,17 @@ export function readPushCertificate(
  * the one thing this design does not have. walgit is recording who pushed, not
  * deciding whether they may.
  *
- * The signature must be a file (`-s` takes no `-`), so it is written to a
- * private temporary directory and removed; the body goes on stdin, which keeps
- * the bytes that were signed off the disk and out of the process table.
+ * The subprocess itself is `src/ssh-signature.ts`, shared with the Read
+ * Challenge's verifier (docs/adr/0013) — the same call with a different
+ * namespace, and `ssh-keygen` binds the namespace into the signed bytes, so the
+ * two can never be spent on each other.
  *
  * Never throws, and returns `null` for every failure alike — a bad signature, a
  * namespace mismatch, and an `ssh-keygen` that is not installed are all "no
  * Signer", because none of them may cost the pusher their push.
  */
 export function sshKeygenVerifier(cert: SplitCertificate): string | null {
-  let dir: string | null = null
-  try {
-    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'walgit-cert-'))
-    const sigFile = path.join(dir, 'push-cert.sig')
-    fs.writeFileSync(sigFile, cert.signature)
-    const res = spawnSync(
-      'ssh-keygen',
-      ['-Y', 'check-novalidate', '-n', PUSH_CERT_NAMESPACE, '-s', sigFile],
-      { encoding: 'utf8', input: cert.body },
-    )
-    // A missing binary leaves `status` null and `error` set, which is the same
-    // answer as a refusal: exit 0 is the only verdict that names a key.
-    if (res.status !== 0) return null
-    return fingerprintIn(`${res.stdout ?? ''}\n${res.stderr ?? ''}`)
-  } catch {
-    return null
-  } finally {
-    if (dir) fs.rmSync(dir, { recursive: true, force: true })
-  }
+  return checkNovalidate(PUSH_CERT_NAMESPACE, cert.body, cert.signature)
 }
 
 /**
