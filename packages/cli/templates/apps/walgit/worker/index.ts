@@ -107,6 +107,15 @@ export interface Env {
    * already set a seed, unasked.
    */
   WALGIT_SIGNER_LISTS?: string
+  /**
+   * The seed that gives repositories Reader Lists (src/private.ts,
+   * docs/adr/0013) — and the value the Read Challenge's nonce will be derived
+   * from, which is why it is a seed rather than a flag. Requires
+   * `WALGIT_SIGNER_LISTS`: the container refuses to boot without it, because a
+   * Reader List on a name anyone may write to protects nothing. Unset by
+   * default, and a secret.
+   */
+  WALGIT_PRIVATE_REPOS?: string
   WALGIT_EVENTS: DurableObjectNamespace<WalgitEvents>
 }
 

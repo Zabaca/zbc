@@ -22,8 +22,8 @@ import { announceConfigFromEnv } from './announce'
 import { appendOnlyEnabled, checkAppendOnly } from './append-only'
 import { configuredThreshold, isCompactionDue } from './compact'
 import { checkSize, limitsEnforced, limitsOf, liveBytes } from './limits'
-import { privateReposEnabled } from './private'
 import { clearPending, invocationId, markConsumed, readPending, sweepPending } from './pending'
+import { privateReposEnabled } from './private'
 import {
   establishSigner,
   parseRefChanges,

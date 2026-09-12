@@ -180,8 +180,6 @@ export async function preReceive(ctx: PreReceiveContext): Promise<void> {
     signer.kind === 'signed' ? { signer: signer.fingerprint, ts } : null
   // `length` and not truthiness: an empty array is truthy, and recording an
   // empty list is the state `src/signers.ts` refuses a push for reaching.
-  // `length` and not truthiness: an empty array is truthy, and recording an
-  // empty list is the state `src/signers.ts` refuses a push for reaching.
   //
   // The Reader List hangs off the same Claim, and the test is presence rather
   // than length: an empty `readers` file is valid and means something an absent

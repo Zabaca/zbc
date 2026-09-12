@@ -146,7 +146,8 @@ export type ListFile =
 export type ListName = 'signers' | 'readers'
 
 /**
- * Read the `signers` file out of the commit a push points the list ref at.
+ * Read one of a tree's key lists out of the commit a push points the list ref
+ * at — `signers`, and `readers` beside it (docs/adr/0013).
  *
  * Injected rather than called directly so every decision above it is testable
  * without a repository, a subprocess or a running git — the same seam
@@ -156,7 +157,8 @@ export type ListName = 'signers' | 'readers'
 export type ListSource = (oid: string, file: ListName) => ListFile
 
 /**
- * The most a `signers` file walgit will read, in bytes — roughly a thousand
+ * The most a key list walgit will read, in bytes — the same cap for `signers`
+ * and `readers`, because both end up in the same place — roughly a thousand
  * keys, which is far past any plausible list and far short of a problem.
  *
  * A cap is not optional here, for two reasons that are both about what the file
@@ -175,7 +177,7 @@ export const MAX_KEY_LIST_BYTES = 64 * 1024
  * The real source: `git cat-file`, against the repository the hook runs in.
  *
  * The first call is `--batch-check` over BOTH questions at once — is the tip a
- * commit, and what is at `signers` in its tree — because git answers each input
+ * commit, and what is at that file's path in its tree — because git answers each input
  * line with `<sha> <type> <size>` or `<input> missing`, so one subprocess
  * distinguishes every failure this can have. That matters more than the
  * subprocess it saves: a refusal that could not tell "you pointed the ref at a
@@ -187,6 +189,12 @@ export const MAX_KEY_LIST_BYTES = 64 * 1024
  * `git()` buffers a subprocess's output, and an oversized read there does not
  * reliably fail — it can return truncated bytes with a zero exit, which would
  * resolve a list the ref does not hold.
+ *
+ * Asked once per file, so a push that writes both lists re-asks about the tip.
+ * That is one extra subprocess on the rarest push there is, and the alternative
+ * — one batch over both paths — would make the answer for `readers` depend on a
+ * reading done for `signers`, which is the coupling the two refusals differ on:
+ * a missing `signers` refuses and a missing `readers` is the ordinary answer.
  *
  * The pushed objects are still in the quarantine when this runs, which needs no
  * special handling: git puts the quarantine on the hook's object path, so
@@ -222,7 +230,14 @@ export function gitListSource(gitDir: string): ListSource {
     }
 
     const size = batchCheckSize(found)
-    if (size === null) return { found: false, absent: true, why: noFile(file) }
+    // Not `absent`: the type already parsed as a blob, so a size that does not
+    // is git answering in a shape this does not understand rather than a commit
+    // without the file. Absence is the switch for `readers` — reading a
+    // malformed line as "no Reader List" would open a repository, which is the
+    // one direction this must never fail in.
+    if (size === null) {
+      return { found: false, absent: false, why: `git could not size \`${file}\` at ${oid}` }
+    }
     if (size > MAX_KEY_LIST_BYTES) {
       return {
         found: false,
