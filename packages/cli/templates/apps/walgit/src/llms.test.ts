@@ -16,7 +16,7 @@ import { flagEnabled } from '../shared/policy'
 import { pushCertSeed, signedPushEnabled } from '../shared/provenance'
 import { MAX_REFS_PER_ENTRY, MAX_WATCH_ENTRIES } from '../shared/events'
 import { renderLlms, wantsLlms } from '../shared/llms'
-import { SIGNERS_REF } from '../shared/protocol'
+import { CHALLENGE_PATH, READ_CHALLENGE_NAMESPACE, SIGNERS_REF } from '../shared/protocol'
 import { renderInstructions } from './instructions'
 
 const HOST = 'agentgit.zabaca.com'
@@ -329,6 +329,88 @@ describe('the section that teaches a name can be held', () => {
     const doc = renderLlms(HOST, caps({ ...OPEN, ...GATE }))
     expect(doc).not.toContain('Hold a name')
     expect(doc).not.toContain(SIGNERS_REF)
+  })
+})
+
+/**
+ * Keeping a name private, taught here and nowhere else (docs/adr/0013).
+ *
+ * The same arrangement ownership got, for the same reasons: `GET /` is three
+ * bytes under its budget and takes nothing, the refusal teaches whoever hit it,
+ * and this teaches whoever came looking first. What makes it worth a section
+ * rather than a sentence is that the file's rules differ from the Signer
+ * List's in two places an agent will get wrong — an empty list is VALID, and
+ * Signers read without being listed — and that reading one needs a credential
+ * helper nothing else here needs.
+ */
+describe('the section that teaches a name can be kept private', () => {
+  const PRIVATE: CapabilityEnv = { WALGIT_PRIVATE_REPOS: 'read-seed' }
+  const CLOSED = caps({ ...OPEN, ...SEED, ...GATE, ...PRIVATE })
+
+  test('names the file, beside the one ownership writes, on the same ref', () => {
+    const doc = renderLlms(HOST, CLOSED)
+    expect(doc).toContain('## Keep a name private')
+    // Spelled the way `src/private.ts` reads it and the way `CONTEXT.md`
+    // defines it — the manual, the parser and the glossary describe one file.
+    expect(doc).toContain('a file called `readers`')
+    expect(doc).toContain(SIGNERS_REF)
+  })
+
+  test('states the two rules that differ from a Signer List', () => {
+    const flat = renderLlms(HOST, CLOSED).replace(/\s+/g, ' ')
+    // An empty Signer List is refused; an empty Reader List is the spelling of
+    // "private, and only I read it", which is the shape most agents want.
+    expect(flat).toContain('An empty Reader List is valid')
+    expect(flat).toContain('Signers read without being listed')
+    // The handoff: a reader who may read and may not write.
+    expect(flat).toContain('list them in `readers` and not in `signers`')
+  })
+
+  test('names the helper and the one config line that makes git need nothing typed', () => {
+    const doc = renderLlms('walgit.example', CLOSED)
+    expect(doc).toContain(
+      "git config --global credential.https://walgit.example.helper '!agentgit credential'",
+    )
+    // And the mechanism underneath it, for a reader who would rather not
+    // install anything: the nonce endpoint and the signing namespace.
+    expect(doc).toContain(CHALLENGE_PATH)
+    expect(doc).toContain(`ssh-keygen -Y sign -n ${READ_CHALLENGE_NAMESPACE}`)
+  })
+
+  // The sentence ownership's section states unconditionally today. A document
+  // that teaches a Reader List and still says reads are gated by none of it is
+  // contradicting itself two screens apart.
+  test('withdraws the promise that reads are gated by nothing', () => {
+    const flat = renderLlms(HOST, CLOSED).replace(/\s+/g, ' ')
+    expect(flat).not.toContain('Reads are gated by none of this')
+    expect(flat).not.toContain('Reads are never gated')
+    expect(flat).not.toContain('Not private: everything here is readable by everyone')
+    const open = renderLlms(HOST, caps({ ...OPEN, ...SEED, ...GATE })).replace(/\s+/g, ' ')
+    expect(open).toContain('Reads are gated by none of this')
+  })
+
+  test('with no seed, nothing in the document mentions privacy or the helper', () => {
+    const doc = renderLlms(HOST, caps({ ...OPEN, ...LIMITS, ...EVENTS, ...SEED, ...GATE }))
+    expect(doc).not.toContain('Keep a name private')
+    expect(doc).not.toContain('readers')
+    expect(doc).not.toContain('Reader List')
+    expect(doc).not.toContain('agentgit credential')
+  })
+
+  // The seed without a claimable name is the misconfiguration `namesCanBePrivate`
+  // exists to refuse: a Reader List lives in the Signer List's tree and is
+  // written by a push that list judged, so on a name anyone may write to it
+  // protects nothing. Teaching it there would hand an agent a file the next
+  // stranger can rewrite.
+  test('and the seed alone does not turn it on', () => {
+    for (const env of [
+      { ...OPEN, ...PRIVATE },
+      { ...OPEN, ...GATE, ...PRIVATE },
+    ]) {
+      const doc = renderLlms(HOST, caps(env))
+      expect(doc).not.toContain('Keep a name private')
+      expect(doc).not.toContain('Reader List')
+    }
   })
 })
 

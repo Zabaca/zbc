@@ -242,11 +242,52 @@ function publicClaim(caps: Capabilities): string {
       '<b>Reads and writes need a credential.</b> Send it as the Basic-auth password or as a bearer token; the username is ignored. There is no per-repository privacy: one credential reads every name on this host.',
     )
   }
+  if (caps.namesCanBePrivate) {
+    // *"Privacy is not free yet"* is the half this capability makes false, and
+    // it is the only half that changes: reads and writes still take no
+    // credential, and a name with no Reader List is still world-readable. The
+    // term below states what it costs, so this one hands the question over
+    // rather than answering it twice.
+    return claim(
+      'Public',
+      '<b>Every repository is world-readable, and world-writable until its name is claimed.</b> Sharing is a URL, not an invitation — unless the name says otherwise.',
+    )
+  }
   return claim(
     'Public',
     caps.namesCanRefuse
       ? '<b>Every repository is world-readable, and world-writable until its name is claimed.</b> Sharing is a URL, not an invitation. Privacy is not free yet.'
       : '<b>Every repository is world-readable and world-writable.</b> Sharing is a URL, not an invitation. Privacy is not free yet.',
+  )
+}
+
+/**
+ * Private, as a rule of the host rather than a row in what is missing
+ * (docs/adr/0013).
+ *
+ * The roadmap has carried a `Private` row since ownership was designed, saying
+ * *"after ownership"* and then *"unblocked, unplanned"*. This is where that
+ * promise is spent: when the deployment can actually gate a read, the row
+ * LEAVES the roadmap — the same rule the Ownership row follows, and for the
+ * same reason, a page carrying one capability twice, once as a fact and once
+ * as an achievement.
+ *
+ * Read from `namesCanBePrivate`, which is the only reading that can be right
+ * here: the seed alone gates nothing, because a Reader List lives in the Signer
+ * List's tree and is written by a push that list judged. The other terms read
+ * `namesCanRefuse` because `pre-receive` refuses on the flag alone; this one
+ * cannot, because a repository on a name anyone may write to cannot be closed.
+ *
+ * It names the FILE and not a setting, because presence is the whole switch:
+ * there is no marker, no per-name flag and no third state, so a visitor who
+ * learns "a repository is Private if it holds a `readers` file" knows the
+ * entire model. How to write one is `/llms.txt`, and the refusal itself.
+ */
+function privateClaim(caps: Capabilities): string {
+  if (!caps.namesCanBePrivate) return ''
+  return claim(
+    'Private',
+    '<b>A claimed name can refuse a stranger reading it.</b> Write a <b>Reader List</b> beside the signers and every clone, fetch and watch is refused unless the reader signs for a listed key. No account and no token: the key that signs your pushes is the key that reads.',
   )
 }
 
@@ -405,7 +446,13 @@ function signingClaim(caps: Capabilities): string {
  * instead), so the list is never empty.
  */
 function claims(caps: Capabilities): string {
-  return [appendOnlyClaim(caps), publicClaim(caps), thirdClaim(caps), signingClaim(caps)]
+  return [
+    appendOnlyClaim(caps),
+    publicClaim(caps),
+    privateClaim(caps),
+    thirdClaim(caps),
+    signingClaim(caps),
+  ]
     .filter((term) => term !== '')
     .join('\n')
 }
@@ -473,6 +520,11 @@ function heroUnder(caps: Capabilities): string {
  * next thing to build.
  */
 function roadmapOwnership(caps: Capabilities): string {
+  // Both rows gone: ownership is a rule of the host and so is Private, and
+  // `privateClaim` above states the second one. A roadmap row saying reads are
+  // gated on nothing, under a term saying a name can refuse a reader, is the
+  // page describing one capability in two contradictory places.
+  if (caps.namesCanBePrivate) return ''
   if (!caps.namesCanRefuse) {
     return `        <li data-next>
           <span class="when">Next</span>

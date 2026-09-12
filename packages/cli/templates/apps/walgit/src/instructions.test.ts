@@ -29,6 +29,7 @@ const EVENTS: CapabilityEnv = {
 }
 const SEED: CapabilityEnv = { WALGIT_PUSH_CERT_SEED: 'nonce-seed' }
 const GATE: CapabilityEnv = { WALGIT_SIGNER_LISTS: '1' }
+const PRIVATE: CapabilityEnv = { WALGIT_PRIVATE_REPOS: 'read-seed' }
 
 /** The public deployment: open, append-only, capped, streaming, signing. */
 const PUBLIC = caps({ ...OPEN, ...LIMITS, ...EVENTS, ...SEED })
@@ -354,16 +355,37 @@ describe('the terse document never explains how to hold a name', () => {
     // comes OUT of this page, not to raise the number.
     expect(worst).toBeLessThan(3000)
   })
+
+  /**
+   * Private is the capability this page deliberately does not take
+   * (docs/adr/0013).
+   *
+   * There were three bytes of headroom when the ownership gate was bought here,
+   * and read gating needs a helper, a config line and an exchange — none of
+   * which fit, and all of which land where they are relevant: in `/llms.txt`
+   * for an agent that came looking, and in the 401 itself for one that did not.
+   * Asserted as EQUALITY rather than as an absent string, because that is the
+   * claim: the field changes this document in no way at all.
+   */
+  test('turning read gating on changes this page in no way', () => {
+    const open = caps({ ...OPEN, ...LIMITS, ...EVENTS, ...SEED, ...GATE })
+    const closed = caps({ ...OPEN, ...LIMITS, ...EVENTS, ...SEED, ...GATE, ...PRIVATE })
+    expect(closed.namesCanBePrivate).toBe(true)
+    expect(renderInstructions('https://walgit.example', closed)).toBe(
+      renderInstructions('https://walgit.example', open),
+    )
+  })
 })
 
 /**
  * Every deployment this page can describe.
  *
- * Five independent switches, so 32 boolean shapes — not 64. The type has six
- * booleans, but `namesCanBeClaimed` is `namesCanRefuse && signedPushes`, so
- * half of a 64-render sweep would be states no environment produces, and this
- * page does not read that field at all. Enumerating the ENVIRONMENT is what
- * keeps every measured configuration one a deployment can actually be in.
+ * Six independent switches, so 64 boolean shapes — not 128. The type has seven
+ * booleans, but `namesCanBeClaimed` is `namesCanRefuse && signedPushes` and
+ * `namesCanBePrivate` narrows it further, so most of a 128-render sweep would
+ * be states no environment produces, and this page reads neither field.
+ * Enumerating the ENVIRONMENT is what keeps every measured configuration one a
+ * deployment can actually be in.
  *
  * The three limits are enumerated too, rather than pinned at values asserted to
  * render widest. Assertion was wrong twice: `describeHours` is wider at 1,000
@@ -387,6 +409,7 @@ function everyConfiguration(): Capabilities[] {
     EVENTS,
     SEED,
     GATE,
+    PRIVATE,
   ]
   // Live (24), the widest sub-day and sub-week values, and the widest under the
   // four-digit bound — `describeHours` prints days for a multiple of 24 at or
