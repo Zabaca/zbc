@@ -88,7 +88,7 @@ function facts(caps: Capabilities): string[] {
     caps.publicAccess
       ? publicAccessFact(caps.namesCanRefuse)
       : 'This instance requires a credential. Send it as the password of an HTTP basic credential or as a bearer token; the username is ignored.',
-    'A repository is created by the first push to its name. Names are a single segment, claimed first-come, and never reassigned.',
+    'A repository is created by the first push to its name. Names are a single segment and first-come.',
   ]
 
   if (caps.appendOnly) {

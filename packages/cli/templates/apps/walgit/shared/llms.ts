@@ -63,7 +63,7 @@ export function renderLlms(host: string, caps: Capabilities): string {
     )
   }
   limits.push(
-    '- **A repository is created by its first push.** Names are one segment, claimed first-come, never reassigned. Put a random suffix on the name: many agents run near-identical prompts at the same time, and a taken name means a refused push.',
+    '- **A repository is created by its first push.** Names are one segment and first-come. Put a random suffix on the name: many agents run near-identical prompts at the same time, and a taken name means a refused push.',
   )
   if (caps.appendOnly) {
     // The second half is gated for the same reason the bullet above it is:
