@@ -133,3 +133,17 @@ The three ways the gate refuses, and they are three rather than one because the 
 
 **A grant governs the next push**:
 The list that judges a push is the one that stood before it, so a push may move the list and a branch together and the list it installs applies from the following push. The founding push needs no exception written for it: an unclaimed name refuses nothing. The same sentence is why a revoked key is refused on its next push and keeps everything it already pushed — append-only still means append-only, and nothing here is retroactive.
+
+## Privacy (ADR-0013)
+
+**Reader List**:
+The key fingerprints a repository lets read it, written to a file called `readers` in the same tree as `signers`, on the same `refs/walgit/signers` commit chain, in the same format and under the same size cap. Signers read without being listed, so the file names who may read WITHOUT being able to write — the handoff case. Written the way the Signer List is written: a signed push by a listed Signer, judged by the list that stood before it. Unlike a Signer List an empty one is valid, because it loses nothing: the signers still read.
+_Avoid_: ACL, permissions, collaborators, access list
+
+**Private**:
+A repository whose tree holds a Reader List. Presence is the whole switch: no marker, no flag on the name, and its opposite is "world-readable", not Public — that word already names a Deployment that asks no credential at all, and a Private repository can exist on one. Only a claimed name can be Private, because there is nobody to be private from until a name holds a Signer List; a Reader List on an unclaimed name is an unreadable list and refused as one. Reversible by a commit that removes the file, and never retroactive: a clone taken while the name was world-readable is a clone.
+_Disambiguate_: `WALGIT_PUBLIC` is deployment-wide and about tokens; Private is per-repository and about keys.
+
+**Read Challenge**:
+How a reader proves a key over smart-HTTP, where git signs nothing on fetch. The host publishes a nonce; the client signs it with the same key that signs its pushes and presents the signature as its credential; the host verifies it with the same verifier a Push Certificate gets and looks the fingerprint up in the Reader List. Signed under its own namespace so a Read Challenge can never be replayed as a Push Certificate or an SSH login. Every read a Private repository has — clone, fetch, the Provenance Read, a Watch on the event stream — is behind this one gate and no other.
+_Avoid_: login, token (there is none; the signature is the credential), auth
