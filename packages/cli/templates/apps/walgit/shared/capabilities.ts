@@ -133,8 +133,9 @@ export type Capabilities = {
    */
   namesCanBeClaimed: boolean
   /**
-   * A name can refuse a stranger READING it: the Private seed is set, and the
-   * name can be claimed at all (docs/adr/0013).
+   * A name can refuse a stranger READING it: the Private seed is set, the name
+   * can be claimed at all, and a reader could actually prove a key
+   * (docs/adr/0013).
    *
    * Everything `namesCanBeClaimed` needs, plus its own seed — because a Reader
    * List lives in the Signer List's tree and is written by a push that list
@@ -142,6 +143,16 @@ export type Capabilities = {
    * its own variable for the reason ownership's flag is not the certificate
    * seed: a deployment that turned on ownership must not acquire read gating as
    * a side effect.
+   *
+   * And `publicAccess`, which is the same defect `namesCanBeClaimed` guards
+   * against one rung down: a Read Challenge is presented as Basic auth, in the
+   * one `authorization` header a credentialed deployment's token already
+   * occupies, and the token gate is answered FIRST (`src/http.ts`). So on a
+   * deployment that asks for a token, a reader cannot present a signature at
+   * all — a Private repository there is unreadable by everyone, its owner
+   * included, and a document teaching the exchange would be handing an agent
+   * commands that cannot work. Absence of a per-repository read gate is what
+   * the `Credentialed` term already says: one credential reads every name.
    */
   namesCanBePrivate: boolean
   /** A repository is collected this many hours after its last push. */
@@ -182,9 +193,10 @@ export function capabilitiesFrom(
 ): Capabilities {
   const namesCanRefuse = flagEnabled(env.WALGIT_SIGNER_LISTS)
   const signedPushes = signedPushEnabled(env.WALGIT_PUSH_CERT_SEED)
+  const publicAccess = flagEnabled(env.WALGIT_PUBLIC)
 
   return {
-    publicAccess: flagEnabled(env.WALGIT_PUBLIC),
+    publicAccess,
     appendOnly: flagEnabled(env.WALGIT_APPEND_ONLY),
     // Blank collapses to unset, the same reading `announceConfigFromEnv`
     // (`src/announce.ts`) makes of the same two variables — the config the push
@@ -194,7 +206,10 @@ export function capabilitiesFrom(
     namesCanRefuse,
     namesCanBeClaimed: namesCanRefuse && signedPushes,
     namesCanBePrivate:
-      namesCanRefuse && signedPushes && seedValue(env.WALGIT_PRIVATE_REPOS) !== null,
+      namesCanRefuse &&
+      signedPushes &&
+      publicAccess &&
+      seedValue(env.WALGIT_PRIVATE_REPOS) !== null,
     retentionHours: positiveNumber(env.WALGIT_RETENTION_HOURS),
     maxPushBytes: positiveNumber(env.WALGIT_MAX_PUSH_BYTES),
     maxRepoBytes: positiveNumber(env.WALGIT_MAX_REPO_BYTES),

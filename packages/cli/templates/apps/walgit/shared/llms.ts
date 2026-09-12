@@ -24,7 +24,13 @@
 import type { Capabilities } from './capabilities'
 import { MAX_REFS_PER_ENTRY, MAX_WATCH_ENTRIES } from './events'
 import { describeBytes } from './policy'
-import { EVENTS_PATH, PROVENANCE_PATH, SIGNERS_REF } from './protocol'
+import {
+  CHALLENGE_PATH,
+  EVENTS_PATH,
+  PROVENANCE_PATH,
+  READ_CHALLENGE_NAMESPACE,
+  SIGNERS_REF,
+} from './protocol'
 
 /** Only GET or HEAD on the one path. Nothing else is this document. */
 export function wantsLlms(method: string, pathname: string): boolean {
@@ -51,9 +57,15 @@ export function renderLlms(host: string, caps: Capabilities): string {
      * rather than less.
      */
     limits.push(
-      caps.namesCanRefuse
-        ? '- **No credential.** Reads and writes take no token, no key and no account. Everything here is world-readable, and a name that has not written a **Signer List** takes a push from anyone — which is every name until someone writes one. Do not push a secret.'
-        : '- **No credential.** Reads and writes take no token, no key and no account. Everything here is world-readable and world-writable. Do not push a secret.',
+      caps.namesCanBePrivate
+        ? // The same bullet, corrected in the one place read gating makes it
+          // false. Nothing else about it changes: a name with no Reader List
+          // is world-readable, which is every name until someone writes one,
+          // and the secret warning is the reason the bullet exists.
+          '- **No credential.** Reads and writes take no token, no key and no account. Everything here is world-readable unless a name has written a **Reader List**, and a name that has not written a **Signer List** takes a push from anyone — which is every name until someone writes one. Do not push a secret.'
+        : caps.namesCanRefuse
+          ? '- **No credential.** Reads and writes take no token, no key and no account. Everything here is world-readable, and a name that has not written a **Signer List** takes a push from anyone — which is every name until someone writes one. Do not push a secret.'
+          : '- **No credential.** Reads and writes take no token, no key and no account. Everything here is world-readable and world-writable. Do not push a secret.',
     )
   } else {
     limits.push(
@@ -180,8 +192,13 @@ authentication and buys no access by itself: an unsigned push lands exactly as a
 signed one does, to the same names, with the same rules, on every name nobody
 has claimed — which is every name until someone writes a Signer List for one. A
 name that has written one takes pushes from the keys that list names and refuses
-everything else, saying so in the refusal. Reads are never gated, a claimed
-repository stays world-readable, and no name is owned by the key that merely
+everything else, saying so in the refusal.${
+        caps.namesCanBePrivate
+          ? ` Reads are gated only where a name
+has written a **Reader List** — *Keep a name private*, below — and`
+          : ` Reads are never gated, a claimed
+repository stays world-readable, and`
+      } no name is owned by the key that merely
 pushed to it first — only by the list it wrote.`
     : `**Unsigned pushes are ordinary.** Signing is not authentication and buys no
 access: an unsigned push lands exactly as a signed one does, to the same names,
@@ -313,8 +330,13 @@ The ref is the authority and \`claim\` is a copy of it, kept so that the refusal
 in \`pre-receive\` never has to read a git object. \`claim\` is **omitted** for a
 name nobody has claimed, which is most of them.
 
-Reads are gated by none of this. A claimed repository, its list and its
-provenance stay as readable as they were, to anyone who can read the rest.
+${
+  caps.namesCanBePrivate
+    ? `Holding a name is what makes it possible to close, and closing it is a second
+file. *Keep a name private*, below.`
+    : `Reads are gated by none of this. A claimed repository, its list and its
+provenance stay as readable as they were, to anyone who can read the rest.`
+}
 
 ### Two lists that are refused
 
@@ -324,6 +346,113 @@ An empty list would hand the name to the next stranger, which is a way to lose
 it rather than a way to release it; an unreadable one would leave you believing
 you hold a name the host still thinks is free. To hand a name on, push a list
 naming the other key. To stop using it, stop pushing.
+`
+    : ''
+
+  /**
+   * Privacy, taught where an agent went looking for it (docs/adr/0013).
+   *
+   * The same arrangement ownership got, for the same two reasons: `GET /` is
+   * read mid-task against a byte budget and takes nothing, and the refusal —
+   * `renderReadChallenge` (`src/private.ts`) — teaches whoever hit it, in our
+   * words, at the moment it is relevant. This teaches whoever came looking
+   * first, and it is the only place an agent can learn a name is CLOSABLE
+   * before it is refused for reading somebody else's.
+   *
+   * Placed after `## Hold a name` because it depends on it in the strong sense:
+   * a Reader List lives in the Signer List's tree and is written by a push that
+   * list judged, so the section above is a prerequisite rather than a
+   * neighbour. `namesCanBePrivate` encodes exactly that dependency, which is
+   * why it is the only flag read here.
+   *
+   * Every spelling is one the gate actually uses — `readers`, the namespace,
+   * the challenge path, the helper's config line — so an agent that reads this
+   * and an agent that reads a 401 are not being told about two different
+   * mechanisms.
+   *
+   * The by-hand exchange is shown as well as the helper, and that is not
+   * redundancy: a reader who cannot install `@zabaca/agentgit` has no other way
+   * in, and the exchange is short enough to be the documentation of the
+   * mechanism as well as a fallback.
+   */
+  const privacy = caps.namesCanBePrivate
+    ? `
+## Keep a name private
+
+A name that holds a Signer List can also hold a **Reader List**. It is
+a file called \`readers\`, beside \`signers\`, on the same \`${SIGNERS_REF}\` commit
+chain and in the same format — one fingerprint per line, blank lines and \`#\`
+ignored. While that file exists the repository is **Private**: every read of it
+— clone, fetch, the provenance read and the event stream — is refused unless
+the reader proves a listed key.
+
+Two rules differ from the Signer List, and both are the ones an agent gets
+wrong:
+
+- **An empty Reader List is valid.** It is the spelling of *private, and only I
+  read it*, and it is the shape most agents want. (An empty Signer List is
+  refused, because it hands the name to the next stranger.)
+- **Signers read without being listed.** \`readers\` names who may read and not
+  write — so to hand work to another agent, list them in \`readers\` and not in
+  \`signers\`: they clone and fetch, and they cannot push.
+
+Write one exactly as you wrote the Signer List — a signed push, judged by the
+list that stood before it:
+
+\`\`\`sh
+set -e -o pipefail
+git fetch -q https://${host}/$NAME.git ${SIGNERS_REF}
+git checkout -q FETCH_HEAD
+: > readers                                 # empty: only the Signers read
+ssh-keygen -lf ~/.ssh/id_reader.pub | awk '{print $2}' >> readers
+git add readers
+git -c user.email=agent@localhost -c user.name=agent commit -qm private
+git -c gpg.format=ssh -c user.signingkey=~/.ssh/id_ed25519.pub \\
+    push --signed=if-asked https://${host}/$NAME.git HEAD:${SIGNERS_REF}
+\`\`\`
+
+Going back is a commit that removes the file. Nothing is retroactive in either
+direction: a clone somebody took while the name was world-readable is a clone,
+and opening a name again re-publishes nothing that was not already pushed.
+
+### Read one
+
+git signs nothing on a fetch, so the key is proved by a challenge instead. Do it
+once per machine and git needs nothing typed afterwards — no account, no token:
+
+\`\`\`sh
+bun add -g @zabaca/agentgit   # or npm i -g
+git config --global credential.https://${host}.helper '!agentgit credential'
+\`\`\`
+
+After that \`git clone\`, \`git fetch\` and \`agentgit watch\` work on a Private
+repository with the key you already sign your pushes with. By hand, if you would
+rather see the exchange:
+
+\`\`\`sh
+nonce=$(curl -fsS https://${host}${CHALLENGE_PATH} | sed 's/.*"nonce":"\\([^"]*\\)".*/\\1/')
+sig=$(printf %s "$nonce" | ssh-keygen -Y sign -n ${READ_CHALLENGE_NAMESPACE} -f ~/.ssh/id_ed25519 -)
+fp=$(ssh-keygen -lf ~/.ssh/id_ed25519.pub | awk '{print $2}')
+git -c http.extraHeader="Authorization: Basic $(printf %s "$fp:$sig" | base64 -w0)" \\
+    clone https://${host}/$NAME.git
+\`\`\`
+
+The credential is Basic, with the fingerprint as the user and the signature as
+the password. The nonce is an HMAC of this host and the clock: it stands for
+five minutes, the one before it is still accepted, and nothing is stored — so a
+captured signature is good for at most ten minutes and there is no session to
+end.
+
+A read that cannot prove a listed key is answered **401 with the challenge**,
+never 404. The name is not the secret: a Private repository says it exists, says
+it is Private, and says what to run.
+
+### What it does not do
+
+A revoked reader keeps the clone they already have — git has no way to reach
+into somebody's working tree, and walgit does not pretend otherwise. Revoking is
+a commit removing the line, it takes from the next read onward, and an event
+stream reading on the strength of the old list is closed when the push lands.
 `
     : ''
 
@@ -413,7 +542,14 @@ There is no \`seq\` field and no cursor anywhere in this protocol. The omission 
 
 Limits: at most **${MAX_WATCH_ENTRIES} repositories** per connection and **${MAX_REFS_PER_ENTRY} refs** per repository, and there is no wildcard. Over either, the subscription is refused with a message naming the cap and what you asked for. A socket that stops draining is closed rather than buffered; reconnect and the handshake makes you current.
 
-Use the same credential a clone needs. A public deployment has a public stream.
+Use the same credential a clone needs.${
+        caps.namesCanBePrivate
+          ? ` A watch on a Private repository takes the
+same proof a clone of it takes, and is refused whole rather than silently
+narrowed — a subscriber left waiting on a repository it will never hear from is
+the worse failure. Everything else on this host has a public stream.`
+          : ' A public deployment has a public stream.'
+      }
 `
     : ''
 
@@ -451,13 +587,17 @@ git clone https://${host}/$NAME.git
 \`\`\`
 
 Handing work to another agent is the URL and nothing else. There is no owner to ask, no invitation to send and no review to pass.
-${signing}${ownership}${events}
+${signing}${ownership}${privacy}${events}
 ## If a push is refused
 
 Read the message. A refusal names what it refused and what to do instead — it is not a transport failure, and retrying the same push unchanged will not help. The usual cause is a name already held by an unrelated history: push to a new one.
 
 ## What this is not
 
-Not a forge: no pull requests, no code review, no CI, no issues.${caps.publicAccess ? ' Not private: everything here is readable by everyone.' : ''}${caps.retentionHours !== null ? ` Not permanent: ${hours(caps.retentionHours)} from the last push, a repository is collected.` : ' Not an archive: nothing here is a promise to keep your history.'} Not a place for anything you cannot lose.
+Not a forge: no pull requests, no code review, no CI, no issues.${
+    caps.publicAccess && !caps.namesCanBePrivate
+      ? ' Not private: everything here is readable by everyone.'
+      : ''
+  }${caps.retentionHours !== null ? ` Not permanent: ${hours(caps.retentionHours)} from the last push, a repository is collected.` : ' Not an archive: nothing here is a promise to keep your history.'} Not a place for anything you cannot lose.
 `
 }

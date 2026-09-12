@@ -51,6 +51,7 @@ by layer:
 | `src/expire.ts`                                      | decide WHICH repositories go: idle since their last push, past the window                                                                        |
 | `src/limits.ts`                                      | the push-size and repository-total caps, refused in `pre-receive` before anything is uploaded                                                    |
 | `src/signers.ts`                                     | the Signer List a repository holds, resolved in `pre-receive` beside the size caps and re-asked at the publish                                   |
+| `src/private.ts`, `src/ssh-signature.ts`             | the Reader List and the Read Challenge: who may read a Private repository, and the nonce-and-signature that proves it                            |
 | `src/usage.ts`                                       | what the log says this service holds, folded out of the indexes                                                                                  |
 | `src/instructions.ts`                                | the plain-text `GET /` — the whole API surface, rendered from the limits actually enforced                                                       |
 | `src/verify.ts`, `src/cli.ts`                        | the operator CLI: inspect, rebuild, verify, reclaim                                                                                              |
@@ -456,8 +457,9 @@ Optional instance configuration (plain env, not secrets): `WALGIT_APPEND_ONLY`,
 `WALGIT_MAX_PUSH_BYTES`, `WALGIT_MAX_REPO_BYTES`, `WALGIT_RETENTION_HOURS`,
 `WALGIT_PUBLIC`, `WALGIT_SIGNER_LISTS` — each unset means the behaviour is off
 and `GET /` does not claim it. `WALGIT_EVENTS_URL` and `WALGIT_EVENTS_TOKEN` (a
-secret) turn on the ref-event stream below, and `WALGIT_PUSH_CERT_SEED` (a
-secret) turns on signed pushes.
+secret) turn on the ref-event stream below, `WALGIT_PUSH_CERT_SEED` (a secret)
+turns on signed pushes, and `WALGIT_PRIVATE_REPOS` (a secret) turns on read
+gating.
 
 For the three boolean flags — `WALGIT_APPEND_ONLY`, `WALGIT_PUBLIC` and
 `WALGIT_SIGNER_LISTS` — **on means `1` or `true`, and nothing else**
@@ -479,8 +481,9 @@ repository has one, a push not signed by a listed key is **refused** — and the
 list that judges a push is the one that stood before it, so a push moving the
 list and a branch together installs a list that applies from the next push. A
 repository with no list refuses nothing, which is every repository until someone
-writes one; reads are never gated, and pushing a list that is empty or that
-walgit cannot read is refused on any repository, claimed or not.
+writes one; pushing a list that is empty or that walgit cannot read is refused
+on any repository, claimed or not. Reads are gated by none of this — closing
+them is a second file and a second variable, `WALGIT_PRIVATE_REPOS` below.
 
 **Turn it on beside `WALGIT_PUSH_CERT_SEED`, never without it.** The seed is
 what makes `git-receive-pack` advertise certificates at all, so with no seed
@@ -491,6 +494,44 @@ refusal reads out of `index.json` is maintained only while the flag is on, so a
 list pushed while it was off is not enforced until its ref is pushed again.
 
 There is no recovery path for a lost key, and none is planned. List two keys.
+
+`WALGIT_PRIVATE_REPOS` lets a claimed repository refuse a stranger **reading**
+it (docs/adr/0013 in the zbc repository). It is a seed rather than a flag — the
+Read Challenge's nonce is an HMAC of it — so any non-blank value turns it on,
+the way `WALGIT_PUSH_CERT_SEED` does. A repository whose `refs/walgit/signers`
+tree also holds a `readers` file is **Private**: every clone, fetch, provenance
+read and event subscription is refused unless the reader signs the current nonce
+with a key that file names, or with one of the repository's Signers. An empty
+`readers` file is valid and means *only the Signers read*; no file at all — every
+repository until someone writes one — is world-readable exactly as before.
+
+**It requires `WALGIT_SIGNER_LISTS`, and the container refuses to boot without
+it** (and without an object store, which is where the Reader List is read from):
+a Reader List on a name anyone may push to protects nothing, because the next
+stranger can rewrite it. It deliberately does not ride the signer-list flag —
+turning on ownership must not acquire read gating as a side effect.
+
+**It also requires `WALGIT_PUBLIC`**, and this one is a transport limit rather
+than a policy: the Read Challenge is presented as Basic auth, in the one
+`authorization` header a credentialed deployment's token already occupies, and
+the token gate is answered first. On a deployment that asks for a token, nobody
+can present a signature — so a Private repository there is unreadable by
+everyone, its owner included. Do not configure that combination. The documents
+already refuse to describe it (`namesCanBePrivate` is false), but the read gate
+itself is still wired from the seed, so the container will gate reads nothing
+can open.
+
+`namesCanBePrivate` (`shared/capabilities.ts`) is therefore the seed AND
+`namesCanBeClaimed` AND `publicAccess`, and it is the one field `/llms.txt` and
+the landing page render every Private sentence from. With it false, no document
+mentions readers, privacy or the credential helper.
+
+Readers need no account and no token: `@zabaca/agentgit` ships a credential
+helper, configured once per machine with `git config --global
+credential.https://<host>.helper '!agentgit credential'`, after which git needs
+nothing typed. A refused read answers **401 with the challenge** — never 404,
+because the name stopped being the secret when ownership landed — and the body
+names the helper and the by-hand exchange.
 
 The container sleeps when idle and the next request wakes it — one regime,
 median 1.77 s, spread 0.93–6.45 s, and a ten-minute idle measures the same. Its

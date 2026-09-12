@@ -723,3 +723,91 @@ describe('the roadmap', () => {
     expect(html).not.toContain('<span class="when">Next</span>')
   })
 })
+
+/**
+ * Private, which is a roadmap row on most deployments and a rule on one
+ * (docs/adr/0013).
+ *
+ * The row has promised "after ownership" since ownership was designed, and
+ * ADR-0013 spends it. What makes this worth rendering rather than rewriting is
+ * the same thing that made ownership worth it: the mechanism ships in the app
+ * template OFF, so on every deployment but the one that sets the seed the
+ * roadmap row is still the true sentence, and a page that stated the rule
+ * everywhere would be promising a gate its own container does not run.
+ */
+describe('Private moves from the roadmap to the rules', () => {
+  const PRIVATE: CapabilityEnv = { WALGIT_PRIVATE_REPOS: 'read-seed' }
+  const CLOSED = caps({ ...OPEN, ...SEED, ...GATE, ...PRIVATE })
+
+  test('it is a term in The rules., beside Append-only and Public', () => {
+    const html = renderLanding(HOST, CLOSED)
+    expect(html).toContain('<span class="k">Private</span>')
+    // The two it stands beside, so the list is the three rules together.
+    expect(html).toContain('<span class="k">Append-only</span>')
+    expect(html).toContain('<span class="k">Public</span>')
+    // And it names the file, not a setting: presence is the whole switch.
+    expect(html).toContain('Reader List')
+  })
+
+  test('and leaves the roadmap, which no longer calls it missing', () => {
+    const html = renderLanding(HOST, CLOSED)
+    expect(html).not.toContain('<h3>Private</h3>')
+    expect(html).not.toContain('Reads are still gated on nothing')
+    expect(html).not.toContain('holding a name is not a step toward closing it')
+    // Two rows left, which is even, so the last-child rule stays inert.
+    expect(html.split('<h3>').length - 1).toBe(2)
+  })
+
+  // The term four lines above it said "Privacy is not free yet", which is the
+  // sentence this capability makes false. Correcting one and leaving the other
+  // puts two answers to one question in one list.
+  test('and the Public term stops saying privacy is not free yet', () => {
+    const html = renderLanding(HOST, CLOSED)
+    expect(html).not.toContain('Privacy is not free yet')
+    expect(html).toContain('world-writable until its name is claimed')
+    // Still true everywhere the seed is unset.
+    expect(renderLanding(HOST, caps({ ...OPEN, ...SEED, ...GATE }))).toContain(
+      'Privacy is not free yet',
+    )
+  })
+
+  test('with no seed the row keeps the words it has today', () => {
+    const html = renderLanding(HOST, caps({ ...OPEN, ...SEED, ...GATE }))
+    expect(html).toContain('<h3>Private</h3>')
+    expect(html).toContain('Reads are still gated on nothing')
+    expect(html).not.toContain('<span class="k">Private</span>')
+  })
+
+  // A Reader List lives in the Signer List's tree, so the seed alone gates
+  // nothing — `namesCanBePrivate` is the field that encodes it, and the page
+  // must not state a rule the container would not enforce.
+  test('and the seed alone does not make it a rule', () => {
+    for (const env of [
+      { ...OPEN, ...PRIVATE },
+      { ...OPEN, ...GATE, ...PRIVATE },
+    ]) {
+      const html = renderLanding(HOST, caps(env))
+      expect(html).not.toContain('<span class="k">Private</span>')
+      expect(html).toContain('<h3>Private</h3>')
+    }
+  })
+
+  /**
+   * Nor does a deployment that asks for a token at the front door.
+   *
+   * `The rules.` would otherwise carry two adjacent terms answering one
+   * question in opposite directions — `Credentialed` saying there is no
+   * per-repository privacy and one credential reads every name, and `Private`
+   * saying a name can refuse a reader with no account and no token. The second
+   * is the false one there: a Read Challenge is Basic auth in the header the
+   * deployment token occupies, so nobody can present one.
+   */
+  test('and a credentialed deployment keeps the term that is true there', () => {
+    const html = renderLanding(HOST, caps({ ...SEED, ...GATE, ...PRIVATE }))
+    expect(html).toContain('<span class="k">Credentialed</span>')
+    expect(html).toContain('no per-repository privacy')
+    expect(html).not.toContain('<span class="k">Private</span>')
+    // And the roadmap row stays, because it is still what is missing there.
+    expect(html).toContain('<h3>Private</h3>')
+  })
+})
