@@ -16,7 +16,8 @@ import { parseTokens } from '../shared/credentials'
 import { ensureBareRepo } from './cache'
 import { configuredExpiryMs, expireRepos } from './expire'
 import { createHttpHandler } from './http'
-import { privateReposConfigError } from './private'
+import { privateReposConfigError, privateReposEnabled, privateReposSeed } from './private'
+import { sshReadVerifier } from './ssh-signature'
 import { runGitHttpBackend } from './git-backend'
 import type { ObjectStore } from './store'
 import { storeFromEnv } from './store-env'
@@ -79,6 +80,14 @@ if (privateConfigError) {
   process.exit(1)
 }
 
+/**
+ * The seed this deployment gates reads with, or `null`. Read through
+ * `privateReposEnabled` rather than from the variable alone, so the flag the
+ * Reader List depends on is part of the answer: a seed without
+ * `WALGIT_SIGNER_LISTS` never reaches here, having been refused above.
+ */
+const privateSeed = privateReposEnabled(process.env) ? privateReposSeed(process.env) : null
+
 const store = storeFromEnv()
 if (!store) {
   // Warned, not fatal: reads still work off the local cache, and a push is
@@ -86,6 +95,27 @@ if (!store) {
   console.error(
     'walgit: no object store configured — pushes will be REFUSED (see src/store-env.ts)',
   )
+}
+
+/**
+ * The second configuration this process will not boot with: read gating turned
+ * on with nowhere to read a Reader List FROM.
+ *
+ * The Claim lives in the Index and the Index lives in the object store, so a
+ * seeded deployment without one would answer the challenge, advertise
+ * `namesCanBePrivate` on every document, and then serve every repository to
+ * everyone — because "no Claim" and "no Reader List" are the same absence, and
+ * absence is the switch. Fatal for the same reason the pairing above is: a
+ * privacy promise nothing keeps is worse than a container that will not start.
+ */
+if (privateSeed && !store) {
+  console.error(
+    'walgit: WALGIT_PRIVATE_REPOS is set with no object store configured. A Reader List is ' +
+      'read from the Index, and without a store every repository would read as world-readable ' +
+      'while this instance advertised Private ones: configure the store (see src/store-env.ts), ' +
+      'or unset WALGIT_PRIVATE_REPOS.',
+  )
+  process.exit(1)
 }
 
 /**
@@ -175,6 +205,21 @@ try {
           return { provenance: index.provenance ?? {}, claim: index.claim }
         }
       : undefined,
+    // Read gating, and only where all three halves exist (docs/adr/0013): the
+    // seed with the Signer List flag beside it, and a store to read the Reader
+    // List out of. Without a store the Index cannot be read at all, and a gate
+    // that answered "no Reader List" to every repository would be a privacy
+    // promise nothing keeps — so such a deployment does no read gating and says
+    // so by not answering the challenge either. `privateReposConfigError` above
+    // has already refused to boot the one misconfiguration worth dying on.
+    privateReads:
+      privateSeed && store
+        ? {
+            seed: privateSeed,
+            readClaim: async (repoId) => (await loadIndex(store, repoId)).index.claim,
+            verifyRead: sshReadVerifier,
+          }
+        : undefined,
   })
 } catch (err) {
   // Refusing to boot beats booting a half-configured git host — either an open

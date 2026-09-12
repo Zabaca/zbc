@@ -15,7 +15,11 @@
  * capability turned off.
  */
 
+import { createHmac } from 'node:crypto'
+
 import { flagEnabled, seedValue } from '../shared/policy'
+import { CHALLENGE_PATH, READ_CHALLENGE_NAMESPACE } from '../shared/protocol'
+import type { Claim } from './wal-index'
 
 /**
  * The variables this module reads, named so a literal fixture is checked: a
@@ -81,4 +85,121 @@ export function privateReposConfigError(env: EnvSource): string | null {
     'private repositories need ownership turned on: set WALGIT_SIGNER_LISTS=1 (and a ' +
     'WALGIT_PUSH_CERT_SEED, so a claim can be signed), or unset WALGIT_PRIVATE_REPOS.'
   )
+}
+
+// ── The Read Challenge ──────────────────────────────────────────────────────
+
+/**
+ * How long one nonce stands, in seconds.
+ *
+ * Five minutes, and the same number `PUSH_CERT_NONCE_SLOP_SECONDS` is, for the
+ * same reason: it is the replay window for a captured signature. Two windows
+ * are accepted at once, so the true ceiling is ten minutes — a reader that
+ * fetched a challenge just before a boundary must still be able to spend it.
+ */
+export const READ_NONCE_WINDOW_SECONDS = 300
+
+/**
+ * The nonce for the window `now` falls in: `HMAC(seed, floor(now / 300 s))`.
+ *
+ * No state anywhere, which is the whole design: the container sleeps, restarts
+ * and scales, and a nonce it had to remember would be a nonce it forgets. The
+ * window number is the message rather than the raw timestamp so that every
+ * request inside one window is handed the same string to sign — a reader signs
+ * once and spends it on as many repositories as it likes.
+ */
+export function readChallengeNonce(seed: string, nowMs: number = Date.now()): string {
+  const window = Math.floor(nowMs / 1000 / READ_NONCE_WINDOW_SECONDS)
+  return createHmac('sha256', seed).update(String(window)).digest('hex')
+}
+
+/**
+ * The nonces a signature may have been made over: this window, then the one
+ * before it, newest first.
+ *
+ * Two and not three. One alone refuses a reader whose round trip crossed a
+ * boundary — the same intermittent failure `receive.certNonceSlop` exists to
+ * prevent on the push side — and each extra window doubles the replay window
+ * for a captured signature while buying nothing a client would notice.
+ */
+export function acceptedNonces(seed: string, nowMs: number = Date.now()): string[] {
+  const previous = nowMs - READ_NONCE_WINDOW_SECONDS * 1000
+  return [readChallengeNonce(seed, nowMs), readChallengeNonce(seed, previous)]
+}
+
+/** What the read verdict is asked about. */
+export type ReadRequest = {
+  /** Is this deployment gating reads at all — the seed, read as a yes/no. */
+  enabled: boolean
+  /** What the Index records about this repository, if anything. */
+  claim?: Pick<Claim, 'signers' | 'readers'> | undefined
+  /** The fingerprint the reader PROVED, never one it merely asserted. */
+  presented: string | null
+}
+
+/**
+ * May this reader read this repository?
+ *
+ * One pure function over three facts, and it is the same function for the
+ * clone, the fetch and the Provenance Read — ADR-0011 put the provenance read
+ * behind exactly the credential a clone needs, and a second verdict function
+ * would be the second authorization model that sentence refuses.
+ *
+ * Absence is the switch, in both directions. No seed: nothing is gated, so a
+ * deployment that has not turned Private on cannot acquire a refusal by
+ * accident. No `readers` field: world-readable, which is every repository until
+ * someone writes the file — a claimed one with no Reader List included.
+ *
+ * A Signer reads without being listed, so `readers: []` is the spelling of
+ * "private, and only I read it" rather than of a repository nobody can read.
+ * The caller must have VERIFIED the fingerprint before passing it: this
+ * function cannot tell a proof from a claim, and a fingerprint is public.
+ */
+export function readAllowed({ enabled, claim, presented }: ReadRequest): boolean {
+  if (!enabled) return true
+  const readers = claim?.readers
+  if (!readers) return true
+  if (presented === null) return false
+  return readers.includes(presented) || (claim?.signers ?? []).includes(presented)
+}
+
+/**
+ * What a refused reader is told, in walgit's own words.
+ *
+ * Rendered rather than written as prose in `src/http.ts` for the reason every
+ * other agent-facing document in this package is: the 401 is where discovery
+ * actually lands — the moment it is relevant, on our server — so it names the
+ * helper, the one config line, and the by-hand exchange for a reader who would
+ * rather see the mechanism than install anything.
+ *
+ * `origin` is the host the agent TYPED (behind the Worker the request URL
+ * carries an internal address), so the config line is copy-pasteable.
+ */
+export function renderReadChallenge(origin: string): string {
+  return [
+    'walgit: this repository is Private (docs/adr/0013).',
+    '',
+    'It carries a Reader List — the keys it lets read it — so every clone, fetch',
+    'and provenance read is refused until one of those keys, or one of its',
+    'Signers, signs the current challenge. There is no account and no token.',
+    '',
+    'Once per machine, and then git needs nothing typed:',
+    '',
+    `  git config --global credential.${origin}.helper '!agentgit credential'`,
+    '',
+    'By hand, if you would rather see the exchange:',
+    '',
+    `  nonce=$(curl -fsS ${origin}${CHALLENGE_PATH} | sed 's/.*"nonce":"\\([^"]*\\)".*/\\1/')`,
+    `  sig=$(printf %s "$nonce" | ssh-keygen -Y sign -n ${READ_CHALLENGE_NAMESPACE} -f ~/.ssh/id_ed25519 -)`,
+    "  fp=$(ssh-keygen -lf ~/.ssh/id_ed25519.pub | awk '{print $2}')",
+    `  git -c http.extraHeader="Authorization: Basic $(printf %s "$fp:$sig" | base64 -w0)" clone ${origin}/<name>.git`,
+    '',
+    'The credential is Basic, with the fingerprint as the user and the signature',
+    'as the password. A helper must send the signature base64-encoded once more:',
+    "git's credential protocol ends a value at a newline, and armour has several.",
+    '',
+    'The challenge is an HMAC of this host and the clock: it stands for five',
+    'minutes, the one before it is still accepted, and nothing is stored.',
+    '',
+  ].join('\n')
 }

@@ -82,6 +82,35 @@ export const REFS_PATH = '/_walgit/refs'
  */
 export const PROVENANCE_PATH = '/_walgit/provenance'
 
+/**
+ * The Read Challenge's nonce (docs/adr/0013).
+ *
+ * Unauthenticated on purpose, and the one endpoint that has to be: it is what a
+ * credential for a Private repository is built FROM, so a reader that had to
+ * authenticate to fetch it would have nowhere to start. It reveals nothing — an
+ * HMAC of a seed and the clock, the same value for every repository on the host
+ * and for everyone who asks.
+ *
+ * Fetched by the client rather than taken from the 401's `WWW-Authenticate`,
+ * because only git ≥ 2.42 forwards `wwwauth[]` to a credential helper and a
+ * version cut-off an agent cannot see is a footgun. The header is still sent,
+ * because that is what the header is for.
+ */
+export const CHALLENGE_PATH = '/_walgit/challenge'
+
+/**
+ * The signature namespace a reader proves a key in.
+ *
+ * `walgit-read`, never `git`. `ssh-keygen` binds the namespace into the signed
+ * bytes, so a Read Challenge signature cannot be replayed as a Push
+ * Certificate (`PUSH_CERT_NAMESPACE`) nor as an SSH authentication — which is
+ * the property ADR-0011 leaned on in the other direction.
+ */
+export const READ_CHALLENGE_NAMESPACE = 'walgit-read'
+
+/** The `WWW-Authenticate` scheme a Private repository challenges in. */
+export const READ_CHALLENGE_SCHEME = 'walgit-ssh'
+
 /** Where a subscriber connects. A WebSocket upgrade, and nothing else. */
 export const EVENTS_PATH = '/_walgit/events'
 

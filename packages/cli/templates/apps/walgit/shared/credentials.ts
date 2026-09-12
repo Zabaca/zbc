@@ -44,6 +44,37 @@ export function presentedCredential(header: string): string | null {
 }
 
 /**
+ * The Read Challenge signature a request presents (docs/adr/0013), or `null`.
+ *
+ * Beside `presentedCredential` rather than inside it, because the two split the
+ * same header at DIFFERENT colons and both are right. A token is opaque and may
+ * contain colons, so the token reader takes everything after the FIRST one —
+ * the userid, per RFC 7617, cannot contain a colon, so that is where the
+ * boundary is. A Read Challenge's userid is an `ssh-keygen` fingerprint, which
+ * contains exactly one (`SHA256:…`) and therefore breaks that rule; what makes
+ * it recoverable is the other half: an armoured SSH signature is base64 and
+ * dashes, so it holds no colon at all, and the LAST one is the boundary.
+ *
+ * Bearer is not accepted here. A signature is proof of a key, not a bearer
+ * credential, and letting one arrive in the header a deployment token arrives
+ * in is how the two questions would start being answered by one value.
+ */
+export function presentedSignature(header: string): string | null {
+  const basic = /^Basic (.+)$/i.exec(header)
+  if (!basic) return null
+  let decoded: string
+  try {
+    decoded = atob(basic[1]!)
+  } catch {
+    return null
+  }
+  const colon = decoded.lastIndexOf(':')
+  if (colon === -1) return null
+  const signature = decoded.slice(colon + 1)
+  return signature === '' ? null : signature
+}
+
+/**
  * The credential list.
  *
  * Comma-separated so one deployment can rotate a credential without a window

@@ -11,12 +11,14 @@
  */
 
 import { capabilitiesFrom, type Capabilities } from '../shared/capabilities'
-import { authorizedBy } from '../shared/credentials'
+import { authorizedBy, presentedSignature } from '../shared/credentials'
 import {
+  CHALLENGE_PATH,
   EXPIRE_PATH,
   HEALTH_PATH,
   INTERNAL_HEADER,
   PROVENANCE_PATH,
+  READ_CHALLENGE_SCHEME,
   REFS_PATH,
   REJECT_HEADER,
   SERVED_HEADER,
@@ -24,6 +26,7 @@ import {
   type ContainerRejectKind,
 } from '../shared/protocol'
 import { renderInstructions } from './instructions'
+import { acceptedNonces, readAllowed, readChallengeNonce, renderReadChallenge } from './private'
 import type { ResolvedRepo } from './repo'
 import { resolveRepo } from './repo'
 import type { Claim, Provenance } from './wal-index'
@@ -107,7 +110,46 @@ export type HttpHandlerDeps = {
    * a missing log is the one wrong answer this feature can give.
    */
   readProvenance?: (repoId: string) => Promise<ProvenanceRead>
+  /**
+   * Read gating for Private repositories (docs/adr/0013), or `undefined` for a
+   * deployment that does none — which is every deployment until an operator
+   * sets `WALGIT_PRIVATE_REPOS`.
+   *
+   * One group rather than four sibling options, because the four are worthless
+   * apart: a seed with no Claim reader would gate nothing while advertising a
+   * challenge, and a Claim reader with no verifier would refuse everyone. Half
+   * a gate is the failure this shape makes unrepresentable.
+   */
+  privateReads?: PrivateReads
 }
+
+/** Everything the Private gate needs, present or absent as a whole. */
+export type PrivateReads = {
+  /** `WALGIT_PRIVATE_REPOS`. The nonce is derived from it. */
+  seed: string
+  /**
+   * The Claim the Index holds for one repository, or `undefined` when it holds
+   * none. Read from the Index rather than from the disk for the same reason
+   * `readRefs` is: the ref is authoritative and the cache is a cache, and
+   * serving a repository on a stale copy of its Reader List is exactly the
+   * revocation that does not take.
+   */
+  readClaim: (repoId: string) => Promise<Claim | undefined>
+  /**
+   * Verify an SSH signature over `message` in the `walgit-read` namespace and
+   * name the key that made it, or `null`.
+   *
+   * Injected exactly as the push-certificate verifier is, so the routing above
+   * is testable without a subprocess — and so the one place that spawns
+   * `ssh-keygen` stays one place (`src/ssh-signature.ts`).
+   */
+  verifyRead: ReadVerifier
+  /** The clock, injectable so a test can stand still inside a window. */
+  now?: () => number
+}
+
+/** Verify a `walgit-read` signature over a message; name the key, or `null`. */
+export type ReadVerifier = (message: string, signature: string) => string | null
 
 /** What `GET /_walgit/provenance` answers with, before it is serialized. */
 export type ProvenanceRead = {
@@ -142,6 +184,17 @@ const UNAUTHORIZED = () =>
   })
 
 const NOT_FOUND = () => reject(404, 'not-found', 'not found\n')
+
+/**
+ * The Claim a repository is treated as holding when its real one cannot be
+ * read: Private, and nobody is listed.
+ *
+ * The failure direction is what makes this the only defensible default. Reading
+ * "no Reader List" out of an Index we could not reach would serve a Private
+ * repository to a stranger, which is unrecoverable; reading it as locked costs
+ * a reader a retry while the store is down.
+ */
+const LOCKED: Claim = { signers: [], readers: [], ts: '' }
 
 /**
  * What a handler wired without capabilities says it offers: nothing.
@@ -181,6 +234,36 @@ export function createHttpHandler(deps: HttpHandlerDeps): (req: Request) => Prom
 }
 
 function createRouter(deps: HttpHandlerDeps): (req: Request) => Promise<Response> {
+  const priv = deps.privateReads
+
+  /**
+   * Refuse this read, or don't — the Private gate, for all three reads
+   * (docs/adr/0013).
+   *
+   * `null` means serve it. A `Response` is the challenge, and it is a 401
+   * carrying the current nonce rather than a 404: answering "no such
+   * repository" would hide a name that ownership already made public, and
+   * would break every credential helper, which keys on the 401.
+   *
+   * The verdict itself is `readAllowed` — one pure function, the same one for
+   * the clone, the fetch and the provenance read, so there is no second
+   * authorization model to keep in agreement with the first.
+   */
+  async function refuseRead(
+    request: Request,
+    url: URL,
+    claim: Claim | undefined,
+  ): Promise<Response | null> {
+    if (!priv) return null
+    if (!claim?.readers) return null
+    const presented = provedFingerprint(priv, request)
+    if (readAllowed({ enabled: true, claim, presented })) return null
+    const nonce = readChallengeNonce(priv.seed, priv.now?.() ?? Date.now())
+    return reject(401, 'unauthorized', renderReadChallenge(publicOrigin(request, url)), {
+      'www-authenticate': `${READ_CHALLENGE_SCHEME} nonce=${nonce}`,
+    })
+  }
+
   return async (request) => {
     const url = new URL(request.url)
 
@@ -218,6 +301,26 @@ function createRouter(deps: HttpHandlerDeps): (req: Request) => Promise<Response
       })
     }
 
+    // The Read Challenge's nonce. Above the credential gate, like the
+    // instructions below it and for the same reason: it is what a credential
+    // for a Private repository is BUILT from, so a reader that had to
+    // authenticate for it would have nowhere to start. It exists only where
+    // there is a seed to derive one from — a deployment doing no read gating
+    // should not answer as though it might.
+    if (url.pathname === CHALLENGE_PATH) {
+      if (!priv || request.method !== 'GET') return NOT_FOUND()
+      const nonce = readChallengeNonce(priv.seed, priv.now?.() ?? Date.now())
+      return new Response(`${JSON.stringify({ nonce })}\n`, {
+        headers: {
+          'content-type': 'application/json; charset=utf-8',
+          // The body is only true for ten minutes. A cache that outlived that
+          // would hand every client a nonce the server has stopped accepting —
+          // a challenge nobody can answer, from a response that looks fine.
+          'cache-control': 'no-store',
+        },
+      })
+    }
+
     // The instructions are the API surface, so they come BEFORE the credential
     // check: an agent that has to authenticate to learn how to authenticate
     // has nowhere to start. text/plain because the reader is a model with a
@@ -250,7 +353,23 @@ function createRouter(deps: HttpHandlerDeps): (req: Request) => Promise<Response
       // `claim` is OMITTED rather than null for an unclaimed one, so that the
       // absence a client tests for is the same absence the Index carries and
       // there is no second spelling of "nobody has claimed this name".
-      const { provenance, claim } = await deps.readProvenance(repoId)
+      // Read inside a try/catch for the same reason the git path has one: an
+      // Index this instance cannot reach must refuse the read rather than
+      // throw past the router, which would answer 500 with no `served` stamp
+      // and be counted at the edge as walgit failing to refuse at all.
+      let read: ProvenanceRead
+      try {
+        read = await deps.readProvenance(repoId)
+      } catch {
+        read = { provenance: {}, claim: LOCKED }
+      }
+      const { provenance, claim } = read
+      // Gated on the Claim this read already loaded. ADR-0011 put the
+      // provenance read behind exactly the credential a clone needs, and a
+      // Private repository's provenance is who pushed to a repository the
+      // asker may not read.
+      const refused = await refuseRead(request, url, claim)
+      if (refused) return refused
       const body = { repo: repoId, provenance, ...(claim ? { claim } : {}) }
       return new Response(`${JSON.stringify(body)}\n`, {
         headers: { 'content-type': 'application/json; charset=utf-8' },
@@ -259,6 +378,42 @@ function createRouter(deps: HttpHandlerDeps): (req: Request) => Promise<Response
 
     const route = SMART_HTTP.exec(url.pathname)
     if (!route) return NOT_FOUND()
+
+    // A read of a Private repository, refused before anything is created or
+    // synced — `git-receive-pack` is deliberately not one of these: what a
+    // push may do is the Signer List's question (docs/adr/0012), asked in the
+    // hooks, and asking it twice in two places is how the two answers drift.
+    //
+    // `info/refs` IS one, including the `?service=git-receive-pack`
+    // advertisement a push begins with. That advertisement hands over every ref
+    // name and oid in the repository, which is a read whatever the client
+    // intends to do next, and leaving it open would publish the shape of every
+    // Private repository to anyone who appended a query parameter. The cost is
+    // that pushing to a Private repository needs the same credential reading it
+    // does — the same key the pusher already signs with, and the helper the 401
+    // names.
+    if (priv && route[2] !== 'git-receive-pack') {
+      let claim: Claim | undefined
+      let repoId: string
+      try {
+        repoId = resolveRepo(deps.reposDir, route[1]!).repoId
+      } catch {
+        // A bad name is a 404 here exactly as it is below, rather than a
+        // challenge for a repository that could not exist.
+        return NOT_FOUND()
+      }
+      try {
+        claim = await priv.readClaim(repoId)
+      } catch {
+        // A repository whose Reader List cannot be read must not be served on
+        // the assumption that it has none: the failure direction here is
+        // handing out a Private repository, which is unrecoverable. Refused
+        // with the challenge, as an unproven reader is.
+        claim = LOCKED
+      }
+      const refused = await refuseRead(request, url, claim)
+      if (refused) return refused
+    }
 
     let repo
     try {
@@ -281,6 +436,28 @@ function createRouter(deps: HttpHandlerDeps): (req: Request) => Promise<Response
 
     return deps.runBackend({ repo, pathInfo: url.pathname, request })
   }
+}
+
+/**
+ * The fingerprint this request PROVED, or `null`.
+ *
+ * The reader presents `Basic base64(<fingerprint>:<signature>)`, read by
+ * `presentedSignature` — and the username half is deliberately not what is
+ * trusted: a fingerprint is public, so the answer comes from the verifier,
+ * which reports the key it actually verified the signature against.
+ *
+ * Both accepted nonces are tried, newest first, because a reader that fetched
+ * its challenge just before a window boundary signed the older one and must not
+ * be refused for the network's timing.
+ */
+function provedFingerprint(priv: PrivateReads, request: Request): string | null {
+  const signature = presentedSignature(request.headers.get('authorization') ?? '')
+  if (!signature) return null
+  for (const nonce of acceptedNonces(priv.seed, priv.now?.() ?? Date.now())) {
+    const fingerprint = priv.verifyRead(nonce, signature)
+    if (fingerprint) return fingerprint
+  }
+  return null
 }
 
 /**
