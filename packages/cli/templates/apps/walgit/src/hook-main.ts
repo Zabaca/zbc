@@ -23,6 +23,7 @@ import { appendOnlyEnabled, checkAppendOnly } from './append-only'
 import { configuredThreshold, isCompactionDue } from './compact'
 import { checkSize, limitsEnforced, limitsOf, liveBytes } from './limits'
 import { clearPending, invocationId, markConsumed, readPending, sweepPending } from './pending'
+import { privateReposEnabled } from './private'
 import {
   establishSigner,
   parseRefChanges,
@@ -35,7 +36,7 @@ import {
   checkSignerAllowed,
   checkSignerList,
   describeSigner,
-  gitSignersSource,
+  gitListSource,
   signerListsEnabled,
 } from './signers'
 import { requireStore, storeFromEnv } from './store-env'
@@ -156,14 +157,24 @@ async function main(): Promise<number> {
     // Below the gate, deliberately: whether a stranger's list is well-formed is
     // not the answer a stranger needs. Without the flag `refs/walgit/signers`
     // is an ordinary ref like any other.
+    //
+    // The Reader List rides the same reading, and only where the deployment
+    // sets the Private seed: the derived copy is maintained under that flag as
+    // the Claim is maintained under this one (docs/adr/0013). A deployment not
+    // doing Private repositories never reads `readers`, so it never refuses a
+    // push over a file it would do nothing with.
     let signerList: string[] | null = null
+    let readerList: string[] | null = null
     if (signerListsEnabled()) {
-      const verdict = checkSignerList(repoId, changes, gitSignersSource(gitDir))
+      const verdict = checkSignerList(repoId, changes, gitListSource(gitDir), {
+        readers: privateReposEnabled(process.env),
+      })
       if (!verdict.ok) {
         process.stderr.write(`${verdict.message}\n`)
         return 1
       }
       signerList = verdict.signers
+      readerList = verdict.readers
     }
 
     // Size, for the same reason and at the same moment. The pack is in the
@@ -197,6 +208,7 @@ async function main(): Promise<number> {
       quarantineDir,
       signer,
       signerList,
+      readerList,
     })
     fault('after-upload')
     await stall()

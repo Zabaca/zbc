@@ -345,6 +345,26 @@ describe('the provenance read', () => {
     expect(await res.json()).toEqual({ repo: 'alpha', provenance: signed, claim: claimed })
   })
 
+  test('a Private repository states its Reader List beside its signers', async () => {
+    // The Reader List is derived and stored on the same Claim (docs/adr/0013),
+    // so it reaches the Provenance Read the same way the signers do — one
+    // field, one route, no second document to go and read.
+    const private_ = { ...claimed, readers: ['SHA256:' + 'C'.repeat(43)] }
+    const res = await ask(
+      provenanceHandler({ readProvenance: async () => ({ provenance: signed, claim: private_ }) }),
+    )
+    expect(await res.json()).toEqual({ repo: 'alpha', provenance: signed, claim: private_ })
+  })
+
+  test('a world-readable repository has no readers field at all', async () => {
+    const res = await ask(
+      provenanceHandler({ readProvenance: async () => ({ provenance: {}, claim: claimed }) }),
+    )
+    expect(await res.text()).toBe(
+      `${JSON.stringify({ repo: 'alpha', provenance: {}, claim: claimed })}\n`,
+    )
+  })
+
   test('an unclaimed repository has no claim field at all, not a null one', async () => {
     // Absence is the answer, and it has exactly one spelling — the same one the
     // Index uses. A `claim: null` would be a second way to say "unclaimed" that

@@ -24,6 +24,8 @@
  * because a subprocess is a runtime and `shared/` has none (ADR-0010).
  */
 
+import { seedValue } from './policy'
+
 /**
  * The signature namespace, and it is load-bearing rather than decorative.
  *
@@ -123,11 +125,8 @@ export function fingerprintIn(verifierOutput: string): string | null {
  * The configured seed, or `null` for "this deployment does not take signed
  * pushes".
  *
- * Blank reads as unset, the same collapse `containerEnv` makes at the seam and
- * `positiveNumber` makes for the size caps: a variable cleared to an empty
- * string is a capability turned off, not a capability seeded with nothing. git
- * would take `""` as a seed and derive perfectly usable nonces from it, so the
- * two spellings have to collapse here rather than at the config write.
+ * `seedValue` (`shared/policy.ts`) is the reading, shared with the Private
+ * seed beside it so the two cannot disagree about how "unset" is spelled.
  *
  * It takes the raw variable rather than an environment, like `flagEnabled` and
  * `positiveNumber` beside it, because the two halves do not have the same
@@ -135,9 +134,7 @@ export function fingerprintIn(verifierOutput: string): string | null {
  * binding object. What they must share is the reading, and that is this.
  */
 export function pushCertSeed(raw: string | undefined): string | null {
-  if (raw === undefined) return null
-  const seed = raw.trim()
-  return seed === '' ? null : seed
+  return seedValue(raw)
 }
 
 /**

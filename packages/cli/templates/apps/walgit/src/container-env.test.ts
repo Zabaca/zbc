@@ -65,6 +65,16 @@ describe('containerEnv', () => {
     expect(containerEnv({ WALGIT_SIGNER_LISTS: '1' })).toEqual({ WALGIT_SIGNER_LISTS: '1' })
   })
 
+  test('the Private seed reaches the container', () => {
+    // The Reader List is read in `pre-receive` and the nonce will be derived
+    // inside the container too (docs/adr/0013). A seed that stopped at the
+    // Worker would be a deployment whose documents offer Private repositories
+    // and whose push path never records a Reader List.
+    expect(containerEnv({ WALGIT_PRIVATE_REPOS: 'read-seed' })).toEqual({
+      WALGIT_PRIVATE_REPOS: 'read-seed',
+    })
+  })
+
   test('every forwarded name is one src/ actually reads', () => {
     // A name added here and nowhere else is a variable that looks configured
     // and does nothing.

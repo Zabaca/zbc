@@ -125,6 +125,20 @@ describe('the two strengths of the gate', () => {
     expect(signing.namesCanRefuse).toBe(false)
     expect(signing.namesCanBeClaimed).toBe(false)
   })
+
+  /**
+   * Private is ownership spent (docs/adr/0013): there is nobody to be private
+   * from until a name has an owner, and a Reader List on a name anyone can
+   * write to protects nothing. So the third strength is its own seed AND
+   * everything claiming a name needs.
+   */
+  test('namesCanBePrivate needs its own seed and a claimable name', () => {
+    const PRIVATE = { WALGIT_PRIVATE_REPOS: 'read-seed' }
+    expect(caps({ ...GATE, ...SEED }).namesCanBePrivate).toBe(false)
+    expect(caps({ ...GATE, ...PRIVATE }).namesCanBePrivate).toBe(false)
+    expect(caps({ ...SEED, ...PRIVATE }).namesCanBePrivate).toBe(false)
+    expect(caps({ ...GATE, ...SEED, ...PRIVATE }).namesCanBePrivate).toBe(true)
+  })
 })
 
 /**
@@ -196,6 +210,7 @@ test('an unconfigured deployment advertises nothing, and says so in every field'
     signedPushes: false,
     namesCanRefuse: false,
     namesCanBeClaimed: false,
+    namesCanBePrivate: false,
     retentionHours: null,
     maxPushBytes: null,
     maxRepoBytes: null,

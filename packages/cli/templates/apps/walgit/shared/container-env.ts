@@ -55,6 +55,11 @@ export const CONTAINER_ENV = [
   // coupling, and riding the seed would turn it on for every deployment that
   // already set one.
   'WALGIT_SIGNER_LISTS',
+  // Private repositories (docs/adr/0013). A seed rather than a flag, because
+  // the Read Challenge's nonce is derived from it — and it reaches the
+  // container because the Reader List is read in `pre-receive` and every read
+  // will be verified here, where a subprocess exists.
+  'WALGIT_PRIVATE_REPOS',
 ] as const
 
 export type ContainerEnvName = (typeof CONTAINER_ENV)[number]

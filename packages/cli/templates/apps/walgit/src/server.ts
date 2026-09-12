@@ -16,6 +16,7 @@ import { parseTokens } from '../shared/credentials'
 import { ensureBareRepo } from './cache'
 import { configuredExpiryMs, expireRepos } from './expire'
 import { createHttpHandler } from './http'
+import { privateReposConfigError } from './private'
 import { runGitHttpBackend } from './git-backend'
 import type { ObjectStore } from './store'
 import { storeFromEnv } from './store-env'
@@ -65,6 +66,19 @@ const caps = capabilitiesFrom(process.env)
  */
 const isPublic = caps.publicAccess
 
+/**
+ * The one configuration this process will not boot with: a Private seed and no
+ * Signer List flag (`src/private.ts`). Checked before anything is served, and
+ * fatal, because the alternative is a deployment that advertises privacy and
+ * silently records no Reader List at all — the same reason `createHttpHandler`
+ * refuses to serve with neither tokens nor `WALGIT_PUBLIC`.
+ */
+const privateConfigError = privateReposConfigError(process.env)
+if (privateConfigError) {
+  console.error(privateConfigError)
+  process.exit(1)
+}
+
 const store = storeFromEnv()
 if (!store) {
   // Warned, not fatal: reads still work off the local cache, and a push is
@@ -102,6 +116,7 @@ console.log(
   `walgit boot: public=${isPublic} appendOnly=${caps.appendOnly} ` +
     `retentionHours=${caps.retentionHours ?? 'off'} ` +
     `maxPush=${caps.maxPushBytes ?? 'unset'} maxRepo=${caps.maxRepoBytes ?? 'unset'} ` +
+    `private=${caps.namesCanBePrivate} ` +
     `store=${store ? 'configured' : 'MISSING'}`,
 )
 
