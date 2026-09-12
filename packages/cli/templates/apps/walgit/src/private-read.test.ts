@@ -11,7 +11,7 @@
  */
 import { describe, expect, test } from 'bun:test'
 
-import { CHALLENGE_PATH, PROVENANCE_PATH } from '../shared/protocol'
+import { CHALLENGE_PATH, PROVENANCE_PATH, READ_VERDICT_PATH } from '../shared/protocol'
 import { createHttpHandler, type HttpHandlerDeps } from './http'
 import { acceptedNonces, readChallengeNonce } from './private'
 import type { Claim } from './wal-index'
@@ -237,4 +237,121 @@ describe('a repository that is not Private', () => {
       expect((await off(path, null, method)).status).toBe(200)
     })
   }
+})
+
+/**
+ * The verdict route: the Worker's half of the same gate (docs/adr/0013).
+ *
+ * The edge cannot verify a signature — it has no subprocess — so it forwards
+ * the credential a subscriber presented and the repositories it named, and
+ * spends the answer on the socket. One route, one verdict function, so a Watch
+ * and a clone cannot come to different conclusions about the same key.
+ */
+describe('the read verdict route', () => {
+  const ANNOUNCE_SECRET = 'announce-secret'
+
+  /** Claims by repository, so one call can be asked about several at once. */
+  function host(claims: Record<string, Claim | undefined>) {
+    const handler = createHttpHandler({
+      reposDir: '/srv/repos',
+      tokens: [],
+      public: true,
+      ensureRepo: (repo) => repo,
+      runBackend: async () => new Response('backend ran'),
+      privateReads: {
+        seed: SEED,
+        announceSecret: ANNOUNCE_SECRET,
+        readClaim: async (repoId) => {
+          if (repoId === 'unreadable') throw new Error('index unreachable')
+          return claims[repoId]
+        },
+        verifyRead,
+        now: () => NOW,
+      },
+    })
+    return (body: unknown, authorization: string | null = `Bearer ${ANNOUNCE_SECRET}`) =>
+      handler(
+        new Request(`https://walgit.test${READ_VERDICT_PATH}`, {
+          method: 'POST',
+          headers: authorization ? { authorization } : undefined,
+          body: JSON.stringify(body),
+        }),
+      )
+  }
+
+  const CLAIMS = { secret: PRIVATE_CLAIM, open: OPEN_CLAIM, unclaimed: undefined }
+
+  test('answers one verdict per repository for the key that signed', async () => {
+    const nonce = readChallengeNonce(SEED, NOW)
+    const res = await host(CLAIMS)({
+      credential: credentialFor(READER, nonce),
+      repos: ['secret', 'open', 'unclaimed'],
+    })
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual({
+      verdicts: { secret: true, open: true, unclaimed: true },
+    })
+  })
+
+  test('a stranger is refused the Private one and keeps the rest', async () => {
+    const nonce = readChallengeNonce(SEED, NOW)
+    const res = await host(CLAIMS)({
+      credential: credentialFor(STRANGER, nonce),
+      repos: ['secret', 'open'],
+    })
+    expect(await res.json()).toEqual({ verdicts: { secret: false, open: true } })
+  })
+
+  test('no credential at all reads a Private repository as refused', async () => {
+    const res = await host(CLAIMS)({ credential: null, repos: ['secret'] })
+    expect(await res.json()).toEqual({ verdicts: { secret: false } })
+  })
+
+  test('a Signer is a reader here too, as it is on a clone', async () => {
+    const nonce = readChallengeNonce(SEED, NOW)
+    const res = await host(CLAIMS)({
+      credential: credentialFor(SIGNER, nonce),
+      repos: ['secret'],
+    })
+    expect(await res.json()).toEqual({ verdicts: { secret: true } })
+  })
+
+  test('an Index it cannot read is refused, never served', async () => {
+    const nonce = readChallengeNonce(SEED, NOW)
+    const res = await host(CLAIMS)({
+      credential: credentialFor(READER, nonce),
+      repos: ['unreadable'],
+    })
+    expect(await res.json()).toEqual({ verdicts: { unreadable: false } })
+  })
+
+  test('a name walgit would not serve is refused rather than resolved', async () => {
+    const res = await host(CLAIMS)({ credential: null, repos: ['../etc'] })
+    expect(await res.json()).toEqual({ verdicts: { '../etc': false } })
+  })
+
+  test('it is the announce secret that opens it, and nothing else', async () => {
+    for (const authorization of [null, 'Bearer read-token', `Bearer ${TOKEN}`]) {
+      const res = await host(CLAIMS)({ credential: null, repos: ['open'] }, authorization)
+      expect(res.status).toBe(404)
+    }
+  })
+
+  test('does not exist on a deployment with no seed', async () => {
+    const off = createHttpHandler({
+      reposDir: '/srv/repos',
+      tokens: [],
+      public: true,
+      ensureRepo: (repo) => repo,
+      runBackend: async () => new Response('backend ran'),
+    })
+    const res = await off(
+      new Request(`https://walgit.test${READ_VERDICT_PATH}`, {
+        method: 'POST',
+        headers: { authorization: `Bearer ${ANNOUNCE_SECRET}` },
+        body: JSON.stringify({ credential: null, repos: ['open'] }),
+      }),
+    )
+    expect(res.status).toBe(404)
+  })
 })

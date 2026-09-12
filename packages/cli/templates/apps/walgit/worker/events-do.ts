@@ -23,9 +23,11 @@
 import { Container, getContainer } from '@cloudflare/containers'
 import { DurableObject } from 'cloudflare:workers'
 
+import { capabilitiesFrom } from '../shared/capabilities'
 import {
   type RefEvent,
   type WatchEntry,
+  authorizeSubscribe,
   encode,
   handshake,
   parseAnnounce,
@@ -34,11 +36,25 @@ import {
   watchedRepos,
 } from '../shared/events'
 import { Outbox } from '../shared/outbox'
-import { INTERNAL_HEADER, REFS_PATH } from '../shared/protocol'
+import { INTERNAL_HEADER, READ_VERDICT_PATH, REFS_PATH } from '../shared/protocol'
 import { RefCache } from '../shared/ref-cache'
 
 /** Only the bindings this object touches — the Worker's Env is a superset. */
 export interface EventsEnv {
+  /**
+   * The announce secret, presented to the container when this object asks
+   * whether a subscriber may read what it watches (docs/adr/0013).
+   */
+  WALGIT_EVENTS_TOKEN?: string
+  /**
+   * Read gating, read here ONLY through `capabilitiesFrom` — the same
+   * derivation the route, the documents and the container's boot use, so a
+   * deployment cannot be Private in one place and not in another. Without it
+   * this object asks the container nothing and costs nothing new.
+   */
+  WALGIT_PRIVATE_REPOS?: string
+  WALGIT_SIGNER_LISTS?: string
+  WALGIT_PUSH_CERT_SEED?: string
   // The BASE class, not `WalgitContainer`: that one is defined in index.ts,
   // which imports this file, so naming it here would be a cycle. `any` was the
   // first way around that and cost a typecheck — `DurableObjectStub<any>` sends
@@ -91,8 +107,14 @@ export class WalgitEvents extends DurableObject<EventsEnv> {
       // Fold into the cache first: an announcement is the Index's own report of
       // a ref that has already been made durable, which is exactly what a later
       // handshake would go and read.
-      this.refs.apply(parsed.value)
-      const delivered = this.broadcast(parsed.value)
+      this.refs.apply(parsed.value.events)
+      const delivered = this.broadcast(parsed.value.events)
+      // A socket that outlives a revocation is a leak (docs/adr/0013), so the
+      // sockets reading on the strength of the Reader List this push replaced
+      // are re-judged before the announcement is acknowledged — the push path
+      // bounds its own wait, and a revocation deferred to a timer is one that
+      // may never run on an object about to hibernate.
+      await this.revoke(parsed.value.readersChanged)
       return Response.json({ ok: true, delivered })
     }
 
@@ -107,6 +129,15 @@ export class WalgitEvents extends DurableObject<EventsEnv> {
     // Hibernation-aware accept: the handlers below are called on a fresh
     // isolate after an idle period, rather than the isolate being kept alive.
     this.ctx.acceptWebSocket(server)
+    // The credential is presented at the upgrade and the repositories are
+    // named later, in a `watch` message — so it is kept on the socket, which
+    // is the one thing that survives hibernation. Kept VERBATIM and never
+    // judged here: what it proves is the container's answer (docs/adr/0013),
+    // and this object still makes no decision.
+    server.serializeAttachment({
+      credential: request.headers.get('authorization'),
+      watch: null,
+    } satisfies Subscription)
     return new Response(null, { status: 101, webSocket: client })
   }
 
@@ -141,7 +172,48 @@ export class WalgitEvents extends DurableObject<EventsEnv> {
       return
     }
 
-    ws.serializeAttachment(parsed.value)
+    const credential = readSubscription(ws).credential
+
+    // The Private gate, on the only transport that can ask it here: the
+    // container verifies the signature and answers per repository, and
+    // `authorizeSubscribe` turns that into one verdict for the whole watch.
+    // Refused WHOLE and BEFORE the subscription is recorded, so a handshake
+    // never names a ref of a repository this key may not read.
+    if (capabilitiesFrom(this.env).namesCanBePrivate) {
+      let readable: Record<string, boolean>
+      try {
+        readable = await this.readVerdicts(credential, watchedRepos(parsed.value))
+      } catch (error) {
+        // Never read as permission. A verdict that did not arrive is not a
+        // verdict of yes, and the client may retry.
+        ws.send(encode({ error: `could not check read access: ${(error as Error).message}` }))
+        return
+      }
+      const allowed = authorizeSubscribe({
+        // The deployment credential was already checked at the upgrade, by the
+        // Worker that holds the token list (`worker/index.ts`); re-checking it
+        // here would be the second copy of that gate this object exists not to
+        // have. What is decided here is only the Reader List question.
+        authorization: credential,
+        tokens: [],
+        isPublic: true,
+        watch: parsed.value,
+        readable,
+      })
+      if (!allowed) {
+        ws.send(encode({ error: 'unauthorized' }))
+        // Closed rather than left open: the subscription was refused whole, so
+        // there is nothing this socket could still be told.
+        try {
+          ws.close(1008, 'walgit: unauthorized')
+        } catch {
+          // Already gone.
+        }
+        return
+      }
+    }
+
+    ws.serializeAttachment({ credential, watch: parsed.value } satisfies Subscription)
 
     let refsByRepo: Record<string, Record<string, string>>
     try {
@@ -173,11 +245,80 @@ export class WalgitEvents extends DurableObject<EventsEnv> {
     }
   }
 
+  /**
+   * Close the sockets a Reader List change no longer permits.
+   *
+   * Only sockets watching a repository named in `readersChanged` are asked
+   * about, and only about that repository: a subscriber watching something
+   * else is not re-judged, does not pay a round trip, and sees nothing.
+   *
+   * A verdict the container could not give closes the socket too. The
+   * alternative is holding a socket open across a revocation on the strength
+   * of an answer nobody gave, and a client whose connection drops reconnects
+   * and is judged again.
+   */
+  private async revoke(readersChanged: readonly string[]): Promise<void> {
+    if (readersChanged.length === 0) return
+    // A deployment with Signer Lists but no seed gates no reads, so its pushes
+    // to `refs/walgit/signers` revoke nothing — and the verdict route does not
+    // exist there. Without this line every such push would ask a route that
+    // answers 404 and close the sockets watching that repository.
+    if (!capabilitiesFrom(this.env).namesCanBePrivate) return
+    for (const ws of this.ctx.getWebSockets()) {
+      const { watch, credential } = readSubscription(ws)
+      if (!watch) continue
+      const affected = watchedRepos(watch).filter((repo) => readersChanged.includes(repo))
+      if (affected.length === 0) continue
+      let stillAllowed = false
+      try {
+        const readable = await this.readVerdicts(credential, affected)
+        stillAllowed = affected.every((repo) => readable[repo] === true)
+      } catch {
+        stillAllowed = false
+      }
+      if (stillAllowed) continue
+      try {
+        ws.send(encode({ error: 'unauthorized' }))
+        ws.close(1008, 'walgit: read access revoked')
+      } catch {
+        // Already gone; nothing to close.
+      }
+    }
+  }
+
+  /**
+   * Which of these repositories the presented credential may read, from the
+   * container — the only half that can verify an SSH signature.
+   *
+   * Authenticated with the announce secret, the mirror of the call the push
+   * path makes in the other direction (`READ_VERDICT_PATH`). A non-answer
+   * throws rather than returning an empty map, so no caller can mistake "the
+   * container did not say" for "nothing is readable" and then for a verdict.
+   */
+  private async readVerdicts(
+    credential: string | null,
+    repos: string[],
+  ): Promise<Record<string, boolean>> {
+    const request = new Request(`https://walgit.internal${READ_VERDICT_PATH}`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        authorization: `Bearer ${this.env.WALGIT_EVENTS_TOKEN ?? ''}`,
+      },
+      body: JSON.stringify({ credential, repos }),
+    })
+    const response = await getContainer(this.env.WALGIT_CONTAINER).fetch(request)
+    if (!response.ok) throw new Error(`read verdict: ${response.status}`)
+    const body = (await response.json()) as { verdicts?: Record<string, boolean> }
+    if (!body.verdicts) throw new Error('read verdict: no verdicts in the answer')
+    return body.verdicts
+  }
+
   /** Send one announcement to every socket that asked for it. */
   private broadcast(events: readonly RefEvent[]): number {
     let delivered = 0
     for (const ws of this.ctx.getWebSockets()) {
-      const watch = readWatch(ws)
+      const { watch } = readSubscription(ws)
       if (!watch) continue
       const wanted = events.filter((event) => watchCovers(watch, event))
       if (wanted.length === 0) continue
@@ -248,12 +389,37 @@ export class WalgitEvents extends DurableObject<EventsEnv> {
   }
 }
 
-/** The subscription a socket carries, or null if it never sent a valid one. */
-function readWatch(ws: WebSocket): WatchEntry[] | null {
+/**
+ * What a socket carries across hibernation: what it watches, and the
+ * credential it presented at the upgrade.
+ *
+ * Both, because the two are needed at different moments — the watch on every
+ * fan-out, the credential whenever the container has to be asked again — and
+ * an in-memory map of either would be silently empty after an eviction.
+ */
+interface Subscription {
+  credential: string | null
+  /** Null until the client sends a valid `watch`. */
+  watch: WatchEntry[] | null
+}
+
+/** What this socket carries, whatever vintage of this code attached it. */
+function readSubscription(ws: WebSocket): Subscription {
   try {
-    const attachment = ws.deserializeAttachment() as WatchEntry[] | null
-    return Array.isArray(attachment) ? attachment : null
+    const attachment = ws.deserializeAttachment() as unknown
+    // A bare array is the pre-0013 attachment, still on any socket that was
+    // hibernating across the deploy that shipped this. Read as a watch with no
+    // credential — which, on a Private deployment, is an unproven reader.
+    if (Array.isArray(attachment)) return { credential: null, watch: attachment as WatchEntry[] }
+    if (attachment && typeof attachment === 'object') {
+      const { credential, watch } = attachment as Partial<Subscription>
+      return {
+        credential: typeof credential === 'string' ? credential : null,
+        watch: Array.isArray(watch) ? watch : null,
+      }
+    }
   } catch {
-    return null
+    // Nothing attached, or something this version cannot read.
   }
+  return { credential: null, watch: null }
 }

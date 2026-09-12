@@ -372,8 +372,8 @@ export class EventsEndpoint {
           }
           const parsed = parseAnnounce(await request.json().catch(() => null))
           if (!parsed.ok) return new Response(`${parsed.error}\n`, { status: 400 })
-          this.announced.push(...parsed.value)
-          return Response.json({ ok: true, delivered: this.broadcast(parsed.value) })
+          this.announced.push(...parsed.value.events)
+          return Response.json({ ok: true, delivered: this.broadcast(parsed.value.events) })
         }
 
         if (url.pathname !== EVENTS_PATH) return new Response('not found\n', { status: 404 })
