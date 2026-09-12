@@ -54,6 +54,7 @@ describe('announce', () => {
     )
     expect(JSON.parse(seen!.init.body as string)).toEqual({
       events: [{ repo: 'my-thing', ref: 'refs/heads/main', sha: SHA }],
+      readersChanged: [],
     })
   })
 
@@ -69,6 +70,40 @@ describe('announce', () => {
       }) as unknown as typeof fetch,
     )
     expect(JSON.parse(body).events[0].sha).toBeNull()
+  })
+
+  test('a push that moved the Signer List says so', async () => {
+    // A Reader List lives on `refs/walgit/signers` (docs/adr/0013), so a push
+    // that moved that ref may have revoked a reader — and a socket that
+    // outlives a revocation is a leak. The Fan-out learns it from here.
+    let body = ''
+    await announce(
+      CONFIG,
+      'my-thing',
+      [
+        { ref: 'refs/heads/main', oldOid: ZERO_OID, newOid: SHA },
+        { ref: 'refs/walgit/signers', oldOid: ZERO_OID, newOid: SHA },
+      ],
+      (async (_url: string, init: RequestInit) => {
+        body = init.body as string
+        return new Response('{}')
+      }) as unknown as typeof fetch,
+    )
+    expect(JSON.parse(body).readersChanged).toEqual(['my-thing'])
+  })
+
+  test('an ordinary push names nothing revoked', async () => {
+    let body = ''
+    await announce(
+      CONFIG,
+      'my-thing',
+      [{ ref: 'refs/heads/main', oldOid: ZERO_OID, newOid: SHA }],
+      (async (_url: string, init: RequestInit) => {
+        body = init.body as string
+        return new Response('{}')
+      }) as unknown as typeof fetch,
+    )
+    expect(JSON.parse(body).readersChanged).toEqual([])
   })
 
   test('a failed announce is swallowed, so it can never fail a push', async () => {

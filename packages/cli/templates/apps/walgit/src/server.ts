@@ -218,6 +218,11 @@ try {
             seed: privateSeed,
             readClaim: async (repoId) => (await loadIndex(store, repoId)).index.claim,
             verifyRead: sshReadVerifier,
+            // What lets the edge ask this process whether a subscriber may
+            // read what it asked to watch (docs/adr/0013). The same secret the
+            // push path announces with, read the same way — blank is unset, in
+            // which case there is no event stream and nothing to ask.
+            announceSecret: (process.env.WALGIT_EVENTS_TOKEN ?? '').trim() || undefined,
           }
         : undefined,
   })

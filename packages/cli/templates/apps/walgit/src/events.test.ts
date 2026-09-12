@@ -66,6 +66,75 @@ describe('authorizeSubscribe', () => {
     // the same repository already hands over, which anyone may do here.
     expect(authorizeSubscribe({ authorization: null, tokens: [], isPublic: true })).toBe(true)
   })
+
+  // The Private dimension (docs/adr/0013). The verdicts come from the
+  // container, which is the only half that can verify a signature; what is
+  // decided here is what a watch naming several repositories is worth when one
+  // of them is refused.
+  test('a watch is refused WHOLE when one named repository is unreadable', () => {
+    const watch = [{ repo: 'open-thing' }, { repo: 'secret-thing' }]
+    expect(
+      authorizeSubscribe({
+        authorization: null,
+        tokens: [],
+        isPublic: true,
+        watch,
+        readable: { 'open-thing': true, 'secret-thing': false },
+      }),
+    ).toBe(false)
+  })
+
+  test('a watch is allowed when every named repository is readable', () => {
+    expect(
+      authorizeSubscribe({
+        authorization: null,
+        tokens: [],
+        isPublic: true,
+        watch: [{ repo: 'open-thing' }, { repo: 'secret-thing' }],
+        readable: { 'open-thing': true, 'secret-thing': true },
+      }),
+    ).toBe(true)
+  })
+
+  test('a repository the container did not answer for is refused', () => {
+    // Fail closed: a verdict that did not arrive is not a verdict of yes.
+    expect(
+      authorizeSubscribe({
+        authorization: null,
+        tokens: [],
+        isPublic: true,
+        watch: [{ repo: 'secret-thing' }],
+        readable: {},
+      }),
+    ).toBe(false)
+  })
+
+  test('no verdicts at all is a deployment that gates no reads', () => {
+    // Every deployment until an operator sets `WALGIT_PRIVATE_REPOS`: the
+    // watch is judged by the deployment credential alone, as it always was.
+    expect(
+      authorizeSubscribe({
+        authorization: null,
+        tokens: [],
+        isPublic: true,
+        watch: [{ repo: 'secret-thing' }],
+      }),
+    ).toBe(true)
+  })
+
+  test('the deployment credential is still checked first', () => {
+    // Readable everywhere does not make a stranger a subscriber on a
+    // token-gated deployment.
+    expect(
+      authorizeSubscribe({
+        authorization: null,
+        tokens,
+        isPublic: false,
+        watch: [{ repo: 'open-thing' }],
+        readable: { 'open-thing': true },
+      }),
+    ).toBe(false)
+  })
 })
 
 describe('authorizeAnnounce', () => {
@@ -142,7 +211,33 @@ describe('parseAnnounce', () => {
         { repo: 'my-thing', ref: 'refs/heads/gone', sha: null },
       ],
     })
-    expect(parsed.ok && parsed.value).toHaveLength(2)
+    expect(parsed.ok && parsed.value.events).toHaveLength(2)
+  })
+
+  test('carries which repositories changed their Reader List', () => {
+    // The revocation signal (docs/adr/0013). Internal to the announce wire —
+    // the container names it, the Fan-out spends it, and nothing about it
+    // reaches a subscriber's socket.
+    const parsed = parseAnnounce({
+      events: [{ repo: 'my-thing', ref: 'refs/walgit/signers', sha: SHA_A }],
+      readersChanged: ['my-thing'],
+    })
+    expect(parsed.ok && parsed.value.readersChanged).toEqual(['my-thing'])
+  })
+
+  test('an announcement naming none is the ordinary push', () => {
+    const parsed = parseAnnounce({
+      events: [{ repo: 'my-thing', ref: 'refs/heads/main', sha: SHA_A }],
+    })
+    expect(parsed.ok && parsed.value.readersChanged).toEqual([])
+  })
+
+  test('refuses a malformed revocation signal', () => {
+    const bad = parseAnnounce({
+      events: [{ repo: 'my-thing', ref: 'refs/heads/main', sha: SHA_A }],
+      readersChanged: ['../etc'],
+    })
+    expect(bad.ok).toBe(false)
   })
 
   test('refuses a malformed announcement', () => {

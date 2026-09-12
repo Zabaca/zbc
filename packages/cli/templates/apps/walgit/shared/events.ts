@@ -76,9 +76,33 @@ export function authorizeSubscribe(input: {
   authorization: string | null
   tokens: string[]
   isPublic: boolean
+  /**
+   * What this subscriber asked to watch, when it has asked yet.
+   *
+   * It has not at the upgrade — a `watch` message arrives on the socket after
+   * it is open — so the deployment credential is the whole question there, and
+   * the repositories are judged on the message that names them.
+   */
+  watch?: readonly WatchEntry[]
+  /**
+   * Per-repository read verdicts for the key this subscriber PROVED
+   * (docs/adr/0013), from the container, which is the only half that can
+   * verify a signature.
+   *
+   * Absent means this deployment gates no reads — every deployment until an
+   * operator sets `WALGIT_PRIVATE_REPOS` — and the watch is judged exactly as
+   * it always was. Present means every named repository must be answered
+   * `true`: a verdict that did not arrive is not a verdict of yes.
+   */
+  readable?: Readonly<Record<string, boolean>>
 }): boolean {
-  if (input.isPublic) return true
-  return authorizedBy(input.authorization, input.tokens)
+  if (!input.isPublic && !authorizedBy(input.authorization, input.tokens)) return false
+  if (!input.watch || !input.readable) return true
+  // Whole, never narrowed. A subscriber silently stripped of one repository
+  // waits forever on a stream it believes it is on, which is the worse failure
+  // — and the refusal is the same `unauthorized` a clone of it would get.
+  const readable = input.readable
+  return watchedRepos(input.watch).every((repo) => readable[repo] === true)
 }
 
 /**
@@ -159,12 +183,44 @@ export function parseWatch(raw: string): Parsed<WatchEntry[]> {
   return { ok: true, value: entries }
 }
 
+/**
+ * One push, as the push path publishes it.
+ *
+ * `readersChanged` is the revocation signal (docs/adr/0013): the repositories
+ * whose `refs/walgit/signers` this push moved, and therefore whose Reader List
+ * may no longer name a key that is reading right now. It rides the
+ * announcement rather than a second endpoint because it is the same event —
+ * that ref moved — read for a second purpose, and because the Fan-out is the
+ * only thing that can act on it.
+ *
+ * It is INTERNAL to the announce wire. Nothing derived from it appears in a
+ * subscriber's handshake or in an event; what a revoked subscriber sees is its
+ * socket closing, which ADR-0009's frozen wire already allows.
+ */
+export interface Announcement {
+  events: RefEvent[]
+  readersChanged: string[]
+}
+
 /** The announcement the push path publishes, validated at the door. */
-export function parseAnnounce(body: unknown): Parsed<RefEvent[]> {
+export function parseAnnounce(body: unknown): Parsed<Announcement> {
   if (typeof body !== 'object' || body === null)
     return { ok: false, error: 'body is not an object' }
   const events = (body as { events?: unknown }).events
   if (!Array.isArray(events)) return { ok: false, error: 'expected an "events" array' }
+  const changed = (body as { readersChanged?: unknown }).readersChanged ?? []
+  if (!Array.isArray(changed)) return { ok: false, error: '"readersChanged" is not an array' }
+  for (const repo of changed) {
+    // The same grammar the events go through, and for the same reason: a name
+    // this door accepts and the rest of walgit refuses is a repository half
+    // the service can see.
+    if (typeof repo !== 'string' || !REPO_ID.test(repo)) {
+      return {
+        ok: false,
+        error: `invalid repository name in "readersChanged": ${JSON.stringify(repo ?? null)}`,
+      }
+    }
+  }
 
   const parsed: RefEvent[] = []
   for (const item of events) {
@@ -192,7 +248,7 @@ export function parseAnnounce(body: unknown): Parsed<RefEvent[]> {
     }
     parsed.push({ repo, ref, sha })
   }
-  return { ok: true, value: parsed }
+  return { ok: true, value: { events: parsed, readersChanged: [...(changed as string[])] } }
 }
 
 /**
