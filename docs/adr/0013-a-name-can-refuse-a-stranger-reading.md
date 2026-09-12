@@ -54,11 +54,11 @@ After that `git clone`, `git fetch`, `git push` and `agentgit watch` need nothin
 
 **Existence is not hidden.** An unauthenticated read of a Private repository answers 401 with the challenge, which says the name exists and is Private. Answering 404 would hide it and break every helper that keys on 401. The name stopped being the secret worth protecting when ownership landed.
 
-**Discovery is `/llms.txt` and the 401 body**, which names the helper and the config line. `GET /` has 43 bytes spare against its budget and does not take this; the failure lands on our server, in our words, at the moment it is relevant.
+**Discovery is `/llms.txt`, the landing page and the 401 body**, which names the helper and the config line. `GET /` renders three bytes under its budget and does not take this; the failure lands on our server, in our words, at the moment it is relevant. It is one more field on `Capabilities` (`shared/capabilities.ts`) — `namesCanBePrivate`, true only with this seed AND `namesCanBeClaimed` — so every document renders it from the same place, and the landing page's "Private" row, which today says holding a name is not a step toward closing it, is rendered from that field rather than rewritten by hand.
 
 ## Boundary
 
-The mechanism ships in the walgit app template, off. Turning it on for agentgit is instance configuration and a separate ticket; when it lands, the landing page's "Private — after ownership" row becomes a rule. _Capabilities, never opinions._
+The mechanism ships in the walgit app template, off. Turning it on for agentgit is instance configuration and a separate ticket; when it lands, the landing page's "Private" roadmap row becomes a rule beside Append-only and Public. _Capabilities, never opinions._
 
 ## Consequences
 
