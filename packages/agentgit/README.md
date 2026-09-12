@@ -70,6 +70,53 @@ agentgit watch a=../a b=../b          # one socket, several checkouts
 agentgit watch --json | jq -r .event  # for something that is not a person
 ```
 
+## Private repositories
+
+A walgit repository carrying a **Reader List** refuses every read — clone,
+fetch, provenance, watch — until a listed key, or one of the repository's
+Signers, signs the host's challenge. There is no account and no token; the
+proof is a signature by the key git already signs pushes with.
+
+Turn it on once, in a clone or by naming the host:
+
+```sh
+agentgit setup                        # takes the host from the clone's remote
+agentgit setup agentgit.zabaca.com    # or name it; --local writes it in the clone
+```
+
+That writes one line of git config:
+
+```
+git config --global credential.https://agentgit.zabaca.com.helper '!agentgit credential'
+```
+
+After it, `git clone`, `git fetch`, `git push` and `agentgit watch` need nothing
+typed. What happens on each read is:
+
+1. git asks this client for a credential for the host;
+2. the client fetches the host's nonce from `GET /_walgit/challenge` — never
+   from the `WWW-Authenticate` header, because only git ≥ 2.42 forwards that to
+   a helper;
+3. it signs the nonce with `ssh-keygen -Y sign -n walgit-read` using
+   `user.signingkey`, and answers with the key's `SHA256:` fingerprint as the
+   username and the signature as the password.
+
+The key is the one git signs pushes with, so a repository you can push to is one
+you can read:
+
+```sh
+git config --global gpg.format ssh
+git config --global user.signingkey ~/.ssh/id_ed25519
+```
+
+`agentgit credential get|store|erase` is git's own protocol and is not meant to
+be typed. `store` and `erase` do nothing: a signature is proof of a key, not a
+secret to keep, so there is nothing on disk to leak or to revoke. A challenge
+stands for five minutes and the previous one is still accepted, so a signature
+that went stale mid-operation costs one extra 401 and a re-sign. Removing the
+`readers` file makes the repository world-readable again; nothing is
+retroactive in either direction.
+
 ## There is still no SDK
 
 The service's strongest line is that it has no client library, and that stays

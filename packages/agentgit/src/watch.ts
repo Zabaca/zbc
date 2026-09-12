@@ -20,6 +20,17 @@ const EVENTS_PATH = '/_walgit/events'
 export interface WatchConfig {
   host: string
   token: string | null
+  /**
+   * The `Authorization` a Private repository's event stream needs, built fresh
+   * per connect, or `null` where there is nothing to present.
+   *
+   * A walgit event is a strict subset of what a fetch hands over (docs/adr/0009
+   * and 0013), so the credential is the same one a clone presents: a signature
+   * over the host's challenge. It is re-derived on each connect because a
+   * challenge stands for five minutes — a cached header would come back after a
+   * long disconnect as a socket the host refuses.
+   */
+  credential?: (() => Promise<string | null>) | null
   /** `repo` → the checkout to fetch into. */
   targets: Map<string, string>
   /** Empty watches every ref in each repository. */
@@ -145,10 +156,13 @@ export function watch(config: WatchConfig): void {
     return true
   }
 
-  const connect = (): void => {
+  const connect = async (): Promise<void> => {
     const url = `wss://${config.host}${EVENTS_PATH}`
-    const socket = config.token
-      ? new WebSocket(url, { headers: { authorization: `Bearer ${config.token}` } } as never)
+    const authorization = config.token
+      ? `Bearer ${config.token}`
+      : ((await config.credential?.().catch(() => null)) ?? null)
+    const socket = authorization
+      ? new WebSocket(url, { headers: { authorization } } as never)
       : new WebSocket(url)
 
     socket.onopen = () => {
@@ -216,7 +230,7 @@ export function watch(config: WatchConfig): void {
         { code: event.code, retryMs: wait },
         `disconnected (${event.code}); reconnecting in ${wait}ms`,
       )
-      setTimeout(connect, wait)
+      setTimeout(() => void connect(), wait)
     }
 
     // Reported, not acted on: a close always follows, and reconnecting from
@@ -224,7 +238,7 @@ export function watch(config: WatchConfig): void {
     socket.onerror = () => emit('socket-error', {}, 'socket error')
   }
 
-  connect()
+  void connect()
 }
 
 /**

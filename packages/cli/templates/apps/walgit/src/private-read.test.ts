@@ -114,8 +114,12 @@ describe('a Private repository', () => {
     test(`refuses ${label} with a challenge, and names the repository rather than hiding it`, async () => {
       const res = await deployment(PRIVATE_CLAIM)(path, null, method)
       expect(res.status).toBe(401)
+      // Both challenges, in this order. `Basic` is not decoration: git carries
+      // a credential only in a scheme curl knows, so a 401 offering `walgit-ssh`
+      // alone is one git reports as `Authentication failed` without ever asking
+      // a credential helper for the signature that would have opened it.
       expect(res.headers.get('www-authenticate')).toBe(
-        `walgit-ssh nonce=${readChallengeNonce(SEED, NOW)}`,
+        `Basic realm="walgit", walgit-ssh nonce=${readChallengeNonce(SEED, NOW)}`,
       )
       const body = await res.text()
       expect(body).toContain('agentgit credential')

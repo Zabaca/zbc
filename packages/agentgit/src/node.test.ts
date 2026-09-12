@@ -60,3 +60,37 @@ test('outside a checkout it explains itself instead of throwing', () => {
   expect(run.status).toBe(2)
   expect(run.stderr).toContain('not inside a git repository')
 })
+
+/**
+ * The credential helper, run the way git runs it: a request on stdin, an
+ * answer on stdout, under node.
+ *
+ * Deliberately a request no network can be involved in — git asks about an
+ * `ssh` remote — so what is proven here is the plumbing (stdin drained, the
+ * protocol spoken, a clean exit) rather than the signing, which
+ * `credential.test.ts` covers and scenario 10 in walgit's e2e suite proves
+ * against a real host.
+ */
+test('the credential helper drains stdin and answers, under node', () => {
+  const asked = spawnSync('node', [OUT, 'credential', 'get'], {
+    encoding: 'utf8',
+    input: 'protocol=ssh\nhost=agentgit.zabaca.com\n\n',
+  })
+  expect(asked.status).toBe(0)
+  expect(asked.stdout).toBe('')
+
+  for (const operation of ['store', 'erase']) {
+    const done = spawnSync('node', [OUT, 'credential', operation], {
+      encoding: 'utf8',
+      input: 'protocol=https\nhost=agentgit.zabaca.com\npassword=x\n\n',
+    })
+    expect(done.status).toBe(0)
+    expect(done.stdout).toBe('')
+  }
+})
+
+test('setup outside a clone names the argument rather than guessing a host', () => {
+  const run = spawnSync('node', [OUT, 'setup'], { encoding: 'utf8', cwd: '/' })
+  expect(run.status).toBe(2)
+  expect(run.stderr).toContain('agentgit setup')
+})

@@ -45,11 +45,27 @@ directory it created, and is wired to the normal exit, to a throw, and to
 | ---- | ------- |
 | 0 | Everything passed |
 | 1 | At least one scenario failed |
-| 2 | Nothing failed, but the suite ran less than the full set (`--only`) |
+| 2 | Nothing failed, but the suite ran less than the full set (`--only`, or a skipped scenario) |
 
 Code 2 exists so a narrowed sweep cannot be mistaken for a clean one by a
 script. For the same reason `--quick`, an unbaselined latency size, and a run
 that is not against a real bucket are all printed rather than assumed.
+
+## Scenario 10 and the credential helper
+
+Scenario 10 proves a Private repository end to end (ADR-0013): a stranger is
+refused, the Signer and a listed reader clone with nothing typed, a revoked
+reader is refused by the same command, and removing the `readers` file opens it
+again. The client is the real `agentgit credential` helper rather than anything
+this suite writes, because what the scenario exists to check is that git, the
+helper and walgit's verifier agree about bytes each of them could be right about
+alone.
+
+It therefore needs a helper to run at all. It finds one in
+`$AGENTGIT_CREDENTIAL_HELPER` (a command, e.g. `npx agentgit credential`), in a
+sibling `packages/agentgit` checkout, or as `agentgit` on `PATH` — and where
+there is none it SKIPS, which the runner prints and exits 2 for, like any other
+narrowing.
 
 ## Scenario 7 and the latency baseline
 
