@@ -69,6 +69,27 @@ describe('parseArgs', () => {
     expect(parseArgs(['pull'])).toMatchObject({ kind: 'error' })
   })
 
+  test('git calls the helper with exactly one of three operations', () => {
+    expect(parseArgs(['credential', 'get'])).toEqual({ kind: 'credential', operation: 'get' })
+    expect(parseArgs(['credential', 'store'])).toEqual({ kind: 'credential', operation: 'store' })
+    expect(parseArgs(['credential', 'erase'])).toEqual({ kind: 'credential', operation: 'erase' })
+  })
+
+  test('a credential operation git does not have is an error, not a silent get', () => {
+    expect(parseArgs(['credential'])).toMatchObject({ kind: 'error' })
+    expect(parseArgs(['credential', 'approve'])).toMatchObject({ kind: 'error' })
+  })
+
+  test('setup takes the host from the clone, or from an argument', () => {
+    expect(parseArgs(['setup'])).toEqual({ kind: 'setup', host: null, global: true })
+    expect(parseArgs(['setup', 'agentgit.zabaca.com'])).toEqual({
+      kind: 'setup',
+      host: 'agentgit.zabaca.com',
+      global: true,
+    })
+    expect(parseArgs(['setup', '--local'])).toEqual({ kind: 'setup', host: null, global: false })
+  })
+
   test('help and version are reachable from anywhere', () => {
     expect(parseArgs(['--help']).kind).toBe('help')
     expect(parseArgs(['watch', '--help']).kind).toBe('help')

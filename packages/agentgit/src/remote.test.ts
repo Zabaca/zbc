@@ -9,7 +9,14 @@
 
 import { describe, expect, test } from 'bun:test'
 
-import { conflictPaths, parseHead, parseRemote, parseRemoteList, pickRemote } from './remote'
+import {
+  conflictPaths,
+  originOf,
+  parseHead,
+  parseRemote,
+  parseRemoteList,
+  pickRemote,
+} from './remote'
 
 describe('parseRemote', () => {
   test('reads the host and the repository out of a walgit remote', () => {
@@ -99,5 +106,20 @@ describe('conflictPaths', () => {
 
   test('a merge with no paths reports none', () => {
     expect(conflictPaths('0a1b2c3d\n')).toEqual([])
+  })
+})
+
+describe('originOf', () => {
+  test('is what the credential config key is written for: scheme, host and port', () => {
+    expect(originOf('https://agentgit.zabaca.com/study-42.git')).toBe('https://agentgit.zabaca.com')
+    expect(originOf('http://localhost:8787/thing.git')).toBe('http://localhost:8787')
+  })
+
+  test('drops credentials someone left in the remote, which are not part of an origin', () => {
+    expect(originOf('https://walgit:tok@host.example/thing.git')).toBe('https://host.example')
+  })
+
+  test('is null for a remote walgit could not be serving', () => {
+    expect(originOf('git@github.com:you/thing.git')).toBeNull()
   })
 })

@@ -22,9 +22,10 @@ import { materialize } from '../src/materialize'
 import { resolveRepo } from '../src/repo'
 import { loadIndex, type Provenance, type WalIndex } from '../src/wal-index'
 import { fingerprintIn } from '../shared/provenance'
-import { PROVENANCE_PATH } from '../shared/protocol'
+import { CHALLENGE_PATH, PROVENANCE_PATH, SIGNERS_REF } from '../shared/protocol'
 import { LATENCY_BASELINE, type LatencyCeiling } from './latency-baseline'
 import {
+  APP_ROOT,
   EventsEndpoint,
   TOKEN,
   clone,
@@ -40,6 +41,16 @@ export interface Scenario {
   n: number
   name: string
   run(run: Run, opts: ScenarioOptions): Promise<string[]>
+  /**
+   * Why this scenario cannot run here, or `null` when it can.
+   *
+   * One scenario needs a client that is not in this package — the credential
+   * helper `@zabaca/agentgit` ships — and a scaffolded copy of walgit has no
+   * reason to have it. A skip is a NARROWING, so the runner prints it and
+   * exits the same way `--only` does: the suite's own rule is that coverage
+   * this run did not have must never read as a clean sweep.
+   */
+  skip?(): string | null
 }
 
 export interface ScenarioOptions {
@@ -876,6 +887,239 @@ const pushProvenance: Scenario = {
   },
 }
 
+// ── 10. A Private repository, opened by the credential helper ───────────────
+
+/**
+ * The whole of ADR-0013 from the outside, with no double anywhere in it.
+ *
+ * Every seam below is stubbed somewhere in the unit suite — the nonce, the
+ * verifier, the Claim, git's credential protocol — and each stub is reasonable
+ * alone. What none of them can show is that the three pieces MEET: that git
+ * calls the helper, that the helper's answer survives git's grammar (a value
+ * ends at a newline) and the Basic userid split (a fingerprint holds a colon,
+ * an armoured signature must not), and that what walgit verifies is the key
+ * `ssh-keygen -lf` names. So here the keys are real, the challenge comes off
+ * the wire, `ssh-keygen` signs and verifies, and the client is `git clone`.
+ *
+ * It is also the only place a REVOCATION is observed as a refusal rather than
+ * as a changed field: the same clone command, run twice, either side of a push
+ * that removes one line from `readers`.
+ */
+
+/** The seed this scenario's node derives its Read Challenge nonces from. */
+const PRIVATE_SEED = 'walgit-e2e-private-seed'
+
+/**
+ * How git is told to invoke the helper, or `null` if there is none here.
+ *
+ * In the zbc monorepo the client is a sibling package and is run from source;
+ * elsewhere it is whatever `agentgit` is on PATH, or whatever
+ * `$AGENTGIT_CREDENTIAL_HELPER` names (a built bundle, `npx agentgit`). A
+ * checkout with none of the three skips, rather than proving the mechanism
+ * against a stand-in written by this file — which is precisely the thing this
+ * scenario exists to not do.
+ */
+function credentialHelper(): string | null {
+  const named = process.env.AGENTGIT_CREDENTIAL_HELPER
+  if (named) return `!${named}`
+  const source = path.resolve(APP_ROOT, '../../../../agentgit/src/cli.ts')
+  if (fs.existsSync(source)) return `!bun ${source} credential`
+  const installed = Bun.which('agentgit')
+  return installed ? `!${installed} credential` : null
+}
+
+/** An ed25519 keypair, and the fingerprint `ssh-keygen -lf` gives it. */
+async function keypair(dir: string, name: string) {
+  const file = path.join(dir, `key-${name}`)
+  const generated = await sshKeygen('-q', '-t', 'ed25519', '-N', '', '-C', name, '-f', file)
+  assert(generated.status === 0, `ssh-keygen could not generate ${name}:\n${generated.out}`)
+  const listed = await sshKeygen('-lf', `${file}.pub`)
+  assert(listed.status === 0, `ssh-keygen -lf failed for ${name}:\n${listed.out}`)
+  const fingerprint = fingerprintIn(listed.out)
+  assert(fingerprint !== null, `ssh-keygen -lf named no fingerprint for ${name}`)
+  return { key: file, pub: `${file}.pub`, fingerprint }
+}
+
+const privateReads: Scenario = {
+  n: 10,
+  name: 'Private reads — a stranger is refused, and the credential helper opens it with nothing typed',
+  skip() {
+    return credentialHelper() === null
+      ? 'no agentgit credential helper here — set $AGENTGIT_CREDENTIAL_HELPER, or install @zabaca/agentgit'
+      : null
+  },
+  async run(run) {
+    const helper = credentialHelper()
+    assert(helper !== null, 'the helper vanished between the skip check and the run')
+    const repoId = run.repoId('private')
+    const node = await run.node('private', {
+      // Ownership, a certificate seed to sign a claim against, and the Private
+      // seed the nonce is an HMAC of. `WALGIT_PUBLIC` because a deployment
+      // token and a Read Challenge signature arrive in the SAME header: a
+      // token-gated node is not a node a reader can present a key to.
+      WALGIT_PUBLIC: '1',
+      WALGIT_SIGNER_LISTS: '1',
+      WALGIT_PUSH_CERT_SEED: 'walgit-e2e-private-cert-seed',
+      WALGIT_PRIVATE_REPOS: PRIVATE_SEED,
+    })
+    const url = `http://127.0.0.1:${node.port}/${repoId}.git`
+    const origin = `http://127.0.0.1:${node.port}`
+    const keyDir = run.dir('private-keys')
+
+    try {
+      const owner = await keypair(keyDir, 'owner')
+      const reader = await keypair(keyDir, 'reader')
+      const stranger = await keypair(keyDir, 'stranger')
+
+      // git, with the helper turned on for this origin exactly as `agentgit
+      // setup` would write it, and with the key the reader is proving. The
+      // harness clears `credential.helper` for every git it runs, so the only
+      // helper in play is this one.
+      const asReader = (dir: string, key: string, ...args: string[]) =>
+        git(
+          dir,
+          '-c',
+          `credential.${origin}.helper=${helper}`,
+          '-c',
+          `user.signingkey=${key}`,
+          ...args,
+        )
+
+      const pushSigned = (dir: string, key: string, ...refspecs: string[]) =>
+        asReader(dir, key, '-c', 'gpg.format=ssh', 'push', '--signed=yes', url, ...refspecs)
+
+      /** A working copy of the list ref: no history in common with anything. */
+      const listDir = async (label: string) => {
+        const dir = run.dir(`list-${label}`)
+        await gitOk(dir, 'init', '--quiet', '--initial-branch=signers')
+        await gitOk(dir, 'config', 'user.email', 'e2e@walgit.test')
+        await gitOk(dir, 'config', 'user.name', 'walgit e2e')
+        return dir
+      }
+
+      // 1. A name with content, claimed by the owner's key.
+      const work = run.dir('private-work')
+      await gitOk(work, 'init', '--quiet', '--initial-branch=main')
+      await gitOk(work, 'config', 'user.email', 'e2e@walgit.test')
+      await gitOk(work, 'config', 'user.name', 'walgit e2e')
+      const secret = await commit(work, 'the private contents\n')
+      const seeded = await git(work, 'push', url, 'HEAD:refs/heads/main')
+      assert(seeded.status === 0, `the anonymous seed push failed:\n${seeded.out}`)
+
+      const claim = await listDir('claim')
+      fs.writeFileSync(path.join(claim, 'signers'), `${owner.fingerprint}\n`)
+      await gitOk(claim, 'add', 'signers')
+      await gitOk(claim, 'commit', '--quiet', '-m', 'claim')
+      const claimed = await pushSigned(claim, owner.key, `HEAD:${SIGNERS_REF}`)
+      assert(claimed.status === 0, `the claim was refused:\n${claimed.out}`)
+
+      // Still world-readable: a Signer List is not a Reader List, and the
+      // negative below would be vacuous if this failed.
+      const beforePrivate = await git(run.dir('clone-open'), 'clone', '--quiet', url, 'open')
+      assert(
+        beforePrivate.status === 0,
+        `a claimed name refused a clone before it was Private:\n${beforePrivate.out}`,
+      )
+
+      // 2. `readers`, empty: Private, and only the Signer reads it.
+      const writeReaders = async (label: string, lines: string[] | null, message: string) => {
+        const dir = await listDir(label)
+        const fetched = await asReader(dir, owner.key, 'fetch', '--quiet', url, SIGNERS_REF)
+        assert(fetched.status === 0, `could not fetch the list ref:\n${fetched.out}`)
+        await gitOk(dir, 'checkout', '--quiet', '-B', 'signers', 'FETCH_HEAD')
+        if (lines === null) fs.rmSync(path.join(dir, 'readers'))
+        else fs.writeFileSync(path.join(dir, 'readers'), lines.map((l) => `${l}\n`).join(''))
+        await gitOk(dir, 'add', '--all')
+        await gitOk(dir, 'commit', '--quiet', '-m', message)
+        const pushed = await pushSigned(dir, owner.key, `HEAD:${SIGNERS_REF}`)
+        assert(pushed.status === 0, `pushing ${message} was refused:\n${pushed.out}`)
+      }
+      await writeReaders('private', [], 'go private')
+
+      // 3. A stranger, with a key and no place on either list, and then with no
+      // credential at all. The raw request is checked too, because a clone
+      // failing is compatible with the network being down.
+      const strangerClone = async (label: string, key: string | null) => {
+        const dir = run.dir(`clone-${label}`)
+        return key === null
+          ? git(dir, 'clone', '--quiet', url, label)
+          : asReader(dir, key, 'clone', '--quiet', url, label)
+      }
+      const refusedStranger = await strangerClone('stranger', stranger.key)
+      assert(refusedStranger.status !== 0, `a stranger CLONED a Private repository`)
+      const refusedAnon = await strangerClone('anon', null)
+      assert(refusedAnon.status !== 0, `an uncredentialed clone of a Private repository succeeded`)
+
+      const bare = await fetch(`${url}/info/refs?service=git-upload-pack`)
+      assert(bare.status === 401, `an unauthenticated fetch answered ${bare.status}, expected 401`)
+      const challenged = bare.headers.get('www-authenticate') ?? ''
+      // Two challenges, and both are load-bearing: `Basic` is the scheme git
+      // is willing to carry an answer in, and `walgit-ssh` is the answer it is
+      // carrying. A 401 offering only the second is one git reports as
+      // `Authentication failed` without calling a helper at all.
+      assert(
+        challenged.includes('Basic realm=') && challenged.includes('walgit-ssh nonce='),
+        `the 401 carried ${JSON.stringify(challenged)}, not a Read Challenge git can answer`,
+      )
+      const published = (await (await fetch(`${origin}${CHALLENGE_PATH}`)).json()) as {
+        nonce: string
+      }
+      assert(
+        challenged.includes(published.nonce),
+        'the challenge in the 401 is not the nonce the host publishes',
+      )
+
+      // 4. The Signer clones it — through the real helper, with nothing typed.
+      const ownerDir = run.dir('clone-owner')
+      const ownerClone = await asReader(ownerDir, owner.key, 'clone', '--quiet', url, 'owner')
+      assert(
+        ownerClone.status === 0,
+        `the Signer could not clone its own repository:\n${ownerClone.out}`,
+      )
+      const read = fs.readFileSync(path.join(ownerDir, 'owner', 'README'), 'utf8')
+      assert(read === 'the private contents\n', `the clone read back ${JSON.stringify(read)}`)
+
+      // 5. A second key, listed as a reader, clones. Nothing about it is a
+      // Signer: it cannot push, and does not need to.
+      const beforeGrant = await strangerClone('reader-before', reader.key)
+      assert(beforeGrant.status !== 0, 'the reader cloned before it was listed')
+      await writeReaders('grant', [reader.fingerprint], 'grant the reader')
+      const readerDir = run.dir('clone-reader')
+      const readerClone = await asReader(readerDir, reader.key, 'clone', '--quiet', url, 'reader')
+      assert(readerClone.status === 0, `a listed reader was refused:\n${readerClone.out}`)
+      assert(
+        (await gitOk(path.join(readerDir, 'reader'), 'rev-parse', 'HEAD')).trim() === secret,
+        'the listed reader cloned something other than what was pushed',
+      )
+
+      // 6. Revoked: the same command, refused.
+      await writeReaders('revoke', [], 'revoke the reader')
+      const afterRevoke = await strangerClone('reader-after', reader.key)
+      assert(afterRevoke.status !== 0, 'a revoked reader still cloned the repository')
+
+      // 7. The file removed: world-readable again, for anyone, with no
+      // credential. Presence is the switch, in both directions.
+      await writeReaders('open', null, 'no longer private')
+      const reopened = await strangerClone('reopened', null)
+      assert(
+        reopened.status === 0,
+        `the repository stayed refused after readers was removed:\n${reopened.out}`,
+      )
+
+      return [
+        `${repoId} claimed by ${owner.fingerprint.slice(0, 20)}… and made Private with an empty readers`,
+        `an unauthenticated fetch answered 401 with ${challenged.slice(0, 32)}…, the nonce ${CHALLENGE_PATH} publishes`,
+        `a stranger's key and an uncredentialed clone were both refused; the Signer cloned ${secret.slice(0, 8)} through ${helper}`,
+        'a second key listed in readers cloned, and the same command was refused once it was revoked',
+        'removing the readers file made it world-readable again — cloned with no credential at all',
+        'the helper is the shipped @zabaca/agentgit client: git called it, and nothing was typed',
+      ]
+    } finally {
+      fs.rmSync(keyDir, { recursive: true, force: true })
+    }
+  },
+}
+
 export const SCENARIOS: Scenario[] = [
   durability,
   noPhantomAcks,
@@ -886,4 +1130,5 @@ export const SCENARIOS: Scenario[] = [
   restoreLatency,
   refEvents,
   pushProvenance,
+  privateReads,
 ]

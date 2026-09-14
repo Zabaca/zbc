@@ -183,9 +183,11 @@ function reject(
   status: number,
   kind: ContainerRejectKind,
   body: string,
-  headers: Record<string, string> = {},
+  headers: HeadersInit = {},
 ): Response {
-  return new Response(body, { status, headers: { ...headers, [REJECT_HEADER]: kind } })
+  const merged = new Headers(headers)
+  merged.set(REJECT_HEADER, kind)
+  return new Response(body, { status, headers: merged })
 }
 
 const UNAUTHORIZED = () =>
@@ -271,9 +273,17 @@ function createRouter(deps: HttpHandlerDeps): (req: Request) => Promise<Response
     const presented = provedFingerprint(priv, request.headers.get('authorization'))
     if (readAllowed({ enabled: true, claim, presented })) return null
     const nonce = readChallengeNonce(priv.seed, priv.now?.() ?? Date.now())
-    return reject(401, 'unauthorized', renderReadChallenge(publicOrigin(request, url)), {
-      'www-authenticate': `${READ_CHALLENGE_SCHEME} nonce=${nonce}`,
-    })
+    // TWO challenges, and the Basic one is not decoration: git speaks the
+    // schemes curl knows, and a 401 offering only `walgit-ssh` is one git
+    // reports as `Authentication failed` without ever asking a credential
+    // helper for a password. The Read Challenge is what a reader ANSWERS —
+    // the nonce is in it — and `Basic` is what makes git willing to carry the
+    // answer. Two header lines rather than one comma-joined value, because
+    // the nonce's `=` inside a comma-separated list is where parsers differ.
+    return reject(401, 'unauthorized', renderReadChallenge(publicOrigin(request, url)), [
+      ['www-authenticate', 'Basic realm="walgit"'],
+      ['www-authenticate', `${READ_CHALLENGE_SCHEME} nonce=${nonce}`],
+    ])
   }
 
   return async (request) => {

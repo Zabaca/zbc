@@ -24,11 +24,18 @@ export interface WatchOptions {
   json: boolean
 }
 
+/** The three things git ever asks a credential helper to do. */
+export type CredentialOperation = 'get' | 'store' | 'erase'
+
 export type Parsed =
   | { kind: 'watch'; options: WatchOptions }
+  | { kind: 'credential'; operation: CredentialOperation }
+  | { kind: 'setup'; host: string | null; global: boolean }
   | { kind: 'help' }
   | { kind: 'version' }
   | { kind: 'error'; message: string }
+
+const CREDENTIAL_OPERATIONS = new Set<string>(['get', 'store', 'erase'])
 
 const FLAGS_WITH_VALUES = new Set(['--ref', '--host', '--token', '--on'])
 
@@ -38,6 +45,41 @@ export function parseArgs(argv: readonly string[]): Parsed {
   const [command, ...rest] = argv
   if (command === '--help' || command === '-h' || command === 'help') return { kind: 'help' }
   if (command === '--version' || command === '-v') return { kind: 'version' }
+  // `credential` is not typed by a person: git spawns it with exactly one
+  // operation and talks the rest on stdin. An operation git does not have is
+  // refused rather than read as `get`, because a helper that answered a
+  // misspelled verb with a signature would be signing for a caller nobody
+  // recognises.
+  if (command === 'credential') {
+    const operation = rest[0]
+    if (rest.length !== 1 || operation === undefined || !CREDENTIAL_OPERATIONS.has(operation)) {
+      return {
+        kind: 'error',
+        message: `credential takes exactly one of get, store, erase — got ${rest.join(' ') || 'nothing'}`,
+      }
+    }
+    return { kind: 'credential', operation: operation as CredentialOperation }
+  }
+
+  if (command === 'setup') {
+    let host: string | null = null
+    let isGlobal = true
+    for (const arg of rest) {
+      if (arg === '--local') {
+        isGlobal = false
+        continue
+      }
+      if (arg === '--global') {
+        isGlobal = true
+        continue
+      }
+      if (arg.startsWith('-')) return { kind: 'error', message: `unknown flag ${arg}` }
+      if (host !== null) return { kind: 'error', message: 'setup takes at most one host' }
+      host = arg
+    }
+    return { kind: 'setup', host, global: isGlobal }
+  }
+
   if (command !== 'watch') {
     return { kind: 'error', message: `unknown command ${JSON.stringify(command)}` }
   }

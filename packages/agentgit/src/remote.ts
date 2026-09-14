@@ -36,6 +36,20 @@ export function parseRemote(url: string): RemoteTarget | null {
   return { host, repo }
 }
 
+/**
+ * The origin of a remote — scheme, host and port, and nothing else.
+ *
+ * Separate from `parseRemote` because a different consumer wants a different
+ * half: a subscription needs the host and the repository, and the credential
+ * config key (`credential.https://host.helper`) needs the SCHEME too. Any
+ * credentials someone left in the URL are dropped: they are not part of an
+ * origin, and git does not look a helper up under one.
+ */
+export function originOf(url: string): string | null {
+  const match = /^(https?):\/\/(?:[^@/]*@)?([^/:]+(?::\d+)?)(?:\/|$)/.exec(url.trim())
+  return match ? `${match[1]}://${match[2]}` : null
+}
+
 /** One remote, as `git remote -v` prints it. */
 export interface Remote {
   name: string

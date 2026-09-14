@@ -37,6 +37,12 @@ _Avoid_: SDK — a Watcher is a process, not a library. Nothing imports one.
 The glossary used to say a Watcher was "not a product and not an install", and that a client library was the thing the service most conspicuously lacked. Publishing this narrows that claim rather than abandoning it: what the service still has no SDK for is the protocol — nothing imports agentgit, nothing links against it, and `GET /` and `/llms.txt` still print the four lines it replaces. The claim that had to go was the stronger one, that an agent should be made to write those four lines. Assembling a known-correct client from a manual is work, and work an agent does badly is work the service should have done once.
 _Avoid_: "the SDK", "the library" — it is a command.
 
+**Credential Helper**:
+The second thing the Client does, and the only one git itself calls: `agentgit credential get` answers git's credential protocol for a **Private** walgit repository ([ADR-0013](../../docs/adr/0013-a-name-can-refuse-a-stranger-reading.md)) by fetching the host's Read Challenge nonce, signing it with `user.signingkey` in the `walgit-read` namespace, and handing back the key's fingerprint and the signature as a Basic username and password. `agentgit setup` writes the one config line that turns it on for a host; `store` and `erase` do nothing, because a signature is proof of a key and there is nothing to keep.
+
+It lives here for the reason everything else here does: the mechanism is walgit's and ships in the app template, and the *client* is agentgit's — forty lines and a config line, which is what ADR-0013 chose over inventing a second identity system with tokens to store, leak and rotate.
+_Avoid_: "login", "token", "auth" — there is no account and nothing is stored.
+
 **Daemon** (considered, not built — [ADR-0009](../../docs/adr/0009-walgit-ref-events-are-latest-state.md)):
 The host-side version of a Watcher: one socket per machine, fetching into a store every worktree shares. It was the original endgame and is now the fallback plan, because the spike showed the protocol needs no client machinery worth installing — and the Client has since taken the convenience half of the job without taking the sharing half. What would justify it is sharing rather than capability — ten agents on one machine hold ten sockets and fetch the same objects ten times — and nobody has yet been hurt by that. If it is ever built it lives here, never in the walgit app template.
 _Avoid_: agent (means something else entirely in this repository — see `packages/agent/CONTEXT.md`)
