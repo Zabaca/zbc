@@ -7,7 +7,8 @@ import zabacaZone from './zabaca-zone'
 // A Durable-Object-bound Container running packages/walgit's Dockerfile behind
 // a thin Worker (docs/adr/0008), with the write-ahead log in its own R2 bucket.
 // `git push https://walgit.zabaca.com/<name>.git` creates the repository;
-// everything is world-readable and world-writable; refs are append-only, so
+// everything is world-readable until a claimed name writes a Reader List and
+// world-writable until one writes a Signer List; refs are append-only, so
 // nothing can be destroyed; and the only removal path is idle expiry.
 //
 // Every capability below is instance configuration and defaults to OFF in the
@@ -113,6 +114,43 @@ export default cloudflareModule.instance({
       // failing open, exactly as designed, for as long as the change takes to
       // reach every repository.
       { name: 'WALGIT_PUSH_CERT_SEED', secret: 'WALGIT_PUBLIC_PUSH_CERT_SEED' },
+      // ── Private ──────────────────────────────────────────────────────────
+      //
+      // A claimed repository may also name the keys allowed to READ it, in a
+      // `readers` file beside `signers` on the same ref, and while it has one
+      // every clone, fetch, provenance read and event subscription is refused
+      // unless the reader signs the host's challenge (docs/adr/0013). No
+      // account, no token: the credential is an ssh signature, and
+      // `@zabaca/agentgit`'s helper makes it the thing git asks for.
+      //
+      // A SECRET, and a SEED rather than a flag — the same shape as the
+      // certificate seed above and for the same reason. The Read Challenge's
+      // nonce is `HMAC(this value, the five-minute window)`, so knowing it is
+      // enough to mint a challenge, and `workerVars` are applied on a wrangler
+      // command line. Any non-blank value turns the capability on.
+      //
+      // Set BESIDE `WALGIT_SIGNER_LISTS` and `WALGIT_PUBLIC`, never without
+      // either, and the container enforces the first of those itself: a Reader
+      // List lives in the Signer List's tree and is written by a push that list
+      // judged, so on a name anyone may push to it protects nothing — the next
+      // stranger adds themselves to it. The second is a transport limit rather
+      // than a policy one: the challenge is answered as Basic auth, in the one
+      // `authorization` header a deployment token would occupy, so on a
+      // credentialed host nobody could present a signature at all. This
+      // deployment has both, above.
+      //
+      // GENERATED ONCE. A reader holds a nonce for five minutes (two windows
+      // are accepted), so rotating this refuses every credential in flight —
+      // a clone in progress fails, and a running `agentgit watch` is dropped
+      // until it reconnects. Cheaper than the certificate seed's rotation and
+      // still not free.
+      //
+      // Turning it back OFF is not destructive and does not need to be
+      // rehearsed: absence of a `readers` file is the switch, so with the seed
+      // gone every repository is world-readable again and no document mentions
+      // readers (`namesCanBePrivate`, shared/capabilities.ts). What it is NOT
+      // is reversible for whoever pushed private work in the meantime.
+      { name: 'WALGIT_PRIVATE_REPOS', secret: 'WALGIT_PUBLIC_PRIVATE_REPOS_SEED' },
     ],
     // ── what propagates, and how ─────────────────────────────────────────
     //
@@ -163,7 +201,9 @@ export default cloudflareModule.instance({
       //
       // A repository may name the keys allowed to push to it, on
       // `refs/walgit/signers`, and while it holds that list a push signed by
-      // anything else is refused. Reads are untouched. The mechanism, the
+      // anything else is refused. Reads are untouched by THIS flag — closing
+      // them is the second file and the second variable, `WALGIT_PRIVATE_REPOS`
+      // in `workerSecrets` above. The mechanism, the
       // format and the argument are docs/adr/0012; what belongs here is why
       // agentgit runs it and what that costs whoever operates it.
       //

@@ -245,6 +245,41 @@ export function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms))
 }
 
+// ── the shipped client ──────────────────────────────────────────────────────
+
+/**
+ * How to run `@zabaca/agentgit`, as an argv prefix, or `null` if it is not here.
+ *
+ * Three places, in the order that gets the REAL client soonest: what
+ * `$AGENTGIT_CLIENT` names (`npx agentgit`, a built bundle), the sibling
+ * package's source in the zbc monorepo, and whatever is on PATH. A checkout
+ * with none of the three has no client, and every caller here SKIPS on that
+ * rather than substituting a stand-in of its own — a credential exchange proved
+ * against a re-implementation of the client proves nothing about the client.
+ */
+export function agentgitClient(): string[] | null {
+  const named = process.env.AGENTGIT_CLIENT
+  if (named) return named.split(' ').filter((word) => word !== '')
+  const source = path.resolve(APP_ROOT, '../../../../agentgit/src/cli.ts')
+  if (fs.existsSync(source)) return ['bun', source]
+  const installed = Bun.which('agentgit')
+  return installed ? [installed] : null
+}
+
+/**
+ * How git is told to invoke the credential helper, or `null` if there is none.
+ *
+ * `$AGENTGIT_CREDENTIAL_HELPER` names the whole command INCLUDING the
+ * subcommand, because a helper that is not this client's `credential` verb —
+ * a wrapper, a different bundle — is still a legitimate thing to point a run at.
+ */
+export function credentialHelper(): string | null {
+  const named = process.env.AGENTGIT_CREDENTIAL_HELPER
+  if (named) return `!${named}`
+  const client = agentgitClient()
+  return client === null ? null : `!${client.join(' ')} credential`
+}
+
 // ── git ─────────────────────────────────────────────────────────────────────
 
 export interface GitResult {

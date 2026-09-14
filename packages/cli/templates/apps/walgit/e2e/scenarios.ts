@@ -25,11 +25,11 @@ import { fingerprintIn } from '../shared/provenance'
 import { CHALLENGE_PATH, PROVENANCE_PATH, SIGNERS_REF } from '../shared/protocol'
 import { LATENCY_BASELINE, type LatencyCeiling } from './latency-baseline'
 import {
-  APP_ROOT,
   EventsEndpoint,
   TOKEN,
   clone,
   commit,
+  credentialHelper,
   git,
   gitOk,
   sleep,
@@ -908,25 +908,6 @@ const pushProvenance: Scenario = {
 
 /** The seed this scenario's node derives its Read Challenge nonces from. */
 const PRIVATE_SEED = 'walgit-e2e-private-seed'
-
-/**
- * How git is told to invoke the helper, or `null` if there is none here.
- *
- * In the zbc monorepo the client is a sibling package and is run from source;
- * elsewhere it is whatever `agentgit` is on PATH, or whatever
- * `$AGENTGIT_CREDENTIAL_HELPER` names (a built bundle, `npx agentgit`). A
- * checkout with none of the three skips, rather than proving the mechanism
- * against a stand-in written by this file — which is precisely the thing this
- * scenario exists to not do.
- */
-function credentialHelper(): string | null {
-  const named = process.env.AGENTGIT_CREDENTIAL_HELPER
-  if (named) return `!${named}`
-  const source = path.resolve(APP_ROOT, '../../../../agentgit/src/cli.ts')
-  if (fs.existsSync(source)) return `!bun ${source} credential`
-  const installed = Bun.which('agentgit')
-  return installed ? `!${installed} credential` : null
-}
 
 /** An ed25519 keypair, and the fingerprint `ssh-keygen -lf` gives it. */
 async function keypair(dir: string, name: string) {

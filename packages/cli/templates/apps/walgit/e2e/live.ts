@@ -1,9 +1,10 @@
 #!/usr/bin/env bun
 /**
- * Signer Lists, against a walgit that is actually running.
+ * Signer Lists and Reader Lists, against a walgit that is actually running.
  *
  *     bun run e2e/live.ts --origin https://walgit.example.com  # a deployment
  *     bun run e2e/live.ts --origin https://…  --expect-unclaimed
+ *     bun run e2e/live.ts --origin https://…  --expect-private
  *     bun run e2e/live.ts --local                              # boot src/server.ts here
  *
  * The MECHANISM is proven in `src/push.e2e.test.ts` — claim, grant, revoke, the
@@ -12,20 +13,22 @@
  * into a second copy of it.
  *
  * What it proves instead is the one thing no test in the package can:
- * **`--origin` says a DEPLOYMENT has ownership turned on.**
- * `WALGIT_SIGNER_LISTS` is instance configuration (docs/adr/0012), so only a
- * request to the running service can tell you the flag reached the container,
- * that the nonce seed is there to sign against, and that a stranger is refused
- * over the public network rather than in a test's imagination.
+ * **`--origin` says a DEPLOYMENT has ownership — or privacy — turned on.**
+ * `WALGIT_SIGNER_LISTS` and `WALGIT_PRIVATE_REPOS` are instance configuration
+ * (docs/adr/0012 and 0013), so only a request to the running service can tell
+ * you a variable reached the container, that the seed it derives from is there
+ * to sign against, and that a stranger is refused over the public network
+ * rather than in a test's imagination.
  *
  * `--local` is the same run against a node this file boots. It is a smoke test
  * for this file — pointing it at a deployment and discovering it was broken is
  * an expensive way to find that out — and asserts nothing about any instance.
  *
- * ## The two assertions
+ * ## The assertions
  *
- * They are assertions about an origin, not verbosity levels, and exactly one of
- * them is true of any deployment that advertises signed pushes at all:
+ * They are assertions about an origin, not verbosity levels. The first two are
+ * about ownership, and exactly one of them is true of any deployment that
+ * advertises signed pushes at all:
  *
  *   - default — **this origin enforces Signer Lists.** Claims a free name,
  *     reads the list back, is refused from an unlisted key and from an unsigned
@@ -34,6 +37,17 @@
  *     an unsigned push to a free name lands and clones back byte-identical, a
  *     signed push from a key nothing knows lands too, and `/llms.txt` says in
  *     its own words that this host keeps no list of allowed signers.
+ *
+ * The third is about the rung above it (docs/adr/0013), and is what says
+ * `WALGIT_PRIVATE_REPOS` reached a deployment:
+ *
+ *   - `--expect-private` — **this origin enforces Reader Lists.** Claims a free
+ *     name, writes an empty `readers` beside the `signers` file, and then finds
+ *     the repository refusing an uncredentialed fetch with a 401 carrying the
+ *     nonce the host publishes, opening for the Signer through the shipped
+ *     `@zabaca/agentgit` helper with nothing typed, still refusing a stranger's
+ *     key, waking an `agentgit watch --once`, and described as Private by both
+ *     agent-facing documents.
  *
  * Each exits 0 only when its assertion holds, so neither can be mistaken for
  * the other by a script. There is no mode that merely reports what it found:
@@ -60,8 +74,14 @@ import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
 
-import { PROVENANCE_PATH, SIGNERS_REF } from '../shared/protocol'
-import { APP_ROOT, git, gitOk, sleep } from './harness'
+import {
+  CHALLENGE_PATH,
+  PROVENANCE_PATH,
+  READ_CHALLENGE_NAMESPACE,
+  READ_CHALLENGE_SCHEME,
+  SIGNERS_REF,
+} from '../shared/protocol'
+import { APP_ROOT, agentgitClient, credentialHelper, git, gitOk, sleep } from './harness'
 
 // ── Arguments ───────────────────────────────────────────────────────────────
 
@@ -70,11 +90,14 @@ const argv = process.argv.slice(2)
 function usage(problem: string): never {
   console.error(problem)
   console.error('')
-  console.error('usage: bun run e2e/live.ts (--origin <url> | --local) [--expect-unclaimed]')
+  console.error(
+    'usage: bun run e2e/live.ts (--origin <url> | --local) [--expect-unclaimed | --expect-private]',
+  )
   console.error('')
   console.error('  --origin <url>      a running walgit; also read from WALGIT_LIVE_ORIGIN')
   console.error('  --local             boot src/server.ts with ownership on and run against it')
   console.error('  --expect-unclaimed  assert the origin does NOT enforce Signer Lists')
+  console.error('  --expect-private    assert the origin ENFORCES Reader Lists')
   process.exit(64)
 }
 
@@ -99,6 +122,7 @@ if (flag('help')) usage('walgit live check')
 
 const local = flag('local')
 const expectUnclaimed = flag('expect-unclaimed')
+const expectPrivate = flag('expect-private')
 // The environment fallback is consulted only where an origin is wanted: a shell
 // that exports `WALGIT_LIVE_ORIGIN` must not make `--local` fail as though the
 // caller had passed a flag they did not.
@@ -110,6 +134,12 @@ if (local && expectUnclaimed) {
   // The local node is booted by this file with the flag on, so the assertion
   // would be about this file's own argv rather than about a deployment.
   usage('--expect-unclaimed is about a deployment; --local boots one with the flag ON.')
+}
+// Two assertions about the same origin, and they are not compatible: the
+// Private one needs a claimed name, which is the thing `--expect-unclaimed`
+// asserts this host does not have.
+if (expectUnclaimed && expectPrivate) {
+  usage('--expect-unclaimed and --expect-private are opposite assertions; pass one.')
 }
 
 function normalizeOrigin(raw: string): string {
@@ -142,11 +172,11 @@ function fingerprintOf(pub: string): string {
   return found
 }
 
-function keypair(name: string): { pub: string; fingerprint: string } {
+function keypair(name: string): { key: string; pub: string; fingerprint: string } {
   const file = path.join(scratch, `key-${name}`)
   const keygen = Bun.spawnSync(['ssh-keygen', '-t', 'ed25519', '-N', '', '-C', name, '-f', file])
   if (keygen.exitCode !== 0) throw new Error(`ssh-keygen failed: ${keygen.stderr.toString()}`)
-  return { pub: `${file}.pub`, fingerprint: fingerprintOf(`${file}.pub`) }
+  return { key: file, pub: `${file}.pub`, fingerprint: fingerprintOf(`${file}.pub`) }
 }
 
 const remote = (origin: string, repoId: string) => `${origin}/${repoId}.git`
@@ -249,6 +279,13 @@ async function startLocalNode(): Promise<string> {
       WALGIT_APPEND_ONLY: '1',
       WALGIT_SIGNER_LISTS: '1',
       WALGIT_PUSH_CERT_SEED: crypto.randomUUID(),
+      // Read gating, on for every `--local` run and not only the Private one.
+      // It costs nothing where no repository writes a `readers` file — which is
+      // every repository the default mode creates — and having one node
+      // configuration rather than two keeps `--local` a smoke test for THIS
+      // FILE, which is all it is: the mode that follows still asserts the flag
+      // reached the server by watching it refuse somebody.
+      WALGIT_PRIVATE_REPOS: crypto.randomUUID(),
     },
     stdio: ['ignore', 'pipe', 'pipe'],
   })
@@ -494,6 +531,328 @@ async function ownershipEnforced(origin: string, hasWorker: boolean): Promise<vo
   )
 }
 
+// ── Private ─────────────────────────────────────────────────────────────────
+
+/**
+ * The whole of the `--expect-private` assertion, on one repository.
+ *
+ * What it proves is the DEPLOYMENT question and only that: `WALGIT_PRIVATE_REPOS`
+ * reached the container, the nonce is derived from a seed that is actually
+ * there, and a stranger is refused over the public network. The MECHANISM —
+ * the grant, the revocation, the file removed, the Signer reading without being
+ * listed — is scenario 10 in `e2e/scenarios.ts`, and must not be copied here.
+ *
+ * It is one repository because that is what an operator does once: claim a
+ * name, write `readers`, and find out whether the host means it.
+ */
+async function privateEnforced(origin: string, hasWorker: boolean): Promise<void> {
+  const owner = keypair('owner')
+  const stranger = keypair('private-stranger')
+  const repoId = freshName()
+  const url = remote(origin, repoId)
+  const body = `private ${repoId}\n`
+
+  await check('a claimed name takes a readers file and goes Private', async (note) => {
+    const work = await workdir('private', body)
+    const seeded = await git(work, 'push', url, 'HEAD:refs/heads/main')
+    must(seeded.status === 0, `the seed push failed (${seeded.status}):\n${seeded.out}`)
+    created.push(repoId)
+
+    const list = await listWorkdir()
+    await writeList(list, [owner.fingerprint], 'claim')
+    const claimed = await pushSigned(list, owner.pub, url, `HEAD:${SIGNERS_REF}`)
+    must(claimed.status === 0, `the claim was refused (${claimed.status}):\n${claimed.out}`)
+
+    // Still readable HERE, which is what makes the refusal below evidence of
+    // the readers file rather than of the claim.
+    const open = path.join(scratch, `clone-open-${repoId}`)
+    const beforePrivate = await git(scratch, 'clone', '--quiet', url, open)
+    must(
+      beforePrivate.status === 0,
+      `a claimed name refused a clone before readers:\n${beforePrivate.out}`,
+    )
+
+    // Empty: Private, and only the Signers read it.
+    fs.writeFileSync(path.join(list, 'readers'), '')
+    await gitOk(list, 'add', 'readers')
+    await gitOk(list, 'commit', '--quiet', '-m', 'go private')
+    const went = await pushSigned(list, owner.pub, url, `HEAD:${SIGNERS_REF}`)
+    must(went.status === 0, `writing readers was refused (${went.status}):\n${went.out}`)
+    note(`${repoId} claimed by ${owner.fingerprint} and carrying an empty readers`)
+  })
+
+  await check('a stranger is refused, with the challenge this host publishes', async (note) => {
+    const dir = path.join(scratch, `clone-refused-${repoId}`)
+    const refused = await git(scratch, 'clone', '--quiet', url, dir)
+    must(refused.status !== 0, 'an uncredentialed clone of a Private repository SUCCEEDED')
+
+    // The raw request too: a clone failing is also what a broken network looks
+    // like, and the status code is the part that says this host refused on
+    // purpose.
+    const bare = await fetch(`${url}/info/refs?service=git-upload-pack`)
+    must(bare.status === 401, `an unauthenticated fetch answered ${bare.status}, expected 401`)
+    const challenged = bare.headers.get('www-authenticate') ?? ''
+    // Both schemes matter: `Basic` is what git will carry an answer in, and
+    // `walgit-ssh` is the answer it carries. A 401 offering only the second is
+    // one git reports as `Authentication failed` without calling a helper.
+    must(
+      challenged.includes('Basic realm=') && challenged.includes(`${READ_CHALLENGE_SCHEME} nonce=`),
+      `the 401 carried ${JSON.stringify(challenged)}, not a Read Challenge git can answer`,
+    )
+    const publishedRes = await fetch(`${origin}${CHALLENGE_PATH}`)
+    must(publishedRes.ok, `GET ${CHALLENGE_PATH} answered ${publishedRes.status}`)
+    const published = (await publishedRes.json()) as { nonce?: string }
+    must(
+      typeof published.nonce === 'string' && published.nonce.length > 0,
+      `${CHALLENGE_PATH} published no nonce`,
+    )
+    must(
+      challenged.includes(published.nonce!),
+      `the challenge in the 401 is not the nonce ${CHALLENGE_PATH} publishes`,
+    )
+
+    // The BODY, not only the header: the 401 is where an agent's discovery
+    // actually lands, so it has to name the one config line and the by-hand
+    // exchange rather than leave a reader with a status code.
+    const explained = await bare.text()
+    must(
+      explained.includes('agentgit credential'),
+      `the 401 body does not name the credential helper:\n${explained}`,
+    )
+    must(
+      explained.includes('ssh-keygen -Y sign'),
+      `the 401 body does not print the by-hand exchange:\n${explained}`,
+    )
+    note(
+      `401 with ${READ_CHALLENGE_SCHEME} nonce=${published.nonce!.slice(0, 16)}…, the one ${CHALLENGE_PATH} publishes`,
+    )
+    note('the refusal names the credential helper and the by-hand exchange')
+  })
+
+  await check(
+    'the Signer reads it with nothing typed, through the shipped helper',
+    async (note) => {
+      const dir = path.join(scratch, `clone-owner-${repoId}`)
+      const cloned = await git(
+        scratch,
+        ...(await credentialArgs(origin, owner)),
+        'clone',
+        '--quiet',
+        url,
+        dir,
+      )
+      must(cloned.status === 0, `the Signer could not clone (${cloned.status}):\n${cloned.out}`)
+      const helper = credentialHelper()
+      note(
+        helper === null
+          ? 'NOT CHECKED with the shipped helper (no @zabaca/agentgit here; $AGENTGIT_CLIENT to name one) — cloned with a signature made by hand instead'
+          : `git called ${helper} and nothing was typed`,
+      )
+      const read = fs.readFileSync(path.join(dir, 'README'), 'utf8')
+      must(
+        read === body,
+        `the clone read back ${JSON.stringify(read)}, not ${JSON.stringify(body)}`,
+      )
+      note('read back byte-identical')
+    },
+  )
+
+  await check("a stranger's key is refused as firmly as no key at all", async (note) => {
+    const dir = path.join(scratch, `clone-stranger-${repoId}`)
+    const refused = await git(
+      scratch,
+      ...(await credentialArgs(origin, stranger)),
+      'clone',
+      '--quiet',
+      url,
+      dir,
+    )
+    must(refused.status !== 0, `a key on neither list CLONED a Private repository:\n${refused.out}`)
+    // Why the status code as well: a clone exiting non-zero is also what an
+    // unreachable host looks like, and this check would then pass on a
+    // deployment that is merely down. 401 is the host refusing THIS key.
+    const bare = await fetch(`${url}/info/refs?service=git-upload-pack`, {
+      headers: { authorization: `Basic ${await basicCredential(origin, stranger)}` },
+    })
+    must(
+      bare.status === 401,
+      `a signature from a key on neither list answered ${bare.status}, expected 401`,
+    )
+    note(`${stranger.fingerprint} signed the same challenge and was still refused with 401`)
+  })
+
+  await check('the Signer still pushes to a repository it has made Private', async (note) => {
+    // Its own check, and not merely a step inside the watch below, because the
+    // watch is skipped wherever there is no Worker — and this is the half of
+    // the gate that is easy to get wrong in the other direction: closing reads
+    // must not close the owner's own write path.
+    const sha = await signerPush(origin, url, owner, 'after going private', `${body}and more\n`)
+    note(`refs/heads/main moved to ${sha.slice(0, 8)} on a Private repository, credential and all`)
+  })
+
+  await check('agentgit watch wakes on a push to the Private repository', async (note) => {
+    if (!hasWorker) {
+      note(
+        "NOT CHECKED: the event stream is the Worker's Durable Object, and this origin is the container",
+      )
+      return
+    }
+    const client = agentgitClient()
+    if (client === null) {
+      note('NOT CHECKED: no @zabaca/agentgit here ($AGENTGIT_CLIENT to name one)')
+      return
+    }
+    const clone = path.join(scratch, `clone-owner-${repoId}`)
+    must(fs.existsSync(clone), 'the Signer clone is missing — the check above did not run')
+    // The key the watcher signs its subscribe with, written where the client
+    // looks for it: `user.signingkey` in the clone it is run inside.
+    await gitOk(clone, 'config', 'user.signingkey', owner.key)
+
+    const watcher = Bun.spawn([...client, 'watch', '--once', '--ref', 'refs/heads/main'], {
+      cwd: clone,
+      env: { ...process.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_SYSTEM: '/dev/null' },
+      stdout: 'pipe',
+      stderr: 'pipe',
+    })
+    try {
+      // The socket has to be up before the push, or the event it is waiting
+      // for happens while it is still connecting — latest-state has no replay
+      // (docs/adr/0009), so a missed event is a watcher that waits forever.
+      await sleep(3000)
+      await signerPush(origin, url, owner, 'the handoff', `${body}the handoff\n`)
+
+      const exited = await Promise.race([
+        watcher.exited,
+        sleep(30_000).then(() => 'timeout' as const),
+      ])
+      must(exited !== 'timeout', 'agentgit watch never woke: no event reached it within 30 s')
+      const out = `${await new Response(watcher.stdout).text()}${await new Response(watcher.stderr).text()}`
+      must(exited === 0, `agentgit watch exited ${exited}:\n${out}`)
+      note(`agentgit watch --once returned 0 on a Private repository, having presented a signature`)
+    } finally {
+      watcher.kill()
+    }
+  })
+
+  await check('the documents teach Private', async (note) => {
+    const { llms, terse } = await frontDoors(origin, hasWorker)
+    if (llms === null) {
+      note("NOT CHECKED: /llms.txt is the Worker's document, and this origin is the container")
+    } else {
+      must(llms.includes('Reader List'), '/llms.txt does not mention a Reader List')
+      must(
+        !llms.includes('Everything here is world-readable.'),
+        '/llms.txt still says everything here is world-readable',
+      )
+      note('/llms.txt names the Reader List and what a name holding one refuses')
+
+      // The landing page, which is the other half of "the host says so": the
+      // roadmap has carried a Private ROW since ownership was designed, and
+      // this capability is what turns it into a rule.
+      const page = await fetch(origin, { headers: { accept: 'text/html' } })
+      must(page.ok, `GET ${origin} (html) answered ${page.status}`)
+      const html = await page.text()
+      must(html.includes('Private'), 'the landing page does not mention Private')
+      must(
+        !html.includes('Privacy is not free yet'),
+        'the landing page still says privacy is not free yet',
+      )
+      note('the landing page states Private as a rule, not as a roadmap row')
+    }
+    note(`GET / is ${terse.length} bytes`)
+  })
+}
+
+let signerPushes = 0
+
+/**
+ * One signed, credentialed commit onto `refs/heads/main`, from a fresh clone.
+ *
+ * A CLONE and not a new history, because `WALGIT_APPEND_ONLY` refuses anything
+ * that is not a fast-forward; credentialed on the push as well as the clone,
+ * because a Private repository gates `git-receive-pack` too — an owner locked
+ * out of its own write path is the failure this shape exists to catch.
+ *
+ * Returns the sha it pushed.
+ */
+async function signerPush(
+  origin: string,
+  url: string,
+  owner: { key: string; pub: string; fingerprint: string },
+  message: string,
+  content: string,
+): Promise<string> {
+  signerPushes += 1
+  const credential = await credentialArgs(origin, owner)
+  const dir = path.join(scratch, `push-${signerPushes}`)
+  const cloned = await git(scratch, ...credential, 'clone', '--quiet', url, dir)
+  must(cloned.status === 0, `could not clone to push from (${cloned.status}):\n${cloned.out}`)
+  fs.writeFileSync(path.join(dir, 'README'), content)
+  await gitOk(dir, 'add', 'README')
+  await gitOk(dir, 'commit', '--quiet', '-m', message)
+  const pushed = await git(
+    dir,
+    ...credential,
+    '-c',
+    'gpg.format=ssh',
+    'push',
+    '--signed=yes',
+    url,
+    'HEAD:refs/heads/main',
+  )
+  must(pushed.status === 0, `the push was refused (${pushed.status}):\n${pushed.out}`)
+  return (await gitOk(dir, 'rev-parse', 'HEAD')).trim()
+}
+
+/**
+ * The `-c` arguments that let one git command answer a Read Challenge as `who`.
+ *
+ * Two shapes for one credential, and which one is in play is reported by the
+ * check that uses it rather than changing what it asserts: where the shipped
+ * client is resolvable, git is pointed at the real helper and signs with
+ * `user.signingkey`, which is the invocation an agent actually has; where it is
+ * not, the header is built here by the exact `ssh-keygen -Y sign` exchange the
+ * 401 body prints — weaker about the CLIENT, identical about the DEPLOYMENT.
+ *
+ * It covers pushes as well as reads: a Private repository refuses an
+ * uncredentialed `git-receive-pack` too, so a push made after the `readers`
+ * file lands needs this.
+ */
+async function credentialArgs(
+  origin: string,
+  who: { key: string; fingerprint: string },
+): Promise<string[]> {
+  const helper = credentialHelper()
+  return helper === null
+    ? ['-c', `http.extraHeader=Authorization: Basic ${await basicCredential(origin, who)}`]
+    : ['-c', `credential.${origin}.helper=${helper}`, '-c', `user.signingkey=${who.key}`]
+}
+
+/**
+ * The `fp:signature` a Read Challenge is answered with, base64 for Basic auth.
+ *
+ * The fallback for a checkout with no client, and deliberately the exact
+ * exchange the 401 body prints rather than a shortcut through walgit's own
+ * source: what it has to prove is that a stranger with `ssh-keygen` and `curl`
+ * can get in, which is the promise the refusal makes.
+ */
+async function basicCredential(
+  origin: string,
+  who: { key: string; fingerprint: string },
+): Promise<string> {
+  const res = await fetch(`${origin}${CHALLENGE_PATH}`)
+  must(res.ok, `GET ${CHALLENGE_PATH} answered ${res.status}`)
+  const { nonce } = (await res.json()) as { nonce: string }
+  const signed = Bun.spawnSync(
+    ['ssh-keygen', '-Y', 'sign', '-n', READ_CHALLENGE_NAMESPACE, '-f', who.key, '-q', '-'],
+    { stdin: Buffer.from(nonce) },
+  )
+  if (signed.exitCode !== 0) {
+    throw new Error(`ssh-keygen -Y sign failed: ${signed.stderr.toString()}`)
+  }
+  return Buffer.from(`${who.fingerprint}:${signed.stdout.toString()}`).toString('base64')
+}
+
 /** The flag-off assertion: the untouched path, pinned. */
 async function ownershipAbsent(origin: string): Promise<void> {
   await check('this host says in its own words that it keeps no list of signers', async (note) => {
@@ -551,7 +910,9 @@ try {
 
   const assertion = expectUnclaimed
     ? 'this origin does NOT enforce Signer Lists'
-    : 'this origin ENFORCES Signer Lists'
+    : expectPrivate
+      ? 'this origin ENFORCES Reader Lists'
+      : 'this origin ENFORCES Signer Lists'
   console.log(`walgit live check — ${origin}`)
   console.log(`asserting: ${assertion}`)
   if (local) {
@@ -565,6 +926,7 @@ try {
 
   await anonymousPushLands(origin)
   if (expectUnclaimed) await ownershipAbsent(origin)
+  else if (expectPrivate) await privateEnforced(origin, !local)
   else await ownershipEnforced(origin, !local)
 
   console.log('')
