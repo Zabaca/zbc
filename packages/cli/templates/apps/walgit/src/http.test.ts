@@ -430,3 +430,131 @@ describe('the provenance read', () => {
     }
   })
 })
+
+describe('a read of a repository with no refs', () => {
+  /**
+   * The bytes below are not this module's own arithmetic played back: each one
+   * was captured from `git upload-pack --stateless-rpc` against a real empty
+   * bare repository on 2026-09-14 (git 2.43.0), which is what a client is
+   * entitled to receive here.
+   */
+  const ACK_NAK = '0014acknowledgments\n0008NAK\n0000'
+
+  const emptyHandler = (
+    overrides: Partial<Parameters<typeof createHttpHandler>[0]> = {},
+    onEnsure?: () => void,
+  ) =>
+    createHttpHandler({
+      reposDir: '/srv/repos',
+      tokens: ['s3cret'],
+      ensureRepo: (repo) => {
+        onEnsure?.()
+        return repo
+      },
+      runBackend: async () => new Response('backend ran'),
+      readRefs: async () => ({}),
+      ...overrides,
+    })
+
+  const v2Fetch = (repo = 'fresh', body = '0012command=fetch\n00010012wait-for-done\n0000') =>
+    new Request(`https://walgit.test/${repo}.git/git-upload-pack`, {
+      method: 'POST',
+      headers: {
+        authorization: 'Bearer s3cret',
+        'git-protocol': 'version=2',
+        'content-type': 'application/x-git-upload-pack-request',
+      },
+      body,
+    })
+
+  test('answers a v2 fetch with an acknowledgments section, never a packfile', async () => {
+    // The round git actually dies on: `wait-for-done` with every `have`
+    // already spent, which real upload-pack answers by opening `packfile`.
+    let created = 0
+    const res = await emptyHandler({}, () => created++)(v2Fetch())
+    expect(res.status).toBe(200)
+    expect(await res.text()).toBe(ACK_NAK)
+    expect(created).toBe(0)
+  })
+
+  test('advertises v2 capabilities for a free name, and creates nothing', async () => {
+    let created = 0
+    const res = await emptyHandler(
+      {},
+      () => created++,
+    )(
+      new Request('https://walgit.test/free.git/info/refs?service=git-upload-pack', {
+        headers: { authorization: 'Bearer s3cret', 'git-protocol': 'version=2' },
+      }),
+    )
+    expect(res.status).toBe(200)
+    expect(res.headers.get('content-type')).toBe('application/x-git-upload-pack-advertisement')
+    const text = await res.text()
+    // `version 2` first and a flush last is what a v2 client parses; the middle
+    // is capabilities, and only ones this handler goes on to honour.
+    expect(text.startsWith('000eversion 2\n')).toBe(true)
+    expect(text.endsWith('0000')).toBe(true)
+    expect(text).toContain('ls-refs=unborn')
+    expect(text).toContain('fetch=wait-for-done')
+    expect(created).toBe(0)
+  })
+
+  test('reports no refs, and the unborn HEAD a first push would create', async () => {
+    const res = await emptyHandler()(
+      v2Fetch('free', '0014command=ls-refs\n0001000bunborn\n000csymrefs\n0000'),
+    )
+    // Captured from real `upload-pack` against an empty bare repo initialised
+    // with `--initial-branch=main`, which is how `cache.ts` creates every one.
+    expect(await res.text()).toBe('002eunborn HEAD symref-target:refs/heads/main\n0000')
+  })
+
+  test('a repository that holds a ref is served by git, not from here', async () => {
+    let created = 0
+    const h = emptyHandler(
+      { readRefs: async () => ({ 'refs/heads/main': 'a'.repeat(40) }) },
+      () => created++,
+    )
+    expect(await (await h(v2Fetch('alpha'))).text()).toBe('backend ran')
+    expect(created).toBe(1)
+  })
+
+  test('an Index that cannot be read is served the ordinary way, not as empty', async () => {
+    const h = emptyHandler({
+      readRefs: async () => {
+        throw new Error('store unreachable')
+      },
+    })
+    expect(await (await h(v2Fetch())).text()).toBe('backend ran')
+  })
+
+  test('a push to a free name still creates it — only reads are answered here', async () => {
+    let created = 0
+    const res = await emptyHandler(
+      {},
+      () => created++,
+    )(
+      new Request('https://walgit.test/free.git/git-receive-pack', {
+        method: 'POST',
+        headers: { authorization: 'Bearer s3cret' },
+        body: '0000',
+      }),
+    )
+    expect(await res.text()).toBe('backend ran')
+    expect(created).toBe(1)
+  })
+
+  test('a shape this module will not answer is handed back with its body intact', async () => {
+    // `want` against a repository with no objects: not ours to answer, and the
+    // hand-back has to leave the request readable by `git http-backend`.
+    const request = v2Fetch(
+      'fresh',
+      `0012command=fetch\n00010032want ${'a'.repeat(40)}\n0009done\n0000`,
+    )
+    const h = emptyHandler({
+      runBackend: async (req) => new Response(await req.request.text()),
+    })
+    expect(await (await h(request)).text()).toBe(
+      `0012command=fetch\n00010032want ${'a'.repeat(40)}\n0009done\n0000`,
+    )
+  })
+})

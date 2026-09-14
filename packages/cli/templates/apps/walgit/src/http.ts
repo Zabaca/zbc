@@ -26,6 +26,7 @@ import {
   SMART_HTTP,
   type ContainerRejectKind,
 } from '../shared/protocol'
+import { emptyReadResponse } from './empty-read'
 import { renderInstructions } from './instructions'
 import { acceptedNonces, readAllowed, readChallengeNonce, renderReadChallenge } from './private'
 import type { ResolvedRepo } from './repo'
@@ -476,6 +477,45 @@ function createRouter(deps: HttpHandlerDeps): (req: Request) => Promise<Response
       }
       const refused = await refuseRead(request, url, claim)
       if (refused) return refused
+    }
+
+    // A READ of a repository with no refs, answered here and creating nothing
+    // (`src/empty-read.ts` says what the answers are and why git needs them).
+    //
+    // Placed above `ensureRepo` because that is the whole point twice over: a
+    // read must not bring a name into existence — pushing is what does that —
+    // and the `git-upload-pack` round that push negotiation dies on arrives
+    // AFTER the `git-receive-pack` advertisement has already created the
+    // repository, so "does it exist" is the wrong question and "does it hold a
+    // ref" is the right one.
+    //
+    // The ref state comes from the INDEX, not this node's disk, for the reason
+    // everything else here reads the Index: the disk is a cache, and a cold
+    // node's empty directory is not evidence that a repository is empty. That
+    // costs one extra Index read on a read of a repository that turns out to
+    // have refs; on one that does not, it replaces the `syncRepo` this branch
+    // skips. An Index this instance cannot reach hands the request back to the
+    // ordinary path rather than inventing "no refs" out of a failure, which
+    // would answer a real repository as though it were free.
+    // The `git-receive-pack` half of the protocol is excluded from the Index
+    // read as well as from the answers: a push must still create the name it
+    // names, and asking the store about it would be a round trip spent to
+    // reach the same `ensureRepo` below.
+    const reads =
+      route[2] === 'git-upload-pack' ||
+      (route[2] === 'info/refs' && url.searchParams.get('service') === 'git-upload-pack')
+    if (deps.readRefs && reads) {
+      let refless = false
+      try {
+        const repoId = resolveRepo(deps.reposDir, route[1]!).repoId
+        refless = Object.keys(await deps.readRefs(repoId)).length === 0
+      } catch {
+        refless = false
+      }
+      if (refless) {
+        const answer = await emptyReadResponse(request, url, route[2]!)
+        if (answer) return answer
+      }
     }
 
     let repo

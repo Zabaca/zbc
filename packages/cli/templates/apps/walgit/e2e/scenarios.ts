@@ -1101,6 +1101,110 @@ const privateReads: Scenario = {
   },
 }
 
+// ── 11. The first push to a free name ───────────────────────────────────────
+
+/**
+ * A free name has no refs, and git handles that state badly in two directions.
+ *
+ * `push.negotiate=true` — set globally in some agent sandboxes — makes the
+ * FIRST push to a name print `fatal: expected 'acknowledgments', received
+ * 'packfile'` before it succeeds, which an agent reading the output treats as a
+ * refusal. And a read of a name nobody has pushed to must not bring it into
+ * existence: pushing is what creates a name here, so `ls-remote` on a free one
+ * has to answer empty and leave the disk untouched.
+ *
+ * Both are asserted against the real `git` client, because both are claims
+ * about what git PRINTS and what it does next — neither survives a double.
+ */
+const firstPushToAFreeName: Scenario = {
+  n: 11,
+  name: 'The first push to a free name — clean under push.negotiate, and a read creates nothing',
+  async run(run) {
+    const node = await run.node('negotiate')
+    const repoId = run.repoId('negotiate')
+
+    // A read of a name nobody has pushed to.
+    const free = run.repoId('untouched')
+    const lsRemote = await git(run.dir('ls-remote'), 'ls-remote', node.origin(free))
+    assert(lsRemote.status === 0, `ls-remote on a free name failed:\n${lsRemote.out}`)
+    assert(lsRemote.out.trim() === '', `ls-remote on a free name printed:\n${lsRemote.out}`)
+    const onDisk = fs.existsSync(path.join(node.reposDir, `${free}.git`))
+    assert(!onDisk, `reading the free name ${free} left a repository on disk`)
+
+    // Cloning one is the same read, and it has to leave the clone on the branch
+    // a first push would create — `master` here would be an empty working tree
+    // that reads as data loss the moment someone pushes `main`.
+    const freeClone = path.join(run.dir('free-clone'), 'free')
+    const cloned = await git(run.dir('free-clone'), 'clone', node.origin(free), freeClone)
+    assert(cloned.status === 0, `cloning a free name failed:\n${cloned.out}`)
+    const head = (await gitOk(freeClone, 'symbolic-ref', 'HEAD')).trim()
+    assert(
+      head === 'refs/heads/main',
+      `a clone of a free name is on ${head}, expected refs/heads/main`,
+    )
+    assert(
+      !fs.existsSync(path.join(node.reposDir, `${free}.git`)),
+      `cloning the free name ${free} left a repository on disk`,
+    )
+
+    // The first push, with negotiation on.
+    const work = run.dir('negotiate-work')
+    await gitOk(work, 'init', '--quiet', '--initial-branch=main', '.')
+    await gitOk(work, 'config', 'user.email', 'e2e@walgit.test')
+    await gitOk(work, 'config', 'user.name', 'walgit e2e')
+    const first = await commit(work, 'first\n')
+
+    const pushed = await git(
+      work,
+      '-c',
+      'push.negotiate=true',
+      'push',
+      node.origin(repoId),
+      'HEAD:refs/heads/main',
+    )
+    assert(pushed.status === 0, `first push failed:\n${pushed.out}`)
+    const noisy = pushed.out
+      .split('\n')
+      .filter((line) => line.startsWith('fatal:') || line.startsWith('warning: push negotiation'))
+    assert(noisy.length === 0, `first push printed:\n${noisy.join('\n')}`)
+
+    // The second push is the regression side: negotiation against a repository
+    // that DOES have refs still runs through real upload-pack.
+    const second = await commit(work, 'second\n')
+    const again = await git(
+      work,
+      '-c',
+      'push.negotiate=true',
+      'push',
+      node.origin(repoId),
+      'HEAD:refs/heads/main',
+    )
+    assert(again.status === 0, `second push failed:\n${again.out}`)
+    const noisyAgain = again.out
+      .split('\n')
+      .filter((line) => line.startsWith('fatal:') || line.startsWith('warning: push negotiation'))
+    assert(noisyAgain.length === 0, `second push printed:\n${noisyAgain.join('\n')}`)
+
+    const { index } = await loadIndex(run.store, repoId)
+    assert(
+      index.refs['refs/heads/main'] === second,
+      `the log names ${index.refs['refs/heads/main']}, expected ${second}`,
+    )
+
+    // And the name is clonable afterwards, which is what proves the empty
+    // answers did not leave the repository in a state git cannot read.
+    const back = await clone(run, node, repoId, 'negotiated')
+    const served = (await gitOk(back, 'rev-parse', 'HEAD')).trim()
+    assert(served === second, `clone served ${served}, expected ${second}`)
+
+    return [
+      `ls-remote and clone of the free name ${free} exited 0 on refs/heads/main, and created nothing on disk`,
+      `first push of ${first.slice(0, 8)} under push.negotiate=true printed no fatal: and no negotiation warning`,
+      `second push of ${second.slice(0, 8)} was equally clean, and a clone came back at it`,
+    ]
+  },
+}
+
 export const SCENARIOS: Scenario[] = [
   durability,
   noPhantomAcks,
@@ -1112,4 +1216,5 @@ export const SCENARIOS: Scenario[] = [
   refEvents,
   pushProvenance,
   privateReads,
+  firstPushToAFreeName,
 ]
