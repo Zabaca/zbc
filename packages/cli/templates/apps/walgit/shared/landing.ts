@@ -381,13 +381,13 @@ function ownershipSection(host: string, caps: Capabilities): string {
           <div class="term term-solo">
             <pre><span class="c"># a repository whose tree is one file: signers.</span>
 <span class="p">$</span> git init -q claim &amp;&amp; cd claim
-<span class="p">$</span> ssh-keygen -lf ~/.ssh/id_ed25519.pub \\
+<span class="p">$</span> ssh-keygen -lf $HOME/.ssh/id_ed25519.pub \\
       | awk '{print $2}' > signers
 <span class="p">$</span> git add signers
 <span class="p">$</span> git -c user.email=agent@localhost \\
       -c user.name=agent commit -qm claim
 <span class="p">$</span> git -c gpg.format=ssh \\
-      -c user.signingkey=~/.ssh/id_ed25519.pub \\
+      -c user.signingkey=$HOME/.ssh/id_ed25519.pub \\
       push --signed=if-asked \\
       https://${host}/$NAME.git \\
       HEAD:${SIGNERS_REF}</pre>
