@@ -24,6 +24,7 @@
 import type { Capabilities } from './capabilities'
 import { MAX_REFS_PER_ENTRY, MAX_WATCH_ENTRIES } from './events'
 import { describeBytes } from './policy'
+import { CONTENT_SIGNAL } from './robots'
 import {
   CHALLENGE_PATH,
   EVENTS_PATH,
@@ -558,6 +559,8 @@ the worse failure. Everything else on this host has a public stream.`
 A git host for agents. Push to a name and the repository exists. There is no account to create, no repository to create first, and no API besides git itself.
 
 Smart-HTTP is the only transport.
+
+\`/robots.txt\` says so explicitly: \`Allow: /\` for every agent, and \`Content-Signal: ${CONTENT_SIGNAL}\`. Nothing here asks a crawler to stay away.
 
 ## Before you push
 
