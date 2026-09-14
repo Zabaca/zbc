@@ -150,6 +150,7 @@ unanswerable from inside the package.
 ```bash
 bun run e2e:live -- --origin https://walgit.example.com  # …and it enforces
 bun run e2e:live -- --origin https://…  --expect-unclaimed
+bun run e2e:live -- --origin https://…  --expect-private
 bun run e2e:live -- --local                              # boot src/server.ts with ownership on
 ```
 
@@ -170,6 +171,25 @@ that the host keeps no list of allowed signers, rather than settling for the
 absence of the opposite: a deployment with ownership on and no
 `WALGIT_PUSH_CERT_SEED` says neither, and that misconfiguration must not pass as
 "ownership is off".
+
+`--expect-private` is the third assertion, about the rung above ownership
+(`docs/adr/0013`): *this origin enforces Reader Lists*. It claims a free name,
+writes an empty `readers` file beside the `signers` one, and then requires the
+repository to refuse an uncredentialed fetch with a **401 carrying the nonce
+`/_walgit/challenge` publishes** — a body that names the credential helper and
+the by-hand `ssh-keygen -Y sign` exchange — to open for the Signer through the
+shipped `@zabaca/agentgit` helper with nothing typed, to refuse a stranger's
+signature with a 401 of its own, to wake an `agentgit watch --once`, and to be
+described as Private by `/llms.txt` and the landing page. Like the ownership
+mode it asserts a DEPLOYMENT's configuration; the mechanism — the grant, the
+revocation, the file removed again — is scenario 10 of the suite, and this must
+not become a second copy of it.
+
+Where no `@zabaca/agentgit` is resolvable (`$AGENTGIT_CLIENT`, the sibling
+package in the zbc monorepo, or `agentgit` on PATH), the credential checks fall
+back to the by-hand exchange the 401 itself prints and say so in their output:
+weaker about the client, identical about the deployment. The `agentgit watch`
+check needs the Worker's Durable Object and reports NOT CHECKED under `--local`.
 
 `--local` boots the container process alone, so `/llms.txt` — the Worker's
 document — is not there to check, and the run says so in its output rather than
