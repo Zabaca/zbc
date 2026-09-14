@@ -5,6 +5,34 @@ only add or fix things are described by their `release(cli): @zabaca/zbc <x.y.z>
 commit message and the PRs it names; this file exists for the ones a consumer
 has to read before upgrading.
 
+## 0.16.3
+
+### The package no longer carries the publisher's `node_modules`
+
+**0.16.0 and 0.16.1 on npm are 302 MB unpacked across 2901 files.** They should
+be 1.6 MB across 212. The `files` list ships `templates/`, `bun publish` packs
+from disk, and nothing excluded `node_modules` — so a release cut from a machine
+with the app templates installed carried every dependency under
+`templates/apps/*/node_modules` to every consumer. The warehouse template alone
+is 184 MB. Nothing failed, and the same publish run in CI produced the correct
+1.6 MB package, which is why it went unnoticed across two releases.
+
+Upgrading fixes it with no action on your side. Nothing that shipped was wrong,
+only enormous: the CLI, the engine and all 26 module templates were present in
+both packages and are present in this one.
+
+### There is no 0.16.2
+
+The 0.16.2 publish uploaded 84 MB, npm staged it, and it never committed. npm
+refuses every subsequent attempt at that version, from any credential:
+
+```
+409 Conflict: Cannot publish over previously staged version "0.16.2"
+```
+
+The version is unusable and the tag `zbc-cli-v0.16.2` in this repository names a
+release that does not exist on npm. 0.16.3 carries everything 0.16.2 would have.
+
 ## 0.14.0
 
 ### An import naming an instance the environment does not contain is now a hard error
