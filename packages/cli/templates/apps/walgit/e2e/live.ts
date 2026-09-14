@@ -551,8 +551,6 @@ async function privateEnforced(origin: string, hasWorker: boolean): Promise<void
   const repoId = freshName()
   const url = remote(origin, repoId)
   const body = `private ${repoId}\n`
-  /** The list workdir, kept across checks: the claim commit is `readers`' parent. */
-  let list: string | null = null
 
   await check('a claimed name takes a readers file and goes Private', async (note) => {
     const work = await workdir('private', body)
@@ -560,7 +558,7 @@ async function privateEnforced(origin: string, hasWorker: boolean): Promise<void
     must(seeded.status === 0, `the seed push failed (${seeded.status}):\n${seeded.out}`)
     created.push(repoId)
 
-    list = await listWorkdir()
+    const list = await listWorkdir()
     await writeList(list, [owner.fingerprint], 'claim')
     const claimed = await pushSigned(list, owner.pub, url, `HEAD:${SIGNERS_REF}`)
     must(claimed.status === 0, `the claim was refused (${claimed.status}):\n${claimed.out}`)
@@ -634,44 +632,22 @@ async function privateEnforced(origin: string, hasWorker: boolean): Promise<void
   await check(
     'the Signer reads it with nothing typed, through the shipped helper',
     async (note) => {
-      const helper = credentialHelper()
       const dir = path.join(scratch, `clone-owner-${repoId}`)
-      if (helper === null) {
-        // No client here: prove the same refusal opens for a signature made by
-        // hand, exactly as the 401 body instructs. Weaker about the CLIENT,
-        // identical about the DEPLOYMENT, and it says which it is.
-        const cloned = await git(
-          scratch,
-          '-c',
-          `http.extraHeader=Authorization: Basic ${await basicCredential(origin, owner)}`,
-          'clone',
-          '--quiet',
-          url,
-          dir,
-        )
-        must(
-          cloned.status === 0,
-          `the by-hand exchange was refused (${cloned.status}):\n${cloned.out}`,
-        )
-        note(
-          'NOT CHECKED with the shipped helper: no @zabaca/agentgit here ($AGENTGIT_CLIENT to name one)',
-        )
-        note('the Signer cloned with a signature over the published nonce, made by hand')
-      } else {
-        const cloned = await git(
-          scratch,
-          '-c',
-          `credential.${origin}.helper=${helper}`,
-          '-c',
-          `user.signingkey=${owner.key}`,
-          'clone',
-          '--quiet',
-          url,
-          dir,
-        )
-        must(cloned.status === 0, `the Signer could not clone (${cloned.status}):\n${cloned.out}`)
-        note(`git called ${helper} and nothing was typed`)
-      }
+      const cloned = await git(
+        scratch,
+        ...(await credentialArgs(origin, owner)),
+        'clone',
+        '--quiet',
+        url,
+        dir,
+      )
+      must(cloned.status === 0, `the Signer could not clone (${cloned.status}):\n${cloned.out}`)
+      const helper = credentialHelper()
+      note(
+        helper === null
+          ? 'NOT CHECKED with the shipped helper (no @zabaca/agentgit here; $AGENTGIT_CLIENT to name one) — cloned with a signature made by hand instead'
+          : `git called ${helper} and nothing was typed`,
+      )
       const read = fs.readFileSync(path.join(dir, 'README'), 'utf8')
       must(
         read === body,
@@ -682,30 +658,15 @@ async function privateEnforced(origin: string, hasWorker: boolean): Promise<void
   )
 
   await check("a stranger's key is refused as firmly as no key at all", async (note) => {
-    const helper = credentialHelper()
     const dir = path.join(scratch, `clone-stranger-${repoId}`)
-    const refused =
-      helper === null
-        ? await git(
-            scratch,
-            '-c',
-            `http.extraHeader=Authorization: Basic ${await basicCredential(origin, stranger)}`,
-            'clone',
-            '--quiet',
-            url,
-            dir,
-          )
-        : await git(
-            scratch,
-            '-c',
-            `credential.${origin}.helper=${helper}`,
-            '-c',
-            `user.signingkey=${stranger.key}`,
-            'clone',
-            '--quiet',
-            url,
-            dir,
-          )
+    const refused = await git(
+      scratch,
+      ...(await credentialArgs(origin, stranger)),
+      'clone',
+      '--quiet',
+      url,
+      dir,
+    )
     must(refused.status !== 0, `a key on neither list CLONED a Private repository:\n${refused.out}`)
     // Why the status code as well: a clone exiting non-zero is also what an
     // unreachable host looks like, and this check would then pass on a
@@ -718,6 +679,15 @@ async function privateEnforced(origin: string, hasWorker: boolean): Promise<void
       `a signature from a key on neither list answered ${bare.status}, expected 401`,
     )
     note(`${stranger.fingerprint} signed the same challenge and was still refused with 401`)
+  })
+
+  await check('the Signer still pushes to a repository it has made Private', async (note) => {
+    // Its own check, and not merely a step inside the watch below, because the
+    // watch is skipped wherever there is no Worker — and this is the half of
+    // the gate that is easy to get wrong in the other direction: closing reads
+    // must not close the owner's own write path.
+    const sha = await signerPush(origin, url, owner, 'after going private', `${body}and more\n`)
+    note(`refs/heads/main moved to ${sha.slice(0, 8)} on a Private repository, credential and all`)
   })
 
   await check('agentgit watch wakes on a push to the Private repository', async (note) => {
@@ -749,9 +719,7 @@ async function privateEnforced(origin: string, hasWorker: boolean): Promise<void
       // for happens while it is still connecting — latest-state has no replay
       // (docs/adr/0009), so a missed event is a watcher that waits forever.
       await sleep(3000)
-      const work = await workdir('private-second', `${body}and one more line\n`)
-      const pushed = await pushSigned(work, owner.pub, url, 'HEAD:refs/heads/main')
-      must(pushed.status === 0, `the second push was refused (${pushed.status}):\n${pushed.out}`)
+      await signerPush(origin, url, owner, 'the handoff', `${body}the handoff\n`)
 
       const exited = await Promise.race([
         watcher.exited,
@@ -793,6 +761,71 @@ async function privateEnforced(origin: string, hasWorker: boolean): Promise<void
     }
     note(`GET / is ${terse.length} bytes`)
   })
+}
+
+let signerPushes = 0
+
+/**
+ * One signed, credentialed commit onto `refs/heads/main`, from a fresh clone.
+ *
+ * A CLONE and not a new history, because `WALGIT_APPEND_ONLY` refuses anything
+ * that is not a fast-forward; credentialed on the push as well as the clone,
+ * because a Private repository gates `git-receive-pack` too — an owner locked
+ * out of its own write path is the failure this shape exists to catch.
+ *
+ * Returns the sha it pushed.
+ */
+async function signerPush(
+  origin: string,
+  url: string,
+  owner: { key: string; pub: string; fingerprint: string },
+  message: string,
+  content: string,
+): Promise<string> {
+  signerPushes += 1
+  const credential = await credentialArgs(origin, owner)
+  const dir = path.join(scratch, `push-${signerPushes}`)
+  const cloned = await git(scratch, ...credential, 'clone', '--quiet', url, dir)
+  must(cloned.status === 0, `could not clone to push from (${cloned.status}):\n${cloned.out}`)
+  fs.writeFileSync(path.join(dir, 'README'), content)
+  await gitOk(dir, 'add', 'README')
+  await gitOk(dir, 'commit', '--quiet', '-m', message)
+  const pushed = await git(
+    dir,
+    ...credential,
+    '-c',
+    'gpg.format=ssh',
+    'push',
+    '--signed=yes',
+    url,
+    'HEAD:refs/heads/main',
+  )
+  must(pushed.status === 0, `the push was refused (${pushed.status}):\n${pushed.out}`)
+  return (await gitOk(dir, 'rev-parse', 'HEAD')).trim()
+}
+
+/**
+ * The `-c` arguments that let one git command answer a Read Challenge as `who`.
+ *
+ * Two shapes for one credential, and which one is in play is reported by the
+ * check that uses it rather than changing what it asserts: where the shipped
+ * client is resolvable, git is pointed at the real helper and signs with
+ * `user.signingkey`, which is the invocation an agent actually has; where it is
+ * not, the header is built here by the exact `ssh-keygen -Y sign` exchange the
+ * 401 body prints — weaker about the CLIENT, identical about the DEPLOYMENT.
+ *
+ * It covers pushes as well as reads: a Private repository refuses an
+ * uncredentialed `git-receive-pack` too, so a push made after the `readers`
+ * file lands needs this.
+ */
+async function credentialArgs(
+  origin: string,
+  who: { key: string; fingerprint: string },
+): Promise<string[]> {
+  const helper = credentialHelper()
+  return helper === null
+    ? ['-c', `http.extraHeader=Authorization: Basic ${await basicCredential(origin, who)}`]
+    : ['-c', `credential.${origin}.helper=${helper}`, '-c', `user.signingkey=${who.key}`]
 }
 
 /**

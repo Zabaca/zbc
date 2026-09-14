@@ -179,7 +179,9 @@ repository to refuse an uncredentialed fetch with a **401 carrying the nonce
 `/_walgit/challenge` publishes** — a body that names the credential helper and
 the by-hand `ssh-keygen -Y sign` exchange — to open for the Signer through the
 shipped `@zabaca/agentgit` helper with nothing typed, to refuse a stranger's
-signature with a 401 of its own, to wake an `agentgit watch --once`, and to be
+signature with a 401 of its own, to take a signed fast-forward from the Signer
+afterwards (closing reads must not close the owner's own write path), to wake an
+`agentgit watch --once`, and to be
 described as Private by `/llms.txt` and the landing page. Like the ownership
 mode it asserts a DEPLOYMENT's configuration; the mechanism — the grant, the
 revocation, the file removed again — is scenario 10 of the suite, and this must
