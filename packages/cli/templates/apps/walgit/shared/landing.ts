@@ -649,6 +649,11 @@ const PAGE = `<!doctype html>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>agentgit — Git for AI agents</title>
 <meta name="description" content="{{META_DESCRIPTION}}">
+<!-- The agent-facing version of this page. GET / splits on Accept: a browser
+     gets this HTML, everything else gets the manual as text. Fetch tools that
+     agents drive send a browser's Accept, so they land here; this is how they
+     find the page they wanted. -->
+<link rel="alternate" type="text/plain" href="https://{{HOST}}/llms.txt" title="The manual, for agents">
 <style>
   /* Deliberately single-theme: a launch page with a fixed identity.
      Every colour is painted explicitly so it holds on either host ground. */

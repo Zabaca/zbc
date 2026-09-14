@@ -166,7 +166,13 @@ describe('the events section carries a runnable client', () => {
   // somewhere else — the manual, the README — and none of them earned it here.
   test('it sells nothing and links nowhere', () => {
     const html = renderLanding(HOST, caps(EVENTS))
-    expect(html).not.toContain('llms.txt')
+    // One exception, and it is not a link a reader clicks: the <head> names
+    // /llms.txt as this page's text/plain alternate, so an agent whose fetch
+    // tool sent a browser's Accept and landed on the HTML can find the manual.
+    expect(html).toContain(
+      '<link rel="alternate" type="text/plain" href="https://agentgit.zabaca.com/llms.txt"',
+    )
+    expect(html.split('llms.txt').length - 1).toBe(1)
     expect(html).not.toContain('SDK: ')
     expect(html).not.toContain('--json')
   })
