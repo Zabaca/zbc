@@ -33,6 +33,7 @@ import { parseTokens } from '../shared/credentials'
 import { authorizeAnnounce, authorizeSubscribe } from '../shared/events'
 import { renderLanding, wantsLanding } from '../shared/landing'
 import { renderLlms, wantsLlms } from '../shared/llms'
+import { renderRobots, wantsRobots } from '../shared/robots'
 import {
   ANNOUNCE_PATH,
   COLD_HEADER,
@@ -326,6 +327,38 @@ export default {
           // Same minute as the page, and for the same reason: it states the
           // limits this deployment enforces, so a stale copy would outlive a
           // config change.
+          'cache-control': 'public, max-age=60',
+        },
+      })
+    }
+
+    // `/robots.txt`, beside the manual it points at and for the same reasons.
+    // Until this branch existed the path was answered by Cloudflare's managed
+    // Content Signals file, which says nothing either way — and a crawler that
+    // reads silence as a refusal will not fetch a host that exists to be read
+    // by agents. This says yes in the protocol's own words. Same collision
+    // argument as `/llms.txt`: a repository called `robots.txt` is reached at
+    // `/robots.txt.git/…`, so the document cannot shadow one.
+    if (wantsRobots(request.method, url.pathname)) {
+      const doc = renderRobots(url.host)
+      const bytes = new TextEncoder().encode(doc)
+      record(env, ctx, {
+        kind: 'landing',
+        repo: '',
+        outcome: 'ok',
+        reject: '',
+        status: 200,
+        served: false,
+        cold: false,
+        ttfbMs: Date.now() - startedAt,
+        totalMs: Date.now() - startedAt,
+        bytesServed: bytes.byteLength,
+        bytesReceived: 0,
+      })
+      return new Response(request.method === 'HEAD' ? null : bytes, {
+        status: 200,
+        headers: {
+          'content-type': 'text/plain; charset=utf-8',
           'cache-control': 'public, max-age=60',
         },
       })

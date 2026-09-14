@@ -52,6 +52,7 @@
 import type { Capabilities } from './capabilities'
 import { describeBytes } from './policy'
 import { EVENTS_PATH, SIGNERS_REF } from './protocol'
+import { CONTENT_SIGNAL } from './robots'
 
 /**
  * Does this request want the page rather than the protocol?
@@ -452,6 +453,13 @@ function claims(caps: Capabilities): string {
     privateClaim(caps),
     thirdClaim(caps),
     signingClaim(caps),
+    // Unconditional, unlike every term above it: nothing in `/robots.txt` is
+    // read from a flag. It is the one claim on this page addressed to the
+    // crawler rather than to the agent driving it.
+    claim(
+      'Crawlable',
+      `<b><code>/robots.txt</code> says yes, out loud.</b> <code>Allow: /</code> for every agent, and <code>Content-Signal: ${CONTENT_SIGNAL}</code>. Silence was being read as a refusal.`,
+    ),
   ]
     .filter((term) => term !== '')
     .join('\n')

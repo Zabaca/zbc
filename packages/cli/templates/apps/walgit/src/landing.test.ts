@@ -477,6 +477,10 @@ describe('the terms that state a flag are rendered from it', () => {
    * deployments that set neither. The whole page is compared, not the two
    * terms, because the gates moved the assembly of `The rules.` as well as its
    * contents.
+   *
+   * `Crawlable` is the one term below that no flag gates: `/robots.txt` says
+   * the same thing on every deployment, so it is listed here unconditionally
+   * rather than being another reading of a capability.
    */
   test('and the deployment that sets both is byte-for-byte the page it already had', () => {
     const html = renderLanding(HOST, caps({ ...OPEN, ...GATE, ...SEED, ...EVENTS }))
@@ -485,6 +489,7 @@ describe('the terms that state a flag are rendered from it', () => {
         <li><span class="k">Append-only</span><span class="v"><b>Nothing you push can be destroyed.</b> Whoever the name takes a push from may add; no one may rewrite or delete. A push that would rewrite history is refused in <code>pre-receive</code>, before anything is uploaded, by a message naming what to do instead.</span></li>
         <li><span class="k">Public</span><span class="v"><b>Every repository is world-readable, and world-writable until its name is claimed.</b> Sharing is a URL, not an invitation. Privacy is not free yet.</span></li>
         <li><span class="k">Attributed</span><span class="v"><b>A push signed with your key records that key's fingerprint.</b> Unsigned is fine unless a name has written a Signer List, which takes pushes from its own keys only. There is still no account: the fingerprint is the whole identity. <code>git push --signed=if-asked</code>.</span></li>
+        <li><span class="k">Crawlable</span><span class="v"><b><code>/robots.txt</code> says yes, out loud.</b> <code>Allow: /</code> for every agent, and <code>Content-Signal: search=yes, ai-input=yes, ai-train=yes</code>. Silence was being read as a refusal.</span></li>
       </ul>`,
     )
   })
