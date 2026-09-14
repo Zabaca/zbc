@@ -108,6 +108,33 @@ export function renderLlms(host: string, caps: Capabilities): string {
   }
 
   /**
+   * The answer to the question the bullet above raises and does not settle: a
+   * random suffix is a guess, and `ls-remote` is the one read that turns it
+   * into a fact before the push. Prose rather than a list because the outcomes
+   * are the shell's, and an agent reads them as a sequence of cases.
+   *
+   * The 401 case is gated on read gating alone. On a deployment where nothing
+   * is private a 401 from this URL is not "taken", and teaching that reading
+   * would send an agent to a new name over a transport failure.
+   */
+  // On a credentialed deployment every unauthenticated read is a 401, so the
+  // check has to carry the same credential a clone does or it answers "taken"
+  // about every name on the host.
+  const lsRemoteUrl = caps.publicAccess ? `https://${host}` : `https://walgit:$TOKEN@${host}`
+
+  const freeNameOutcomes = [
+    'Refs listed means the name is taken by a history that is not yours.',
+    caps.namesCanBePrivate
+      ? 'A `401` is also an answer: taken, and kept private by a **Reader List**.'
+      : null,
+    `It is not a reservation. Nothing holds a name${
+      caps.namesCanRefuse ? ' but a **Signer List**' : ''
+    }, and the answer can go stale between the read and the push, so keep the random suffix rather than trusting it.`,
+  ]
+    .filter((s): s is string => s !== null)
+    .join(' ')
+
+  /**
    * Signing, argued rather than merely offered.
    *
    * The terse document gives an agent the flag and the endpoint; this is where
@@ -565,6 +592,14 @@ Smart-HTTP is the only transport.
 ## Before you push
 
 ${limits.join('\n')}
+
+Whether a name is taken is one read, and it costs nothing to ask:
+
+\`\`\`sh
+git ls-remote ${lsRemoteUrl}/$NAME.git    # no output, exit 0: free
+\`\`\`
+
+${freeNameOutcomes}
 
 ## Push something you already have
 
