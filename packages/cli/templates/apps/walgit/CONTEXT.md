@@ -50,6 +50,20 @@ A superseded WAL object recorded in the Index as scheduled for deletion, with th
 A WAL object under a repository's prefix that the Index does not name — almost always a pack uploaded by a push that then lost the compare-and-swap, since rejecting at `reference-transaction` does not unwind the upload. Discovered by diffing the prefix against the Index rather than recorded at rejection time, and collected only once provably older than the slowest plausible restore.
 _Avoid_: garbage (says nothing about why it is there), leaked object
 
+**Free Name**:
+A repository id nobody has pushed to. It is not an error and not a 404: `ls-remote` on one exits 0 with no
+output, and a clone of one reports an empty repository — a name comes into existence by being **pushed** to,
+so a READ of a free name must answer emptily and leave nothing behind on disk.
+
+**Ref-less Read**:
+A read (`info/refs?service=git-upload-pack`, `git-upload-pack`) of a repository the **Index** holds no refs
+for — a Free Name, or a name whose repository exists but has never taken a push. walgit answers these itself
+(`src/empty-read.ts`) instead of handing them to `git http-backend`, above `ensureRepo`, so nothing is
+created. It is not only tidiness: `upload-pack` answers the second round of a `push.negotiate` negotiation
+against a ref-less repository with a `packfile` section where the client demands `acknowledgments`, so the
+first push to a name printed `fatal:` before succeeding — which an agent reads as a refusal. Pushing
+(`git-receive-pack`) is untouched, and the moment a repository holds one ref this path is never taken again.
+
 ## Ref events (ADR-0009)
 
 **Ref Event**:
