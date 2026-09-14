@@ -31,7 +31,7 @@ happens because someone decided to release, or it does not happen.
 
 | | what it moves | how it goes out |
 | --- | --- | --- |
-| **npm** | `@zabaca/zbc` — CLI + engine + every template | `bun run publish:npm`, locally |
+| **npm** | `@zabaca/zbc` — CLI + engine + every template | `publish-npm.yml`, dispatched |
 | **zbc-core** | the vendored subtree, tagged `zbc-core-v<version>` | `publish-core.yml`, dispatched |
 | **production** | this repo's own deployed services | `production.yml`, dispatched |
 | **CHANGELOG** | what a consumer must read before upgrading | a commit, before the bump |
@@ -87,22 +87,38 @@ bumped inside a feature PR rather than by a release commit, which is why the
 first dry run after this lands reports every commit in history as unreleased —
 it heals on the first real release.)
 
-### 4. Publish to npm
-
-```sh
-cd packages/cli && bun run publish:npm
-```
-
-**Never `npm publish`** — npm strips the bun shebang from `bin/zbc.js` and
-breaks the CLI for everyone who installs it.
-
-If npm refuses for want of 2FA, dispatch the workflow instead — its credential
-carries a bypass a personal login does not, which is the whole reason
-`publish-npm.yml` still exists:
+### 4. Publish to npm — from CI, never from your machine
 
 ```sh
 gh workflow run publish-npm.yml
 ```
+
+**Do not run `bun run publish:npm` locally.** It reports success, stages the
+version, and never commits it — and npm then refuses that version forever, from
+every credential:
+
+```
+409 Conflict: Cannot publish over previously staged version "0.16.2"
+```
+
+npm is restricting tokens that bypass two-factor authentication for direct
+publishing (https://gh.io/npm-gat-bypass2fa-deprecation), so a personal token
+stages a publish and waits for a confirmation it cannot give. 0.16.2 and 0.16.3
+were both burned this way on 2026-09-14, one after the other, because the first
+failure looked like a size problem rather than an auth one. The workflow's
+credential is the supported path.
+
+Two things the local path used to be for, and where they went:
+
+- **The bun shebang.** `npm publish` strips it from `bin/zbc.js` and breaks the
+  CLI for everyone. The workflow runs `bun publish`, so this is handled — but if
+  you are ever tempted to publish by hand, it is still `bun`, never `npm`.
+- **What gets packed.** `bun publish` packs from disk, so a local publish
+  carries whatever is installed under `templates/apps/*/node_modules` —
+  0.16.0 and 0.16.1 shipped at 302 MB across 2901 files for exactly this reason.
+  `!templates/**/node_modules` in the `files` list closes it, and CI packs a
+  clean checkout regardless. A correct package is **~1.6 MB across 212 files**;
+  check it in the workflow log.
 
 ### 5. Tag zbc-core — only if the preflight said so
 
