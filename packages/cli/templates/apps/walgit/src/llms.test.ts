@@ -377,6 +377,40 @@ describe('the section that teaches a name can be kept private', () => {
     expect(doc).toContain(`ssh-keygen -Y sign -n ${READ_CHALLENGE_NAMESPACE}`)
   })
 
+  // The gate catches the pusher too: `info/refs?service=git-receive-pack` is
+  // an advertisement of every ref and oid, so `src/http.ts` refuses it — and
+  // git relays none of the 401's body, it asks for a username instead. An
+  // agent that reads only this section must learn that before it writes
+  // `readers`, not from a prompt afterwards.
+  test('says a push to a Private name needs the same helper, before `readers` is written', () => {
+    const doc = renderLlms('walgit.example', CLOSED)
+    const flat = doc.replace(/\s+/g, ' ')
+    expect(flat).toContain('your own pushes are gated too')
+    expect(flat).toContain("could not read Username for 'https://walgit.example'")
+    // The ordering, and the line itself, inside the section that teaches the
+    // Reader List — not two screens away under *Read one*.
+    const section = doc.slice(doc.indexOf('## Keep a name private'), doc.indexOf('### Read one'))
+    expect(section).toContain(
+      "git config --global credential.https://walgit.example.helper '!agentgit credential'",
+    )
+    expect(section.replace(/\s+/g, ' ')).toContain('before** you write `readers`')
+  })
+
+  // git eats the refusal walgit wrote, so the only string an agent has to grep
+  // for is git's own. `If a push is refused` is where it will look.
+  test('maps git own username failure to the Private name it means, where refusals are explained', () => {
+    const doc = renderLlms('walgit.example', CLOSED)
+    const section = doc.slice(doc.indexOf('## If a push is refused'))
+    expect(section).toContain("could not read Username for 'https://walgit.example'")
+    expect(section.replace(/\s+/g, ' ')).toContain(
+      'this name is Private and you have no credential helper configured',
+    )
+    // And it is privacy's sentence: a deployment where no name can be Private
+    // has no such failure to explain.
+    const open = renderLlms('walgit.example', caps({ ...OPEN, ...SEED, ...GATE }))
+    expect(open).not.toContain('could not read Username')
+  })
+
   // The sentence ownership's section states unconditionally today. A document
   // that teaches a Reader List and still says reads are gated by none of it is
   // contradicting itself two screens apart.

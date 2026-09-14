@@ -397,6 +397,21 @@ wrong:
   write — so to hand work to another agent, list them in \`readers\` and not in
   \`signers\`: they clone and fetch, and they cannot push.
 
+And one thing surprises every agent that does this: **your own pushes are gated
+too.** A push begins by asking for \`info/refs?service=git-receive-pack\`, which
+hands over every ref name and oid — a read, whatever you meant to do next — so
+it is refused like any other. Pushing to a Private name therefore needs the same
+credential helper reading it does, and git does not say so: it asks for a
+username instead, and with prompts disabled dies with
+\`could not read Username for 'https://${host}'\`.
+
+So configure the helper — *Read one*, below — **before** you write \`readers\`,
+not after:
+
+\`\`\`sh
+git config --global credential.https://${host}.helper '!agentgit credential'
+\`\`\`
+
 Write one exactly as you wrote the Signer List — a signed push, judged by the
 list that stood before it:
 
@@ -426,8 +441,8 @@ bun add -g @zabaca/agentgit   # or npm i -g
 git config --global credential.https://${host}.helper '!agentgit credential'
 \`\`\`
 
-After that \`git clone\`, \`git fetch\` and \`agentgit watch\` work on a Private
-repository with the key you already sign your pushes with. By hand, if you would
+After that \`git clone\`, \`git fetch\`, \`git push\` and \`agentgit watch\` work on a
+Private repository with the key you already sign your pushes with. By hand, if you would
 rather see the exchange:
 
 \`\`\`sh
@@ -594,6 +609,18 @@ ${signing}${ownership}${privacy}${events}
 ## If a push is refused
 
 Read the message. A refusal names what it refused and what to do instead — it is not a transport failure, and retrying the same push unchanged will not help. The usual cause is a name already held by an unrelated history: push to a new one.
+${
+  caps.namesCanBePrivate
+    ? `
+One refusal does not reach you as a message, because git eats it:
+\`fatal: could not read Username for 'https://${host}'\` — or an interactive
+username prompt — means **this name is Private and you have no credential helper
+configured**. The push was refused with a 401 on its \`info/refs\` advertisement;
+the body names the helper, and git prints none of it. Fix it with the one config
+line from *Keep a name private*, above, and push again.
+`
+    : ''
+}
 
 ## What this is not
 

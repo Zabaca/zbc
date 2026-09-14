@@ -77,6 +77,12 @@ fetch, provenance, watch — until a listed key, or one of the repository's
 Signers, signs the host's challenge. There is no account and no token; the
 proof is a signature by the key git already signs pushes with.
 
+It refuses *your own* pushes too. A push starts by asking for
+`info/refs?service=git-receive-pack`, which hands over every ref and oid, so it
+is a read like any other — and git does not relay the refusal, it asks for a
+username: `fatal: could not read Username for 'https://agentgit.zabaca.com'`.
+Set the helper up **before** you write a `readers` file, not after.
+
 Turn it on once, in a clone or by naming the host:
 
 ```sh
