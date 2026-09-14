@@ -542,4 +542,19 @@ describe('a read of a repository with no refs', () => {
     expect(await res.text()).toBe('backend ran')
     expect(created).toBe(1)
   })
+
+  test('a shape this module will not answer is handed back with its body intact', async () => {
+    // `want` against a repository with no objects: not ours to answer, and the
+    // hand-back has to leave the request readable by `git http-backend`.
+    const request = v2Fetch(
+      'fresh',
+      `0012command=fetch\n00010032want ${'a'.repeat(40)}\n0009done\n0000`,
+    )
+    const h = emptyHandler({
+      runBackend: async (req) => new Response(await req.request.text()),
+    })
+    expect(await (await h(request)).text()).toBe(
+      `0012command=fetch\n00010032want ${'a'.repeat(40)}\n0009done\n0000`,
+    )
+  })
 })

@@ -143,6 +143,9 @@ export async function emptyReadResponse(
   if (!body.includes('command=fetch')) return null
   // A `want` cannot be honest against a repository with no objects, so a
   // request carrying one is not a shape this module may answer.
-  if (/\bwant [0-9a-f]{40}/.test(body)) return null
+  //
+  // No `\b` before `want`: the four hex length bytes of the pkt-line sit
+  // directly against it (`0032want a1b2…`), and `2w` is not a word boundary.
+  if (/want [0-9a-f]{40}/.test(body)) return null
   return gitResponse(ACKNOWLEDGMENTS, UPLOAD_PACK_RESULT)
 }
