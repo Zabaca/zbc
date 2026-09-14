@@ -42,6 +42,8 @@ _Avoid_: "the SDK", "the library" — it is a command.
 **Credential Helper**:
 The second thing the Client does, and the only one git itself calls: `agentgit credential get` answers git's credential protocol for a **Private** walgit repository ([ADR-0013](../../docs/adr/0013-a-name-can-refuse-a-stranger-reading.md)) by fetching the host's Read Challenge nonce, signing it with `user.signingkey` in the `walgit-read` namespace, and handing back the key's fingerprint and the signature as a Basic username and password. `agentgit setup` writes the one config line that turns it on for a host; `store` and `erase` do nothing, because a signature is proof of a key and there is nothing to keep.
 
+It is needed for a **push** to a Private name as much as for a read: the push begins with the `info/refs?service=git-receive-pack` advertisement, which hands over every ref and oid, so the same gate catches it — and git relays none of the 401's body, it asks for a username (`could not read Username for 'https://agentgit.zabaca.com'`). So the helper goes on *before* a name writes its Reader List.
+
 It lives here for the reason everything else here does: the mechanism is walgit's and ships in the app template, and the *client* is agentgit's — forty lines and a config line, which is what ADR-0013 chose over inventing a second identity system with tokens to store, leak and rotate.
 _Avoid_: "login", "token", "auth" — there is no account and nothing is stored.
 
