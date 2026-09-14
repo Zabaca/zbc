@@ -5,7 +5,7 @@ only add or fix things are described by their `release(cli): @zabaca/zbc <x.y.z>
 commit message and the PRs it names; this file exists for the ones a consumer
 has to read before upgrading.
 
-## 0.16.3
+## 0.16.4
 
 ### The package no longer carries the publisher's `node_modules`
 
@@ -21,17 +21,23 @@ Upgrading fixes it with no action on your side. Nothing that shipped was wrong,
 only enormous: the CLI, the engine and all 26 module templates were present in
 both packages and are present in this one.
 
-### There is no 0.16.2
+### There is no 0.16.2 or 0.16.3, and releases now publish from CI
 
-The 0.16.2 publish uploaded 84 MB, npm staged it, and it never committed. npm
-refuses every subsequent attempt at that version, from any credential:
+Both versions were published from a maintainer's machine, both reported success,
+and neither ever committed to the registry. Every subsequent attempt at either
+version is refused, from any credential:
 
 ```
 409 Conflict: Cannot publish over previously staged version "0.16.2"
 ```
 
-The version is unusable and the tag `zbc-cli-v0.16.2` in this repository names a
-release that does not exist on npm. 0.16.3 carries everything 0.16.2 would have.
+The cause is npm restricting tokens that bypass two-factor authentication for
+direct publishing (https://gh.io/npm-gat-bypass2fa-deprecation). A publish from
+such a token now stages and waits for a confirmation the token cannot give, and
+the version is unusable from then on. Releasing therefore moved to the
+`publish-npm` workflow, whose credential is the supported path. The tags
+`zbc-cli-v0.16.2` and `zbc-cli-v0.16.3` in this repository name releases that do
+not exist on npm; 0.16.4 carries everything both would have.
 
 ## 0.14.0
 
