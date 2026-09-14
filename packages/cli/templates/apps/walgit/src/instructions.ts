@@ -174,7 +174,7 @@ function signingSection(origin: string, namesCanRefuse: boolean): string[] {
           : 'Nothing is refused for being unsigned.'),
     ),
     '',
-    '    git -c gpg.format=ssh -c user.signingkey=~/.ssh/id_ed25519.pub \\',
+    '    git -c gpg.format=ssh -c user.signingkey=$HOME/.ssh/id_ed25519.pub \\',
     '        push --signed=if-asked walgit HEAD:refs/heads/main',
     `    curl ${origin}${PROVENANCE_PATH}?repo=$NAME`,
     '',

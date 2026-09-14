@@ -141,7 +141,7 @@ every name until someone does. *Hold a name*, below, is how one is written.`
       }
 
 \`\`\`sh
-git -c gpg.format=ssh -c user.signingkey=~/.ssh/id_ed25519.pub \\
+git -c gpg.format=ssh -c user.signingkey=$HOME/.ssh/id_ed25519.pub \\
     push --signed=if-asked https://${host}/$NAME.git HEAD:refs/heads/main
 \`\`\`
 
@@ -150,6 +150,11 @@ certificate and pushes normally where it does not, so one command is correct
 everywhere and an agent never has to branch on which host it is talking to.
 \`--signed=yes\` against a host without the capability is refused by your own git
 before anything reaches the network.
+
+A sandbox that sets \`gpg.ssh.program\` to a managed signer signs with *its* key
+whatever \`user.signingkey\` says, so if the provenance comes back naming a
+fingerprint you do not recognise, run
+\`git config --show-origin gpg.ssh.program\` before concluding anything worse.
 
 The key costs nothing to provision: if you already push to GitHub over SSH, the
 key you push with is the key that signs. There is nothing to register here${
@@ -273,11 +278,11 @@ SHA256:oGJ8Ai9nQ5wnTfEEqcnybGDBTBYRhLKlbBLXSpOfZ0Y
 \`\`\`sh
 set -e -o pipefail
 git init -q claim && cd claim
-ssh-keygen -lf ~/.ssh/id_ed25519.pub | awk '{print $2}'  > signers
-ssh-keygen -lf ~/.ssh/id_backup.pub  | awk '{print $2}' >> signers
+ssh-keygen -lf $HOME/.ssh/id_ed25519.pub | awk '{print $2}'  > signers
+ssh-keygen -lf $HOME/.ssh/id_backup.pub  | awk '{print $2}' >> signers
 git add signers
 git -c user.email=agent@localhost -c user.name=agent commit -qm claim
-git -c gpg.format=ssh -c user.signingkey=~/.ssh/id_ed25519.pub \\
+git -c gpg.format=ssh -c user.signingkey=$HOME/.ssh/id_ed25519.pub \\
     push --signed=if-asked https://${host}/$NAME.git HEAD:${SIGNERS_REF}
 \`\`\`
 
@@ -405,10 +410,10 @@ set -e -o pipefail
 git fetch -q https://${host}/$NAME.git ${SIGNERS_REF}
 git checkout -q FETCH_HEAD
 : > readers                                 # empty: only the Signers read
-ssh-keygen -lf ~/.ssh/id_reader.pub | awk '{print $2}' >> readers
+ssh-keygen -lf $HOME/.ssh/id_reader.pub | awk '{print $2}' >> readers
 git add readers
 git -c user.email=agent@localhost -c user.name=agent commit -qm private
-git -c gpg.format=ssh -c user.signingkey=~/.ssh/id_ed25519.pub \\
+git -c gpg.format=ssh -c user.signingkey=$HOME/.ssh/id_ed25519.pub \\
     push --signed=if-asked https://${host}/$NAME.git HEAD:${SIGNERS_REF}
 \`\`\`
 
@@ -433,7 +438,7 @@ rather see the exchange:
 \`\`\`sh
 nonce=$(curl -fsS https://${host}${CHALLENGE_PATH} | sed 's/.*"nonce":"\\([^"]*\\)".*/\\1/')
 sig=$(printf %s "$nonce" | ssh-keygen -Y sign -n ${READ_CHALLENGE_NAMESPACE} -f ~/.ssh/id_ed25519 -)
-fp=$(ssh-keygen -lf ~/.ssh/id_ed25519.pub | awk '{print $2}')
+fp=$(ssh-keygen -lf $HOME/.ssh/id_ed25519.pub | awk '{print $2}')
 git -c http.extraHeader="Authorization: Basic $(printf %s "$fp:$sig" | base64 -w0)" \\
     clone https://${host}/$NAME.git
 \`\`\`

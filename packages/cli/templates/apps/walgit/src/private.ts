@@ -191,7 +191,7 @@ export function renderReadChallenge(origin: string): string {
     '',
     `  nonce=$(curl -fsS ${origin}${CHALLENGE_PATH} | sed 's/.*"nonce":"\\([^"]*\\)".*/\\1/')`,
     `  sig=$(printf %s "$nonce" | ssh-keygen -Y sign -n ${READ_CHALLENGE_NAMESPACE} -f ~/.ssh/id_ed25519 -)`,
-    "  fp=$(ssh-keygen -lf ~/.ssh/id_ed25519.pub | awk '{print $2}')",
+    "  fp=$(ssh-keygen -lf $HOME/.ssh/id_ed25519.pub | awk '{print $2}')",
     `  git -c http.extraHeader="Authorization: Basic $(printf %s "$fp:$sig" | base64 -w0)" clone ${origin}/<name>.git`,
     '',
     'The credential is Basic, with the fingerprint as the user and the signature',
