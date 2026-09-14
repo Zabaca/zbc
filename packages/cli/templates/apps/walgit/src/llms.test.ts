@@ -200,6 +200,54 @@ describe('renderLlms', () => {
     expect(on).toContain('Adding a commit or a branch is always allowed.')
   })
 
+  /**
+   * "Put a random suffix on the name" is advice about a collision the agent
+   * cannot see coming. `ls-remote` is the one read that answers the question
+   * before the push, so it belongs beside the bullet that raises it, under the
+   * same heading and above the first push command.
+   */
+  test('says how to find out whether a name is free, before the first push', () => {
+    const doc = renderLlms(HOST, BASE)
+    expect(doc).toContain(`git ls-remote https://${HOST}/$NAME.git`)
+
+    const beforeYouPush = doc.slice(
+      doc.indexOf('## Before you push'),
+      doc.indexOf('## Push something you already have'),
+    )
+    expect(beforeYouPush).toContain('git ls-remote')
+    // The three outcomes, in the terms the shell reports them in.
+    expect(beforeYouPush).toContain('exit 0')
+    expect(beforeYouPush).toContain('free')
+    expect(beforeYouPush).toContain('taken')
+    // A read is not a hold. Nothing here reserves anything.
+    expect(beforeYouPush).toContain('not a reservation')
+  })
+
+  test('and on a host where a name can be kept private, 401 is an answer too', () => {
+    const open = renderLlms(HOST, BASE)
+    expect(open).not.toContain('401')
+
+    const closed = renderLlms(
+      HOST,
+      caps({ ...OPEN, ...SEED, ...GATE, WALGIT_PRIVATE_REPOS: 'read-seed' }),
+    )
+    expect(
+      closed.slice(
+        closed.indexOf('## Before you push'),
+        closed.indexOf('## Push something you already have'),
+      ),
+    ).toContain('401')
+  })
+
+  /**
+   * A credentialed host answers 401 to every unauthenticated read, so the
+   * unadorned URL would report every name on it as taken.
+   */
+  test('and on a credentialed host the check carries the credential a clone carries', () => {
+    const doc = renderLlms(HOST, caps({ WALGIT_APPEND_ONLY: '1' }))
+    expect(doc).toContain(`git ls-remote https://walgit:$TOKEN@${HOST}/$NAME.git`)
+  })
+
   test('is markdown a model can skim by its headings', () => {
     const doc = renderLlms(HOST, caps({ ...OPEN, ...EVENTS }))
     const headings = doc.split('\n').filter((l) => l.startsWith('#'))
