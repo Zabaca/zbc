@@ -295,7 +295,7 @@ because neither was a failure: the workflows did what they said.
 ```sh
 bun scripts/release.ts                  # dry run: what would ship, and every refusal
 bun scripts/release.ts minor --push     # bump, commit, tag zbc-cli-v<version>, push main
-cd packages/cli && bun run publish:npm  # never npm publish — it strips the bun shebang
+gh workflow run publish-npm.yml         # never publish locally — it stages and burns the version
 gh workflow run publish-core.yml        # tags zbc-core-v<version> (only if the prefix changed)
 gh workflow run production.yml -f instances=ALL
 ```
@@ -332,7 +332,7 @@ Opens at [http://localhost:3000](http://localhost:3000). The viewer shows all co
 
 - **Module/src layout:** `packages/infra/modules/` and `packages/infra/src/` are symlinks into `packages/cli/templates/infra/`. The `cli/templates/` tree is the source of truth (it's what `zbc init` scaffolds into new projects); this repo is a live consumer of its own templates. Edit modules at `packages/cli/templates/infra/modules/<name>/`, not via the symlink.
 - **Runtime:** [Bun](https://bun.sh) — use `bun` everywhere (`bun install`, `bun run`, `bunx`). Do not use npm or yarn.
-- **Publishing `@zabaca/zbc`:** use `bun publish`, never `npm publish`. npm strips non-node shebangs from bin entries, breaking the CLI. Run: `cd packages/cli && bun run publish:npm`.
+- **Publishing `@zabaca/zbc`:** dispatch `publish-npm.yml`; do not publish from your machine. npm restricts 2FA-bypass tokens for direct publishing, so a local `bun publish` stages a version that never commits and can never be published again (0.16.2 and 0.16.3 were burned this way). CI uses `bun publish`, never `npm publish` — npm strips non-node shebangs from bin entries and breaks the CLI.
 - **Styling:** Tailwind CSS v4 — uses the new `@import "tailwindcss"` syntax and CSS-first config. No `tailwind.config.js`.
 - **No shadcn/ui** — this is a deliberate choice. Components are hand-authored to match the Prose design system exactly.
 - **Single-tenant design system** — `packages/design-system/` is purpose-built for Zabaca. Do not treat it as a generic component library.
