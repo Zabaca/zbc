@@ -21,6 +21,13 @@ export interface WatchOptions {
   fetch: boolean
   /** Run after a fetch that changed something. */
   onChange: string | null
+  /**
+   * Also report the Proposals aimed at the branch being watched (docs/adr/0018).
+   *
+   * Opt-in, and it stays opt-in: the default watch exists to keep a branch
+   * current, and a stranger's Proposal must never move a working agent's clone.
+   */
+  proposals: boolean
   json: boolean
 }
 
@@ -115,6 +122,7 @@ export function parseArgs(argv: readonly string[]): Parsed {
     once: false,
     fetch: true,
     onChange: null,
+    proposals: false,
     json: false,
   }
 
@@ -137,6 +145,9 @@ export function parseArgs(argv: readonly string[]): Parsed {
     switch (arg) {
       case '--all-refs':
         options.allRefs = true
+        continue
+      case '--proposals':
+        options.proposals = true
         continue
       case '--once':
         options.once = true
@@ -164,6 +175,12 @@ export function parseArgs(argv: readonly string[]): Parsed {
     else options.targets.set(arg.slice(0, split), arg.slice(split + 1))
   }
 
+  // A Proposal ref names the branch it targets, so the namespace to watch is
+  // derived from the branch — and `--all-refs` is precisely the mode that has
+  // no branch. Refused rather than silently reporting nothing.
+  if (options.proposals && options.allRefs) {
+    return { kind: 'error', message: '--proposals and --all-refs are mutually exclusive' }
+  }
   if (options.allRefs && options.refs.length > 0) {
     return { kind: 'error', message: '--all-refs and --ref are mutually exclusive' }
   }

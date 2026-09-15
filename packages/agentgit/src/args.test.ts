@@ -112,3 +112,21 @@ describe('parseArgs: accept', () => {
     expect(parseArgs(['accept', '--force', 'fix-auth'])).toMatchObject({ kind: 'error' })
   })
 })
+
+describe('parseArgs: watch --proposals', () => {
+  test('the flag is off unless it is typed', () => {
+    const bare = parseArgs(['watch'])
+    expect(bare).toMatchObject({ kind: 'watch' })
+    expect((bare as { options: { proposals: boolean } }).options.proposals).toBe(false)
+  })
+
+  test('--proposals turns the Proposal namespace on', () => {
+    const parsed = parseArgs(['watch', '--proposals'])
+    expect(parsed).toMatchObject({ kind: 'watch' })
+    expect((parsed as { options: { proposals: boolean } }).options.proposals).toBe(true)
+  })
+
+  test('--proposals and --all-refs are refused: a namespace needs a branch', () => {
+    expect(parseArgs(['watch', '--proposals', '--all-refs'])).toMatchObject({ kind: 'error' })
+  })
+})
