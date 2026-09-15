@@ -253,6 +253,29 @@ export default cloudflareModule.instance({
       // an agent believing it holds a name it does not. Those are refusals
       // about writing a list, not about who may push.
       { name: 'WALGIT_SIGNER_LISTS', value: '1' },
+      // Proposals (docs/adr/0018). The one push a CLAIMED name takes from
+      // somebody not on its Signer List: a signed push to
+      // `refs/walgit/proposals/<target>/<id>`, naming a commit its pusher wants
+      // in `refs/heads/<target>`. Every other ref stays under the list above.
+      //
+      // Set BESIDE `WALGIT_SIGNER_LISTS` and never without it, and it needs the
+      // `WALGIT_PUSH_CERT_SEED` in `workerSecrets` too — `capabilitiesFrom`
+      // (`shared/capabilities.ts`) refuses to advertise on this flag alone. The
+      // reason is the same one Private has: with no seed nothing can sign, so
+      // no Proposal could be pushed; and on a name anyone may write to there is
+      // no refusal to widen, because that namespace is already open. Both
+      // prerequisites are set above, which is what makes this line meaningful
+      // here and inert anywhere it were copied without them.
+      //
+      // `WALGIT_PUBLIC` is deliberately NOT a prerequisite, where Private needs
+      // it: a Proposal proves its key with the certificate inside the pack, not
+      // with the one `authorization` header a deployment token would occupy.
+      //
+      // The host still accepts nothing. Merging a Proposal is an ordinary push
+      // by a Signer, judged by the same list — this flag only widens what
+      // `pre-receive` takes, and `GET /<name>.git/proposals` reports what is
+      // there with `merged` derived from ancestry rather than recorded.
+      { name: 'WALGIT_PROPOSALS', value: '1' },
       // 99 MiB, and the number is measured rather than round. A chunked body
       // is uploaded IN FULL before the edge can answer, so a cap above the
       // chunked cutoff would be enforced only after ~37 s of upload, reported
