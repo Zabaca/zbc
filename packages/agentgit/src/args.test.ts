@@ -96,3 +96,19 @@ describe('parseArgs', () => {
     expect(parseArgs(['-v']).kind).toBe('version')
   })
 })
+
+describe('parseArgs: accept', () => {
+  test('accept takes exactly one Proposal id', () => {
+    expect(parseArgs(['accept', 'fix-auth'])).toEqual({ kind: 'accept', id: 'fix-auth' })
+  })
+
+  test('no id, or more than one, is an error rather than a guess', () => {
+    expect(parseArgs(['accept'])).toMatchObject({ kind: 'error' })
+    expect(parseArgs(['accept', 'a', 'b'])).toMatchObject({ kind: 'error' })
+  })
+
+  test('accept --help is the help, and an unknown flag is named', () => {
+    expect(parseArgs(['accept', '--help']).kind).toBe('help')
+    expect(parseArgs(['accept', '--force', 'fix-auth'])).toMatchObject({ kind: 'error' })
+  })
+})

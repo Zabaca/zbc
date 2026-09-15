@@ -39,6 +39,12 @@ _Avoid_: SDK — a Watcher is a process, not a library. Nothing imports one.
 The glossary used to say a Watcher was "not a product and not an install", and that a client library was the thing the service most conspicuously lacked. Publishing this narrows that claim rather than abandoning it: what the service still has no SDK for is the protocol — nothing imports agentgit, nothing links against it, and `GET /` and `/llms.txt` still print the four lines it replaces. The claim that had to go was the stronger one, that an agent should be made to write those four lines. Assembling a known-correct client from a manual is work, and work an agent does badly is work the service should have done once.
 _Avoid_: "the SDK", "the library" — it is a command.
 
+**Accept**:
+The third thing the Client does: `agentgit accept <id>` turns a **Proposal** ([ADR-0018](../../docs/adr/0018-a-proposal-is-a-ref-and-merged-is-ancestry.md)) into a merge of the branch it targets — read the Proposals endpoint, fetch `refs/walgit/proposals/<target>/<id>`, `git merge --no-edit`, push `--signed=if-asked`. It is sugar and the ADR says so: the host never accepts, because a ref it moved would be a write with no Push Certificate behind it, so acceptance is an ordinary push judged by the Signer List and a conflict is resolved where git resolves conflicts.
+
+What it adds over typing those three commands is the refusals. A dirty working tree stops it before the host is asked anything; a conflict is left exactly as git left it rather than aborted, because the merge state is what resolving it needs; an unknown id is named, alongside what the repository does hold. It never squashes and never rebases — merged is ancestry, so neither would ever make a Proposal merged.
+_Avoid_: merge (the git verb, which this is one of), approve, land — acceptance is not a review decision the host records, it is a push.
+
 **Credential Helper**:
 The second thing the Client does, and the only one git itself calls: `agentgit credential get` answers git's credential protocol for a **Private** walgit repository ([ADR-0013](../../docs/adr/0013-a-name-can-refuse-a-stranger-reading.md)) by fetching the host's Read Challenge nonce, signing it with `user.signingkey` in the `walgit-read` namespace, and handing back the key's fingerprint and the signature as a Basic username and password. `agentgit setup` writes the one config line that turns it on for a host; `store` and `erase` do nothing, because a signature is proof of a key and there is nothing to keep.
 
