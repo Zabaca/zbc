@@ -62,6 +62,7 @@ type CapabilityVar = Extract<
   | 'WALGIT_PUSH_CERT_SEED'
   | 'WALGIT_SIGNER_LISTS'
   | 'WALGIT_PRIVATE_REPOS'
+  | 'WALGIT_PROPOSALS'
 >
 
 /**
@@ -155,6 +156,26 @@ export type Capabilities = {
    * the `Credentialed` term already says: one credential reads every name.
    */
   namesCanBePrivate: boolean
+  /**
+   * A claimed name takes a signed push to `refs/walgit/proposals/<target>/<id>`
+   * from whoever may READ it, while every other ref stays under the Signer List
+   * (docs/adr/0018).
+   *
+   * Everything `namesCanBeClaimed` needs, plus its own flag. Not the flag
+   * alone, for the reason Private is not its seed alone: a Proposal is a SIGNED
+   * push to a name that holds a Signer List, so with no nonce seed nothing can
+   * sign one, and on a deployment with no gate there is no refusal to widen —
+   * `refs/walgit/proposals/…` is already a ref namespace anyone may write to.
+   * A document rendered from the flag by itself would describe a handoff no
+   * push could make.
+   *
+   * `publicAccess` is deliberately NOT in it, where Private needs it: a
+   * Proposal is a push, and a push proves its key with the certificate inside
+   * the pack rather than with the one `authorization` header a deployment token
+   * occupies. A credentialed deployment can take Proposals from everyone it
+   * gave a token to.
+   */
+  proposals: boolean
   /** A repository is collected this many hours after its last push. */
   retentionHours: number | null
   /** Largest single push, in bytes. */
@@ -210,6 +231,7 @@ export function capabilitiesFrom(
       signedPushes &&
       publicAccess &&
       seedValue(env.WALGIT_PRIVATE_REPOS) !== null,
+    proposals: namesCanRefuse && signedPushes && flagEnabled(env.WALGIT_PROPOSALS),
     retentionHours: positiveNumber(env.WALGIT_RETENTION_HOURS),
     maxPushBytes: positiveNumber(env.WALGIT_MAX_PUSH_BYTES),
     maxRepoBytes: positiveNumber(env.WALGIT_MAX_REPO_BYTES),

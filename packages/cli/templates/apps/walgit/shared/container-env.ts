@@ -60,6 +60,10 @@ export const CONTAINER_ENV = [
   // container because the Reader List is read in `pre-receive` and every read
   // will be verified here, where a subprocess exists.
   'WALGIT_PRIVATE_REPOS',
+  // Proposals (docs/adr/0018). A plain flag rather than a seed: it carries no
+  // nonce and mints nothing — it only widens what `pre-receive` accepts on a
+  // claimed name, and the hook that widens runs in the container.
+  'WALGIT_PROPOSALS',
 ] as const
 
 export type ContainerEnvName = (typeof CONTAINER_ENV)[number]

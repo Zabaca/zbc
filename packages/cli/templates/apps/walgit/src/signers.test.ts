@@ -665,6 +665,92 @@ describe('checkSignerAllowed', () => {
   })
 })
 
+/**
+ * Proposals: the one push a claimed name takes from someone not on its Signer
+ * List (docs/adr/0018).
+ *
+ * The rule is *whoever may read may propose*, so it is asked of the same three
+ * facts the gate already holds plus the Reader List — and the allowance is
+ * all-or-nothing over the push's refs, because a push is all or nothing to git
+ * and a partial one would land a stranger's branch alongside their Proposal.
+ */
+describe('a Proposal on a claimed name', () => {
+  const unsigned = { kind: 'unsigned' as const, signable: true }
+  const proposal = [change('refs/walgit/proposals/main/fix-auth')]
+  const branch = [change('refs/heads/main')]
+  /** The flag on, on a deployment doing no Reader Lists: a world-readable name. */
+  const open = { enabled: true, privateRepos: false, readers: null }
+
+  test('a stranger’s signed Proposal is allowed where their branch is not', () => {
+    expect(
+      checkSignerAllowed('alpha', signed(KEY_B), [KEY_A], proposal, 'pre-receive', open),
+    ).toEqual({
+      ok: true,
+    })
+    expect(
+      checkSignerAllowed('alpha', signed(KEY_B), [KEY_A], branch, 'pre-receive', open).ok,
+    ).toBe(false)
+  })
+
+  test('a push mixing a Proposal with any other ref is judged as it was before', () => {
+    // All or nothing: git shows the hook every ref at once, and allowing the
+    // Proposal half would publish the branch half beside it.
+    const mixed = [...proposal, ...branch]
+    expect(checkSignerAllowed('alpha', signed(KEY_B), [KEY_A], mixed, 'pre-receive', open).ok).toBe(
+      false,
+    )
+  })
+
+  test('an unsigned or unverifiable Proposal is refused, as every other push is', () => {
+    // Fail-open's exception is not narrowed by this: a Proposal walgit cannot
+    // attribute is a permanent write by nobody.
+    for (const signer of [unsigned, { kind: 'unverified' as const }]) {
+      const verdict = checkSignerAllowed('alpha', signer, [KEY_A], proposal, 'pre-receive', open)
+      expect(verdict.ok).toBe(false)
+    }
+  })
+
+  test('with the flag off the namespace is an ordinary one', () => {
+    expect(checkSignerAllowed('alpha', signed(KEY_B), [KEY_A], proposal).ok).toBe(false)
+    const off = { enabled: false, privateRepos: false, readers: null }
+    expect(
+      checkSignerAllowed('alpha', signed(KEY_B), [KEY_A], proposal, 'pre-receive', off).ok,
+    ).toBe(false)
+  })
+
+  test('on a Private name, its Readers and Signers may propose and nobody else may', () => {
+    // The same answer the read path gives — whoever may read may propose — so a
+    // name that refuses a stranger's clone refuses their Proposal too.
+    const closed = (readers: string[]) => ({ enabled: true, privateRepos: true, readers })
+    expect(
+      checkSignerAllowed('alpha', signed(KEY_B), [KEY_A], proposal, 'pre-receive', closed([KEY_B]))
+        .ok,
+    ).toBe(true)
+    // A Signer reads without being listed, so a Signer proposes too.
+    expect(
+      checkSignerAllowed('alpha', signed(KEY_A), [KEY_A], proposal, 'pre-receive', closed([])).ok,
+    ).toBe(true)
+    // And a stranger is refused, in the gate's own words.
+    const refused = checkSignerAllowed(
+      'alpha',
+      signed(KEY_B),
+      [KEY_A],
+      proposal,
+      'pre-receive',
+      closed([]),
+    )
+    expect(refused.ok).toBe(false)
+    if (refused.ok) return
+    expect(refused.kind).toBe('not-listed')
+  })
+
+  test('an unclaimed name is unchanged: it refuses nothing, Proposal or not', () => {
+    expect(checkSignerAllowed('alpha', unsigned, null, proposal, 'pre-receive', open)).toEqual({
+      ok: true,
+    })
+  })
+})
+
 describe('the refusal a stranger reads', () => {
   const refusalFor = (signer: PushSigner, changes = [change('refs/heads/main')]): string => {
     const verdict = checkSignerAllowed('alpha', signer, [KEY_A], changes)

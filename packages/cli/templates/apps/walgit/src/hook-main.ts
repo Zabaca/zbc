@@ -24,6 +24,7 @@ import { configuredThreshold, isCompactionDue } from './compact'
 import { checkSize, limitsEnforced, limitsOf, liveBytes } from './limits'
 import { clearPending, invocationId, markConsumed, readPending, sweepPending } from './pending'
 import { privateReposEnabled } from './private'
+import { checkProposalRefs, gitObjectType, proposalsEnabled } from './proposals'
 import {
   establishSigner,
   parseRefChanges,
@@ -123,12 +124,44 @@ async function main(): Promise<number> {
     // the push lands. Here is where a refusal is free; there is where it is
     // true. See `publishPush`.
     if (signerListsEnabled()) {
+      const claim = (await index()).claim
+      // Proposals widen this one verdict and nothing else (docs/adr/0018): a
+      // push whose refs are ALL under `refs/walgit/proposals/` is judged by who
+      // may READ this name rather than by who may write it. The Reader List
+      // comes off the same Claim the Signer List does, so both halves of the
+      // question are answered from one reading of the Index.
       const verdict = checkSignerAllowed(
         repoId,
         signer,
-        (await index()).claim?.signers ?? null,
+        claim?.signers ?? null,
         changes,
+        'pre-receive',
+        {
+          enabled: proposalsEnabled(),
+          privateRepos: privateReposEnabled(process.env),
+          readers: claim?.readers ?? null,
+        },
       )
+      if (!verdict.ok) {
+        process.stderr.write(`${verdict.message}\n`)
+        return 1
+      }
+    }
+
+    // Is what was pushed into the Proposal namespace a Proposal this host will
+    // hold — an existing branch as its target, a target that IS a branch, and a
+    // commit at its tip (docs/adr/0018)? Judged on the flag alone and for every
+    // pusher, the owner included: append-only means a ref written here can
+    // never be removed, so junk is refused before it is stored or never.
+    //
+    // Above append-only and below the gate for the same reason each of those
+    // sits where it does: a stranger who may not push here at all is told that
+    // first, and everything after it is about WHAT was pushed.
+    if (proposalsEnabled()) {
+      const verdict = checkProposalRefs(repoId, changes, {
+        refs: (await index()).refs,
+        objectType: gitObjectType(gitDir),
+      })
       if (!verdict.ok) {
         process.stderr.write(`${verdict.message}\n`)
         return 1
@@ -267,6 +300,10 @@ async function main(): Promise<number> {
       : pending
     const result = await publishPush(store, repoId, toPublish, changes, {
       signerLists: signerListsEnabled(),
+      proposals: {
+        enabled: proposalsEnabled(),
+        privateRepos: privateReposEnabled(process.env),
+      },
     })
     if (!result.ok) {
       process.stderr.write(`${publishRefusal(result)}\n`)

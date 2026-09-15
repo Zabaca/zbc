@@ -167,7 +167,7 @@ _Avoid_: login, token (there is none; the signature is the credential), auth
 ## Proposals (ADR-0018)
 
 **Proposal**:
-A ref under `refs/walgit/proposals/` that names a commit its pusher wants in a target ref. It is a ref and a Push Certificate and nothing else: the host keeps no record of it beyond the Index, requests nothing of anyone, and derives its state from git ancestry rather than storing one.
+A ref under `refs/walgit/proposals/` that names a commit its pusher wants in a target ref. It is a ref and a Push Certificate and nothing else: the host keeps no record of it beyond the Index, requests nothing of anyone, and derives its state from git ancestry rather than storing one. The ref reads `refs/walgit/proposals/<target>/<id>`, where the **last segment is the id** and everything before it is the target branch — so a target may itself contain slashes (`feat/login`) and nothing has to be fetched to know what a Proposal is for. `pre-receive` refuses one whose target does not exist, whose target is not a branch (a segment beginning `refs/`, which is what stops anyone proposing a Signer List), or whose tip is not a commit: append-only means a ref written here is written for good, so junk is refused before it is stored or never. Deployment-wide and off by default (`WALGIT_PROPOSALS`); with the flag off the namespace is an ordinary one under the ordinary gate.
 _Avoid_: pull request (GitHub's, and already means a GitHub PR elsewhere in the repository), merge request, change request (an approval-board ticket), PR
 
 **Merged**:

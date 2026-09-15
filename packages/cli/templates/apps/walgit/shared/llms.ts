@@ -504,6 +504,60 @@ stream reading on the strength of the old list is closed when the push lands.
 `
     : ''
 
+  /**
+   * Proposals, taught where an agent that has work for a name it may not push
+   * to goes looking (docs/adr/0018).
+   *
+   * Placed after ownership and privacy because it depends on both in the strong
+   * sense: a Proposal is the one push a CLAIMED name takes from someone not on
+   * its Signer List, and who may propose is exactly who may read — which is
+   * everyone on a world-readable name and the Reader List on a Private one.
+   * `proposals` encodes that dependency, which is why it is the only flag read
+   * here.
+   *
+   * Every spelling is one the push path actually enforces — the namespace, the
+   * target in the ref name, the fast-forward that updates one — so an agent
+   * that reads this and an agent that reads the refusal are not being told
+   * about two different mechanisms.
+   */
+  const proposing = caps.proposals
+    ? `
+## Propose a change
+
+A name that holds a Signer List takes one push from someone it does not name: a
+**Proposal**. It is a ref and its signature, and nothing else.
+
+\`\`\`sh
+git push --signed=yes https://${host}/$NAME.git HEAD:refs/walgit/proposals/main/fix-auth
+\`\`\`
+
+\`main\` is the branch you want it in and must already exist there; \`fix-auth\` is
+your own word for the change. The host assigns nothing and stores nothing else:
+there is no number to wait for and no record beyond the ref.
+
+- **Whoever may read may propose.** On a world-readable name that is anyone
+  whose push is signed; on a Private one it is the Reader List and the Signers.
+  There is no third list to be added to.
+- **Update it with a fast-forward** to the same ref. A taken id belongs to
+  whoever pushed it first — a second pusher is refused as a non-fast-forward,
+  and picks another id.
+- **Merged is ancestry.** It is merged when the branch's history contains its
+  commit, computed when somebody asks and never recorded. A squash or a rebase
+  of your commits is a different commit, so it never marks one merged.
+- **Nobody accepts it but a Signer.** There is no merge button and no endpoint:
+  a Signer fetches it, merges or fast-forwards it in their own tree, and pushes.
+  Conflicts are resolved where git resolves them.
+
+Read what is open with \`git ls-remote https://${host}/$NAME.git 'refs/walgit/proposals/*'\`
+— the target is in the ref name, so nothing has to be fetched to list them.
+
+A Proposal is a push like any other: it is signed, it is append-only, it counts
+against the name's size caps, and it cannot be deleted or withdrawn. A target
+that does not exist, a target that is not a branch, and a tip that is not a
+commit are refused before anything is stored.
+`
+    : ''
+
   const events = caps.events
     ? `
 ## Know when a ref moves, without asking
@@ -645,7 +699,7 @@ git clone https://${host}/$NAME.git
 \`\`\`
 
 Handing work to another agent is the URL and nothing else. There is no owner to ask, no invitation to send and no review to pass.
-${signing}${ownership}${privacy}${events}
+${signing}${ownership}${privacy}${proposing}${events}
 ## If a push is refused
 
 Read the message. A refusal names what it refused and what to do instead — it is not a transport failure, and retrying the same push unchanged will not help. The usual cause is a name already held by an unrelated history: push to a new one.

@@ -1013,6 +1013,185 @@ describe('Signer Lists', () => {
     RACE_TIMEOUT_MS,
   )
 
+  /**
+   * Proposals: the one push a claimed name takes from someone not on its Signer
+   * List (docs/adr/0018).
+   *
+   * Nested inside the Signer List suite because a Proposal only means anything
+   * on a claimed name — the keys, the list workdir and the signed push are the
+   * same ones, and a second copy of them would be a second spelling of the
+   * setup this capability is defined against.
+   */
+  describe('Proposals', () => {
+    let carolPub = ''
+    let carolFp = ''
+
+    beforeAll(() => {
+      carolPub = keypair('carol')
+      carolFp = fingerprintOf(carolPub)
+    })
+
+    beforeEach(() => {
+      process.env.WALGIT_PROPOSALS = '1'
+      // Append-only is what makes a taken id refuse the second pusher, and it
+      // is what the deployment ADR-0018 is written for runs.
+      process.env.WALGIT_APPEND_ONLY = '1'
+    })
+
+    afterEach(() => {
+      delete process.env.WALGIT_PROPOSALS
+      delete process.env.WALGIT_APPEND_ONLY
+    })
+
+    /** Alice claims the name and pushes `main`, so a Proposal has a target. */
+    async function claimedWithMain(): Promise<string> {
+      const list = await listWorkdir('proposals-list')
+      await writeList(list, [aliceFp], 'claim')
+      expect((await pushAs(list, alicePub, 'HEAD:refs/walgit/signers')).status).toBe(0)
+      const alice = await clientWithCommit('proposals-main', 'main\n')
+      expect((await pushAs(alice.dir, alicePub, 'HEAD:refs/heads/main')).status).toBe(0)
+      return list
+    }
+
+    test('a stranger’s signed Proposal lands where their branch is refused', async () => {
+      await claimedWithMain()
+      const bob = await clientWithCommit('proposer', 'bob proposes\n')
+
+      const proposed = await pushAs(bob.dir, bobPub, 'HEAD:refs/walgit/proposals/main/fix-auth')
+      expect(proposed.status).toBe(0)
+
+      const { index } = await loadIndex(store, repoId)
+      expect(index.refs['refs/walgit/proposals/main/fix-auth']).toBe(bob.oid)
+      // Attributable, like every other push: a Proposal is a ref and its Push
+      // Certificate and nothing else.
+      expect(index.provenance!['refs/walgit/proposals/main/fix-auth']!.signer).toBe(bobFp)
+
+      // Everything else about the name is unchanged: the branch is still the
+      // Signer List's.
+      const branch = await pushAs(bob.dir, bobPub, 'HEAD:refs/heads/main')
+      expect(branch.status).not.toBe(0)
+      expect(branch.out).toContain('is held by a Signer List')
+    })
+
+    test('a Proposal naming a target that does not exist is refused, by name', async () => {
+      await claimedWithMain()
+      const bob = await clientWithCommit('missing-target', 'bob\n')
+      const refused = await pushAs(bob.dir, bobPub, 'HEAD:refs/walgit/proposals/nope/fix')
+      expect(refused.status).not.toBe(0)
+      expect(refused.out).toContain('refs/heads/nope does not exist here')
+      expect(
+        (await loadIndex(store, repoId)).index.refs['refs/walgit/proposals/nope/fix'],
+      ).toBeUndefined()
+    })
+
+    test('a Proposal whose target is not a branch is refused', async () => {
+      // The refusal that stops anybody proposing a Signer List.
+      await claimedWithMain()
+      const bob = await clientWithCommit('not-a-branch', 'bob\n')
+      const refused = await pushAs(
+        bob.dir,
+        bobPub,
+        'HEAD:refs/walgit/proposals/refs/walgit/signers/take-it',
+      )
+      expect(refused.status).not.toBe(0)
+      expect(refused.out).toContain('is not a branch')
+    })
+
+    test('a Proposal pointing at something that is not a commit is refused', async () => {
+      await claimedWithMain()
+      const bob = await clientWithCommit('tree-tip', 'bob\n')
+      const tree = (await git(bob.dir, 'rev-parse', 'HEAD^{tree}')).out.trim()
+      const refused = await pushAs(bob.dir, bobPub, `${tree}:refs/walgit/proposals/main/tree-tip`)
+      expect(refused.status).not.toBe(0)
+      expect(refused.out).toContain('not a commit')
+    })
+
+    test('a taken id is refused as a non-fast-forward, and its own pusher may move it', async () => {
+      // The whole of collision handling: the host assigns nothing, so a second
+      // pusher choosing a taken name meets append-only and picks another.
+      await claimedWithMain()
+      const bob = await clientWithCommit('id-owner', 'bob\n')
+      expect((await pushAs(bob.dir, bobPub, 'HEAD:refs/walgit/proposals/main/fix')).status).toBe(0)
+
+      const carol = await clientWithCommit('id-taker', 'carol\n')
+      const collided = await pushAs(carol.dir, carolPub, 'HEAD:refs/walgit/proposals/main/fix')
+      expect(collided.status).not.toBe(0)
+      // Refused by her OWN git, off the advertisement, before a byte is sent:
+      // a taken id is a ref she is not fast-forwarding. Forcing it reaches the
+      // host, and meets append-only — which is the refusal that makes an id
+      // belong to whoever pushed it first.
+      expect(collided.out).toContain('rejected')
+      const forced = await pushAs(
+        carol.dir,
+        carolPub,
+        '--force',
+        'HEAD:refs/walgit/proposals/main/fix',
+      )
+      expect(forced.status).not.toBe(0)
+      expect(forced.out).toContain('append-only')
+      expect((await loadIndex(store, repoId)).index.refs['refs/walgit/proposals/main/fix']).toBe(
+        bob.oid,
+      )
+
+      // Bob fast-forwards his own Proposal, which is how a Proposal is updated.
+      fs.writeFileSync(path.join(bob.dir, 'README'), 'bob again\n')
+      await git(bob.dir, 'commit', '--quiet', '-am', 'bob again')
+      const moved = (await git(bob.dir, 'rev-parse', 'HEAD')).out.trim()
+      expect((await pushAs(bob.dir, bobPub, 'HEAD:refs/walgit/proposals/main/fix')).status).toBe(0)
+      expect((await loadIndex(store, repoId)).index.refs['refs/walgit/proposals/main/fix']).toBe(
+        moved,
+      )
+    })
+
+    test('on a Private name, a Reader may propose and a stranger may not', async () => {
+      // Whoever may read may propose: the Reader List is the owner's control
+      // over who, and there is no second list.
+      const list = await claimedWithMain()
+      fs.writeFileSync(path.join(list, 'readers'), `${bobFp}\n`)
+      await git(list, 'add', 'readers')
+      await git(list, 'commit', '--quiet', '-m', 'bob may read')
+      process.env.WALGIT_PRIVATE_REPOS = 'read-seed'
+      try {
+        expect((await pushAs(list, alicePub, 'HEAD:refs/walgit/signers')).status).toBe(0)
+        expect((await loadIndex(store, repoId)).index.claim!.readers).toEqual([bobFp])
+
+        const bob = await clientWithCommit('reader-proposer', 'bob\n')
+        expect(
+          (await pushAs(bob.dir, bobPub, 'HEAD:refs/walgit/proposals/main/from-reader')).status,
+        ).toBe(0)
+
+        const carol = await clientWithCommit('stranger-proposer', 'carol\n')
+        const refused = await pushAs(
+          carol.dir,
+          carolPub,
+          'HEAD:refs/walgit/proposals/main/from-stranger',
+        )
+        expect(refused.status).not.toBe(0)
+        expect(refused.out).toContain('is held by a Signer List')
+        expect(refused.out).toContain(carolFp)
+      } finally {
+        delete process.env.WALGIT_PRIVATE_REPOS
+      }
+    })
+
+    test('with the flag off the namespace is an ordinary one', async () => {
+      await claimedWithMain()
+      delete process.env.WALGIT_PROPOSALS
+
+      const bob = await clientWithCommit('flagless-proposer', 'bob\n')
+      const refused = await pushAs(bob.dir, bobPub, 'HEAD:refs/walgit/proposals/main/fix')
+      expect(refused.status).not.toBe(0)
+      expect(refused.out).toContain('is held by a Signer List')
+
+      // And nothing else changed: the owner still writes it like any other ref,
+      // and no shape is judged — a target that does not exist is not refused.
+      const alice = await clientWithCommit('flagless-owner', 'alice\n')
+      expect(
+        (await pushAs(alice.dir, alicePub, 'HEAD:refs/walgit/proposals/nope/anything')).status,
+      ).toBe(0)
+    })
+  })
+
   test('with the flag off, a claimed name refuses nobody', async () => {
     // The capability ships off, and off has to mean off: a repository that
     // already holds a list on a deployment that has not turned ownership on

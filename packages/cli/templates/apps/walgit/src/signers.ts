@@ -50,6 +50,8 @@ import { flagEnabled } from '../shared/policy'
 import { SIGNERS_REF, ZERO_OID } from '../shared/protocol'
 import { suggestName } from './append-only'
 import { git } from './git'
+import { readAllowed } from './private'
+import { isProposalRef } from './proposals'
 import { certificatePresented, signedPushEnabled, type PushCertEnv } from './push-cert'
 import type { RefChange } from './wal-index'
 
@@ -553,6 +555,68 @@ export type SignerGateVerdict = { ok: true } | { ok: false; kind: GateRefusal; m
 export type GateStage = 'pre-receive' | 'publish'
 
 /**
+ * What the gate needs to know about Proposals, which is everything about them
+ * that is not already one of its three inputs (docs/adr/0018).
+ *
+ * The whole shape is passed rather than a precomputed "this push may propose",
+ * because the gate is asked TWICE — once before the upload and once at the
+ * compare-and-swap — and a boolean settled by each caller for itself is two
+ * places the rule lives. Both callers hold these three facts already: the flag
+ * from the environment, and the Reader List off the Claim they read the Signer
+ * List from.
+ */
+export interface ProposalGate {
+  /** `WALGIT_PROPOSALS` — off unless the deployment sets it. */
+  enabled: boolean
+  /** Is this deployment maintaining Reader Lists at all (`privateReposEnabled`)? */
+  privateRepos: boolean
+  /** The Reader List the Index holds, or `null` for a world-readable name. */
+  readers?: readonly string[] | null
+}
+
+/**
+ * May this push be let past the Signer List because every ref it writes is a
+ * Proposal, and its Signer may READ this repository?
+ *
+ * Three conditions, and each one is load-bearing:
+ *
+ *   - **Every** ref, not some. git shows the hook a push's refs together and
+ *     publishes them across several transactions, so a push allowed for its
+ *     Proposal would land whatever branch was pushed beside it.
+ *   - **Signed**, verified — never an unestablished Signer. A Proposal nobody
+ *     can be attributed to is a permanent anonymous write to a name that
+ *     refuses strangers, which is the whole of what ADR-0012 bought.
+ *   - **Readable by them**, through `readAllowed` — the same function the clone
+ *     and the Provenance Read are judged by, because "whoever may read may
+ *     propose" is one rule and a second copy of it would be a second answer.
+ *     On a world-readable name that is anyone who signed; on a Private one it
+ *     is the Reader List and the Signers.
+ *
+ * The shape of the ref is deliberately not asked here — `checkProposalRefs`
+ * (`src/proposals.ts`) judges whether a Proposal is one the host will hold, and
+ * it runs in `pre-receive` beside this. Folding it in would give this pure
+ * function a git subprocess and an Index read.
+ */
+function mayPropose(
+  signer: PushSigner,
+  claimed: readonly string[],
+  changes: readonly RefChange[],
+  proposals: ProposalGate,
+): boolean {
+  if (!proposals.enabled) return false
+  if (signer.kind !== 'signed') return false
+  if (changes.length === 0 || !changes.every((c) => isProposalRef(c.ref))) return false
+  return readAllowed({
+    enabled: proposals.privateRepos,
+    claim: {
+      signers: [...claimed],
+      ...(proposals.readers ? { readers: [...proposals.readers] } : {}),
+    },
+    presented: signer.fingerprint,
+  })
+}
+
+/**
  * May this push land, given who signed it and the list this name already holds?
  *
  * Pure over its three inputs, with no git, no store and no subprocess in reach:
@@ -585,6 +649,12 @@ export type GateStage = 'pre-receive' | 'publish'
  * it. The rule for an operator is the short one: turn the flag on before anyone
  * writes a list, and leave it on.
  *
+ * **Proposals are the one widening** (docs/adr/0018), and they narrow nothing:
+ * a push whose refs are ALL under `refs/walgit/proposals/` is let through when
+ * its Signer may READ this repository — see `mayPropose` above. It is asked
+ * after the list has already refused, so a listed key's push is unaffected, and
+ * it is off entirely unless the deployment sets the flag.
+ *
  * An unclaimed name is `null`. An empty array is read as unclaimed too, and the
  * asymmetry with `checkSignerList` — which refuses writing one — is the point:
  * a list naming nobody cannot be written, so reaching one here means the Index
@@ -598,9 +668,11 @@ export function checkSignerAllowed(
   claimed: readonly string[] | null,
   changes: readonly RefChange[],
   stage: GateStage = 'pre-receive',
+  proposals: ProposalGate = { enabled: false, privateRepos: false, readers: null },
 ): SignerGateVerdict {
   if (claimed === null || claimed.length === 0) return { ok: true }
   if (signer.kind === 'signed' && claimed.includes(signer.fingerprint)) return { ok: true }
+  if (mayPropose(signer, claimed, changes, proposals)) return { ok: true }
   return {
     ok: false,
     kind: signer.kind === 'signed' ? 'not-listed' : signer.kind,

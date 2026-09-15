@@ -822,3 +822,47 @@ describe('Private moves from the roadmap to the rules', () => {
     expect(html).toContain('<h3>Private</h3>')
   })
 })
+
+/**
+ * Proposals, which is a roadmap row on most deployments and a rule on one
+ * (docs/adr/0018).
+ *
+ * The same rule Ownership and Private follow, one row further down: the page
+ * may not carry a capability twice, once as a fact and once as an achievement.
+ * `Pull requests` has said "under design" since the page was written, and this
+ * is where that row is spent.
+ */
+describe('Proposals move from the roadmap to the rules', () => {
+  const PROPOSALS: CapabilityEnv = { WALGIT_PROPOSALS: '1' }
+  const OPEN_PROPOSALS = caps({ ...OPEN, ...SEED, ...GATE, ...PROPOSALS })
+
+  test('it is a term in The rules., and names the namespace', () => {
+    const html = renderLanding(HOST, OPEN_PROPOSALS)
+    expect(html).toContain('<span class="k">Proposals</span>')
+    expect(html).toContain('refs/walgit/proposals/')
+  })
+
+  test('and leaves the roadmap, which no longer calls it under design', () => {
+    const html = renderLanding(HOST, OPEN_PROPOSALS)
+    expect(html).not.toContain('<h3>Pull requests</h3>')
+  })
+
+  test('with the flag off the row keeps the words it has today', () => {
+    const html = renderLanding(HOST, caps({ ...OPEN, ...SEED, ...GATE }))
+    expect(html).toContain('<h3>Pull requests</h3>')
+    expect(html).not.toContain('<span class="k">Proposals</span>')
+  })
+
+  // The flag alone advertises a handoff no push could make: a Proposal is a
+  // SIGNED push to a name that holds a Signer List.
+  test('and neither the flag alone nor an ungated deployment makes it a rule', () => {
+    for (const env of [
+      { ...OPEN, ...PROPOSALS },
+      { ...OPEN, ...GATE, ...PROPOSALS },
+    ]) {
+      const html = renderLanding(HOST, caps(env))
+      expect(html).not.toContain('<span class="k">Proposals</span>')
+      expect(html).toContain('<h3>Pull requests</h3>')
+    }
+  })
+})
