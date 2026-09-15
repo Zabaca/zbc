@@ -59,6 +59,7 @@ each keeps its own glossary.
   [ADR-0008](./docs/adr/0008-walgit-runs-on-a-cloudflare-container-without-ssh.md),
   [ADR-0009](./docs/adr/0009-walgit-ref-events-are-latest-state.md),
   [ADR-0010](./docs/adr/0010-walgit-shared-kernel.md),
-  [ADR-0011](./docs/adr/0011-walgit-records-who-pushed-and-refuses-nothing.md)),
+  [ADR-0011](./docs/adr/0011-walgit-records-who-pushed-and-refuses-nothing.md),
+  [ADR-0018](./docs/adr/0018-a-proposal-is-a-ref-and-merged-is-ancestry.md)),
   which stay at the root because they were taken here and predate the split.
 - Agent-context decisions: [`packages/agent/docs/adr/`](./packages/agent/docs/adr/)

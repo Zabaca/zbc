@@ -163,3 +163,16 @@ _Disambiguate_: `WALGIT_PUBLIC` is deployment-wide and about tokens; Private is 
 **Read Challenge**:
 How a reader proves a key over smart-HTTP, where git signs nothing on fetch. The host publishes a nonce; the client signs it with the same key that signs its pushes and presents the signature as its credential; the host verifies it with the same verifier a Push Certificate gets and looks the fingerprint up in the Reader List. Signed under its own namespace so a Read Challenge can never be replayed as a Push Certificate or an SSH login. Every read a Private repository has — clone, fetch, the Provenance Read, a Watch on the event stream — is behind this one gate and no other.
 _Avoid_: login, token (there is none; the signature is the credential), auth
+
+## Proposals (ADR-0018)
+
+**Proposal**:
+A ref under `refs/walgit/proposals/` that names a commit its pusher wants in a target ref. It is a ref and a Push Certificate and nothing else: the host keeps no record of it beyond the Index, requests nothing of anyone, and derives its state from git ancestry rather than storing one.
+_Avoid_: pull request (GitHub's, and already means a GitHub PR elsewhere in the repository), merge request, change request (an approval-board ticket), PR
+
+**Merged**:
+A Proposal whose tip is an ancestor of its target ref's tip. Computed on read, never recorded, so it is only ever true because someone with the right to write the target pushed a fast-forward or a true merge of the Proposal's tip. A squash or a rebase of it does not merge the Proposal, and a Proposal is never Merged by anything but ancestry.
+_Avoid_: closed, accepted (nothing records an acceptance), landed
+
+**Whoever may read may propose**:
+The one rule for who can push a Proposal: on a world-readable name, anyone whose push is signed; on a Private name, its Signers and Readers. There is no third list. An Unclaimed name refuses nothing anyway, so a Proposal there is allowed and pointless.
