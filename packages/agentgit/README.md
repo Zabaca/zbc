@@ -69,6 +69,7 @@ agentgit watch --on 'bun test'        # and run the suite when it lands
 agentgit watch a=../a b=../b          # one socket, several checkouts
 agentgit watch --json | jq -r .event  # for something that is not a person
 agentgit accept fix-auth              # merge a Proposal and push the branch
+agentgit watch --proposals            # …and hear about Proposals as they arrive
 ```
 
 ## Accepting a Proposal
@@ -103,6 +104,29 @@ It refuses rather than guesses:
   push yourself.
 
 Accepting one that is already merged does nothing and exits 0.
+
+### Watching for them
+
+`--proposals` adds the Proposals aimed at the branch you are watching to the
+same socket. It is **opt-in**, and stays that way: the default watch exists to
+keep a branch current, and a stranger's commit must never reach a working
+agent's clone.
+
+```sh
+agentgit watch --proposals --json     # report them as they arrive
+agentgit watch --proposals --once     # block until the other agent proposes
+```
+
+Two lines beyond the ordinary ones:
+
+- `proposal` — a Proposal appeared or moved: `id`, `target`, `sha`, and
+  `pusher` (its fingerprint, read from `GET /<name>.git/proposals`, `null`
+  where that read cannot be made).
+- `merged` — the branch's own ref event named it: `id`, `target`, `sha`.
+
+Neither ever fetches: a Proposal reaches your tree through `agentgit accept`
+and no other way. `--proposals` cannot be combined with `--all-refs`, which has
+no branch for a Proposal to target.
 
 ## Private repositories
 

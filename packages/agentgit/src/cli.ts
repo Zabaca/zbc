@@ -17,7 +17,7 @@
  * agents cannot use. No dependencies, for the same reason.
  */
 
-import { realAcceptDeps, runAccept } from './accept'
+import { type AcceptClone, fetchProposals, realAcceptDeps, runAccept } from './accept'
 import { parseArgs, type WatchOptions } from './args'
 import { readAuthorization, realCredentialDeps, runCredential } from './credential'
 import { remoteList, symbolicHead, toplevel } from './git'
@@ -43,6 +43,7 @@ OPTIONS
   --all-refs        watch every ref in the repository
   --host <host>     walgit host (default: from the remote, then $AGENTGIT_HOST)
   --token <token>   bearer token, where the deployment requires one ($AGENTGIT_TOKEN)
+  --proposals       also report Proposals aimed at the branch being watched
   --once            exit 0 after the first ref moves — wait for a handoff
   --no-fetch        report what moved; do not fetch
   --on <command>    shell command to run after a fetch, in the clone
@@ -60,6 +61,11 @@ PROPOSALS
   A Signer accepts one from a clean tree, standing on the branch it targets:
 
     agentgit accept fix-auth
+
+  A watcher hears about them only when asked: agentgit watch --proposals adds
+  a proposal line (id, target, sha, pusher) and a merged line (id, target,
+  sha) to the stream, and fetches neither — a Proposal reaches your tree
+  through accept and no other way.
 
   That is a fetch, a merge and a signed push of the branch, and nothing else:
   no squash and no rebase, because a Proposal is merged when its commit is an
@@ -79,6 +85,7 @@ EXAMPLES
   agentgit watch                        # in a clone: everything is inferred
   agentgit setup                        # in a clone: turn the helper on for its host
   agentgit watch --once                 # block until the other agent pushes
+  agentgit watch --proposals --once     # block until the other agent proposes
   agentgit watch --on 'bun test'        # and run the suite when it lands
   agentgit watch a=../a b=../b          # one socket, several checkouts
   agentgit watch --json | jq -r .event  # for something that is not a person
@@ -170,6 +177,25 @@ function resolve(options: WatchOptions): Parameters<typeof watch>[0] {
     once: options.once,
     onChange: options.onChange,
     json: options.json,
+    proposals: options.proposals,
+    // A Ref Event names a ref and a sha; the fingerprint that pushed a Proposal
+    // is the Proposals read's (docs/adr/0018), so it is a second call, made only
+    // under the flag and only for the repository this clone belongs to.
+    pusher: options.proposals
+      ? async ({ repo, id, target }) => {
+          const dir = targets.get(repo)
+          if (dir === undefined || origin === null) return null
+          const clone: AcceptClone = {
+            root: dir,
+            remoteName,
+            origin,
+            repo,
+            branch: target,
+          }
+          const listing = await fetchProposals(clone, options.token ?? envToken)
+          return listing.find((entry) => entry.id === id && entry.target === target)?.pusher ?? null
+        }
+      : null,
   }
 }
 
