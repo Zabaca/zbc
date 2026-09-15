@@ -154,6 +154,16 @@ function resolve(options: WatchOptions): Parameters<typeof watch>[0] {
   }
 
   if (host === null) fail('no host: pass --host or set $AGENTGIT_HOST')
+  // A Proposal's ref names the branch it targets, so with no branch to watch
+  // there is no namespace to scope — every Proposal would be ignored, silently.
+  // Said here rather than reported as nothing: a detached HEAD is the case,
+  // and `--all-refs` is already refused at parse.
+  if (options.proposals && refs.length === 0) {
+    fail(
+      '--proposals needs a branch to aim at, and HEAD is detached: check out the ' +
+        'branch the Proposals target, or name it with --ref',
+    )
+  }
   for (const [repo, dir] of targets) {
     if (dir === '') fail(`no directory for ${repo}: pass ${repo}=<dir>`)
   }
