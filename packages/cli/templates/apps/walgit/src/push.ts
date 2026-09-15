@@ -24,7 +24,13 @@ import { ZERO_OID } from '../shared/protocol'
 import { walKey } from './keys'
 import { writePending, type PendingPush } from './pending'
 import { certSigner } from './push-cert'
-import { checkSignerAllowed, describeSigner, type GateRefusal, type PushSigner } from './signers'
+import {
+  checkSignerAllowed,
+  describeSigner,
+  type GateRefusal,
+  type ProposalGate,
+  type PushSigner,
+} from './signers'
 import type { ObjectStore } from './store'
 import { ulid } from './ulid'
 import {
@@ -258,6 +264,16 @@ export interface PublishOptions {
    * settled in one place (`hook-main`), for both askings.
    */
   signerLists?: boolean
+  /**
+   * Proposals, as the gate needs them (docs/adr/0018) — minus the Reader List,
+   * which is read HERE, off the Claim this attempt is publishing onto.
+   *
+   * That split is the same rule as the Signer List beside it: who may propose
+   * is who may read, and who may read is a fact about the repository, which can
+   * move while a push uploads. Handing the list in from `pre-receive` would
+   * judge the re-ask against a repository that no longer exists.
+   */
+  proposals?: Omit<ProposalGate, 'readers'>
 }
 
 /**
@@ -378,6 +394,10 @@ export async function publishPush(
         index.claim?.signers ?? null,
         changes,
         'publish',
+        {
+          ...(options.proposals ?? { enabled: false, privateRepos: false }),
+          readers: index.claim?.readers ?? null,
+        },
       )
       if (!verdict.ok) {
         return { ok: false, reason: 'not-allowed', kind: verdict.kind, message: verdict.message }

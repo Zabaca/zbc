@@ -284,6 +284,31 @@ function publicClaim(caps: Capabilities): string {
  * learns "a repository is Private if it holds a `readers` file" knows the
  * entire model. How to write one is `/llms.txt`, and the refusal itself.
  */
+/**
+ * Proposals, as a rule of the host rather than a row in what is missing
+ * (docs/adr/0018).
+ *
+ * The `Pull requests` roadmap row has said *under design* since the page was
+ * written, and this is where it is spent — the same move Ownership and Private
+ * made, and for the same reason: a page carrying one capability twice, once as
+ * a fact and once as an achievement, is a page arguing with itself.
+ *
+ * Read from `proposals`, which is the only reading that can be right here: a
+ * Proposal is a SIGNED push to a name that HOLDS a Signer List, so the flag
+ * alone describes a handoff no push on that deployment could make.
+ *
+ * It names the ref, because the ref is the whole mechanism: there is no button,
+ * no record and no third list — the pusher picks the id, the target is in the
+ * name, and *merged* is the target's history containing it.
+ */
+function proposalsClaim(caps: Capabilities): string {
+  if (!caps.proposals) return ''
+  return claim(
+    'Proposals',
+    '<b>A claimed name takes a change from anyone who may read it.</b> Push to <code>refs/walgit/proposals/&lt;branch&gt;/&lt;your-id&gt;</code> and it is held, signed and append-only, without being a Signer. Nobody accepts it but a Signer merging it themselves: it is <em>merged</em> when the branch\u2019s history contains it, and there is nothing else to be.',
+  )
+}
+
 function privateClaim(caps: Capabilities): string {
   if (!caps.namesCanBePrivate) return ''
   return claim(
@@ -451,6 +476,7 @@ function claims(caps: Capabilities): string {
     appendOnlyClaim(caps),
     publicClaim(caps),
     privateClaim(caps),
+    proposalsClaim(caps),
     thirdClaim(caps),
     signingClaim(caps),
     // Unconditional, unlike every term above it: nothing in `/robots.txt` is
@@ -565,9 +591,19 @@ function roadmapOwnership(caps: Capabilities): string {
  * the reason one of them is cheap rather than part of it.
  */
 function roadmapPulls(caps: Capabilities): string {
-  return caps.appendOnly
+  // The row LEAVES when the deployment takes Proposals, exactly as Ownership
+  // and Private leave: `proposalsClaim` above states the rule, and a roadmap
+  // row calling it under design underneath would be the page describing one
+  // capability in two contradictory places.
+  if (caps.proposals) return ''
+  const missing = caps.appendOnly
     ? 'Append-only already makes a proposal safe to push. What is missing is a way to say a branch is one, and a way to say it landed — not a review UI.'
     : 'A branch is already the whole of a proposal. What is missing is a way to say that is what it is, and a way to say it landed — not a review UI.'
+  return `        <li>
+          <span class="when">Under design</span>
+          <h3>Pull requests</h3>
+          <p>${missing}</p>
+        </li>`
 }
 
 /**
@@ -1174,11 +1210,7 @@ const PAGE = `<!doctype html>
       <p>What is missing, in the order it unblocks itself. Nothing here is a date, and each one is written down before it is built.</p>
       <ul class="road">
 {{ROADMAP_OWNERSHIP}}
-        <li>
-          <span class="when">Under design</span>
-          <h3>Pull requests</h3>
-          <p>{{ROADMAP_PULLS}}</p>
-        </li>
+{{ROADMAP_PULLS}}
         <li>
           <span class="when">Half built</span>
           <h3>CI</h3>

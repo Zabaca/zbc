@@ -164,6 +164,37 @@ describe('the two strengths of the gate', () => {
 })
 
 /**
+ * Proposals (docs/adr/0018): a claimed name takes a signed push to
+ * `refs/walgit/proposals/…` from whoever may READ it.
+ *
+ * Read at the claiming strength and not from the flag alone, because a Proposal
+ * is a signed push to a name that HOLDS a Signer List: with no seed nothing can
+ * sign, and on a name nobody has claimed the gate refuses nothing, so there is
+ * no widening to advertise. A deployment setting the flag by itself would have
+ * every document describing a handoff no push could make.
+ */
+describe('proposals', () => {
+  const GATE = { WALGIT_SIGNER_LISTS: '1' }
+  const SEED = { WALGIT_PUSH_CERT_SEED: 'a-long-random-seed' }
+  const PROPOSALS = { WALGIT_PROPOSALS: '1' }
+
+  test('is the flag and a claimable name', () => {
+    expect(caps({ ...GATE, ...SEED }).proposals).toBe(false)
+    expect(caps(PROPOSALS).proposals).toBe(false)
+    expect(caps({ ...GATE, ...PROPOSALS }).proposals).toBe(false)
+    expect(caps({ ...SEED, ...PROPOSALS }).proposals).toBe(false)
+    expect(caps({ ...GATE, ...SEED, ...PROPOSALS }).proposals).toBe(true)
+  })
+
+  // A credentialed deployment is unchanged by it, unlike Private: a Proposal is
+  // a push, and a push carries its certificate in the pack rather than in the
+  // one `authorization` header a deployment token occupies.
+  test('is unchanged by the front door taking a token', () => {
+    expect(caps({ ...GATE, ...SEED, ...PROPOSALS, WALGIT_PUBLIC: '1' }).proposals).toBe(true)
+  })
+})
+
+/**
  * The boolean-ish variables, which BOTH halves have to read identically: the
  * container enforces append-only from this answer and the edge documents
  * describe it from the same one (`flagEnabled`, docs/adr/0010).
@@ -233,6 +264,7 @@ test('an unconfigured deployment advertises nothing, and says so in every field'
     namesCanRefuse: false,
     namesCanBeClaimed: false,
     namesCanBePrivate: false,
+    proposals: false,
     retentionHours: null,
     maxPushBytes: null,
     maxRepoBytes: null,

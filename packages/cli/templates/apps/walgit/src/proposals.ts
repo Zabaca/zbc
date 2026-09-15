@@ -1,0 +1,216 @@
+/**
+ * Proposals: the one push a claimed name takes from someone not on its Signer
+ * List (docs/adr/0018).
+ *
+ * A Proposal is a ref under `refs/walgit/proposals/<target>/<id>` naming a
+ * commit its pusher wants in `refs/heads/<target>`, plus the Push Certificate
+ * behind it, and nothing else. There is no record, no row and no file: whether
+ * it is Merged is `merge-base --is-ancestor` against the target, computed on
+ * read from the Cache and never written down.
+ *
+ * Two questions live here and both are pure:
+ *
+ *   - `parseProposalRef` — what a ref NAMES. The target is in the ref name
+ *     rather than derived from the commit, so `ls-remote` shows it and nothing
+ *     has to be parsed to list what is open.
+ *   - `checkProposalRefs` — whether the host will hold it. A Proposal aimed at
+ *     a branch that does not exist, at something that is not a branch, or
+ *     pointing at an object that is not a commit, is refused in `pre-receive`
+ *     rather than stored: append-only means a ref written here can never be
+ *     deleted, so the one moment to refuse junk is before it lands.
+ *
+ * WHO may write one is deliberately not here. That is the Signer List gate's
+ * question — `checkSignerAllowed` in `src/signers.ts` — because the rule is
+ * *whoever may read may propose*, and reading is a Reader List's answer, which
+ * that gate already holds. Splitting it the other way would have put half of
+ * ownership in this file.
+ *
+ * Off unless the instance turns it on, like every capability in this package.
+ * With the flag off `refs/walgit/proposals/…` is an ordinary ref namespace
+ * under the ordinary gate: nothing widens and nothing is validated.
+ */
+
+import { flagEnabled } from '../shared/policy'
+import { ZERO_OID } from '../shared/protocol'
+import { git } from './git'
+import type { RefChange } from './wal-index'
+
+/** The env flag an instance sets to take Proposals. */
+export function proposalsEnabled(env: Record<string, string | undefined> = process.env): boolean {
+  return flagEnabled(env.WALGIT_PROPOSALS)
+}
+
+/**
+ * The namespace, with its trailing slash — so `startsWith` cannot match a ref
+ * called `refs/walgit/proposalsomething`.
+ */
+export const PROPOSALS_PREFIX = 'refs/walgit/proposals/'
+
+/** The branch a Proposal wants its commit in, spelled as a ref. */
+export const targetRef = (target: string): string => `refs/heads/${target}`
+
+export interface Proposal {
+  /** The branch this Proposal is for, WITHOUT the `refs/heads/` prefix. */
+  target: string
+  /** The pusher's word. The host assigns nothing and collisions are refused. */
+  id: string
+}
+
+/**
+ * What a ref names, or `null` when it names no Proposal.
+ *
+ * The id is the LAST segment and the target is everything before it, which is
+ * the only split that lets a target be a branch with slashes in it — `feat/login`
+ * is an ordinary branch name, and an agent proposing to one must not have to
+ * know this ref is parsed at all.
+ *
+ * Both halves must be non-empty, so `…/main` (no id) and `…/main/` (no id) and
+ * `…//fix` (no target) name nothing. That is a refusal rather than a guess:
+ * every one of them is a client that meant something this host cannot tell.
+ */
+export function parseProposalRef(ref: string): Proposal | null {
+  if (!ref.startsWith(PROPOSALS_PREFIX)) return null
+  const rest = ref.slice(PROPOSALS_PREFIX.length)
+  const cut = rest.lastIndexOf('/')
+  if (cut <= 0) return null
+  const target = rest.slice(0, cut)
+  const id = rest.slice(cut + 1)
+  if (target === '' || id === '') return null
+  return { target, id }
+}
+
+/** Is this ref in the namespace at all, well-formed or not? */
+export const isProposalRef = (ref: string): boolean => ref.startsWith(PROPOSALS_PREFIX)
+
+/**
+ * What the shape check is asked of: the refs this repository holds, and what
+ * an object is.
+ *
+ * The refs come from the **Index**, not from the Cache, for the reason the gate
+ * reads its Signer List there — the Cache is disposable, and a target that
+ * existed only on whichever node happened to have materialized would make a
+ * refusal depend on which container answered.
+ *
+ * The object type is a subprocess against the quarantine, injected so every
+ * decision here is testable without a repository — the same seam
+ * `src/signers.ts` puts in front of its blob reader.
+ */
+export interface ProposalSource {
+  /** The repository's refs, as the Index holds them: ref → oid. */
+  refs: Readonly<Record<string, string>>
+  /** `commit`, `tree`, `blob`, `tag` — or `null` for an object git cannot see. */
+  objectType: (oid: string) => string | null
+}
+
+/** The real object reader: the pushed objects are in the hook's object path. */
+export function gitObjectType(gitDir: string): (oid: string) => string | null {
+  return (oid) => {
+    const res = git(['--git-dir', gitDir, 'cat-file', '-t', oid])
+    if (res.status !== 0) return null
+    const type = res.stdout.trim()
+    return type === '' ? null : type
+  }
+}
+
+/** Every way a Proposal can be malformed. */
+export type ProposalRefusal =
+  /** The ref is in the namespace and names no `<target>/<id>`. */
+  | 'grammar'
+  /** `refs/heads/<target>` is not a ref this repository holds. */
+  | 'missing-target'
+  /** The target is not a branch — it names something outside `refs/heads/`. */
+  | 'not-a-branch'
+  /** The tip is a tree, a blob, a tag, or an object the host cannot see. */
+  | 'not-a-commit'
+
+export type ProposalVerdict =
+  | { ok: true }
+  | { ok: false; kind: ProposalRefusal; ref: string; message: string }
+
+/**
+ * Judge every Proposal ref a push writes. Refs outside the namespace are
+ * somebody else's question and are passed over.
+ *
+ * A DELETION is passed over too: it has no tip to be a commit and no Proposal
+ * to validate, and whether a ref here may be removed at all is append-only's
+ * answer rather than this one's. On the deployment ADR-0018 is written for
+ * append-only is on, so there is nothing to delete with.
+ *
+ * The first offending ref decides the push, as append-only's judge does and for
+ * the same reason: a push is all or nothing to git, so a second refusal would
+ * only make the message longer than an agent reads.
+ */
+export function checkProposalRefs(
+  repoId: string,
+  changes: readonly RefChange[],
+  source: ProposalSource,
+): ProposalVerdict {
+  for (const change of changes) {
+    if (!isProposalRef(change.ref)) continue
+    if (change.newOid === ZERO_OID) continue
+
+    const proposal = parseProposalRef(change.ref)
+    if (!proposal) return refuse(repoId, 'grammar', change.ref, 'names no target and id')
+
+    if (proposal.target.startsWith('refs/')) {
+      return refuse(
+        repoId,
+        'not-a-branch',
+        change.ref,
+        `its target \`${proposal.target}\` is not a branch — a Proposal names one under refs/heads/`,
+      )
+    }
+
+    const target = targetRef(proposal.target)
+    if (source.refs[target] === undefined) {
+      return refuse(repoId, 'missing-target', change.ref, `${target} does not exist here`)
+    }
+
+    const type = source.objectType(change.newOid)
+    if (type !== 'commit') {
+      return refuse(
+        repoId,
+        'not-a-commit',
+        change.ref,
+        `it points at ${type ?? 'an object this host cannot read'}, not a commit`,
+      )
+    }
+  }
+  return { ok: true }
+}
+
+const refuse = (
+  repoId: string,
+  kind: ProposalRefusal,
+  ref: string,
+  why: string,
+): Extract<ProposalVerdict, { ok: false }> => ({
+  ok: false,
+  kind,
+  ref,
+  message: rejectionMessage(repoId, ref, why),
+})
+
+/**
+ * What a malformed Proposal reads. Product copy, like every other refusal on
+ * this path: an agent that cannot act on a refusal has been told nothing, and
+ * this one is most often read by an agent that has just learned Proposals
+ * exist.
+ */
+function rejectionMessage(repoId: string, ref: string, why: string): string {
+  return [
+    `walgit: refused — ${ref} is not a Proposal ${repoId} can hold: ${why}.`,
+    '',
+    'A Proposal is a ref naming the commit you want in an existing branch:',
+    '',
+    `    git push --signed=yes origin HEAD:${PROPOSALS_PREFIX}<branch>/<your-id>`,
+    '',
+    'The branch is the one you want it merged into and must already exist here;',
+    'the id is your own word for this change, and a taken one is refused as a',
+    'non-fast-forward, so pick another. Refs here are append-only like every',
+    'other, which is why a Proposal is judged before it is stored rather than',
+    'after.',
+    '',
+    'Nothing was uploaded; the repository is unchanged.',
+  ].join('\n')
+}

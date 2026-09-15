@@ -612,3 +612,28 @@ describe('signedPushEnabled is the one reading of the seed', () => {
     expect(pushCertSeed('')).toBeNull()
   })
 })
+
+/**
+ * Proposals (docs/adr/0018) — taught where an agent that has work for somebody
+ * else's name goes looking, and nowhere else.
+ */
+describe('Propose a change', () => {
+  const PROPOSALS: CapabilityEnv = { WALGIT_PROPOSALS: '1' }
+  const OPEN_PROPOSALS = caps({ ...OPEN, ...SEED, ...GATE, ...PROPOSALS })
+
+  test('the section names the ref, the rule and how a Proposal is updated', () => {
+    const text = renderLlms(HOST, OPEN_PROPOSALS)
+    expect(text).toContain('## Propose a change')
+    expect(text).toContain('refs/walgit/proposals/')
+    // Whoever may read may propose: there is no third list to join.
+    expect(text).toContain('read')
+    // A taken id is refused, and updating one is a fast-forward to the same ref.
+    expect(text).toContain('fast-forward')
+  })
+
+  test('and says nothing at all where the capability is off', () => {
+    for (const env of [OPEN, { ...OPEN, ...SEED, ...GATE }, { ...OPEN, ...PROPOSALS }]) {
+      expect(renderLlms(HOST, caps(env))).not.toContain('## Propose a change')
+    }
+  })
+})
