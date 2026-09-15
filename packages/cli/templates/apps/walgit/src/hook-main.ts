@@ -18,13 +18,20 @@ import * as fs from 'node:fs'
 import * as path from 'node:path'
 
 import { capabilitiesFrom } from '../shared/capabilities'
+import { ZERO_OID } from '../shared/protocol'
 import { announceConfigFromEnv } from './announce'
 import { appendOnlyEnabled, checkAppendOnly } from './append-only'
 import { configuredThreshold, isCompactionDue } from './compact'
 import { checkSize, limitsEnforced, limitsOf, liveBytes } from './limits'
 import { clearPending, invocationId, markConsumed, readPending, sweepPending } from './pending'
 import { privateReposEnabled } from './private'
-import { checkProposalRefs, gitObjectType, proposalsEnabled } from './proposals'
+import {
+  checkProposalRefs,
+  gitAncestry,
+  gitObjectType,
+  mergedProposals,
+  proposalsEnabled,
+} from './proposals'
 import {
   establishSigner,
   parseRefChanges,
@@ -330,7 +337,14 @@ async function main(): Promise<number> {
     const events = announceConfigFromEnv()
     if (events) {
       const changes = parseRefChanges(stdin).filter((c) => c.ref.startsWith('refs/'))
-      if (changes.length > 0) spawnAnnounce(repoId, changes)
+      // What this push MERGED rides the same announcement (docs/adr/0018), so a
+      // Watcher on `main` learns a Proposal landed from the move rather than by
+      // reading the Proposal list again. Computed HERE and not in the detached
+      // announcer because this is where the Cache and the repository's own
+      // environment are — and computed at all only when a branch moved on a
+      // deployment taking Proposals, so a push on every other deployment pays
+      // nothing.
+      if (changes.length > 0) spawnAnnounce(repoId, changes, await mergedForAnnounce(changes))
     }
     try {
       const store = storeFromEnv()
@@ -389,6 +403,35 @@ function publishRefusal(result: Extract<PublishResult, { ok: false }>): string {
 }
 
 /**
+ * The Proposals this push merged, per branch it moved — or nothing.
+ *
+ * Best-effort like everything else in `post-receive`: a failure here costs one
+ * announcement its `merged` field, never the push and never the announcement.
+ * The refs come from the Index (a Proposal pushed to another node is still this
+ * repository's) and ancestry from the Cache, which is the split
+ * `GET /<name>.git/proposals` already reads Merged through — a commit this disk
+ * does not hold reads as NOT merged, never as merged.
+ */
+async function mergedForAnnounce(changes: readonly RefChange[]): Promise<Record<string, string[]>> {
+  if (!proposalsEnabled()) return {}
+  // A push that moved no branch merged nothing, whatever this repository holds,
+  // so the Index is not read at all for a Proposal push or a deletion.
+  const moved = changes.some(
+    (change) => change.ref.startsWith('refs/heads/') && change.newOid !== ZERO_OID,
+  )
+  if (!moved) return {}
+  try {
+    const store = storeFromEnv()
+    if (!store) return {}
+    const { index } = await loadIndex(store, repoId)
+    return mergedProposals(changes, index.refs, gitAncestry(gitDir))
+  } catch (err) {
+    process.stderr.write(`walgit: merged Proposals not computed: ${(err as Error).message}\n`)
+    return {}
+  }
+}
+
+/**
  * Hand the announcement to a detached process and return.
  *
  * `post-receive` holds the client's connection until it exits, so the
@@ -403,11 +446,20 @@ function publishRefusal(result: Extract<PublishResult, { ok: false }>): string {
  * what this would have announced, so a subscriber's next handshake reads it
  * there anyway.
  */
-function spawnAnnounce(repo: string, changes: readonly RefChange[]): void {
+function spawnAnnounce(
+  repo: string,
+  changes: readonly RefChange[],
+  merged: Readonly<Record<string, string[]>>,
+): void {
   try {
     const child = spawn(
       process.execPath,
-      [path.join(import.meta.dir, 'announce-main.ts'), repo, JSON.stringify(changes)],
+      [
+        path.join(import.meta.dir, 'announce-main.ts'),
+        repo,
+        JSON.stringify(changes),
+        JSON.stringify(merged),
+      ],
       { detached: true, stdio: 'ignore' },
     )
     child.unref()

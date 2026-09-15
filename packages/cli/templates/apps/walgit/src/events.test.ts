@@ -419,3 +419,51 @@ describe('reconnecting after a drop', () => {
     expect(answer.refs).toEqual([{ repo: 'demo', ref: 'refs/heads/main', sha: SHA_B }])
   })
 })
+
+/**
+ * `merged`: the Proposals a target's move landed (docs/adr/0018). Part of the
+ * event rather than a second call, so an agent watching `main` learns it from
+ * the move — and absent, never empty, when the move landed nothing.
+ */
+describe('merged on a ref event', () => {
+  test('a target move carries the ids the push merged', () => {
+    expect(
+      eventsFromChanges('my-thing', [{ ref: 'refs/heads/main', oldOid: SHA_A, newOid: SHA_B }], {
+        'refs/heads/main': ['fix-auth'],
+      }),
+    ).toEqual([{ repo: 'my-thing', ref: 'refs/heads/main', sha: SHA_B, merged: ['fix-auth'] }])
+  })
+
+  test('a move that merged nothing carries no field at all', () => {
+    const [event] = eventsFromChanges(
+      'my-thing',
+      [{ ref: 'refs/heads/main', oldOid: SHA_A, newOid: SHA_B }],
+      { 'refs/heads/other': ['fix-auth'] },
+    )
+    expect(event).toEqual({ repo: 'my-thing', ref: 'refs/heads/main', sha: SHA_B })
+    expect('merged' in event!).toBe(false)
+  })
+
+  test('the announce door passes the ids through', () => {
+    const parsed = parseAnnounce({
+      events: [{ repo: 'my-thing', ref: 'refs/heads/main', sha: SHA_A, merged: ['fix-auth'] }],
+    })
+    expect(parsed.ok && parsed.value.events[0]).toEqual({
+      repo: 'my-thing',
+      ref: 'refs/heads/main',
+      sha: SHA_A,
+      merged: ['fix-auth'],
+    })
+  })
+
+  test('refuses ids that are not Proposal ids', () => {
+    const bad = (merged: unknown) =>
+      parseAnnounce({
+        events: [{ repo: 'my-thing', ref: 'refs/heads/main', sha: SHA_A, merged }],
+      }).ok
+    expect(bad('fix-auth')).toBe(false)
+    expect(bad(['fix/auth'])).toBe(false)
+    expect(bad([''])).toBe(false)
+    expect(bad([7])).toBe(false)
+  })
+})

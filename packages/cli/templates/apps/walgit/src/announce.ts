@@ -70,8 +70,15 @@ export async function announce(
   repoId: string,
   changes: readonly RefChange[],
   fetchImpl: typeof fetch = fetch,
+  /**
+   * What each moved branch MERGED, by ref name (docs/adr/0018) — computed on
+   * the push path, where the Cache and the Index both are, and carried here
+   * rather than derived, because this file knows about a fetch and nothing
+   * about ancestry. Empty on every deployment not taking Proposals.
+   */
+  merged: Readonly<Record<string, string[]>> = {},
 ): Promise<boolean> {
-  const events = eventsFromChanges(repoId, changes)
+  const events = eventsFromChanges(repoId, changes, merged)
   if (events.length === 0) return false
   // A Reader List lives on the Signer List's ref (docs/adr/0013), so a push
   // that moved it may have revoked a reader whose socket is open right now.

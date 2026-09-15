@@ -13,6 +13,7 @@ import {
   PROPOSALS_PREFIX,
   checkProposalRefs,
   parseProposalRef,
+  mergedProposals,
   proposalsEnabled,
   type ProposalSource,
 } from './proposals'
@@ -134,5 +135,87 @@ describe('what the hook refuses', () => {
   test('a deletion is left to append-only', () => {
     const deletion = change(`${PROPOSALS_PREFIX}gone/fix`, ZERO_OID, COMMIT)
     expect(checkProposalRefs('alpha', [deletion], source)).toEqual({ ok: true })
+  })
+})
+
+/**
+ * What a target's move MERGED (docs/adr/0018): the ids of Proposals to that
+ * target whose tip became an ancestor of the new tip under this push.
+ *
+ * Ancestry is injected, as it is for `listProposals`, so what is under test
+ * here is the selection — which refs are asked about and which answers count —
+ * rather than git's answer, which `src/proposals-read.test.ts` pins against a
+ * real repository.
+ */
+describe('mergedProposals', () => {
+  const OLD = 'b'.repeat(40)
+  const NEW = 'c'.repeat(40)
+  const TIP_ONE = '1'.repeat(40)
+  const TIP_TWO = '2'.repeat(40)
+
+  const refs = {
+    'refs/heads/main': NEW,
+    'refs/heads/other': OLD,
+    [`${PROPOSALS_PREFIX}main/fix-auth`]: TIP_ONE,
+    [`${PROPOSALS_PREFIX}main/add-cache`]: TIP_TWO,
+    [`${PROPOSALS_PREFIX}other/elsewhere`]: TIP_TWO,
+  }
+
+  /** An explicit table: `tip` reaches each oid listed for it, and nothing else. */
+  const ancestry =
+    (table: Record<string, string[]>) =>
+    (tip: string, ancestorOf: string): boolean =>
+      (table[tip] ?? []).includes(ancestorOf)
+
+  test('names the Proposals whose tip became an ancestor of the new tip', () => {
+    const merged = mergedProposals(
+      [{ ref: 'refs/heads/main', oldOid: OLD, newOid: NEW }],
+      refs,
+      ancestry({ [TIP_ONE]: [NEW] }),
+    )
+    expect(merged).toEqual({ 'refs/heads/main': ['fix-auth'] })
+  })
+
+  test('a Proposal already merged before this push is not announced again', () => {
+    const merged = mergedProposals(
+      [{ ref: 'refs/heads/main', oldOid: OLD, newOid: NEW }],
+      refs,
+      ancestry({ [TIP_ONE]: [OLD, NEW] }),
+    )
+    expect(merged).toEqual({})
+  })
+
+  test('a branch created by this push merges everything it already reaches', () => {
+    const merged = mergedProposals(
+      [{ ref: 'refs/heads/main', oldOid: ZERO_OID, newOid: NEW }],
+      refs,
+      ancestry({ [TIP_ONE]: [NEW], [TIP_TWO]: [NEW] }),
+    )
+    expect(merged).toEqual({ 'refs/heads/main': ['add-cache', 'fix-auth'] })
+  })
+
+  test('only Proposals aimed at the branch that moved are considered', () => {
+    const merged = mergedProposals(
+      [{ ref: 'refs/heads/main', oldOid: OLD, newOid: NEW }],
+      refs,
+      // Every Proposal tip reaches the new tip, so only the target filter can
+      // exclude the one aimed at `other`.
+      ancestry({ [TIP_ONE]: [NEW], [TIP_TWO]: [NEW] }),
+    )
+    expect(merged).toEqual({ 'refs/heads/main': ['add-cache', 'fix-auth'] })
+  })
+
+  test('a deletion and a ref that is not a branch merge nothing', () => {
+    expect(
+      mergedProposals(
+        [
+          { ref: 'refs/heads/main', oldOid: OLD, newOid: ZERO_OID },
+          { ref: `${PROPOSALS_PREFIX}main/fix-auth`, oldOid: ZERO_OID, newOid: TIP_ONE },
+          { ref: 'refs/tags/v1', oldOid: ZERO_OID, newOid: NEW },
+        ],
+        refs,
+        () => true,
+      ),
+    ).toEqual({})
   })
 })

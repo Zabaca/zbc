@@ -67,7 +67,7 @@ first push to a name printed `fatal:` before succeeding — which an agent reads
 ## Ref events (ADR-0009)
 
 **Ref Event**:
-A message telling a subscriber that a watched ref is now at a given sha. Latest-state, never a replayed history: there is no cursor, no `since`, and no sequence number on the wire. A deletion is the same message with a null sha.
+A message telling a subscriber that a watched ref is now at a given sha. Latest-state, never a replayed history: there is no cursor, no `since`, and no sequence number on the wire. A deletion is the same message with a null sha. When the ref is a branch and the move landed Proposals, it also carries `merged` — their ids — so a Watcher on `main` learns a Proposal landed without a second call; the field is absent, never empty, when it landed none, and a Handshake never carries it, because nothing moved. That is not a second kind of state: it is a property of the move, computed in `post-receive` by the same ancestry walk the Proposal read surface uses, and a subscriber that was disconnected reads what is open from `GET /<name>.git/proposals` instead.
 _Avoid_: notification (implies delivery to an endpoint, which is exactly what this is not), webhook
 
 **Watch**:

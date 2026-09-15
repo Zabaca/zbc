@@ -22,14 +22,22 @@ import type { RefChange } from './wal-index'
 
 const repoId = process.argv[2]
 const payload = process.argv[3]
+/**
+ * What each moved branch merged (docs/adr/0018), computed by `post-receive`
+ * where the Cache is and passed down as a third JSON argument. Omitted by a
+ * deployment not taking Proposals, and by any caller from before this existed.
+ */
+const mergedPayload = process.argv[4]
 
 async function main(): Promise<void> {
-  if (!repoId || !payload) throw new Error('usage: announce-main <repo-id> <changes-json>')
+  if (!repoId || !payload)
+    throw new Error('usage: announce-main <repo-id> <changes-json> [merged-json]')
   const config = announceConfigFromEnv()
   // Not an error: the environment can change between the spawn and the start,
   // and a deployment with no stream configured simply has nothing to tell.
   if (!config) return
-  await announce(config, repoId, JSON.parse(payload) as RefChange[])
+  const merged = mergedPayload ? (JSON.parse(mergedPayload) as Record<string, string[]>) : {}
+  await announce(config, repoId, JSON.parse(payload) as RefChange[], fetch, merged)
 }
 
 main().catch((err) => {
