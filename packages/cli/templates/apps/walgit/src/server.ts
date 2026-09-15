@@ -17,6 +17,8 @@ import { ensureBareRepo } from './cache'
 import { configuredExpiryMs, expireRepos } from './expire'
 import { createHttpHandler } from './http'
 import { privateReposConfigError, privateReposEnabled, privateReposSeed } from './private'
+import { gitAncestry, isProposalRef, listProposals } from './proposals'
+import { resolveRepo } from './repo'
 import { sshReadVerifier } from './ssh-signature'
 import { runGitHttpBackend } from './git-backend'
 import type { ObjectStore } from './store'
@@ -203,6 +205,35 @@ try {
       ? async (repoId) => {
           const { index } = await loadIndex(store, repoId)
           return { provenance: index.provenance ?? {}, claim: index.claim }
+        }
+      : undefined,
+    // What Proposals a repository holds, with `merged` derived (docs/adr/0018).
+    //
+    // Three reads, and each is from the only place that can answer it: the refs
+    // and the provenance from the INDEX, because that is the source of truth
+    // and a node's disk is a cache; ancestry from the CACHE, because the Index
+    // holds no commits. Which is why the sync happens here rather than being
+    // skipped as it is for the other JSON reads — a cold container has the refs
+    // and none of the objects, and `merge-base` on a commit this disk has never
+    // seen reads as "not merged", which is a wrong answer rather than a slow
+    // one. `syncRepo` Materializes when reconcile reports objects missing.
+    //
+    // Absent without a store for the reason `readProvenance` is: the endpoint
+    // should not exist where there is nothing authoritative behind it. Whether
+    // the deployment OFFERS Proposals at all is the handler's check, against the
+    // capability this same process advertises.
+    readProposals: store
+      ? async (repoId) => {
+          const { index } = await loadIndex(store, repoId)
+          // Nothing to walk, and nothing touched. A read must not bring a name
+          // into existence — pushing is what does that — so a repository with
+          // no Proposal ref is answered from the Index alone, without
+          // `ensureBareRepo` creating a directory for whatever name was asked
+          // about. It is also the common case: most repositories hold none.
+          if (!Object.keys(index.refs).some(isProposalRef)) return []
+          const repo = ensureBareRepo(resolveRepo(reposDir, repoId))
+          await syncRepo(store, repo)
+          return listProposals(index.refs, index.provenance ?? {}, gitAncestry(repo.dir))
         }
       : undefined,
     // Read gating, and only where all three halves exist (docs/adr/0013): the

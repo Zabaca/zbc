@@ -8,7 +8,7 @@
  * it is Merged is `merge-base --is-ancestor` against the target, computed on
  * read from the Cache and never written down.
  *
- * Two questions live here and both are pure:
+ * Three questions live here and all three are pure:
  *
  *   - `parseProposalRef` — what a ref NAMES. The target is in the ref name
  *     rather than derived from the commit, so `ls-remote` shows it and nothing
@@ -18,6 +18,11 @@
  *     pointing at an object that is not a commit, is refused in `pre-receive`
  *     rather than stored: append-only means a ref written here can never be
  *     deleted, so the one moment to refuse junk is before it lands.
+ *   - `listProposals` — what the repository HOLDS, for the read surface
+ *     (`GET /<name>.git/proposals`). It is handed the Index's refs, the Index's
+ *     provenance and an ancestry predicate, and it stores nothing: Merged is
+ *     recomputed on every read, because a Proposal that became merged did so by
+ *     someone pushing the target, and nothing told this host about it.
  *
  * WHO may write one is deliberately not here. That is the Signer List gate's
  * question — `checkSignerAllowed` in `src/signers.ts` — because the rule is
@@ -33,7 +38,7 @@
 import { flagEnabled } from '../shared/policy'
 import { ZERO_OID } from '../shared/protocol'
 import { git } from './git'
-import type { RefChange } from './wal-index'
+import type { Provenance, RefChange } from './wal-index'
 
 /** The env flag an instance sets to take Proposals. */
 export function proposalsEnabled(env: Record<string, string | undefined> = process.env): boolean {
@@ -213,4 +218,97 @@ function rejectionMessage(repoId: string, ref: string, why: string): string {
     '',
     'Nothing was uploaded; the repository is unchanged.',
   ].join('\n')
+}
+
+// ── The read surface ────────────────────────────────────────────────────────
+
+/**
+ * One Proposal, as `GET /<name>.git/proposals` reports it (docs/adr/0018).
+ *
+ * Every field is derived: the id and the target from the ref NAME, the tip from
+ * the Index, the pusher from the Provenance the Index already records, and
+ * `merged` from ancestry at the moment of the read. Nothing here is state
+ * walgit keeps — there is no row to go stale and nothing a Materialize could
+ * fail to rebuild.
+ */
+export interface ProposalListing extends Proposal {
+  /** The commit the pusher wants in the target. */
+  tip: string
+  /**
+   * The key that signed the push that put the tip there, or `null`.
+   *
+   * `null` rather than an omitted field, because absence is an ordinary answer
+   * here: signing is what a deployment taking Proposals demands, but a
+   * repository can hold refs from before the Index recorded provenance at all,
+   * and a reader should not have to tell a missing key from a missing field.
+   */
+  pusher: string | null
+  /** Its tip is an ancestor of the target's tip. Computed, never stored. */
+  merged: boolean
+}
+
+/**
+ * Does `tip` reach `ancestorOf`? The one question `merged` is.
+ *
+ * Injected so the listing is pure and so the ONLY place that spawns git for
+ * this is `gitAncestry` below — the same seam `ProposalSource.objectType` puts
+ * in front of the hook's object reader.
+ */
+export type Ancestry = (tip: string, ancestorOf: string) => boolean
+
+/**
+ * The real predicate: `merge-base --is-ancestor` against the Cache.
+ *
+ * The Cache, deliberately, and it is the one thing on this path not read from
+ * the Index: the Index knows where refs point and holds no commits, so ancestry
+ * cannot be answered from it at all. The caller's job is to have synced the
+ * Cache first (`src/sync.ts`) — a cold container Materializes there, which is
+ * what makes an answer from a disposable disk as true as one from the log.
+ *
+ * Exit 0 is yes, 1 is no, and anything else — a commit this disk does not hold
+ * — is NOT merged. Reading a missing object as merged would mark a Proposal
+ * accepted on the strength of a failed subprocess, which is the one direction a
+ * later read cannot take back.
+ */
+export function gitAncestry(gitDir: string): Ancestry {
+  return (tip, ancestorOf) =>
+    git(['--git-dir', gitDir, 'merge-base', '--is-ancestor', tip, ancestorOf]).status === 0
+}
+
+/**
+ * Every Proposal a repository holds, in ref order.
+ *
+ * Sorted by ref name rather than left in whatever order the Index's object
+ * happens to serialize, so a client diffing two reads sees only what changed.
+ *
+ * A ref in the namespace that names no `<target>/<id>` is SKIPPED rather than
+ * reported. `pre-receive` refuses those, so one can only be here from before
+ * the flag was on — and the read surface is not the place to litigate a ref
+ * that is already written for good.
+ *
+ * Superseded is not derived. ADR-0018 admits it "if it is free", and it is not:
+ * it is ancestry between every pair of Proposals to the same target, which is a
+ * second quadratic walk for a field nothing has asked for yet.
+ */
+export function listProposals(
+  refs: Readonly<Record<string, string>>,
+  provenance: Readonly<Record<string, Provenance>>,
+  isAncestor: Ancestry,
+): ProposalListing[] {
+  const listings: ProposalListing[] = []
+  for (const ref of Object.keys(refs).toSorted()) {
+    const proposal = parseProposalRef(ref)
+    if (!proposal) continue
+    const tip = refs[ref]!
+    const targetTip = refs[targetRef(proposal.target)]
+    listings.push({
+      ...proposal,
+      tip,
+      pusher: provenance[ref]?.signer ?? null,
+      // A target this repository no longer holds is nothing to be an ancestor
+      // of, so the Proposal is open — which is also what it is.
+      merged: targetTip !== undefined && isAncestor(tip, targetTip),
+    })
+  }
+  return listings
 }

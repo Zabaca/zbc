@@ -176,3 +176,16 @@ _Avoid_: closed, accepted (nothing records an acceptance), landed
 
 **Whoever may read may propose**:
 The one rule for who can push a Proposal: on a world-readable name, anyone whose push is signed; on a Private name, its Signers and Readers. There is no third list. An Unclaimed name refuses nothing anyway, so a Proposal there is allowed and pointless.
+
+**Proposal Read**:
+`GET /<name>.git/proposals` — every Proposal a repository holds, as
+`{ id, target, tip, pusher, merged }`. Derived on every read and stored nowhere:
+the ids and targets from the ref names, the tips and the pusher fingerprints
+from the Index, and **Merged** from `merge-base --is-ancestor` against the Cache,
+which is synced (and Materialized, on a cold container) first because the Index
+holds no commits to walk. Gated exactly as the Provenance Read is — the
+deployment credential, then the Read Challenge on a Private name — and it does
+not exist at all on a deployment that does not offer Proposals. *Superseded* is
+deliberately not reported: ADR-0018 admits it only if the same walk yields it
+free, and it does not.
+_Avoid_: list endpoint, PR list, the proposals API

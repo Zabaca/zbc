@@ -17,6 +17,7 @@ import {
   EXPIRE_PATH,
   HEALTH_PATH,
   INTERNAL_HEADER,
+  PROPOSALS_HTTP,
   PROVENANCE_PATH,
   READ_CHALLENGE_SCHEME,
   READ_VERDICT_PATH,
@@ -29,6 +30,7 @@ import {
 import { emptyReadResponse } from './empty-read'
 import { renderInstructions } from './instructions'
 import { acceptedNonces, readAllowed, readChallengeNonce, renderReadChallenge } from './private'
+import type { ProposalListing } from './proposals'
 import type { ResolvedRepo } from './repo'
 import { resolveRepo } from './repo'
 import type { Claim, Provenance } from './wal-index'
@@ -112,6 +114,21 @@ export type HttpHandlerDeps = {
    * a missing log is the one wrong answer this feature can give.
    */
   readProvenance?: (repoId: string) => Promise<ProvenanceRead>
+  /**
+   * The Proposals one repository holds, with `merged` already derived
+   * (docs/adr/0018).
+   *
+   * The derivation is the caller's because it needs two things this module
+   * deliberately has none of: the Index, and a synced Cache to ask
+   * `merge-base --is-ancestor` of. `src/server.ts` is where those meet, and
+   * `listProposals` (`src/proposals.ts`) is the pure part of it.
+   *
+   * Optional like every other reader here, and absent means the endpoint does
+   * not exist rather than answering an empty list — an instance with no store
+   * has no authoritative answer, and "this repository has no Proposals" is
+   * exactly the wrong thing to invent out of a missing log.
+   */
+  readProposals?: (repoId: string) => Promise<ProposalListing[]>
   /**
    * Read gating for Private repositories (docs/adr/0013), or `undefined` for a
    * deployment that does none — which is every deployment until an operator
@@ -437,6 +454,61 @@ function createRouter(deps: HttpHandlerDeps): (req: Request) => Promise<Response
       const body = { repo: repoId, provenance, ...(claim ? { claim } : {}) }
       return new Response(`${JSON.stringify(body)}\n`, {
         headers: { 'content-type': 'application/json; charset=utf-8' },
+      })
+    }
+
+    // What Proposals a repository holds (docs/adr/0018). Beside the provenance
+    // read and gated identically — the deployment credential above, then the
+    // Read Challenge below — because it answers the same kind of question about
+    // the same repository: on a Private name, who proposed what is part of what
+    // the Reader List is protecting.
+    //
+    // It exists only where the deployment OFFERS Proposals. That is the derived
+    // capability rather than the raw flag (`shared/capabilities.ts`): a Proposal
+    // is a signed push to a name holding a Signer List, so on a deployment
+    // without those the namespace is an ordinary one and there is no Proposal to
+    // report. An instance that advertises none answers 404 here, which is what
+    // "with the flag off it does not exist" means.
+    const proposalRoute = PROPOSALS_HTTP.exec(url.pathname)
+    if (proposalRoute) {
+      const offered = (deps.capabilities ?? ADVERTISES_NOTHING).proposals
+      if (!offered || !deps.readProposals || request.method !== 'GET') return NOT_FOUND()
+      let repoId: string
+      try {
+        repoId = resolveRepo(deps.reposDir, proposalRoute[1]!).repoId
+      } catch {
+        // A bad name is a 404 rather than a challenge for a repository that
+        // could not exist, exactly as it is on the git path below.
+        return NOT_FOUND()
+      }
+      if (priv) {
+        let claim: Claim | undefined
+        try {
+          claim = await priv.readClaim(repoId)
+        } catch {
+          claim = LOCKED
+        }
+        const refused = await refuseRead(request, url, claim)
+        if (refused) return refused
+      }
+      let proposals: ProposalListing[]
+      try {
+        proposals = await deps.readProposals(repoId)
+      } catch (err) {
+        // Refused rather than answered empty. Every other absence here is an
+        // ordinary answer, but "this repository has no Proposals" read out of an
+        // Index we could not reach is a wrong answer a client cannot tell from a
+        // right one — and one an agent would act on by pushing a duplicate.
+        return reject(503, 'unavailable', `walgit: ${(err as Error).message}\n`)
+      }
+      return new Response(`${JSON.stringify({ repo: repoId, proposals })}\n`, {
+        headers: {
+          'content-type': 'application/json; charset=utf-8',
+          // Every field in it is derived from where refs point right now, and
+          // `merged` flips the moment somebody pushes the target. A cached copy
+          // is a Proposal reported open after it was accepted.
+          'cache-control': 'no-store',
+        },
       })
     }
 
