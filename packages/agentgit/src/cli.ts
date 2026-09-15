@@ -17,6 +17,7 @@
  * agents cannot use. No dependencies, for the same reason.
  */
 
+import { realAcceptDeps, runAccept } from './accept'
 import { parseArgs, type WatchOptions } from './args'
 import { readAuthorization, realCredentialDeps, runCredential } from './credential'
 import { remoteList, symbolicHead, toplevel } from './git'
@@ -30,6 +31,7 @@ const HELP = `agentgit — watch a walgit repository and keep a clone current
 
 USAGE
   agentgit watch [<repo>[=<dir>] …] [options]
+  agentgit accept <id>
   agentgit setup [<host>] [--local]
   agentgit credential get|store|erase
 
@@ -48,6 +50,20 @@ OPTIONS
   --json            one JSON object per line, instead of prose
   -h, --help        this
   -v, --version     version
+
+PROPOSALS
+  Someone who may read a repository but is not on its Signer List hands work
+  over by pushing a Proposal — a ref naming the commit they want in a branch:
+
+    git push --signed=if-asked origin HEAD:refs/walgit/proposals/main/fix-auth
+
+  A Signer accepts one from a clean tree, standing on the branch it targets:
+
+    agentgit accept fix-auth
+
+  That is a fetch, a merge and a signed push of the branch, and nothing else:
+  no squash and no rebase, because a Proposal is merged when its commit is an
+  ancestor of the branch. A conflict stops it and leaves the tree for you.
 
 PRIVATE REPOSITORIES
   A walgit repository carrying a Reader List refuses every read until a listed
@@ -185,6 +201,17 @@ switch (parsed.kind) {
     if (answered.stdout) process.stdout.write(answered.stdout)
     if (answered.stderr) process.stderr.write(answered.stderr)
     process.exitCode = answered.code
+    break
+  }
+  case 'accept': {
+    // The same token `watch` takes from the environment: a deployment gate and
+    // a Read Challenge signature arrive in one header, and where a token is set
+    // it is the one to present.
+    const token = process.env.AGENTGIT_TOKEN ?? process.env.WALGIT_TOKEN ?? null
+    const accepted = await runAccept({ id: parsed.id }, realAcceptDeps(process.cwd(), token))
+    if (accepted.stdout) process.stdout.write(accepted.stdout)
+    if (accepted.stderr) process.stderr.write(accepted.stderr)
+    process.exitCode = accepted.code
     break
   }
   case 'setup': {

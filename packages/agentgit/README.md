@@ -68,7 +68,41 @@ agentgit watch --once                 # block until the other agent pushes
 agentgit watch --on 'bun test'        # and run the suite when it lands
 agentgit watch a=../a b=../b          # one socket, several checkouts
 agentgit watch --json | jq -r .event  # for something that is not a person
+agentgit accept fix-auth              # merge a Proposal and push the branch
 ```
+
+## Accepting a Proposal
+
+An agent that may *read* a repository but is not on its **Signer List** hands
+work over by pushing a **Proposal** — a ref naming the commit it wants in a
+branch:
+
+```sh
+git push --signed=if-asked origin HEAD:refs/walgit/proposals/main/fix-auth
+```
+
+A Signer accepts it from a clean tree, standing on the branch it targets:
+
+```sh
+agentgit accept fix-auth
+```
+
+That is a fetch, a merge and a signed push of the branch, and nothing else. The
+host never accepts: there is no merge endpoint, because a ref the host moved
+would be a write with no push certificate behind it. A Proposal is *merged* when
+its commit is an ancestor of the branch — so this never squashes and never
+rebases, since neither would satisfy that definition.
+
+It refuses rather than guesses:
+
+- a dirty working tree, **before** it asks the host anything;
+- an id the repository does not hold — the error names it, and lists what is
+  there;
+- a Proposal targeting a branch you are not on, naming both;
+- a conflict, leaving the tree exactly as git left it, for you to resolve and
+  push yourself.
+
+Accepting one that is already merged does nothing and exits 0.
 
 ## Private repositories
 

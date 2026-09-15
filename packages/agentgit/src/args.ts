@@ -31,6 +31,7 @@ export type Parsed =
   | { kind: 'watch'; options: WatchOptions }
   | { kind: 'credential'; operation: CredentialOperation }
   | { kind: 'setup'; host: string | null; global: boolean }
+  | { kind: 'accept'; id: string }
   | { kind: 'help' }
   | { kind: 'version' }
   | { kind: 'error'; message: string }
@@ -78,6 +79,27 @@ export function parseArgs(argv: readonly string[]): Parsed {
       host = arg
     }
     return { kind: 'setup', host, global: isGlobal }
+  }
+
+  // `accept` takes an id and nothing else. Everything else it needs — the
+  // repository, the host, the target — is the clone it is run in, and a flag
+  // that overrode one of those would be a way to merge a Proposal onto a branch
+  // nobody is standing on.
+  if (command === 'accept') {
+    const ids: string[] = []
+    for (const arg of rest) {
+      if (arg === '--help' || arg === '-h') return { kind: 'help' }
+      if (arg.startsWith('-')) return { kind: 'error', message: `unknown flag ${arg}` }
+      ids.push(arg)
+    }
+    const id = ids[0]
+    if (ids.length !== 1 || id === undefined) {
+      return {
+        kind: 'error',
+        message: `accept takes exactly one Proposal id — got ${ids.join(' ') || 'nothing'}`,
+      }
+    }
+    return { kind: 'accept', id }
   }
 
   if (command !== 'watch') {
