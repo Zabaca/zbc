@@ -548,8 +548,11 @@ there is no number to wait for and no record beyond the ref.
   a Signer fetches it, merges or fast-forwards it in their own tree, and pushes.
   Conflicts are resolved where git resolves them.
 
-Read what is open with \`git ls-remote https://${host}/$NAME.git 'refs/walgit/proposals/*'\`
-— the target is in the ref name, so nothing has to be fetched to list them.
+Read what is open with \`curl https://${host}/$NAME.git/proposals\` — a JSON array
+of \`{ id, target, tip, pusher, merged }\`, behind the same credential a clone of
+that name needs. \`git ls-remote https://${host}/$NAME.git 'refs/walgit/proposals/*'\`
+lists the same refs without the verdict: the target is in the ref name, so
+nothing has to be fetched either way.
 
 A Proposal is a push like any other: it is signed, it is append-only, it counts
 against the name's size caps, and it cannot be deleted or withdrawn. A target

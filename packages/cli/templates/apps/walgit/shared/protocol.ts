@@ -157,6 +157,18 @@ export const ANNOUNCE_PATH = '/_walgit/announce'
 export const SMART_HTTP = /^\/([^/]+)\.git\/(info\/refs|git-upload-pack|git-receive-pack)$/
 
 /**
+ * The Proposal read surface: `GET /<name>.git/proposals` (docs/adr/0018).
+ *
+ * Group 1 is the repository. Beside `SMART_HTTP` rather than inside it,
+ * deliberately: that regex is the git protocol and the Worker CLASSIFIES on it,
+ * so a fourth endpoint added there would change what the edge counts as a
+ * clone. This is a walgit endpoint that happens to live under the repository's
+ * own name, which is what ADR-0018 named it and what makes it discoverable from
+ * the URL an agent already has.
+ */
+export const PROPOSALS_HTTP = /^\/([^/]+)\.git\/proposals$/
+
+/**
  * A repo id is one flat segment.
  *
  * Flat because the WAL keys repositories by id (docs/adr/0007), not by a
