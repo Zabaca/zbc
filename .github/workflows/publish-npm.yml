@@ -38,7 +38,10 @@ concurrency: publish-npm
 
 jobs:
   publish:
-    runs-on: ubuntu-latest
+    # Per package, because only one of them needs a particular machine. The
+    # matrix sets it; `ubuntu-latest` stays the default for anything that does
+    # not ask. See `runner` on the @zabaca/agent entry below.
+    runs-on: ${{ matrix.runner || 'ubuntu-latest' }}
     permissions:
       contents: read
     strategy:
@@ -65,6 +68,20 @@ jobs:
             build: bun run build
           - package: '@zabaca/agent'
             dir: packages/agent
+            # The one job that cannot run on a hosted runner. Its tests drive
+            # the real sandbox rather than a stub, and `@anthropic-ai/sandbox-
+            # runtime` refuses to start on Linux without `bwrap`, `socat` and
+            # `rg` — none of which a GitHub VM has. Every one of the 25 tests
+            # that touch it failed with one line, `Sandbox dependencies not
+            # available`, from 2026-09-14 until this. It passes on a Mac
+            # because macOS sandboxes with Seatbelt and never asks for them.
+            #
+            # `ryzen` is foundry's long-lived Incus guest, where those three are
+            # installed as declared state rather than per run. An apt step here
+            # would also have worked, and is the right answer for a fleet with
+            # no such machine; this repo has one, and six sibling repos already
+            # use it.
+            runner: [self-hosted, ryzen]
             # First consumer outside the workspace is the Zabaca fork of
             # claude-mem, which installs from npm — so unlike the other two
             # this is compiled with tsc, not bundled: it is a library, and the
