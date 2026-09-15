@@ -23,7 +23,7 @@
  */
 
 import { authorizedBy } from './credentials'
-import { REF_NAME, REPO_ID, ZERO_OID } from './protocol'
+import { PROPOSAL_ID, REF_NAME, REPO_ID, ZERO_OID } from './protocol'
 
 /** One repository, and optionally the refs within it that matter. */
 export interface WatchEntry {
@@ -37,6 +37,22 @@ export interface RefEvent {
   repo: string
   ref: string
   sha: string | null
+  /**
+   * The Proposals this move MERGED: their ids, when this ref is a branch whose
+   * new tip a Proposal's tip became an ancestor of under this push
+   * (docs/adr/0018).
+   *
+   * ABSENT when it merged none, and never an empty array: a subscriber asking
+   * `merged?.length` should not have to tell "nothing landed" from "this
+   * deployment does not do Proposals", because in both cases nothing landed.
+   *
+   * Still latest-state, and not a log (docs/adr/0009). It is a property of the
+   * move — what became true when the ref got here — which a handshake
+   * therefore cannot carry: nothing moved, so nothing merged. A subscriber that
+   * was disconnected reads what is open from `GET /<name>.git/proposals`, which
+   * recomputes it from ancestry and is the same answer.
+   */
+  merged?: string[]
 }
 
 /** The answer to a `watch`: current state, before any event can fire. */
@@ -226,10 +242,11 @@ export function parseAnnounce(body: unknown): Parsed<Announcement> {
   for (const item of events) {
     if (typeof item !== 'object' || item === null)
       return { ok: false, error: 'event is not an object' }
-    const { repo, ref, sha } = item as {
+    const { repo, ref, sha, merged } = item as {
       repo?: unknown
       ref?: unknown
       sha?: unknown
+      merged?: unknown
     }
     if (typeof repo !== 'string' || !REPO_ID.test(repo)) {
       return {
@@ -246,7 +263,28 @@ export function parseAnnounce(body: unknown): Parsed<Announcement> {
     if (sha !== null && (typeof sha !== 'string' || !/^[0-9a-f]{40,64}$/.test(sha))) {
       return { ok: false, error: `invalid sha for ${ref}` }
     }
-    parsed.push({ repo, ref, sha })
+    // The Proposal ids this move merged, judged by the same grammar the ref
+    // they came from is: the Fan-out hands these to subscribers untouched, so
+    // an id this door accepts is an id every watcher is told about.
+    if (merged !== undefined) {
+      if (!Array.isArray(merged)) return { ok: false, error: `"merged" for ${ref} is not an array` }
+      for (const id of merged) {
+        if (typeof id !== 'string' || !PROPOSAL_ID.test(id)) {
+          return {
+            ok: false,
+            error: `invalid Proposal id for ${ref}: ${JSON.stringify(id ?? null)}`,
+          }
+        }
+      }
+    }
+    parsed.push({
+      repo,
+      ref,
+      sha,
+      // Empty stays absent, as it is on the way out: one spelling of "nothing
+      // merged" on the wire, whichever end wrote it.
+      ...(Array.isArray(merged) && merged.length > 0 ? { merged: [...(merged as string[])] } : {}),
+    })
   }
   return { ok: true, value: { events: parsed, readersChanged: [...(changed as string[])] } }
 }
@@ -317,14 +355,25 @@ export function eventsFromChanges(
   // straight from the push path, and a parameter narrower than what they hold
   // would make every call site build a second object to drop one field.
   changes: readonly { ref: string; oldOid?: string; newOid: string }[],
+  /**
+   * What each moved ref merged, by ref name (`mergedProposals` in
+   * `src/proposals.ts`). Handed in rather than computed here because it is an
+   * ancestry walk against the Cache, and this file is the pure wire — and
+   * empty, always, on a deployment not taking Proposals.
+   */
+  merged: Readonly<Record<string, string[]>> = {},
 ): RefEvent[] {
   return changes
     .filter((change) => REF_NAME.test(change.ref))
-    .map((change) => ({
-      repo,
-      ref: change.ref,
-      sha: change.newOid === ZERO_OID ? null : change.newOid,
-    }))
+    .map((change) => {
+      const ids = merged[change.ref]
+      return {
+        repo,
+        ref: change.ref,
+        sha: change.newOid === ZERO_OID ? null : change.newOid,
+        ...(ids && ids.length > 0 ? { merged: [...ids] } : {}),
+      }
+    })
 }
 
 /** One message on the wire. Serialized in one place so its shape is one thing. */

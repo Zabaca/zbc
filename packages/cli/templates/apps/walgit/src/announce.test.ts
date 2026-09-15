@@ -143,3 +143,24 @@ describe('announce', () => {
     expect(called).toBe(false)
   })
 })
+
+describe('announce with Proposals', () => {
+  test('a target move carries the ids the push merged', async () => {
+    let body: unknown
+    await announce(
+      CONFIG,
+      'my-thing',
+      [{ ref: 'refs/heads/main', oldOid: ZERO_OID, newOid: SHA }],
+      (async (_url: string, init: RequestInit) => {
+        body = JSON.parse(init.body as string)
+        return new Response('{"ok":true}')
+      }) as unknown as typeof fetch,
+      { 'refs/heads/main': ['fix-auth'] },
+    )
+
+    expect(body).toEqual({
+      events: [{ repo: 'my-thing', ref: 'refs/heads/main', sha: SHA, merged: ['fix-auth'] }],
+      readersChanged: [],
+    })
+  })
+})

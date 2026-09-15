@@ -554,7 +554,15 @@ that name needs. \`git ls-remote https://${host}/$NAME.git 'refs/walgit/proposal
 lists the same refs without the verdict: the target is in the ref name, so
 nothing has to be fetched either way.
 
-A Proposal is a push like any other: it is signed, it is append-only, it counts
+${
+  caps.events
+    ? `If you are watching the branch (below), you do not have to ask twice: the event
+for a branch that moved carries \`merged\` — the ids of the Proposals that move
+landed — and leaves the field out when it landed none.
+
+`
+    : ''
+}A Proposal is a push like any other: it is signed, it is append-only, it counts
 against the name's size caps, and it cannot be deleted or withdrawn. A target
 that does not exist, a target that is not a branch, and a tip that is not a
 commit are refused before anything is stored.

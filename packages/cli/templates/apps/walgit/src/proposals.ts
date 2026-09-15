@@ -290,6 +290,52 @@ export function gitAncestry(gitDir: string): Ancestry {
  * it is ancestry between every pair of Proposals to the same target, which is a
  * second quadratic walk for a field nothing has asked for yet.
  */
+/**
+ * What a push MERGED, per branch it moved: the ids of Proposals to that branch
+ * whose tip became an ancestor of the new tip (docs/adr/0018).
+ *
+ * The Ref Event a Watcher receives carries this, so an agent watching `main`
+ * learns a Proposal landed from the move itself rather than by reading the
+ * Proposal list again — the second call this whole stream exists to avoid.
+ *
+ * NEWLY, and that is the whole of the old oid's job here: a Proposal that was
+ * already an ancestor before this push merged on some earlier push, and
+ * re-announcing it on every subsequent commit to the branch would make the
+ * field a report of state rather than of what happened. A branch this push
+ * CREATED has no before, so everything it reaches is news.
+ *
+ * Only `refs/heads/` moves are asked about, and never a deletion: a branch that
+ * is gone is nothing to be an ancestor of, and a Proposal aimed at it is open —
+ * which is what `listProposals` reads it as too.
+ *
+ * Ids are sorted and a branch that merged nothing is left out entirely, so the
+ * caller has nothing to decide about an empty array.
+ */
+export function mergedProposals(
+  changes: readonly RefChange[],
+  refs: Readonly<Record<string, string>>,
+  isAncestor: Ancestry,
+): Record<string, string[]> {
+  const merged: Record<string, string[]> = {}
+  for (const change of changes) {
+    if (!change.ref.startsWith('refs/heads/')) continue
+    if (change.newOid === ZERO_OID) continue
+    const target = change.ref.slice('refs/heads/'.length)
+    const ids: string[] = []
+    for (const ref of Object.keys(refs).toSorted()) {
+      const proposal = parseProposalRef(ref)
+      if (!proposal || proposal.target !== target) continue
+      const tip = refs[ref]!
+      if (!isAncestor(tip, change.newOid)) continue
+      const had = change.oldOid !== undefined && change.oldOid !== ZERO_OID
+      if (had && isAncestor(tip, change.oldOid!)) continue
+      ids.push(proposal.id)
+    }
+    if (ids.length > 0) merged[change.ref] = ids
+  }
+  return merged
+}
+
 export function listProposals(
   refs: Readonly<Record<string, string>>,
   provenance: Readonly<Record<string, Provenance>>,

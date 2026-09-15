@@ -183,6 +183,17 @@ export const REPO_ID = /^[A-Za-z0-9][A-Za-z0-9._-]*$/
 /** A ref name, as git writes it. Full name only: `main` is not a ref. */
 export const REF_NAME = /^refs\/[A-Za-z0-9._\-/]+$/
 
+/**
+ * A Proposal id: the LAST segment of `refs/walgit/proposals/<target>/<id>`
+ * (docs/adr/0018), and therefore one ref segment — no slash, since the split
+ * that gives a target its own slashes is what makes the last segment the id.
+ *
+ * Here beside `REF_NAME` rather than in `src/proposals.ts` because both ends
+ * validate it: the container names ids on the announce wire, and the Fan-out
+ * has to judge them without importing the container's half of the program.
+ */
+export const PROPOSAL_ID = /^[A-Za-z0-9._-]+$/
+
 /** The all-zeroes oid: creation when it is `oldOid`, deletion when `newOid`. */
 export const ZERO_OID = '0'.repeat(40)
 
