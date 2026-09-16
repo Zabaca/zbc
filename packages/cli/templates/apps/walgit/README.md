@@ -461,6 +461,17 @@ secret) turn on the ref-event stream below, `WALGIT_PUSH_CERT_SEED` (a secret)
 turns on signed pushes, and `WALGIT_PRIVATE_REPOS` (a secret) turns on read
 gating.
 
+`WALGIT_OPERATOR` and `WALGIT_CONTACT` name **who runs this deployment** and
+where to write about it — a takedown, an abuse report, anything else. They are
+the one pair here that is not a capability: nothing enforces them and the push
+path never sees them, so unlike everything else above they are **edge-only** and
+deliberately absent from `CONTAINER_ENV` — editing one costs no container
+restart. Set either, both or neither; with neither set the landing page and
+`/llms.txt` carry no operator block at all, rather than a placeholder address
+nobody reads (`operatorFrom`, `shared/operator.ts`). A contact that is an email
+address or an `https://` URL is rendered as a link on the page; anything else is
+rendered as text.
+
 For the three boolean flags — `WALGIT_APPEND_ONLY`, `WALGIT_PUBLIC` and
 `WALGIT_SIGNER_LISTS` — **on means `1` or `true`, and nothing else**
 (`flagEnabled`, `shared/policy.ts`). An unrecognised value (`yes`, `on`, `TRUE`)

@@ -22,6 +22,7 @@
  */
 
 import type { Capabilities } from './capabilities'
+import type { Operator } from './operator'
 import { MAX_REFS_PER_ENTRY, MAX_WATCH_ENTRIES } from './events'
 import { describeBytes } from './policy'
 import { CONTENT_SIGNAL } from './robots'
@@ -41,7 +42,17 @@ export function wantsLlms(method: string, pathname: string): boolean {
 
 const hours = (n: number) => (n === 1 ? '1 hour' : `${n} hours`)
 
-export function renderLlms(host: string, caps: Capabilities): string {
+export function renderLlms(
+  host: string,
+  caps: Capabilities,
+  /**
+   * Who runs this deployment (`shared/operator.ts`), passed beside the
+   * capabilities for the reason the host is: nothing here branches on it and
+   * the push path never sees it. `null` — nobody named — renders the document
+   * this host rendered before there was anywhere to name one.
+   */
+  operator: Operator | null = null,
+): string {
   const ws = `wss://${host}${EVENTS_PATH}`
 
   const limits: string[] = []
@@ -569,6 +580,36 @@ commit are refused before anything is stored.
 `
     : ''
 
+  /**
+   * Who runs this, in the same place and the same order the page states it
+   * (`operatorSection`, `shared/landing.ts`): who, then where to write, then
+   * what expires on its own.
+   *
+   * It is the one fact in this document that is not a capability, and an agent
+   * asking who is answerable for a host it is about to push somebody else's
+   * work to has nowhere else to read it — the page is HTML and this is the
+   * document a harness fetches. Absent whole where nothing is configured, like
+   * every other section here.
+   */
+  const whoRuns =
+    operator === null
+      ? ''
+      : `
+## Who runs this
+
+${[
+  operator.name === null ? null : `- **Operator.** ${operator.name} runs this deployment.`,
+  operator.contact === null
+    ? null
+    : `- **Contact.** ${operator.contact} — takedowns, abuse and anything else about this host.`,
+  caps.retentionHours === null
+    ? null
+    : `- **Expiry.** A repository is collected ${hours(caps.retentionHours)} after its last push, whether or not anybody asks. Nothing here is archived.`,
+]
+  .filter((line): line is string => line !== null)
+  .join('\n')}
+`
+
   const events = caps.events
     ? `
 ## Know when a ref moves, without asking
@@ -668,7 +709,9 @@ the worse failure. Everything else on this host has a public stream.`
 
   return `# ${host}
 
-A git host for agents. Push to a name and the repository exists. There is no account to create, no repository to create first, and no API besides git itself.
+agentgit — a git host for AI agents. Push to a name and the repository exists. There is no account to create, no repository to create first, and no API besides git itself.
+
+Scratch repositories, and the handoff between two agents: handing work to another agent is the URL, and there is nothing else to send.
 
 Smart-HTTP is the only transport.
 
@@ -725,8 +768,7 @@ the body names the helper, and git prints none of it. Fix it with the one config
 line from *Keep a name private*, above, and push again.
 `
     : ''
-}
-
+}${whoRuns}
 ## What this is not
 
 Not a forge: no pull requests, no code review, no CI, no issues.${

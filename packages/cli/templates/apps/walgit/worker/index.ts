@@ -33,6 +33,7 @@ import { parseTokens } from '../shared/credentials'
 import { authorizeAnnounce, authorizeSubscribe } from '../shared/events'
 import { renderLanding, wantsLanding } from '../shared/landing'
 import { renderLlms, wantsLlms } from '../shared/llms'
+import { operatorFrom } from '../shared/operator'
 import { renderRobots, wantsRobots } from '../shared/robots'
 import {
   ANNOUNCE_PATH,
@@ -117,6 +118,18 @@ export interface Env {
    * default, and a secret.
    */
   WALGIT_PRIVATE_REPOS?: string
+  /**
+   * Who runs this deployment, and where to write about it
+   * (`shared/operator.ts`). Read ONLY through `operatorFrom`, like the policy
+   * above is read only through `capabilitiesFrom`.
+   *
+   * Deliberately absent from `CONTAINER_ENV`: nothing the container serves
+   * names an operator, and a name there would cost a container restart on
+   * every copy edit. Unset means the two edge documents carry no operator
+   * block at all, rather than a placeholder nobody reads.
+   */
+  WALGIT_OPERATOR?: string
+  WALGIT_CONTACT?: string
   WALGIT_EVENTS: DurableObjectNamespace<WalgitEvents>
 }
 
@@ -252,6 +265,10 @@ export default {
     // and the socket cannot describe three different deployments — they used
     // to read the environment three times, and only the size caps were shared.
     const caps = capabilitiesFrom(env)
+    // Who is answerable for this deployment (`shared/operator.ts`). Derived
+    // beside the capabilities and passed to both documents, so the page and
+    // the manual cannot name two different operators.
+    const operator = operatorFrom(env)
 
     // The browser half of `/`, answered at the edge (shared/landing.ts). Placed
     // before every other decision on purpose: a link on an aggregator points at
@@ -264,7 +281,7 @@ export default {
       // them: this document and `/llms.txt` want a bare hostname they prefix
       // with `https://`/`wss://` themselves, while `GET /` needs a full origin
       // including the scheme, and one field could not serve both.
-      const page = renderLanding(url.host, caps)
+      const page = renderLanding(url.host, caps, operator)
       const bytes = new TextEncoder().encode(page)
       record(env, ctx, {
         kind: 'landing',
@@ -305,7 +322,7 @@ export default {
     // `/llms.txt` is not reachable as a repo route even for a repository called
     // `llms.txt`.
     if (wantsLlms(request.method, url.pathname)) {
-      const doc = renderLlms(url.host, caps)
+      const doc = renderLlms(url.host, caps, operator)
       const bytes = new TextEncoder().encode(doc)
       record(env, ctx, {
         kind: 'landing',
