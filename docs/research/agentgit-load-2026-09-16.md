@@ -144,8 +144,9 @@ project with a lockfile and some images is 10–20 MiB — has a better-than-eve
 chance of a `remote end hung up unexpectedly` with no explanation.
 
 It is **not** diagnosed here and is not this ticket's to fix: it needs the
-Worker's own logs to say which side closed. It is filed as a follow-up. What is
-knowable from the outside is that it is not the advertised size cap (which
+Worker's own logs to say which side closed. It needs a follow-up ticket of its
+own, and that ticket is the one thing here that should be opened before the
+post rather than after it. What is knowable from the outside is that it is not the advertised size cap (which
 answers in `pre-receive`, with words) and not this client's buffer.
 
 ## The rate limits, and where each number comes from
