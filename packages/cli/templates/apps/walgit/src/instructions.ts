@@ -16,7 +16,7 @@
  */
 
 import type { Capabilities } from '../shared/capabilities'
-import { describeBytes } from '../shared/policy'
+import { describeBytes, describeWindow } from '../shared/policy'
 import { EVENTS_PATH, PROVENANCE_PATH } from '../shared/protocol'
 
 /**
@@ -120,6 +120,22 @@ function facts(caps: Capabilities): string[] {
   }
   if (caps.maxRepoBytes !== null) {
     facts.push(`One repository may not exceed ${describeBytes(caps.maxRepoBytes)} in total.`)
+  }
+  // What one client may spend, per window (`src/rate-limit.ts`). One line for
+  // all three halves rather than one each, because this document is the terse
+  // one and pays for every sentence out of a byte budget — the long form is
+  // `/llms.txt`.
+  if (caps.sourceLimited) {
+    const per = `per client per ${describeWindow(caps.rateWindowSeconds)}`
+    const parts: string[] = []
+    if (caps.maxNewReposPerSource !== null) {
+      parts.push(`${caps.maxNewReposPerSource} new repositories`)
+    }
+    if (caps.maxPushesPerSource !== null) parts.push(`${caps.maxPushesPerSource} pushes`)
+    if (caps.maxPushBytesPerSource !== null) {
+      parts.push(describeBytes(caps.maxPushBytesPerSource))
+    }
+    facts.push(`Rate limited: ${parts.join(', ')} ${per}. Waiting it out is the remedy.`)
   }
 
   facts.push(

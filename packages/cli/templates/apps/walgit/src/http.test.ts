@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import { INTERNAL_HEADER, REJECT_HEADER, SERVED_HEADER } from '../shared/protocol'
-import { createHttpHandler, type ProvenanceRead } from './http'
+import { capabilitiesFrom } from '../shared/capabilities'
+import { createHttpHandler, type HttpHandlerDeps, type ProvenanceRead } from './http'
 
 const handler = () =>
   createHttpHandler({
@@ -556,5 +557,147 @@ describe('a read of a repository with no refs', () => {
     expect(await (await h(request)).text()).toBe(
       `0012command=fetch\n00010032want ${'a'.repeat(40)}\n0009done\n0000`,
     )
+  })
+})
+
+/**
+ * Per-source rate limits (ticket ZBC-YBCWKQ).
+ *
+ * At this seam because this is the only place that sees BOTH the source the
+ * Worker attributed the request to and the repository it names — the hooks see
+ * neither. What the handler produces is a verdict; the refusal itself is spoken
+ * by `pre-receive`, which is why what is asserted here is the per-request
+ * environment the backend is handed rather than a status code.
+ */
+describe('createHttpHandler: per-source limits', () => {
+  const push = (repo: string, ip?: string, bytes = 0) =>
+    new Request(`https://walgit.test/${repo}.git/git-receive-pack`, {
+      method: 'POST',
+      headers: {
+        authorization: 'Bearer s3cret',
+        ...(ip ? { 'cf-connecting-ip': ip } : {}),
+        ...(bytes ? { 'content-length': String(bytes) } : {}),
+      },
+      body: '0000',
+    })
+
+  /** The handler plus what the backend was actually handed, per request. */
+  const limited = (env: Record<string, string>, extra: Partial<HttpHandlerDeps> = {}) => {
+    const seen: (Record<string, string> | undefined)[] = []
+    const h = createHttpHandler({
+      reposDir: '/srv/repos',
+      tokens: ['s3cret'],
+      ensureRepo: (repo) => repo,
+      runBackend: async (req) => {
+        seen.push(req.env)
+        return new Response('backend ran')
+      },
+      capabilities: capabilitiesFrom(env),
+      ...extra,
+    })
+    return { h, seen }
+  }
+
+  test('off by default: nothing about a push changes', async () => {
+    const { h, seen } = limited({})
+    for (let i = 0; i < 10; i++) {
+      expect(await (await h(push('alpha', '203.0.113.7'))).text()).toBe('backend ran')
+    }
+    expect(seen.every((env) => env?.WALGIT_REFUSE === undefined)).toBe(true)
+  })
+
+  test('over the push limit, one source is refused and another is not', async () => {
+    const { h, seen } = limited({ WALGIT_MAX_PUSHES_PER_SOURCE: '2' })
+    await h(push('alpha', '203.0.113.7'))
+    await h(push('alpha', '203.0.113.7'))
+    await h(push('alpha', '203.0.113.7'))
+    await h(push('alpha', '198.51.100.4'))
+
+    expect(seen[0]?.WALGIT_REFUSE).toBeUndefined()
+    expect(seen[1]?.WALGIT_REFUSE).toBeUndefined()
+    expect(seen[2]?.WALGIT_REFUSE).toContain('walgit: refused')
+    expect(seen[2]?.WALGIT_REFUSE).toContain('2 pushes')
+    expect(seen[3]?.WALGIT_REFUSE).toBeUndefined()
+  })
+
+  test('the window passes and the source may push again', async () => {
+    let now = 1_000_000
+    const { h, seen } = limited(
+      { WALGIT_MAX_PUSHES_PER_SOURCE: '1', WALGIT_RATE_WINDOW_SECONDS: '60' },
+      { now: () => now },
+    )
+    await h(push('alpha', '203.0.113.7'))
+    await h(push('alpha', '203.0.113.7'))
+    now += 61_000
+    await h(push('alpha', '203.0.113.7'))
+
+    expect(seen[1]?.WALGIT_REFUSE).toContain('walgit: refused')
+    expect(seen[2]?.WALGIT_REFUSE).toBeUndefined()
+  })
+
+  test('a request walgit cannot attribute to a source is not limited', async () => {
+    const { h, seen } = limited({ WALGIT_MAX_PUSHES_PER_SOURCE: '1' })
+    await h(push('alpha'))
+    await h(push('alpha'))
+    expect(seen.every((env) => env?.WALGIT_REFUSE === undefined)).toBe(true)
+  })
+
+  test('a read is never rate limited', async () => {
+    const { h } = limited({ WALGIT_MAX_PUSHES_PER_SOURCE: '1' })
+    const read = () =>
+      h(
+        new Request('https://walgit.test/alpha.git/git-upload-pack', {
+          method: 'POST',
+          headers: { authorization: 'Bearer s3cret', 'cf-connecting-ip': '203.0.113.7' },
+          body: '0000',
+        }),
+      )
+    await read()
+    expect(await (await read()).text()).toBe('backend ran')
+  })
+  test('a source may create only so many new names, and may still push to its own', async () => {
+    // "New" is read from the INDEX — a name holding no ref is one being
+    // created — so this handler answers refs for `taken` and none for the rest.
+    const { h, seen } = limited(
+      { WALGIT_MAX_NEW_REPOS_PER_SOURCE: '1' },
+      {
+        readRefs: async (repoId): Promise<Record<string, string>> =>
+          repoId === 'taken' ? { 'refs/heads/main': 'a'.repeat(40) } : {},
+      },
+    )
+    await h(push('one', '203.0.113.7'))
+    await h(push('two', '203.0.113.7'))
+    await h(push('taken', '203.0.113.7'))
+
+    expect(seen[0]?.WALGIT_REFUSE).toBeUndefined()
+    expect(seen[1]?.WALGIT_REFUSE).toContain('two would be your 2nd new repository this hour')
+    expect(seen[2]?.WALGIT_REFUSE).toBeUndefined()
+  })
+
+  test('an Index that cannot be read never invents a creation refusal', async () => {
+    const { h, seen } = limited(
+      { WALGIT_MAX_NEW_REPOS_PER_SOURCE: '1' },
+      {
+        readRefs: async () => {
+          throw new Error('store unreachable')
+        },
+      },
+    )
+    await h(push('one', '203.0.113.7'))
+    await h(push('two', '203.0.113.7'))
+    expect(seen.every((env) => env?.WALGIT_REFUSE === undefined)).toBe(true)
+  })
+
+  test('a source may push only so many bytes in the window', async () => {
+    const { h, seen } = limited({ WALGIT_MAX_PUSH_BYTES_PER_SOURCE: '1000' })
+    await h(push('alpha', '203.0.113.7', 600))
+    await h(push('alpha', '203.0.113.7', 600))
+    await h(push('alpha', '203.0.113.7', 400))
+
+    expect(seen[0]?.WALGIT_REFUSE).toBeUndefined()
+    // Refused, and NOT charged: the third push still fits in what the first
+    // one left, so a client is never refused for traffic walgit did not serve.
+    expect(seen[1]?.WALGIT_REFUSE).toContain('1000 bytes')
+    expect(seen[2]?.WALGIT_REFUSE).toBeUndefined()
   })
 })

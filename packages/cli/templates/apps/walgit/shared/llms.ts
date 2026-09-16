@@ -24,7 +24,7 @@
 import type { Capabilities } from './capabilities'
 import type { Operator } from './operator'
 import { MAX_REFS_PER_ENTRY, MAX_WATCH_ENTRIES } from './events'
-import { describeBytes } from './policy'
+import { describeBytes, describeWindow } from './policy'
 import { CONTENT_SIGNAL } from './robots'
 import {
   CHALLENGE_PATH,
@@ -116,6 +116,33 @@ export function renderLlms(
   }
   if (caps.maxRepoBytes !== null) {
     limits.push(`- **One repository may not exceed ${describeBytes(caps.maxRepoBytes)}** in total.`)
+  }
+  // What one client may spend, as opposed to how big one thing may be
+  // (`src/rate-limit.ts`). Stated here because the reader of this document is
+  // exactly the client the limit is about: an agent loop reads it once and then
+  // pushes in a pattern it has already decided on, and a limit it learns from a
+  // refusal is one it learns halfway through that pattern. Each half is stated
+  // only where it is enforced, like every bullet above.
+  if (caps.sourceLimited) {
+    const window = describeWindow(caps.rateWindowSeconds)
+    if (caps.maxNewReposPerSource !== null) {
+      limits.push(
+        `- **You may create ${caps.maxNewReposPerSource} new repositories per client per ${window}.** Pushing to a name you already created does not count against it.`,
+      )
+    }
+    if (caps.maxPushesPerSource !== null) {
+      limits.push(
+        `- **You may make ${caps.maxPushesPerSource} pushes per client per ${window}.** Commit locally and push once rather than pushing every commit.`,
+      )
+    }
+    if (caps.maxPushBytesPerSource !== null) {
+      limits.push(
+        `- **You may push ${describeBytes(caps.maxPushBytesPerSource)} per client per ${window}.**`,
+      )
+    }
+    limits.push(
+      `- Each of those is refused in \`pre-receive\`, by a message naming the limit — not a transport failure. Waiting out the ${window} is the remedy; retrying immediately is not.`,
+    )
   }
 
   /**

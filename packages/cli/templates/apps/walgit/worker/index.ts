@@ -77,6 +77,16 @@ export interface Env {
   WALGIT_MAX_PUSH_BYTES?: string
   WALGIT_MAX_REPO_BYTES?: string
   /**
+   * What one source may spend in a window (src/rate-limit.ts). All off unless
+   * set; the window defaults when a count is set without one. Forwarded to the
+   * container, which is where the verdict is reached — this side only states
+   * them on the two documents below.
+   */
+  WALGIT_RATE_WINDOW_SECONDS?: string
+  WALGIT_MAX_NEW_REPOS_PER_SOURCE?: string
+  WALGIT_MAX_PUSHES_PER_SOURCE?: string
+  WALGIT_MAX_PUSH_BYTES_PER_SOURCE?: string
+  /**
    * Where request-level telemetry goes — the half of observability the log
    * cannot produce (shared/telemetry.ts). Optional: a deployment without the
    * binding simply records nothing, and serves exactly as before.

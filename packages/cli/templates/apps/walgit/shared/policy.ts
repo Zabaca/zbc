@@ -75,3 +75,28 @@ export function seedValue(raw: string | undefined): string | null {
   const seed = raw.trim()
   return seed === '' ? null : seed
 }
+
+/**
+ * A window in the words both halves state it in.
+ *
+ * Here for the reason `describeBytes` is: the refusal a push reads
+ * (`src/rate-limit.ts`) and the limit the two documents print are the same
+ * window, and two spellings of "per hour" would look like two different rules.
+ *
+ * Whole hours and whole minutes are named as such, because that is how an
+ * operator configured it and how a client waits it out. Anything else is stated
+ * in seconds rather than rounded into a number somebody would then wait the
+ * wrong amount of time on.
+ */
+export function describeWindow(seconds: number): string {
+  const whole = Math.round(seconds)
+  if (whole % 3600 === 0) {
+    const hours = whole / 3600
+    return hours === 1 ? 'hour' : `${hours} hours`
+  }
+  if (whole % 60 === 0) {
+    const minutes = whole / 60
+    return minutes === 1 ? 'minute' : `${minutes} minutes`
+  }
+  return `${whole} seconds`
+}

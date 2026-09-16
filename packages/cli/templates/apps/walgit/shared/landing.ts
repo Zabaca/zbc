@@ -51,7 +51,7 @@
 
 import type { Capabilities } from './capabilities'
 import { contactHref, type Operator } from './operator'
-import { describeBytes } from './policy'
+import { describeBytes, describeWindow } from './policy'
 import { EVENTS_PATH, SIGNERS_REF } from './protocol'
 import { CONTENT_SIGNAL } from './robots'
 
@@ -106,6 +106,34 @@ function thirdClaim(caps: Capabilities): string {
     )
   }
   return ''
+}
+
+/**
+ * What one client may spend in a window (`src/rate-limit.ts`).
+ *
+ * Its own term rather than a share of the slot above, because it answers a
+ * different question: the size caps say how big a thing may be, this says how
+ * much of the host is yours. A visitor about to point an agent loop at this
+ * page should read it here rather than in the refusal — which is the same
+ * reason every other limit is on this page at all.
+ *
+ * Absent when the deployment bounds nothing per source, which is the default.
+ */
+function sourceLimitClaim(caps: Capabilities): string {
+  if (!caps.sourceLimited) return ''
+  const window = describeWindow(caps.rateWindowSeconds)
+  const parts: string[] = []
+  if (caps.maxNewReposPerSource !== null) {
+    parts.push(`${caps.maxNewReposPerSource} new repositories`)
+  }
+  if (caps.maxPushesPerSource !== null) parts.push(`${caps.maxPushesPerSource} pushes`)
+  if (caps.maxPushBytesPerSource !== null) {
+    parts.push(describeBytes(caps.maxPushBytesPerSource))
+  }
+  return claim(
+    'Shared',
+    `<b>${parts.join(', ')} per client per ${window}.</b> One host serves everybody here, so no single client may take all of it.`,
+  )
 }
 
 /** The permanence sentence, which turns on the same variable as the claim. */
@@ -479,6 +507,7 @@ function claims(caps: Capabilities): string {
     privateClaim(caps),
     proposalsClaim(caps),
     thirdClaim(caps),
+    sourceLimitClaim(caps),
     signingClaim(caps),
     // Unconditional, unlike every term above it: nothing in `/robots.txt` is
     // read from a flag. It is the one claim on this page addressed to the

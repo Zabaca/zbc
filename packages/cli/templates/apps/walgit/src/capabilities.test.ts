@@ -13,7 +13,12 @@
 
 import { describe, expect, test } from 'bun:test'
 
-import { capabilitiesFrom, type Capabilities, type CapabilityEnv } from '../shared/capabilities'
+import {
+  capabilitiesFrom,
+  DEFAULT_RATE_WINDOW_SECONDS,
+  type Capabilities,
+  type CapabilityEnv,
+} from '../shared/capabilities'
 import { announceConfigFromEnv } from './announce'
 
 /**
@@ -225,11 +230,17 @@ describe('a number that is not a positive number is no limit at all', () => {
     'WALGIT_RETENTION_HOURS',
     'WALGIT_MAX_PUSH_BYTES',
     'WALGIT_MAX_REPO_BYTES',
+    'WALGIT_MAX_NEW_REPOS_PER_SOURCE',
+    'WALGIT_MAX_PUSHES_PER_SOURCE',
+    'WALGIT_MAX_PUSH_BYTES_PER_SOURCE',
   ] as const
   const READ = {
     WALGIT_RETENTION_HOURS: (c: Capabilities) => c.retentionHours,
     WALGIT_MAX_PUSH_BYTES: (c: Capabilities) => c.maxPushBytes,
     WALGIT_MAX_REPO_BYTES: (c: Capabilities) => c.maxRepoBytes,
+    WALGIT_MAX_NEW_REPOS_PER_SOURCE: (c: Capabilities) => c.maxNewReposPerSource,
+    WALGIT_MAX_PUSHES_PER_SOURCE: (c: Capabilities) => c.maxPushesPerSource,
+    WALGIT_MAX_PUSH_BYTES_PER_SOURCE: (c: Capabilities) => c.maxPushBytesPerSource,
   }
 
   // Zero would refuse every push and a negative one is a typo; neither may
@@ -268,5 +279,14 @@ test('an unconfigured deployment advertises nothing, and says so in every field'
     retentionHours: null,
     maxPushBytes: null,
     maxRepoBytes: null,
+    // The per-source window is the one number here that is never null: it is
+    // not a limit, it is the unit the three below it are counted in, so an
+    // unconfigured deployment still has a window — it simply bounds nothing in
+    // it (`src/rate-limit.ts`).
+    sourceLimited: false,
+    rateWindowSeconds: DEFAULT_RATE_WINDOW_SECONDS,
+    maxNewReposPerSource: null,
+    maxPushesPerSource: null,
+    maxPushBytesPerSource: null,
   })
 })

@@ -149,6 +149,11 @@ console.log(
     `retentionHours=${caps.retentionHours ?? 'off'} ` +
     `maxPush=${caps.maxPushBytes ?? 'unset'} maxRepo=${caps.maxRepoBytes ?? 'unset'} ` +
     `private=${caps.namesCanBePrivate} ` +
+    `perSource=${
+      caps.sourceLimited
+        ? `${caps.maxNewReposPerSource ?? '-'} repos/${caps.maxPushesPerSource ?? '-'} pushes/${caps.maxPushBytesPerSource ?? '-'} bytes per ${caps.rateWindowSeconds}s`
+        : 'off'
+    } ` +
     `store=${store ? 'configured' : 'MISSING'}`,
 )
 
