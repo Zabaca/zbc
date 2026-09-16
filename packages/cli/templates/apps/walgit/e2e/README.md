@@ -139,6 +139,50 @@ entry count wrong: a **signed** ref-only push sends an empty pack (a 32-byte
 header and trailer) where an unsigned one sends none at all. The scenario reads
 the object count out of the pack header instead.
 
+# `load.ts` — how many at once, against a deployment
+
+Neither of the other two answers the question an operator has before handing the
+URL to a crowd: how many at once, and what gives way first. `suite.ts` measures
+one stream against a node it starts itself — no edge, no Durable Object, no R2,
+no contention — and `live.ts` asks a deployment a yes/no question about its
+configuration.
+
+```bash
+bun run e2e:load -- --origin https://agentgit.zabaca.com
+bun run e2e:load -- --origin https://… --repos 8 --clones 8 --pushes 8 --watchers 8 --json run.json
+```
+
+It drives the three things a visitor does — clone, push, subscribe to the ref
+event stream — reports nearest-rank percentiles over the SUCCESSES of each,
+counts a rate-limit refusal apart from a transport failure, and names the
+workload that degraded first. Nothing is stood in for: a deployment is the thing
+being measured.
+
+Two rules it enforces on the plan before it starts, both of which exist because
+breaking them produces a number that looks like a finding and is not:
+
+- **It refuses to spend more than half the deployment's hourly per-source
+  budget** (`WALGIT_MAX_*_PER_SOURCE`). A run that spends it measures
+  `src/rate-limit.ts` rather than the service, and leaves the rest of the hour
+  unmeasurable for whoever runs next from the same address.
+- **One repository per concurrent push.** Two pushes racing for the same ref
+  means one loses the compare-and-swap and is refused as a non-fast-forward —
+  git being right, recorded as the host giving way.
+
+The arithmetic and the verdict live in `load-report.ts`, which is unit-tested;
+the driver is not, deliberately, because doubling the network would measure the
+double.
+
+Under `--origin` the run leaves `load-<run id>-*` repositories behind, named on
+the way out, collected by the deployment's retention window if it has one and
+permanent if it has none. Exit 0 means the run completed — the verdict is in the
+report, not in the exit code; 1 means the origin could not be measured at all,
+64 that the arguments were wrong.
+
+The first run of it against agentgit production, with what it found and what the
+rate limits were set to as a result, is
+`docs/research/agentgit-load-2026-09-16.md`.
+
 # `live.ts` — a separate check, against a deployment
 
 Everything above is `suite.ts`, which starts its own node. `live.ts` is not part
