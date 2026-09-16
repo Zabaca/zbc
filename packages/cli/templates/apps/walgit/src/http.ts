@@ -22,6 +22,7 @@ import {
   READ_CHALLENGE_SCHEME,
   READ_VERDICT_PATH,
   REFS_PATH,
+  REFUSE_ENV,
   REJECT_HEADER,
   SERVED_HEADER,
   SMART_HTTP,
@@ -704,7 +705,7 @@ function createRouter(deps: HttpHandlerDeps): (req: Request) => Promise<Response
       repo,
       pathInfo: url.pathname,
       request,
-      ...(refusal ? { env: { WALGIT_REFUSE: refusal } } : {}),
+      ...(refusal ? { env: { [REFUSE_ENV]: refusal } } : {}),
     })
   }
 }

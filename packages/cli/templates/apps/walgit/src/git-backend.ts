@@ -12,6 +12,7 @@
 
 import * as path from 'node:path'
 
+import { REFUSE_ENV } from '../shared/protocol'
 import type { BackendRequest } from './http'
 
 export async function runGitHttpBackend(req: BackendRequest): Promise<Response> {
@@ -45,6 +46,11 @@ export async function runGitHttpBackend(req: BackendRequest): Promise<Response> 
   // chain can be broken. A hook that cannot see the store configuration
   // refuses the push — correct, but a confusing way to discover a typo here.
   for (const [key, value] of Object.entries(process.env)) {
+    // `WALGIT_REFUSE` is per-request and never the process's (see below). One
+    // left in the container's own environment would refuse EVERY push on this
+    // instance, with a message written for one client, so the process copy is
+    // not a source for it.
+    if (key === REFUSE_ENV) continue
     if (key.startsWith('WALGIT_') && value !== undefined) env[key] = value
   }
 

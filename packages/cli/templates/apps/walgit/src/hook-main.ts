@@ -18,7 +18,7 @@ import * as fs from 'node:fs'
 import * as path from 'node:path'
 
 import { capabilitiesFrom } from '../shared/capabilities'
-import { ZERO_OID } from '../shared/protocol'
+import { REFUSE_ENV, ZERO_OID } from '../shared/protocol'
 import { announceConfigFromEnv } from './announce'
 import { appendOnlyEnabled, checkAppendOnly } from './append-only'
 import { configuredThreshold, isCompactionDue } from './compact'
@@ -96,7 +96,7 @@ async function main(): Promise<number> {
     // because git reports a status on this route as `RPC failed; HTTP …`, which
     // reads as a transport fault and is retried. On stderr, so git puts it on
     // the sideband as `remote:` lines, exactly as a size cap's refusal arrives.
-    const handed = (process.env.WALGIT_REFUSE ?? '').trim()
+    const handed = (process.env[REFUSE_ENV] ?? '').trim()
     if (handed !== '') {
       process.stderr.write(`${handed}\n`)
       return 1

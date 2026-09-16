@@ -52,6 +52,21 @@ export const COLD_HEADER = 'x-walgit-cold'
  */
 export const INTERNAL_HEADER = 'x-walgit-internal'
 
+/**
+ * The environment variable a per-request refusal travels down in — from the
+ * smart-HTTP handler, through `git http-backend`, to `pre-receive`, which
+ * prints it and exits non-zero (`src/rate-limit.ts`).
+ *
+ * A contract between three files, so it is named once here beside the headers
+ * rather than spelled out in each of them. It is per-REQUEST and never part of
+ * the container's own environment: it is set by the handler that judged this
+ * push, and `src/git-backend.ts` refuses to carry a process-level one, which
+ * would refuse every push on the instance with a message written for one
+ * client. It reaches the hook as a variable rather than a header because a hook
+ * is a process git spawns three levels down, where a request does not reach.
+ */
+export const REFUSE_ENV = 'WALGIT_REFUSE'
+
 /** Stripped before the response leaves the Worker — internal, not protocol. */
 export const INTERNAL_HEADERS = [SERVED_HEADER, REJECT_HEADER, COLD_HEADER] as const
 
