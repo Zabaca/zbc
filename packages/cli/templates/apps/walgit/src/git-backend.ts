@@ -48,6 +48,12 @@ export async function runGitHttpBackend(req: BackendRequest): Promise<Response> 
     if (key.startsWith('WALGIT_') && value !== undefined) env[key] = value
   }
 
+  // What the handler decided about THIS request, over what the process was
+  // started with — `WALGIT_REFUSE`, the per-source refusal `pre-receive` speaks
+  // (`src/rate-limit.ts`). Last, so a per-request verdict is never shadowed by
+  // a variable of the same name in the container's own environment.
+  Object.assign(env, req.env ?? {})
+
   const child = Bun.spawn(['git', 'http-backend'], {
     env,
     stdin: request.body ?? 'ignore',

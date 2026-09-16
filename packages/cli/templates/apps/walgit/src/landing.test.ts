@@ -866,3 +866,35 @@ describe('Proposals move from the roadmap to the rules', () => {
     }
   })
 })
+
+/**
+ * Per-source limits, stated for the same reason every other limit on this page
+ * is: a visitor about to push should not learn the rule from the refusal.
+ */
+describe('renderLanding: per-source limits', () => {
+  test('says nothing at all when the deployment bounds nothing per source', () => {
+    const page = renderLanding(HOST, caps(OPEN))
+    expect(page).not.toContain('per client')
+  })
+
+  test('names the counts and the window when they are on', () => {
+    const page = renderLanding(
+      HOST,
+      caps({
+        ...OPEN,
+        WALGIT_MAX_NEW_REPOS_PER_SOURCE: '20',
+        WALGIT_MAX_PUSHES_PER_SOURCE: '300',
+        WALGIT_RATE_WINDOW_SECONDS: '3600',
+      }),
+    )
+    expect(page).toContain('20 new repositories')
+    expect(page).toContain('300 pushes')
+    expect(page).toContain('per client per hour')
+  })
+
+  test('states only the limits that are set', () => {
+    const page = renderLanding(HOST, caps({ ...OPEN, WALGIT_MAX_PUSHES_PER_SOURCE: '300' }))
+    expect(page).toContain('300 pushes')
+    expect(page).not.toContain('new repositories')
+  })
+})

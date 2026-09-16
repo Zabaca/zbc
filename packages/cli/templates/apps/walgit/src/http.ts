@@ -31,6 +31,7 @@ import { emptyReadResponse } from './empty-read'
 import { renderInstructions } from './instructions'
 import { acceptedNonces, readAllowed, readChallengeNonce, renderReadChallenge } from './private'
 import type { ProposalListing } from './proposals'
+import { countsNewRepos, createSourceLimiter, rateLimitsEnforced, rateLimitsOf } from './rate-limit'
 import type { ResolvedRepo } from './repo'
 import { resolveRepo } from './repo'
 import type { Claim, Provenance } from './wal-index'
@@ -40,6 +41,16 @@ export type BackendRequest = {
   /** The path git http-backend sees, e.g. `/alpha.git/info/refs`. */
   pathInfo: string
   request: Request
+  /**
+   * Extra environment for THIS request's backend, over the process's own.
+   *
+   * One thing travels this way today: `WALGIT_REFUSE`, the per-source refusal
+   * `pre-receive` speaks (`src/rate-limit.ts`). It is a per-request channel
+   * because the verdict is per-request — the handler is the only layer that
+   * sees the source the edge attributed the push to, and a hook is a process
+   * git spawns three levels down, where a header does not reach.
+   */
+  env?: Record<string, string>
 }
 
 export type HttpHandlerDeps = {
@@ -140,6 +151,11 @@ export type HttpHandlerDeps = {
    * a gate is the failure this shape makes unrepresentable.
    */
   privateReads?: PrivateReads
+  /**
+   * The clock the per-source window is measured on, injectable so a test can
+   * stand still inside one or step over its edge (`src/rate-limit.ts`).
+   */
+  now?: () => number
 }
 
 /** Everything the Private gate needs, present or absent as a whole. */
@@ -267,6 +283,41 @@ export function createHttpHandler(deps: HttpHandlerDeps): (req: Request) => Prom
 
 function createRouter(deps: HttpHandlerDeps): (req: Request) => Promise<Response> {
   const priv = deps.privateReads
+
+  /**
+   * What one source may spend in a window, or `null` on the deployments that
+   * bound nothing — which is every deployment until an operator sets a limit.
+   *
+   * Built ONCE per handler rather than per request: the window is the state,
+   * and a limiter constructed per request would remember nothing and refuse
+   * nobody. The capabilities are the ones this instance advertises, so the page
+   * cannot state a rate limit the push path does not hold.
+   */
+  const rateLimits = rateLimitsOf(deps.capabilities ?? ADVERTISES_NOTHING)
+  const limiter = rateLimitsEnforced(rateLimits) ? createSourceLimiter(rateLimits, deps.now) : null
+
+  /**
+   * Does this push bring a name into existence?
+   *
+   * From the INDEX, for the reason every other question here is: the disk is a
+   * cache and a cold node's empty directory is not evidence. A repository that
+   * holds no ref is a name being created, which is the same reading
+   * `emptyReadResponse` makes one branch below — pushing is what brings a name
+   * into existence, so "holds a ref" is the question and "the directory exists"
+   * is not.
+   *
+   * Asked only where a limit needs the answer, and an Index that cannot be read
+   * answers `false`: a store outage must not invent a creation refusal for a
+   * repository that has existed for a month.
+   */
+  async function creatingName(repoId: string): Promise<boolean> {
+    if (!countsNewRepos(rateLimits) || !deps.readRefs) return false
+    try {
+      return Object.keys(await deps.readRefs(repoId)).length === 0
+    } catch {
+      return false
+    }
+  }
 
   /**
    * Refuse this read, or don't — the Private gate, for all three reads
@@ -590,6 +641,46 @@ function createRouter(deps: HttpHandlerDeps): (req: Request) => Promise<Response
       }
     }
 
+    // What this source has spent in the window, and whether this push fits in
+    // what is left (`src/rate-limit.ts`).
+    //
+    // Only the POST, because only the POST is a push: the advertisement that
+    // precedes it hands over nothing and charging it would make every push cost
+    // two. Only here, because this is the one layer that sees both the source
+    // the edge attributed the request to and the repository it names.
+    //
+    // The verdict does not become a status code. git reports a 4xx on this
+    // route as `RPC failed; HTTP …`, which reads as a transport fault and gets
+    // retried — the exact failure the size caps were written to stop being. So
+    // the refusal rides down to `pre-receive`, which speaks it as a reject line
+    // before a single object is stored.
+    let refusal: string | undefined
+    if (limiter && route[2] === 'git-receive-pack' && request.method === 'POST') {
+      const source = sourceOf(request)
+      // Unattributable: a request that reached the container without passing
+      // the edge, or a local deployment. Pooling everything walgit cannot name
+      // into one bucket would let the first such request throttle every other.
+      if (source) {
+        let repoId: string | null = null
+        try {
+          repoId = resolveRepo(deps.reposDir, route[1]!).repoId
+        } catch {
+          // A name walgit would not serve is a 404 below; nothing is charged
+          // for a push that is about to be refused for a different reason.
+          repoId = null
+        }
+        if (repoId !== null) {
+          const verdict = limiter.admit({
+            source,
+            repoId,
+            creating: await creatingName(repoId),
+            bytes: declaredBytes(request),
+          })
+          if (!verdict.ok) refusal = verdict.message
+        }
+      }
+    }
+
     let repo
     try {
       repo = deps.ensureRepo(resolveRepo(deps.reposDir, route[1]!))
@@ -609,8 +700,45 @@ function createRouter(deps: HttpHandlerDeps): (req: Request) => Promise<Response
       }
     }
 
-    return deps.runBackend({ repo, pathInfo: url.pathname, request })
+    return deps.runBackend({
+      repo,
+      pathInfo: url.pathname,
+      request,
+      ...(refusal ? { env: { WALGIT_REFUSE: refusal } } : {}),
+    })
   }
+}
+
+/**
+ * The client this request is attributed to, or `null` when walgit cannot
+ * attribute it.
+ *
+ * `cf-connecting-ip` first: the container is reachable only through the Worker,
+ * and Cloudflare sets that header at the edge over whatever the client sent, so
+ * it is the one address here a client cannot choose for itself.
+ * `x-forwarded-for` is the fallback for a deployment fronted by something else,
+ * and its FIRST entry is the client — the rest are proxies.
+ */
+function sourceOf(request: Request): string | null {
+  const direct = request.headers.get('cf-connecting-ip')?.trim()
+  if (direct) return direct
+  const forwarded = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim()
+  return forwarded ? forwarded : null
+}
+
+/**
+ * What this push says it weighs.
+ *
+ * `content-length`, and a chunked push declares none — which reads as 0 and is
+ * charged as 0, deliberately. The exact size of a chunked push is known only
+ * once it has been uploaded, and by then the bytes have already been spent;
+ * the cap that bounds THAT is the per-push size cap, refused in `pre-receive`
+ * on the quarantine pack (`src/limits.ts`). This one bounds the volume a source
+ * declares, and a client under-declaring it is refused by the other.
+ */
+function declaredBytes(request: Request): number {
+  const declared = Number(request.headers.get('content-length') ?? '0')
+  return Number.isFinite(declared) && declared > 0 ? declared : 0
 }
 
 /**

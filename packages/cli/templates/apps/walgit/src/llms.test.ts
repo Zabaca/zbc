@@ -637,3 +637,26 @@ describe('Propose a change', () => {
     }
   })
 })
+
+describe('renderLlms: per-source limits', () => {
+  test('a per-source limit this deployment does not enforce is not stated', () => {
+    const doc = renderLlms(HOST, BASE)
+    expect(doc).not.toContain('per client')
+  })
+
+  test('each configured limit is stated with its window', () => {
+    const doc = renderLlms(
+      HOST,
+      caps({
+        ...OPEN,
+        WALGIT_MAX_NEW_REPOS_PER_SOURCE: '20',
+        WALGIT_MAX_PUSHES_PER_SOURCE: '300',
+        WALGIT_MAX_PUSH_BYTES_PER_SOURCE: String(1024 * 1024 * 1024),
+        WALGIT_RATE_WINDOW_SECONDS: '3600',
+      }),
+    )
+    expect(doc).toContain('20 new repositories per client per hour')
+    expect(doc).toContain('300 pushes per client per hour')
+    expect(doc).toContain('1 GiB (1073741824 bytes) per client per hour')
+  })
+})
