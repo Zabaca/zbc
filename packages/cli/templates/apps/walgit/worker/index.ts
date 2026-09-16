@@ -28,7 +28,7 @@
 import { Container, getContainer } from '@cloudflare/containers'
 
 import { capabilitiesFrom, type Capabilities } from '../shared/capabilities'
-import { containerEnv, fingerprintEnv } from '../shared/container-env'
+import { containerEnv, fingerprintEnv, reconcileContainerEnv } from '../shared/container-env'
 import { parseTokens } from '../shared/credentials'
 import { authorizeAnnounce, authorizeSubscribe } from '../shared/events'
 import { renderLanding, wantsLanding } from '../shared/landing'
@@ -54,6 +54,15 @@ import { BROADCAST_PATH, EVENTS_OBJECT_NAME, WalgitEvents } from './events-do'
 
 export interface Env {
   WALGIT_CONTAINER: DurableObjectNamespace<WalgitContainer>
+  /**
+   * The commit this Worker was deployed from, set by the cloudflare module's
+   * `deployIdVar`. Nothing reads it: it exists so that a deploy which changes
+   * only the container image still changes the environment the container is
+   * fingerprinted on, and `reconcileEnv` below replaces the running container
+   * (shared/container-env.ts). Absent on a deployment that does not set
+   * `deployIdVar`, which then behaves exactly as before.
+   */
+  WALGIT_BUILD_ID?: string
   /** Comma-separated bearer tokens; git sends one as the Basic-auth password. */
   WALGIT_HTTP_TOKENS?: string
   /** The write-ahead log's home — see src/store-env.ts. */
@@ -190,51 +199,48 @@ export class WalgitContainer extends Container<Env> {
   }
 
   /**
-   * Replace the container if it is running an environment this deploy changed.
+   * Bind this Durable Object to `reconcileContainerEnv`'s rules.
    *
-   * `envVars` above is re-read on every Durable Object construction, and a
-   * `wrangler deploy` constructs a new one — so this side is never stale. The
-   * container is: it read `process.env` once at start and cannot be told
-   * anything afterwards, and a vars-only deploy produces no new container image
-   * for `--containers-rollout immediate` to roll. Without this, the new value
-   * takes effect whenever the container next happens to idle out, which under
-   * sustained traffic is never.
-   *
-   * The fingerprint is persisted in Durable Object storage because that is the
-   * only state that survives the very event being detected — a redeploy
-   * discards every in-memory field, so an in-memory copy would compare the new
-   * environment against itself and always agree.
+   * The decision — and the two orderings that matter, no-record-is-a-mismatch
+   * and record-only-after-a-successful-destroy — lives in
+   * `shared/container-env.ts`, where it can be tested without a Workers
+   * runtime. What is left here is exactly the three things only this side can
+   * do: reach the container, reach Durable Object storage, and log.
    */
   private async reconcileEnv(): Promise<void> {
     const current = fingerprintEnv(this.envVars ?? {})
-    const booted = await this.ctx.storage.get<string>(ENV_FINGERPRINT_KEY)
-    if (booted === current) return
+    let booted: string | undefined
+    // Captured so the port's getter below reads `this` Durable Object's state
+    // rather than the object literal's.
+    const state = this.ctx
 
-    // Only a RUNNING container can be stale. A stopped one has nothing to
-    // replace: its next start reads `envVars` as it now is, which is already
-    // the new environment.
-    //
-    // No recorded fingerprint counts as a mismatch rather than as a fresh
-    // start, deliberately. A running container with no record predates this
-    // code, so what it booted with is unknowable — and on the deploy that
-    // ships this, that container is exactly the one already serving a
-    // superseded policy. Assuming it is current would leave the bug live
-    // until the next idle. A DO that has never started a container reaches
-    // here with `running` false and simply records.
-    if (this.ctx.container?.running) {
-      // SIGKILL rather than a graceful stop: the container serves git over
-      // HTTP and holds nothing worth draining — every durable effect of a push
-      // is in the log before it is acknowledged (docs/adr/0007) — and
-      // `sleepAfter` already covers the polite path. `destroy` triggers
-      // `onStop`; the next `containerFetch` starts a fresh one.
-      await this.destroy()
+    const outcome = await reconcileContainerEnv(
+      {
+        // A getter, not a snapshot: it is read after the storage lookup above
+        // it, exactly where the original code read it.
+        get running() {
+          return state.container?.running ?? false
+        },
+        read: async () => {
+          booted = await state.storage.get<string>(ENV_FINGERPRINT_KEY)
+          return booted
+        },
+        // SIGKILL rather than a graceful stop: the container serves git over
+        // HTTP and holds nothing worth draining — every durable effect of a
+        // push is in the log before it is acknowledged (docs/adr/0007) — and
+        // `sleepAfter` already covers the polite path. `destroy` triggers
+        // `onStop`; the next `containerFetch` starts a fresh one.
+        destroy: () => this.destroy(),
+        write: (fingerprint) => state.storage.put(ENV_FINGERPRINT_KEY, fingerprint),
+      },
+      current,
+    )
+
+    if (outcome === 'replaced') {
       console.log(
         `walgit container env changed (${booted ?? 'unrecorded'} -> ${current}); container replaced`,
       )
     }
-    // Written last, and only after a successful destroy: recording first would
-    // make a failed replacement look reconciled forever.
-    await this.ctx.storage.put(ENV_FINGERPRINT_KEY, current)
   }
 
   async fetch(request: Request): Promise<Response> {

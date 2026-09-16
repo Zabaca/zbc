@@ -64,15 +64,34 @@ export default cloudflareModule.instance({
     // push. The page renders whichever host the request arrived on, so both
     // read correctly rather than one advertising the other.
     routes: ['agentgit.zabaca.com/*', 'walgit.zabaca.com/*'],
-    // wrangler's gradual rollout never drains a single always-warm container,
-    // so without this a redeployed image silently never takes effect until the
-    // container idle-sleeps.
+    // Rolls the container APPLICATION to the new image instead of wrangler's
+    // gradual default. Necessary, and on its own it has never been sufficient:
+    // it does not drain the single always-warm instance this deployment runs,
+    // so the old container keeps serving until it idle-sleeps, which under
+    // sustained traffic is never. That is not a theory — on 2026-09-14 the
+    // 0.16.1 deploy moved the application to v51 with a new image, reported the
+    // rollout `completed`, and left the instance started an hour earlier
+    // answering git with the pre-0.16.1 clone recipe (ZBC-OA7D84).
     //
-    // It covers the IMAGE and only the image. A deploy that changes a var below
-    // and nothing else produces no new container version for it to roll, so it
-    // is not what makes the values in `workerVars` reach the container — see
-    // the note above `workerVars`.
+    // And it covers the image only: a deploy that changes a var below and
+    // nothing else produces no new container version for it to roll.
+    //
+    // What actually replaces a running container is the line below, in both
+    // cases — see the note above `workerVars`.
     immediateContainerRollout: true,
+    // Every deploy names itself, as `WALGIT_BUILD_ID`: the deployed commit
+    // (`GITHUB_SHA` in CI, `git rev-parse HEAD` locally). It configures
+    // nothing. It exists so that a deploy carrying only new CODE still changes
+    // the environment the Durable Object fingerprints, which is what makes the
+    // replacement below fire for a code-only release exactly as it already
+    // fires for a changed var. `WALGIT_BUILD_ID` is on `CONTAINER_ENV`
+    // (packages/walgit/shared/container-env.ts), which is the only reason it
+    // reaches the container at all.
+    //
+    // Second thing it buys: Cloudflare numbers container versions itself (v50,
+    // v51) and nothing else in a deploy says which commit is inside one. This
+    // var does, on the Worker's own settings page.
+    deployIdVar: 'WALGIT_BUILD_ID',
     workerSecrets: [
       { name: 'WALGIT_S3_ACCESS_KEY_ID', secret: 'WAREHOUSE_R2_ACCESS_KEY_ID' },
       { name: 'WALGIT_S3_SECRET_ACCESS_KEY', secret: 'WAREHOUSE_R2_SECRET_ACCESS_KEY' },
@@ -177,6 +196,13 @@ export default cloudflareModule.instance({
     // container the first time the two differ — `reconcileEnv` in
     // packages/walgit/worker/index.ts. Changing a var here costs one container
     // restart on the next request after the deploy, and the value is live.
+    //
+    // A deploy that changes only CODE used to slip past that, for the mirror
+    // reason: no var moved, so the fingerprint did not either, and the
+    // container kept serving the old image (ZBC-OA7D84). `deployIdVar` above
+    // closes it by making every deploy change one var — so both halves of a
+    // release, its configuration and its code, now reach the container on the
+    // first request after the deploy.
     //
     // The one thing that does NOT propagate this way is a new NAME: a variable
     // reaches the container only if `CONTAINER_ENV` in
