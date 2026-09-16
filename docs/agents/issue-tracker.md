@@ -85,3 +85,27 @@ everything else to stderr.** A logging line captured into the variable holding a
 identifier produces refs that fail as `dependency_not_found`, and the creates
 that follow keep succeeding — so you end up with tickets, no edges, and a green
 transcript.
+
+## What a Worker cannot do
+
+A Worker runs in a ticket worktree with the repo and CI only. Do not put these
+in a ticket's scope or acceptance criteria; they are the operator's step after
+the PR merges. (Learned on ZBC-OA7D84, 2026-09-16, whose acceptance required a
+production deploy the Worker could never run.)
+
+- **Deploy to production.** Nothing releases on merge; `/release` is the only
+  path, and it needs the operator's SOPS age key. A Worker has no key, no
+  `SOPS_AGE_KEY`, and no provider tokens.
+- **Verify against production.** Anything that reads live state after a deploy
+  (container instances, Cloudflare Versions tab, `GET /` on the deployed host)
+  is unreachable from a ticket. Have the Worker write the verification recipe
+  into the PR description instead, and the operator runs it after `/release`.
+- **Publish packages or tag releases.** `publish-npm.yml`, `publish-core.yml`,
+  and `zbc-cli-v*` / `zbc-core-v*` tags are dispatched by the operator.
+- **Merge.** "Ship" means open a PR and move to Review.
+- **Touch a provider dashboard or rotate a credential.** Token scopes, DNS
+  verification clicks, secret rotation are manual.
+
+Preview is the one deploy a ticket gets: the `preview.yml` workflow applies
+`packages/infra/environments/preview/` on the PR, and its output is what the
+Worker can cite.
