@@ -11,6 +11,7 @@ import { describe, expect, test } from 'bun:test'
 import { capabilitiesFrom, type CapabilityEnv } from '../shared/capabilities'
 import { ZERO_OID } from '../shared/protocol'
 import { renderLanding, wantsLanding } from '../shared/landing'
+import { operatorFrom, type OperatorEnv } from '../shared/operator'
 import { checkSignerAllowed } from './signers'
 
 const HOST = 'agentgit.zabaca.com'
@@ -59,6 +60,25 @@ describe('wantsLanding', () => {
 })
 
 describe('renderLanding', () => {
+  /**
+   * The page is the launch page, so the first screen has to answer the two
+   * questions a stranger arrives with: what is this called, and what is it
+   * for. It used to answer neither — the name lived in the `<title>` and the
+   * footer, and the lede said "somewhere of its own to put it", which is a
+   * complaint rather than a purpose.
+   *
+   * The two facts are the ticket's, not the copy's: agentgit is scratch
+   * repositories, and it is handoffs between agents. Asserted against the
+   * hero specifically, because a name in the tab title is not a name the
+   * reader of the page sees.
+   */
+  test('the hero names agentgit and says what it is for', () => {
+    const hero = renderLanding(HOST, NOTHING).split('<div class="cta">')[0] ?? ''
+    expect(hero).toContain('agentgit')
+    expect(hero).toContain('Scratch repositories')
+    expect(hero).toContain('handing work to another agent')
+  })
+
   test('every command names the host the request arrived on', () => {
     const page = renderLanding('walgit.zabaca.com', NOTHING)
     // The repository name is a field the visitor edits, so the URL in the
@@ -864,6 +884,109 @@ describe('Proposals move from the roadmap to the rules', () => {
       expect(html).not.toContain('<span class="k">Proposals</span>')
       expect(html).toContain('<h3>Pull requests</h3>')
     }
+  })
+})
+
+/**
+ * Who runs this, and what happens to what you push.
+ *
+ * The page is the launch page, and the first question an aggregator asks in
+ * the first ten minutes is who to send a takedown to. It is the one thing on
+ * the page that cannot be derived from a capability flag — a deployment's
+ * operator is not a capability, it is who is answerable for one — so it comes
+ * from its own two variables, read through `operatorFrom`.
+ *
+ * The expiry promise stands in the same block deliberately: the honest answer
+ * to "take this down" on a deployment that collects is usually "it already
+ * will", and the two facts are read together or not at all.
+ */
+describe('who runs this', () => {
+  const RUN: OperatorEnv = {
+    WALGIT_OPERATOR: 'Zabaca',
+    WALGIT_CONTACT: 'abuse@zabaca.com',
+  }
+  const COLLECTS = caps({ ...OPEN, WALGIT_RETENTION_HOURS: '24' })
+
+  test('the operator, the contact and the window are one block', () => {
+    const html = renderLanding(HOST, COLLECTS, operatorFrom(RUN))
+    const block = html.split('<h2>Who runs this.</h2>')[1]?.split('</section>')[0] ?? ''
+    expect(block).toContain('Zabaca')
+    expect(block).toContain('abuse@zabaca.com')
+    expect(block).toContain('24 hours')
+  })
+
+  test('the contact is reachable, not merely printed', () => {
+    const html = renderLanding(HOST, COLLECTS, operatorFrom(RUN))
+    expect(html).toContain('href="mailto:abuse@zabaca.com"')
+  })
+
+  // Every claim on this page is rendered rather than written, and a contact
+  // address is the one where a placeholder would be actively harmful: mail to
+  // a name nobody reads is worse than an admission that there is nobody to
+  // write to.
+  test('a deployment that names nobody carries no block at all', () => {
+    const html = renderLanding(HOST, COLLECTS, operatorFrom({}))
+    expect(html).not.toContain('Who runs this.')
+    expect(html).not.toContain('{{')
+  })
+
+  test('an operator with no address says who, and offers no way to write', () => {
+    const html = renderLanding(HOST, COLLECTS, operatorFrom({ WALGIT_OPERATOR: 'Zabaca' }))
+    expect(html).toContain('Who runs this.')
+    expect(html).toContain('Zabaca')
+    expect(html).not.toContain('mailto:')
+  })
+
+  // The same rule the window follows everywhere else on this page: a
+  // deployment that collects nothing must not promise that anything expires.
+  test('with no retention the block states no window', () => {
+    const html = renderLanding(HOST, caps(OPEN), operatorFrom(RUN))
+    const block = html.split('<h2>Who runs this.</h2>')[1]?.split('</section>')[0] ?? ''
+    expect(block).toContain('abuse@zabaca.com')
+    expect(block).not.toContain('24 hours')
+  })
+
+  // The values are operator-supplied and land in markup.
+  test('a contact carrying markup is escaped', () => {
+    const html = renderLanding(
+      HOST,
+      COLLECTS,
+      operatorFrom({ WALGIT_OPERATOR: '<script>x</script>' }),
+    )
+    expect(html).not.toContain('<script>x</script>')
+    expect(html).toContain('&lt;script&gt;x&lt;/script&gt;')
+  })
+})
+
+/**
+ * The three things this deployment can do this week, on the page that is the
+ * launch page — and the same three absent from a deployment that offers none
+ * of them. Each is already rendered from `Capabilities`; what this asserts is
+ * the pair, because a claim that appears is only honest if the same claim
+ * disappears.
+ */
+describe('Proposals, Private and the Client are advertised together', () => {
+  const EVERYTHING = caps({
+    ...OPEN,
+    ...SEED,
+    ...GATE,
+    ...EVENTS,
+    WALGIT_PRIVATE_REPOS: 'private-seed',
+    WALGIT_PROPOSALS: '1',
+  })
+
+  test('a deployment that advertises all three says so', () => {
+    const html = renderLanding(HOST, EVERYTHING)
+    expect(html).toContain('<span class="k">Proposals</span>')
+    expect(html).toContain('<span class="k">Private</span>')
+    expect(html).toContain('bunx @zabaca/agentgit watch')
+  })
+
+  test('a deployment that advertises none of them stays silent about each', () => {
+    const html = renderLanding(HOST, caps(OPEN))
+    expect(html).not.toContain('<span class="k">Proposals</span>')
+    expect(html).not.toContain('<span class="k">Private</span>')
+    expect(html).not.toContain('@zabaca/agentgit')
   })
 })
 

@@ -352,6 +352,29 @@ export default cloudflareModule.instance({
       // needs the container restart described above to hold across a deploy;
       // it was written before the restart existed, and did not.
       { name: 'WALGIT_RETENTION_HOURS', value: '24' },
+      // ── who runs it ──────────────────────────────────────────────────────
+      //
+      // The one thing on the launch page that is not a capability: a capability
+      // is something the push path enforces, and this is who is answerable for
+      // one. The page and `/llms.txt` render an operator block from the pair
+      // (`shared/operator.ts`), and a deployment that sets neither carries no
+      // block at all — which is the right default for a walgit somebody runs
+      // inside their own company, and the wrong one for a host on an
+      // aggregator's front page, where the first question in ten minutes is who
+      // to send a takedown to.
+      //
+      // Vars rather than secrets, and they are the only two values here that
+      // are MEANT to be read by a stranger. Edge-only: neither is in
+      // `CONTAINER_ENV` (packages/walgit/shared/container-env.ts), because
+      // nothing the container serves names an operator — so unlike every other
+      // var here, editing one costs no container restart.
+      // CONFIRM THE MAILBOX BEFORE THE POST. A contact line pointing at an
+      // address nobody receives is worse than no contact line: it converts a
+      // takedown into a silence somebody else has to escalate. Swap it for a
+      // deliverable address (or a URL — the page links `https://…` too) if this
+      // one is not routed.
+      { name: 'WALGIT_OPERATOR', value: 'Zabaca' },
+      { name: 'WALGIT_CONTACT', value: 'abuse@zabaca.com' },
       // ── ref events ───────────────────────────────────────────────────────
       //
       // Where the container announces a push TO — this deployment's own public
