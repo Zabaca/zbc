@@ -7,12 +7,13 @@
     "walgit": "./src/cli.ts"
   },
   "scripts": {
-    "test": "bun test src",
+    "test": "bun test src e2e",
     "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.worker.json",
     "bench:materialize": "bun run src/materialize.bench.ts",
     "walgit": "bun run src/cli.ts",
     "e2e": "bun run e2e/suite.ts",
     "e2e:live": "bun run e2e/live.ts",
+    "e2e:load": "bun run e2e/load.ts",
     "deploy": "wrangler deploy"
   },
   "dependencies": {

@@ -306,11 +306,34 @@ export default cloudflareModule.instance({
       // The source is the client IP, which is all the Worker can see; a NAT
       // therefore shares a bucket, which is the reason these are generous
       // rather than tight.
+      //
+      // MEASURED, on 2026-09-16, against this deployment:
+      // `docs/research/agentgit-load-2026-09-16.md`. The intent above is
+      // unchanged; what the run added is the other ceiling, which no amount of
+      // reasoning about one agent's habits produces — ONE CONTAINER SERVES
+      // EVERYONE (`max_instances: 1`), so what a single source may take is
+      // properly a fraction of the whole host's hourly capacity, and a filled
+      // queue is not that source's problem but everyone else's latency. The
+      // host sustains 0.35 pushes/s (~1,260 an hour) and ~1.1 MiB/s (~3.9 GiB
+      // an hour); each number below names its share of that.
+      //
+      // A new name costs exactly ONE push — 4.3–5.2 s uncontended, across the
+      // 14 repositories the run seeded — so creation is not the expensive act
+      // it looks like, and 20 names is ~1.6% of the hourly push capacity. The
+      // run confirmed this number rather than moving it.
       { name: 'WALGIT_MAX_NEW_REPOS_PER_SOURCE', value: '20' },
-      { name: 'WALGIT_MAX_PUSHES_PER_SOURCE', value: '300' },
-      // 2 GiB an hour: twenty full-size repositories' worth, so the byte limit
-      // can only be reached by somebody who meant to.
-      { name: 'WALGIT_MAX_PUSH_BYTES_PER_SOURCE', value: String(2 * 1024 * 1024 * 1024) },
+      // ~10% of the host's measured 1,260 pushes an hour. It was 300 — 24% of
+      // it — which is a quarter of the service in one visitor's hands on the
+      // day the service gets its crowd. Still 4–12× what an agent session
+      // spends: the run measured eight concurrent pushes at 20 s each with
+      // nothing failing, which is the queue this bounds, not a refusal rate.
+      { name: 'WALGIT_MAX_PUSHES_PER_SOURCE', value: '120' },
+      // 256 MiB an hour: ~6% of the host's measured ~3.9 GiB. It was 2 GiB,
+      // which is HALF the host's hourly bytes for one address — the one value
+      // the measurement moved by an order of magnitude. Two full-size pushes
+      // still fit, and it is ~25x the largest pack observed to complete
+      // reliably (see the write-up's note on 10 MiB pushes failing).
+      { name: 'WALGIT_MAX_PUSH_BYTES_PER_SOURCE', value: String(256 * 1024 * 1024) },
       // ── expiry ───────────────────────────────────────────────────────────
       //
       // On, and it was gated rather than assumed: this stayed commented out
