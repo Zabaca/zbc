@@ -16,6 +16,7 @@ import { flagEnabled } from '../shared/policy'
 import { pushCertSeed, signedPushEnabled } from '../shared/provenance'
 import { MAX_REFS_PER_ENTRY, MAX_WATCH_ENTRIES } from '../shared/events'
 import { renderLlms, wantsLlms } from '../shared/llms'
+import { operatorFrom, type OperatorEnv } from '../shared/operator'
 import { CHALLENGE_PATH, READ_CHALLENGE_NAMESPACE, SIGNERS_REF } from '../shared/protocol'
 import { renderInstructions } from './instructions'
 
@@ -635,6 +636,53 @@ describe('Propose a change', () => {
     for (const env of [OPEN, { ...OPEN, ...SEED, ...GATE }, { ...OPEN, ...PROPOSALS }]) {
       expect(renderLlms(HOST, caps(env))).not.toContain('## Propose a change')
     }
+  })
+})
+
+/**
+ * The manual says what the page says, in the order the page says it.
+ *
+ * Two documents for one deployment can differ in length and in tone — that is
+ * the whole arrangement between them — but not in what is true. The page's
+ * launch answers are the name, what the service is for, and who is answerable
+ * for it; an agent that read only the manual would otherwise be told about a
+ * host with no operator.
+ */
+describe('who runs this, in the manual', () => {
+  const RUN: OperatorEnv = {
+    WALGIT_OPERATOR: 'Zabaca',
+    WALGIT_CONTACT: 'abuse@zabaca.com',
+  }
+  const COLLECTS = caps({ ...OPEN, WALGIT_RETENTION_HOURS: '24' })
+
+  test('the opening names agentgit and what it is for', () => {
+    const opening = renderLlms(HOST, COLLECTS, operatorFrom(RUN)).split('## ')[0] ?? ''
+    expect(opening).toContain('agentgit')
+    expect(opening).toContain('Scratch repositories')
+    expect(opening).toContain('handing work to another agent')
+  })
+
+  test('the operator, the contact and the window are one section', () => {
+    const doc = renderLlms(HOST, COLLECTS, operatorFrom(RUN))
+    const section = doc.split('## Who runs this')[1]?.split('\n## ')[0] ?? ''
+    expect(section).toContain('Zabaca')
+    expect(section).toContain('abuse@zabaca.com')
+    expect(section).toContain('24 hours')
+    // The page puts the block last, after the roadmap; the manual puts it in
+    // the same place, before the closing summary.
+    expect(doc.indexOf('## Who runs this')).toBeGreaterThan(doc.indexOf('## If a push is refused'))
+    expect(doc.indexOf('## Who runs this')).toBeLessThan(doc.indexOf('## What this is not'))
+  })
+
+  test('a deployment that names nobody carries no section at all', () => {
+    expect(renderLlms(HOST, COLLECTS, operatorFrom({}))).not.toContain('## Who runs this')
+  })
+
+  test('with no retention the section states no window', () => {
+    const doc = renderLlms(HOST, caps(OPEN), operatorFrom(RUN))
+    const section = doc.split('## Who runs this')[1]?.split('\n## ')[0] ?? ''
+    expect(section).toContain('abuse@zabaca.com')
+    expect(section).not.toContain('24 hours')
   })
 })
 

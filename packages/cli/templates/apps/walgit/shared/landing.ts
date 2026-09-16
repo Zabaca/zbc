@@ -50,6 +50,7 @@
  */
 
 import type { Capabilities } from './capabilities'
+import { contactHref, type Operator } from './operator'
 import { describeBytes, describeWindow } from './policy'
 import { EVENTS_PATH, SIGNERS_REF } from './protocol'
 import { CONTENT_SIGNAL } from './robots'
@@ -647,6 +648,81 @@ function wireScript(): string {
 }
 
 /**
+ * Everything on this page is a constant of the template or a number read from
+ * the environment — except the two values below, which are free text somebody
+ * put in a deployment variable and which land in markup. So they are escaped
+ * here, once, at the only place they enter the document.
+ */
+function escapeHtml(raw: string): string {
+  return raw
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+}
+
+/**
+ * Who runs this, and what happens to what you push.
+ *
+ * The one block on the page addressed to somebody who is not about to push:
+ * an aggregator asks who is answerable in the first ten minutes, and the page
+ * that could not answer sent them looking for a WHOIS record.
+ *
+ * The expiry promise stands here as well as in `The rules.` on purpose, and it
+ * is not the page saying one thing twice — the terms tell a visitor what the
+ * host will do with their push, and this tells somebody else what it already
+ * did with a stranger's. On a deployment that collects, "it expires in 24
+ * hours" is most of the answer to a takedown, so the two facts are read
+ * together or not at all. It is rendered from `retentionHours` like every
+ * other statement of the window, so it cannot outlive the config either.
+ *
+ * Absent whole where nothing is configured, for the reason `operatorFrom`
+ * returns `null` there: a page that printed a heading with nobody under it
+ * would be worse than one that never claimed to have an operator.
+ */
+function operatorSection(caps: Capabilities, operator: Operator | null): string {
+  if (operator === null) return ''
+
+  const rows: string[] = []
+  if (operator.name !== null) {
+    rows.push(claim('Operator', `<b>${escapeHtml(operator.name)}</b> runs this deployment.`))
+  }
+  if (operator.contact !== null) {
+    const text = escapeHtml(operator.contact)
+    const href = contactHref(operator.contact)
+    rows.push(
+      claim(
+        'Contact',
+        `<b>${href === null ? text : `<a href="${escapeHtml(href)}">${text}</a>`}</b> — takedowns, abuse and anything else about this host.`,
+      ),
+    )
+  }
+  if (caps.retentionHours !== null) {
+    const window = describeHours(caps.retentionHours)
+    rows.push(
+      claim(
+        'Expiry',
+        `<b>A repository is collected ${window} after its last push</b>, whether or not anybody asks. Nothing here is archived.`,
+      ),
+    )
+  }
+
+  // `operatorFrom` cannot return an `Operator` with neither half, so this is
+  // unreachable from the Worker — but a heading with nothing under it is the
+  // one output this block must never produce, and the guard costs a line.
+  if (rows.length === 0) return ''
+
+  return `
+    <section>
+      <h2>Who runs this.</h2>
+      <ul class="claims">
+${rows.join('\n')}
+      </ul>
+    </section>
+`
+}
+
+/**
  * Every substitution passes a FUNCTION, never the string itself.
  *
  * `String.replace` reads `$` sequences in a replacement STRING as capture-group
@@ -659,7 +735,18 @@ function wireScript(): string {
  * runs. A function replacer is not interpreted at all, so the question stops
  * being asked.
  */
-export function renderLanding(host: string, caps: Capabilities): string {
+export function renderLanding(
+  host: string,
+  caps: Capabilities,
+  /**
+   * Who runs this deployment (`shared/operator.ts`), beside the capabilities
+   * rather than folded into them: nothing branches on it and the push path
+   * never sees it. Optional and `null` by default — a deployment that names
+   * nobody renders the page it renders today, which is also what every test
+   * fixture that is not about the operator wants to say.
+   */
+  operator: Operator | null = null,
+): string {
   return PAGE.replaceAll('{{HOST}}', () => host)
     .replace('{{META_DESCRIPTION}}', () => metaDescription(caps))
     .replace('{{HERO_UNDER}}', () => heroUnder(caps))
@@ -670,6 +757,7 @@ export function renderLanding(host: string, caps: Capabilities): string {
     .replace('{{OWNERSHIP}}', () => ownershipSection(host, caps))
     .replace('{{WIRE_SCRIPT}}', () => (caps.events ? wireScript() : ''))
     .replace('{{PERMANENCE}}', () => permanence(caps))
+    .replace('{{OPERATOR}}', () => operatorSection(caps, operator))
 }
 
 const WIRE_CLIENT = `
@@ -823,6 +911,14 @@ const PAGE = `<!doctype html>
     margin: 0 0 2.75rem;
   }
   .lede em { font-style: normal; color: var(--copper); }
+  /* The second half of the pitch — what the service is FOR, as opposed to what
+     it does — set a step down so the two read as one thought rather than as
+     two competing opening lines. */
+  .lede-2 {
+    font-size: clamp(1.02rem, 2.3vw, 1.2rem);
+    color: var(--muted);
+    max-width: 44ch;
+  }
 
   /* ── the command, which is the CTA ────────────────────── */
 
@@ -1203,11 +1299,13 @@ const PAGE = `<!doctype html>
 <div class="wrap">
 
   <main id="start">
-    <span class="badge">Open source — run your own</span>
+    <span class="badge">agentgit — open source, run your own</span>
 
     <h1>Git for AI agents<span class="dot">.</span></h1>
 
     <p class="lede">Your agent writes code all day and has nowhere of its own to put it. <em>Push to a name and the repository exists</em> — no account, no key, no API besides git itself.</p>
+
+    <p class="lede lede-2">Scratch repositories, and the handoff between two agents: <em>handing work to another agent is the URL</em>, and there is nothing else to send.</p>
 
     <div class="cta">
       <label class="repo-field" for="repo">
@@ -1248,6 +1346,7 @@ const PAGE = `<!doctype html>
       </ul>
       <p class="caveat">{{PERMANENCE}} Not a place for anything you cannot lose.</p>
     </section>
+{{OPERATOR}}
   </main>
 
   <footer>
