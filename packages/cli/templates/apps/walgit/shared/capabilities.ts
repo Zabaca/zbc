@@ -63,6 +63,10 @@ type CapabilityVar = Extract<
   | 'WALGIT_SIGNER_LISTS'
   | 'WALGIT_PRIVATE_REPOS'
   | 'WALGIT_PROPOSALS'
+  | 'WALGIT_RATE_WINDOW_SECONDS'
+  | 'WALGIT_MAX_NEW_REPOS_PER_SOURCE'
+  | 'WALGIT_MAX_PUSHES_PER_SOURCE'
+  | 'WALGIT_MAX_PUSH_BYTES_PER_SOURCE'
 >
 
 /**
@@ -182,7 +186,42 @@ export type Capabilities = {
   maxPushBytes: number | null
   /** Largest total size of one repository, in bytes. */
   maxRepoBytes: number | null
+  /**
+   * Anything at all is bounded PER SOURCE — what one client may spend in a
+   * window (`src/rate-limit.ts`).
+   *
+   * A predicate rather than three `!== null` tests at each renderer, for the
+   * reason `namesCanRefuse` and `namesCanBeClaimed` are both fields: a document
+   * that combined them for itself would be a fourth place the rule lives.
+   */
+  sourceLimited: boolean
+  /**
+   * The window the three limits below are counted in, in seconds.
+   *
+   * The one number here that is never `null`: it is not a limit, it is the unit
+   * the limits are stated in, and a deployment that sets a count without a
+   * window means the default one rather than no window at all. Unset,
+   * unparseable and non-positive all read as the default, for the reason
+   * `positiveNumber` collapses them everywhere else — a typo must not become a
+   * zero-length window, which would refuse nothing, or an infinite one, which
+   * would refuse a client forever.
+   */
+  rateWindowSeconds: number
+  /** New repository names one source may create per window. */
+  maxNewReposPerSource: number | null
+  /** Pushes one source may make per window. */
+  maxPushesPerSource: number | null
+  /** Bytes one source may push per window. */
+  maxPushBytesPerSource: number | null
 }
+
+/**
+ * The window a deployment gets when it bounds a count and says nothing about
+ * over what. An hour: long enough that an ordinary working session is one
+ * window, short enough that a client refused inside it does not give up on the
+ * host.
+ */
+export const DEFAULT_RATE_WINDOW_SECONDS = 3600
 
 /**
  * Read an environment into what it advertises.
@@ -216,6 +255,10 @@ export function capabilitiesFrom(
   const signedPushes = signedPushEnabled(env.WALGIT_PUSH_CERT_SEED)
   const publicAccess = flagEnabled(env.WALGIT_PUBLIC)
 
+  const maxNewReposPerSource = positiveNumber(env.WALGIT_MAX_NEW_REPOS_PER_SOURCE)
+  const maxPushesPerSource = positiveNumber(env.WALGIT_MAX_PUSHES_PER_SOURCE)
+  const maxPushBytesPerSource = positiveNumber(env.WALGIT_MAX_PUSH_BYTES_PER_SOURCE)
+
   return {
     publicAccess,
     appendOnly: flagEnabled(env.WALGIT_APPEND_ONLY),
@@ -235,6 +278,15 @@ export function capabilitiesFrom(
     retentionHours: positiveNumber(env.WALGIT_RETENTION_HOURS),
     maxPushBytes: positiveNumber(env.WALGIT_MAX_PUSH_BYTES),
     maxRepoBytes: positiveNumber(env.WALGIT_MAX_REPO_BYTES),
+    sourceLimited:
+      maxNewReposPerSource !== null ||
+      maxPushesPerSource !== null ||
+      maxPushBytesPerSource !== null,
+    rateWindowSeconds:
+      positiveNumber(env.WALGIT_RATE_WINDOW_SECONDS) ?? DEFAULT_RATE_WINDOW_SECONDS,
+    maxNewReposPerSource,
+    maxPushesPerSource,
+    maxPushBytesPerSource,
   }
 }
 

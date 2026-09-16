@@ -18,7 +18,7 @@ import * as fs from 'node:fs'
 import * as path from 'node:path'
 
 import { capabilitiesFrom } from '../shared/capabilities'
-import { ZERO_OID } from '../shared/protocol'
+import { REFUSE_ENV, ZERO_OID } from '../shared/protocol'
 import { announceConfigFromEnv } from './announce'
 import { appendOnlyEnabled, checkAppendOnly } from './append-only'
 import { configuredThreshold, isCompactionDue } from './compact'
@@ -83,6 +83,25 @@ async function main(): Promise<number> {
   const stdin = await Bun.stdin.text()
 
   if (hook === 'pre-receive') {
+    // A refusal the front door already reached, spoken here (`src/rate-limit.ts`).
+    //
+    // FIRST, above every verdict below it, because it is the only one not about
+    // this push's contents: the per-source window was judged before a byte of
+    // the pack was read, and re-deciding anything under a verdict that has
+    // already been taken would be work spent on a push that is not happening.
+    //
+    // It arrives as an environment variable rather than as a header because
+    // this is a process git spawned three levels down, where a request does not
+    // reach — and it is spoken HERE rather than answered as an HTTP status
+    // because git reports a status on this route as `RPC failed; HTTP …`, which
+    // reads as a transport fault and is retried. On stderr, so git puts it on
+    // the sideband as `remote:` lines, exactly as a size cap's refusal arrives.
+    const handed = (process.env[REFUSE_ENV] ?? '').trim()
+    if (handed !== '') {
+      process.stderr.write(`${handed}\n`)
+      return 1
+    }
+
     // Who signed this push, settled here and handed down. It is read in this
     // hook because this is the only one git shows the certificate to — the
     // blob lives in the push's quarantine and is gone by the time the refs

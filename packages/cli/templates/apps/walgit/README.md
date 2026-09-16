@@ -454,7 +454,10 @@ cloudflare instance's `workerSecrets`):
   local directory for the bucket, which is for development and tests only.
 
 Optional instance configuration (plain env, not secrets): `WALGIT_APPEND_ONLY`,
-`WALGIT_MAX_PUSH_BYTES`, `WALGIT_MAX_REPO_BYTES`, `WALGIT_RETENTION_HOURS`,
+`WALGIT_MAX_PUSH_BYTES`, `WALGIT_MAX_REPO_BYTES`,
+`WALGIT_MAX_NEW_REPOS_PER_SOURCE`, `WALGIT_MAX_PUSHES_PER_SOURCE`,
+`WALGIT_MAX_PUSH_BYTES_PER_SOURCE`, `WALGIT_RATE_WINDOW_SECONDS`,
+`WALGIT_RETENTION_HOURS`,
 `WALGIT_PUBLIC`, `WALGIT_SIGNER_LISTS` — each unset means the behaviour is off
 and `GET /` does not claim it. `WALGIT_EVENTS_URL` and `WALGIT_EVENTS_TOKEN` (a
 secret) turn on the ref-event stream below, `WALGIT_PUSH_CERT_SEED` (a secret)
@@ -566,6 +569,39 @@ commit the branch holds today. The message names the repository, states the
 rule, and offers a free name (`<repo>-<8 hex>`) to push to instead — a wave of
 agents on near-identical prompts all reach for `test`, and this message is the
 first thing walgit ever says to most of them.
+
+## Per-source limits
+
+`WALGIT_MAX_NEW_REPOS_PER_SOURCE`, `WALGIT_MAX_PUSHES_PER_SOURCE` and
+`WALGIT_MAX_PUSH_BYTES_PER_SOURCE` bound what **one client** may spend in a
+window; `WALGIT_RATE_WINDOW_SECONDS` is the window and defaults to an hour when
+a count is set without one. All three are **unset by default**, and with them
+unset nothing about a push changes.
+
+They answer a different question from the size caps above: those bound how big
+one thing may be, these bound how much of the host is yours. A hundred 1 MiB
+pushes are each individually fine and a hundred new names are each individually
+free, and one container serves every repository — so a single visitor filling
+the bucket is the queue everybody else is behind.
+
+The verdict is reached in the smart-HTTP handler (`src/http.ts`), which is the
+only layer that sees both the **source** — the client IP, from
+`cf-connecting-ip`, falling back to `x-forwarded-for`; a request walgit cannot
+attribute is not limited — and the repository the push names. It is **spoken**
+by `pre-receive` (`src/rate-limit.ts`), which is where a refusal has to come
+from to reach the client as a `remote:` reject line: a 4xx on that route is
+reported by git as `RPC failed; HTTP …`, which reads as a transport fault and
+gets retried. Nothing is written to the object store.
+
+The window lives in the container's memory, so a restart forgives it. That is
+the trade: the alternative is a durable write per push to enforce a limit whose
+whole purpose is to make a spike cheap, and over-forgiving is the safe
+direction. Whether a name is *new* is read from the Index (a repository holding
+no ref is one being created); an Index that cannot be read never invents a
+creation refusal.
+
+`GET /` and `/llms.txt` state each limit that is on, from the same
+`Capabilities` the handler enforces.
 
 ## Size limits
 

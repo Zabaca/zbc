@@ -285,6 +285,32 @@ export default cloudflareModule.instance({
       // 250 MiB total per repository — the size `git repack -adf` was measured
       // succeeding on in the Containers spike, which is the sizing case.
       { name: 'WALGIT_MAX_REPO_BYTES', value: String(250 * 1024 * 1024) },
+      // ── per-source limits ────────────────────────────────────────────────
+      //
+      // What one client may spend in an hour (`src/rate-limit.ts`). The two
+      // caps above bound how big a thing may be and say nothing about how
+      // often one arrives: a hundred 1 MiB pushes are each individually fine,
+      // and a hundred new names are each individually free. One container
+      // serves every repository here (`max_instances: 1`), so a single visitor
+      // filling the bucket is not merely storage — it is the queue everyone
+      // else is behind, which is exactly the shape of a launch-day spike.
+      //
+      // The numbers are chosen to be invisible to the traffic this service is
+      // FOR and to bite only on traffic nobody would defend. An agent working
+      // in one repository for an hour makes tens of pushes, not three hundred;
+      // an agent session creates one or two names, not twenty. Whoever passes
+      // these is filling the host on purpose, and reads a `pre-receive` refusal
+      // saying so rather than a queue nobody can explain.
+      //
+      // The window is the default hour, left unstated (`WALGIT_RATE_WINDOW_SECONDS`).
+      // The source is the client IP, which is all the Worker can see; a NAT
+      // therefore shares a bucket, which is the reason these are generous
+      // rather than tight.
+      { name: 'WALGIT_MAX_NEW_REPOS_PER_SOURCE', value: '20' },
+      { name: 'WALGIT_MAX_PUSHES_PER_SOURCE', value: '300' },
+      // 2 GiB an hour: twenty full-size repositories' worth, so the byte limit
+      // can only be reached by somebody who meant to.
+      { name: 'WALGIT_MAX_PUSH_BYTES_PER_SOURCE', value: String(2 * 1024 * 1024 * 1024) },
       // ── expiry ───────────────────────────────────────────────────────────
       //
       // On, and it was gated rather than assumed: this stayed commented out

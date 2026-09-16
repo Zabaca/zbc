@@ -64,6 +64,14 @@ export const CONTAINER_ENV = [
   // nonce and mints nothing — it only widens what `pre-receive` accepts on a
   // claimed name, and the hook that widens runs in the container.
   'WALGIT_PROPOSALS',
+  // Per-source rate limits (src/rate-limit.ts). The verdict is reached in the
+  // container's own HTTP handler — the only place that sees both the source the
+  // edge attributed the request to and the repository it names — so the numbers
+  // have to reach the container like every other limit here.
+  'WALGIT_RATE_WINDOW_SECONDS',
+  'WALGIT_MAX_NEW_REPOS_PER_SOURCE',
+  'WALGIT_MAX_PUSHES_PER_SOURCE',
+  'WALGIT_MAX_PUSH_BYTES_PER_SOURCE',
 ] as const
 
 export type ContainerEnvName = (typeof CONTAINER_ENV)[number]
