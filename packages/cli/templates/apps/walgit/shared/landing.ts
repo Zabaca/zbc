@@ -102,7 +102,7 @@ function thirdClaim(caps: Capabilities): string {
     }
     return claim(
       'Bounded',
-      `<b>${parts.join(', ')}.</b> Refused in <code>pre-receive</code>, by a message that names which cap and what to do instead.`,
+      `<b>${parts.join(', ')}.</b> Anything over is turned away before it uploads, by a message that names the limit and what to do instead.`,
     )
   }
   return ''
@@ -113,9 +113,15 @@ function thirdClaim(caps: Capabilities): string {
  *
  * Its own term rather than a share of the slot above, because it answers a
  * different question: the size caps say how big a thing may be, this says how
- * much of the host is yours. A visitor about to point an agent loop at this
- * page should read it here rather than in the refusal — which is the same
- * reason every other limit is on this page at all.
+ * much throughput a visitor can count on. Somebody about to point an agent loop
+ * at this page should read the number here rather than in the refusal — which
+ * is the same reason every other limit is on this page at all.
+ *
+ * **Stated as an allowance, never as a topology.** It used to close with *"One
+ * host serves everybody here"*, which is an operations note on a marketing
+ * page: it tells a prospect how the service is built rather than what they get,
+ * and what they get is the only half of it that is theirs. The number is
+ * unchanged — the frame is the reader's budget, not our capacity plan.
  *
  * Absent when the deployment bounds nothing per source, which is the default.
  */
@@ -131,16 +137,16 @@ function sourceLimitClaim(caps: Capabilities): string {
     parts.push(describeBytes(caps.maxPushBytesPerSource))
   }
   return claim(
-    'Shared',
-    `<b>${parts.join(', ')} per client per ${window}.</b> One host serves everybody here, so no single client may take all of it.`,
+    'Throughput',
+    `<b>${parts.join(', ')} per client per ${window}.</b> Room for an agent loop to work at full speed, and the allowance is yours alone — nobody else's traffic spends it.`,
   )
 }
 
 /** The permanence sentence, which turns on the same variable as the claim. */
 function permanence(caps: Capabilities): string {
   return caps.retentionHours === null
-    ? 'Not an archive: a repository here is a working surface, and nothing about this service is a promise to keep your history.'
-    : `Not permanent: ${describeHours(caps.retentionHours)} from the last push, a repository is collected.`
+    ? 'Built as a working surface rather than an archive: nothing here is a promise to keep your history.'
+    : `Built as scratch space: ${describeHours(caps.retentionHours)} from the last push, a repository is collected.`
 }
 
 /**
@@ -227,7 +233,7 @@ function appendOnlyClaim(caps: Capabilities): string {
       (caps.namesCanRefuse
         ? 'Whoever the name takes a push from may add; no one may rewrite or delete.'
         : 'Anyone may add; no one may rewrite or delete.') +
-      ' A push that would rewrite history is refused in <code>pre-receive</code>, before anything is uploaded, by a message naming what to do instead.',
+      ' A push that would rewrite history is turned away before anything is uploaded, by a message naming what to do instead.',
   )
 }
 
@@ -414,8 +420,8 @@ function privateClaim(caps: Capabilities): string {
  */
 function ownershipCost(caps: Capabilities): string {
   return caps.appendOnly
-    ? 'Nothing you push can be destroyed — and that cuts both ways. Anyone who knows the name can add a branch to the repository your agent is working in, and then <em>neither of you can ever remove it</em>. Append-only defends their write as carefully as it defends yours.'
-    : 'Anyone who knows the name can push to the repository your agent is working in — a branch, a moved <code>main</code>, a deleted ref. Nothing stands between a stranger and your history, and <em>whoever pushes last wins</em>.'
+    ? "An unclaimed name takes anyone's push, and append-only keeps every one of them forever — so a stranger's branch in the repository your agent is working in is <em>there for good</em>. Claim the name and that stops being possible."
+    : "An unclaimed name takes anyone's push — a branch, a moved <code>main</code>, a deleted ref — and <em>whoever pushes last wins</em>. Claim the name and your history is yours."
 }
 
 function ownershipSection(host: string, caps: Capabilities): string {
@@ -426,8 +432,8 @@ function ownershipSection(host: string, caps: Capabilities): string {
       <div class="split-say">
         <h2>A name a stranger cannot take.</h2>
         <p>${ownershipCost(caps)}</p>
-        <p><strong>So a name can refuse a stranger.</strong> Write the fingerprints you trust to <code>${SIGNERS_REF}</code>. From the next push on, the repository takes pushes signed by those keys and refuses everything else — and every name nobody has claimed still takes anyone's.</p>
-        <p><strong>List two keys.</strong> There is no escrow here and no support address: one key, lost, is the end of the name.</p>
+        <p><strong>Claiming one takes a single push.</strong> Write the fingerprints you trust to <code>${SIGNERS_REF}</code>. From the next push on, the repository takes pushes signed by those keys and refuses everything else — no account to open, no invite to send, no dashboard to visit. Claiming is opt-in: every name nobody has claimed still takes anyone's.</p>
+        <p><strong>List two keys.</strong> The keys are the whole of it and there is nothing to reset, so a second one is how you keep a way back in.</p>
       </div>
 
       <div class="split-show">
@@ -461,7 +467,7 @@ function ownershipSection(host: string, caps: Capabilities): string {
 </span><span class="ln"><span class="c">    git push --signed=yes origin HEAD:refs/heads/&lt;branch&gt;</span>
 </span><span class="ln"><span class="c">…</span>
 </span><span class="ln"><span class="ok">Nothing was uploaded; the repository is unchanged.</span></span></pre>
-          <div class="panel-foot">Refused in <code>pre-receive</code>, before anything is uploaded. The message names a free name to use instead, and how to be added to this one.</div>
+          <div class="panel-foot">Turned away before anything is uploaded. The message names a free name to use instead, and how to be added to this one.</div>
         </div>
       </div>
     </section>
@@ -514,7 +520,7 @@ function claims(caps: Capabilities): string {
     // crawler rather than to the agent driving it.
     claim(
       'Crawlable',
-      `<b><code>/robots.txt</code> says yes, out loud.</b> <code>Allow: /</code> for every agent, and <code>Content-Signal: ${CONTENT_SIGNAL}</code>. Silence was being read as a refusal.`,
+      `<b><code>/robots.txt</code> says yes, out loud.</b> <code>Allow: /</code> for every agent, and <code>Content-Signal: ${CONTENT_SIGNAL}</code>. Your agent is welcome to read this place, and told so in the one file it checks.`,
     ),
   ]
     .filter((term) => term !== '')
@@ -560,13 +566,13 @@ function heroUnder(caps: Capabilities): string {
 /**
  * The first two roadmap rows, which are the two the gate makes untrue.
  *
- * The roadmap is "what is missing, in the order it unblocks itself", so a
+ * The roadmap is "where this is going, in the order it gets there", so a
  * deployment where a name can already refuse a stranger must not go on calling
  * ownership Next. Same rule as every limit on this page, applied to a promise
  * instead of a cap.
  *
  * Where it shipped the row does not become a `Shipped` row — it LEAVES. This
- * list is what is missing, and a section above now states ownership as a rule
+ * list is what is still ahead, and a section above now states ownership as a rule
  * of the host; carrying it in both places would be the page describing one
  * capability twice, once as a fact and once as an achievement. Only Private
  * stays, because Private is genuinely still missing and the row was wrong about
@@ -593,18 +599,18 @@ function roadmapOwnership(caps: Capabilities): string {
     return `        <li data-next>
           <span class="when">Next</span>
           <h3>Ownership</h3>
-          <p>Claiming a name. Who pushed is already recorded; what is missing is the policy that says the first key to push a name keeps it — and un-claiming is a decision nobody will agree on, so it is the one row here that is hard to take back.</p>
+          <p>A name only your keys can write to. Who pushed is already recorded; what is left is the rule that says the first key to push a name keeps it — and because un-claiming is hard to take back, it gets designed carefully rather than quickly.</p>
         </li>
         <li>
           <span class="when">After ownership</span>
           <h3>Private</h3>
-          <p>There is nobody to be private from until a name has an owner. Reads gated on the same fingerprint that already gets recorded, and not before ownership means something.</p>
+          <p>Reads closed to everyone but the keys you list — gated on the same fingerprint a signed push already carries, once holding a name means something.</p>
         </li>`
   }
   return `        <li>
-          <span class="when">Unblocked, unplanned</span>
+          <span class="when">Unblocked</span>
           <h3>Private</h3>
-          <p>A name that holds a Signer List is the first thing here anyone could be private <em>from</em>. Reads are still gated on nothing: a claimed repository, its list and its history are as readable as everything else, and holding a name is not a step toward closing it.</p>
+          <p>Reads closed to everyone but the keys you list. Holding a name is what makes that possible, and nothing else stands in the way of it — but it is not built yet, and today a claimed repository reads as openly as any other.</p>
         </li>`
 }
 
@@ -627,10 +633,10 @@ function roadmapPulls(caps: Capabilities): string {
   // capability in two contradictory places.
   if (caps.proposals) return ''
   const missing = caps.appendOnly
-    ? 'Append-only already makes a proposal safe to push. What is missing is a way to say a branch is one, and a way to say it landed — not a review UI.'
-    : 'A branch is already the whole of a proposal. What is missing is a way to say that is what it is, and a way to say it landed — not a review UI.'
+    ? 'Append-only already makes a proposal safe to push. What is left is a way to say a branch is one, and a way to say it landed — not a review UI.'
+    : 'A branch is already the whole of a proposal. What is left is a way to say that is what it is, and a way to say it landed — not a review UI.'
   return `        <li>
-          <span class="when">Under design</span>
+          <span class="when">In design</span>
           <h3>Pull requests</h3>
           <p>${missing}</p>
         </li>`
@@ -1333,15 +1339,15 @@ const PAGE = `<!doctype html>
     </section>
 
     <section>
-      <h2>On the way.</h2>
-      <p>What is missing, in the order it unblocks itself. Nothing here is a date, and each one is written down before it is built.</p>
+      <h2>What's next.</h2>
+      <p>Where this is going, in the order it gets there. Nothing here is a date — each one is designed in the open before it ships.</p>
       <ul class="road">
 {{ROADMAP_OWNERSHIP}}
 {{ROADMAP_PULLS}}
         <li>
-          <span class="when">Half built</span>
+          <span class="when">Soon</span>
           <h3>CI</h3>
-          <p>A ref moving is already an event, and the client already runs a command on it. The missing half is somewhere to run it that is not your machine.</p>
+          <p>A ref moving is already an event and the client already runs a command on it, so the step left is running that command somewhere other than your laptop.</p>
         </li>
       </ul>
       <p class="caveat">{{PERMANENCE}} Not a place for anything you cannot lose.</p>
