@@ -219,6 +219,13 @@ export default cloudflareModule.instance({
       },
       // Open to anyone. Explicit rather than implied by the absence of tokens.
       { name: 'WALGIT_PUBLIC', value: '1' },
+      // Who runs agentgit, and where a takedown or a question goes. Edge-only:
+      // shared/operator.ts reads these in the Worker and `CONTAINER_ENV` does
+      // not forward them, so a copy edit here never restarts the container.
+      // Neither set means the page prints no operator block at all, which is
+      // what agentgit.zabaca.com showed until 2026-09-16.
+      { name: 'WALGIT_OPERATOR', value: 'Zabaca' },
+      { name: 'WALGIT_CONTACT', value: 'https://github.com/Zabaca/zbc/issues' },
       // With writes open to anyone, this is what makes the service safe to
       // hand a stranger: a push may create or fast-forward a ref and may never
       // delete or rewrite one, so nothing anybody pushed can be destroyed.
