@@ -1,0 +1,230 @@
+{
+  "cases": [
+    {
+      "module": "d1",
+      "kind": "new",
+      "consumers": 2,
+      "implementations": [
+        {
+          "consumer": "leeandco",
+          "name": "d1",
+          "location": "own",
+          "path": "packages/infra/modules/d1/index.ts",
+          "lines": 307,
+          "configKeys": [
+            "accountId",
+            "databaseName",
+            "apiToken"
+          ],
+          "outputKeys": [
+            "databaseName",
+            "databaseId"
+          ],
+          "verdict": "novel"
+        },
+        {
+          "consumer": "crux",
+          "name": "d1",
+          "location": "own",
+          "path": "packages/infra/modules/d1/index.ts",
+          "lines": 159,
+          "configKeys": [
+            "accountId",
+            "databaseName",
+            "statements",
+            "additiveColumns"
+          ],
+          "outputKeys": [
+            "databaseName",
+            "databaseId"
+          ],
+          "verdict": "novel"
+        }
+      ]
+    },
+    {
+      "module": "cloudflare-access-service-token",
+      "kind": "new",
+      "consumers": 1,
+      "implementations": [
+        {
+          "consumer": "leeandco",
+          "name": "cloudflare-access-service-token",
+          "location": "own",
+          "path": "packages/infra/modules/cloudflare-access-service-token/index.ts",
+          "lines": 307,
+          "configKeys": [],
+          "outputKeys": [
+            "tokenId",
+            "clientId",
+            "name",
+            "created",
+            "expiresAt",
+            "changed"
+          ],
+          "verdict": "novel"
+        }
+      ]
+    },
+    {
+      "module": "cloudflare-account-member",
+      "kind": "new",
+      "consumers": 1,
+      "implementations": [
+        {
+          "consumer": "leeandco",
+          "name": "cloudflare-account-member",
+          "location": "own",
+          "path": "packages/infra/modules/cloudflare-account-member/index.ts",
+          "lines": 513,
+          "configKeys": [],
+          "outputKeys": [
+            "members",
+            "pending",
+            "created",
+            "undeclared",
+            "removed",
+            "changed"
+          ],
+          "verdict": "novel"
+        }
+      ]
+    },
+    {
+      "module": "cloudflare-email",
+      "kind": "upgrade",
+      "consumers": 1,
+      "implementations": [
+        {
+          "consumer": "leeandco",
+          "name": "cloudflare-email",
+          "location": "own",
+          "path": "packages/infra/modules/cloudflare-email/index.ts",
+          "lines": 719,
+          "configKeys": [
+            "accountId",
+            "zoneId",
+            "apiToken",
+            "domain",
+            "enableSending",
+            "enableRouting",
+            "catchAll",
+            "addresses"
+          ],
+          "outputKeys": [
+            "sendingEnabled",
+            "routingEnabled",
+            "dnsStatus",
+            "addresses",
+            "accountId",
+            "domain"
+          ],
+          "upstreamFirstSeen": "2026-07-15",
+          "verdict": "divergent",
+          "nearestRev": "74c795d37e0743b224263d7df19a949a0efb4e8a",
+          "similarity": 0.653
+        }
+      ]
+    },
+    {
+      "module": "cloudflare-token",
+      "kind": "upgrade",
+      "consumers": 1,
+      "implementations": [
+        {
+          "consumer": "leeandco",
+          "name": "cloudflare-token",
+          "location": "own",
+          "path": "packages/infra/modules/cloudflare-token/index.ts",
+          "lines": 683,
+          "configKeys": [
+            "accountId",
+            "tokenName",
+            "permissions",
+            "zones",
+            "readinessProbe",
+            "ephemeral",
+            "rootTokenSecret"
+          ],
+          "outputKeys": [
+            "tokenId",
+            "tokenValue",
+            "s3AccessKeyId",
+            "s3SecretAccessKey"
+          ],
+          "upstreamFirstSeen": "2026-08-03",
+          "verdict": "divergent",
+          "nearestRev": "3a5bf8543be321c406987289c591fed632b381fb",
+          "similarity": 0.294
+        }
+      ]
+    },
+    {
+      "module": "cloudflare-zone",
+      "kind": "upgrade",
+      "consumers": 1,
+      "implementations": [
+        {
+          "consumer": "leeandco",
+          "name": "cloudflare-zone",
+          "location": "own",
+          "path": "packages/infra/modules/cloudflare-zone/index.ts",
+          "lines": 776,
+          "configKeys": [],
+          "outputKeys": [
+            "zoneId",
+            "zoneName",
+            "zoneCreated",
+            "zoneStatus",
+            "nameServers",
+            "created",
+            "updated",
+            "deleted",
+            "undeclared",
+            "emailProvisioned",
+            "changed"
+          ],
+          "upstreamFirstSeen": "2026-08-19",
+          "verdict": "divergent",
+          "nearestRev": "aefae2833a07124a1c6831a4c2c0ee8e4e920b68",
+          "similarity": 0.592
+        }
+      ]
+    },
+    {
+      "module": "cloudflare-access",
+      "kind": "upgrade",
+      "consumers": 1,
+      "implementations": [
+        {
+          "consumer": "leeandco",
+          "name": "cloudflare-access",
+          "location": "own",
+          "path": "packages/infra/modules/cloudflare-access/index.ts",
+          "lines": 932,
+          "configKeys": [],
+          "outputKeys": [
+            "appId",
+            "aud",
+            "teamDomain",
+            "orgName",
+            "identityProviders",
+            "undeclaredIdentityProviders",
+            "appDomain",
+            "emails",
+            "policyId",
+            "policyIds",
+            "serviceTokenIds",
+            "appCreated",
+            "undeclared",
+            "changed"
+          ],
+          "upstreamFirstSeen": "2026-08-19",
+          "verdict": "divergent",
+          "nearestRev": "76007535ed540c63a8caaccf274bb170c9f6db62",
+          "similarity": 0.35
+        }
+      ]
+    }
+  ]
+}

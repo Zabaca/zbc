@@ -1,0 +1,225 @@
+{
+  "id": "varnick",
+  "repo": null,
+  "mode": "subtree",
+  "tier": "module-author",
+  "ref": "93d72432392b019abf52fa56f1758c376295aec2",
+  "surveyedAt": "2026-09-03T02:56:08.356Z",
+  "environments": {},
+  "modules": [
+    {
+      "name": "client-account",
+      "location": "own",
+      "path": "packages/infra/modules/client-account/index.ts",
+      "lines": 523,
+      "configKeys": [],
+      "outputKeys": [
+        "accountId",
+        "accountName",
+        "zoneId",
+        "nameServers",
+        "created",
+        "drift",
+        "ownerEmail",
+        "ownerHoldsAccount",
+        "changed"
+      ],
+      "verdict": "novel"
+    },
+    {
+      "name": "client-domain",
+      "location": "own",
+      "path": "packages/infra/modules/client-domain/index.ts",
+      "lines": 277,
+      "configKeys": [],
+      "outputKeys": [
+        "domain",
+        "accountId",
+        "registered",
+        "expiresAt",
+        "locked",
+        "currentRegistrar",
+        "registryStatuses",
+        "maxPriceUsd",
+        "changed"
+      ],
+      "verdict": "novel"
+    },
+    {
+      "name": "client-preview",
+      "location": "own",
+      "path": "packages/infra/modules/client-preview/index.ts",
+      "lines": 829,
+      "configKeys": [],
+      "outputKeys": [
+        "accountId",
+        "accountName",
+        "zoneId",
+        "hostname",
+        "tryPath",
+        "deployed",
+        "tornDown",
+        "routesCreated",
+        "routesRepointed",
+        "routesRemoved",
+        "changed"
+      ],
+      "verdict": "novel"
+    },
+    {
+      "name": "client-core",
+      "location": "own",
+      "path": "packages/infra/modules/client-core/index.ts",
+      "lines": 155,
+      "configKeys": [],
+      "outputKeys": [],
+      "verdict": "novel"
+    },
+    {
+      "name": "docker-compose-stack",
+      "location": "vendored",
+      "path": "vendor/zbc/modules/docker-compose-stack/index.ts",
+      "lines": 31,
+      "configKeys": [
+        "dir",
+        "services"
+      ],
+      "outputKeys": [],
+      "verdict": "current",
+      "matchedRev": "58d32bc00d7cca46c6e1f7f2f707653c6566a5db"
+    },
+    {
+      "name": "cloudflare",
+      "location": "vendored",
+      "path": "vendor/zbc/modules/cloudflare/index.ts",
+      "lines": 548,
+      "configKeys": [
+        "workdir",
+        "accountId",
+        "apiToken",
+        "build",
+        "workerSecrets",
+        "workerVars",
+        "r2Bindings",
+        "immediateContainerRollout",
+        "wranglerEnv",
+        "workerName"
+      ],
+      "outputKeys": [
+        "deployUrl",
+        "workerName"
+      ],
+      "verdict": "stale",
+      "matchedRev": "f06480507c37cb07f3868a004b17913c46bf9ed9"
+    },
+    {
+      "name": "turso",
+      "location": "vendored",
+      "path": "vendor/zbc/modules/turso/index.ts",
+      "lines": 187,
+      "configKeys": [
+        "orgName",
+        "dbName",
+        "group",
+        "primaryLocation",
+        "ephemeral",
+        "migrationsDir"
+      ],
+      "outputKeys": [
+        "databaseUrl",
+        "authToken"
+      ],
+      "verdict": "stale",
+      "matchedRev": "8a558a40b3e380f813ab6a275f9587a5a286475e"
+    },
+    {
+      "name": "cloudflare-email",
+      "location": "vendored",
+      "path": "vendor/zbc/modules/cloudflare-email/index.ts",
+      "lines": 513,
+      "configKeys": [
+        "accountId",
+        "zoneId",
+        "domain",
+        "enableSending",
+        "enableRouting",
+        "catchAll",
+        "addresses"
+      ],
+      "outputKeys": [
+        "sendingEnabled",
+        "routingEnabled",
+        "dnsStatus",
+        "addresses",
+        "accountId",
+        "domain"
+      ],
+      "verdict": "stale",
+      "matchedRev": "74c795d37e0743b224263d7df19a949a0efb4e8a"
+    },
+    {
+      "name": "cloudflare-token",
+      "location": "vendored",
+      "path": "vendor/zbc/modules/cloudflare-token/index.ts",
+      "lines": 252,
+      "configKeys": [
+        "accountId",
+        "tokenName",
+        "permissions",
+        "zones",
+        "ephemeral"
+      ],
+      "outputKeys": [
+        "tokenId",
+        "tokenValue",
+        "s3AccessKeyId",
+        "s3SecretAccessKey"
+      ],
+      "verdict": "stale",
+      "matchedRev": "3a5bf8543be321c406987289c591fed632b381fb"
+    },
+    {
+      "name": "host-file",
+      "location": "vendored",
+      "path": "vendor/zbc/modules/host-file/index.ts",
+      "lines": 47,
+      "configKeys": [],
+      "outputKeys": [],
+      "verdict": "stale",
+      "matchedRev": "58d32bc00d7cca46c6e1f7f2f707653c6566a5db"
+    },
+    {
+      "name": "systemd-unit",
+      "location": "vendored",
+      "path": "vendor/zbc/modules/systemd-unit/index.ts",
+      "lines": 68,
+      "configKeys": [
+        "unit",
+        "content",
+        "scope",
+        "enableNow"
+      ],
+      "outputKeys": [],
+      "verdict": "stale",
+      "matchedRev": "58d32bc00d7cca46c6e1f7f2f707653c6566a5db"
+    },
+    {
+      "name": "r2",
+      "location": "vendored",
+      "path": "vendor/zbc/modules/r2/index.ts",
+      "lines": 138,
+      "configKeys": [
+        "accountId",
+        "bucketName",
+        "locationHint",
+        "ephemeral"
+      ],
+      "outputKeys": [
+        "bucketName"
+      ],
+      "verdict": "stale",
+      "matchedRev": "9f1326815be69993c85ba94340fbf2e591c695fa"
+    }
+  ],
+  "escapeHatches": []
+}

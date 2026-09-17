@@ -1,0 +1,236 @@
+{
+  "id": "foothill-metabolic",
+  "repo": "Zabaca/foothill-metabolic",
+  "mode": "copy",
+  "tier": "consumer",
+  "ref": "add6541c633fdd7600f2370e1d14a3bd5588ee55",
+  "surveyedAt": "2026-09-03T02:56:05.611Z",
+  "environments": {
+    "production": [
+      "gcal",
+      "foothill-inbox",
+      "foothill-email",
+      "turso",
+      "foothill-inbox-raw",
+      "foothill-inbox-auth-db",
+      "foothill-metabolic-cf"
+    ],
+    "preview": [
+      "gcal",
+      "turso",
+      "foothill-metabolic-cf"
+    ]
+  },
+  "modules": [
+    {
+      "name": "d1",
+      "location": "own",
+      "path": "packages/infra/modules/d1/index.ts",
+      "lines": 111,
+      "configKeys": [
+        "accountId",
+        "databaseName"
+      ],
+      "outputKeys": [
+        "databaseName",
+        "databaseId"
+      ],
+      "verdict": "novel"
+    },
+    {
+      "name": "cloudflare",
+      "location": "own",
+      "path": "packages/infra/modules/cloudflare/index.ts",
+      "lines": 250,
+      "configKeys": [
+        "workdir",
+        "accountId",
+        "build",
+        "workerSecrets",
+        "immediateContainerRollout",
+        "wranglerEnv",
+        "workerName"
+      ],
+      "outputKeys": [
+        "deployUrl"
+      ],
+      "verdict": "divergent",
+      "nearestRev": "e83bf83b5c86328409ff17c9feaa5a085fc4759e",
+      "similarity": 0.953
+    },
+    {
+      "name": "turso",
+      "location": "own",
+      "path": "packages/infra/modules/turso/index.ts",
+      "lines": 119,
+      "configKeys": [
+        "orgName",
+        "dbName",
+        "group",
+        "primaryLocation",
+        "ephemeral",
+        "migrationsDir"
+      ],
+      "outputKeys": [
+        "databaseUrl",
+        "authToken"
+      ],
+      "verdict": "stale",
+      "matchedRev": "d82840f5c111a64e31fa3e82799a9f86df1ab806"
+    },
+    {
+      "name": "gcp",
+      "location": "own",
+      "path": "packages/infra/modules/gcp/index.ts",
+      "lines": 182,
+      "configKeys": [
+        "projectId",
+        "serviceAccountId",
+        "displayName",
+        "calendarSummary",
+        "calendarTimeZone",
+        "maxKeys"
+      ],
+      "outputKeys": [
+        "saKey",
+        "saEmail",
+        "calendarId"
+      ],
+      "verdict": "novel"
+    },
+    {
+      "name": "cloudflare-email",
+      "location": "own",
+      "path": "packages/infra/modules/cloudflare-email/index.ts",
+      "lines": 513,
+      "configKeys": [
+        "accountId",
+        "zoneId",
+        "domain",
+        "enableSending",
+        "enableRouting",
+        "catchAll",
+        "addresses"
+      ],
+      "outputKeys": [
+        "sendingEnabled",
+        "routingEnabled",
+        "dnsStatus",
+        "addresses",
+        "accountId",
+        "domain"
+      ],
+      "verdict": "stale",
+      "matchedRev": "74c795d37e0743b224263d7df19a949a0efb4e8a"
+    },
+    {
+      "name": "r2",
+      "location": "own",
+      "path": "packages/infra/modules/r2/index.ts",
+      "lines": 138,
+      "configKeys": [
+        "accountId",
+        "bucketName",
+        "locationHint",
+        "ephemeral"
+      ],
+      "outputKeys": [
+        "bucketName"
+      ],
+      "verdict": "stale",
+      "matchedRev": "9f1326815be69993c85ba94340fbf2e591c695fa"
+    }
+  ],
+  "escapeHatches": [
+    {
+      "file": "scripts/check-orphan-previews.sh",
+      "line": 12,
+      "tool": "turso",
+      "snippet": "# the gh CLI (authed), turso CLI, python3. Reads tokens from the SOPS-encrypted"
+    },
+    {
+      "file": "scripts/check-orphan-previews.sh",
+      "line": 37,
+      "tool": "turso",
+      "snippet": "turso_prs=\"$(TURSO_API_TOKEN=\"${TTOKEN}\" turso db list 2>/dev/null \\"
+    },
+    {
+      "file": "scripts/check-orphan-previews.sh",
+      "line": 73,
+      "tool": "wrangler",
+      "snippet": "echo \"${orphans} orphan(s) found. To clean: \\`bunx wrangler delete --name foothill-metabolic-pr-<N>\\` +\""
+    },
+    {
+      "file": "scripts/check-orphan-previews.sh",
+      "line": 74,
+      "tool": "turso",
+      "snippet": "echo \"\\`turso db destroy foothillmetabolic-pr-<N>\\`.\""
+    },
+    {
+      "file": "scripts/with-worktree-db.sh",
+      "line": 19,
+      "tool": "turso",
+      "snippet": "# `turso dev` on a derived port, and exports that http:// URL as"
+    },
+    {
+      "file": "scripts/with-worktree-db.sh",
+      "line": 39,
+      "tool": "turso",
+      "snippet": "if ! command -v turso >/dev/null 2>&1; then"
+    },
+    {
+      "file": "scripts/with-worktree-db.sh",
+      "line": 40,
+      "tool": "turso",
+      "snippet": "echo \"with-worktree-db: turso CLI not on PATH (expected ~/.turso/turso).\" >&2"
+    },
+    {
+      "file": "scripts/with-worktree-db.sh",
+      "line": 95,
+      "tool": "turso",
+      "snippet": "turso dev --db-file \"$DB_FILE\" --port \"$DB_PORT\" >/tmp/worktree-db-${DB_PORT}.log 2>&1 &"
+    },
+    {
+      "file": "scripts/with-worktree-db.sh",
+      "line": 116,
+      "tool": "turso",
+      "snippet": "# `turso dev` runs the actual listener as a child `sqld`, which does not"
+    },
+    {
+      "file": "packages/infra/environments/production/foothill-metabolic-cf.ts",
+      "line": 2,
+      "tool": "turso",
+      "snippet": "import turso from './turso'"
+    },
+    {
+      "file": "packages/infra/environments/production/foothill-metabolic-cf.ts",
+      "line": 24,
+      "tool": "wrangler",
+      "snippet": "wranglerEnv: 'production',"
+    },
+    {
+      "file": "packages/infra/environments/preview/foothill-metabolic-cf.ts",
+      "line": 2,
+      "tool": "turso",
+      "snippet": "import turso from './turso'"
+    },
+    {
+      "file": ".github/workflows/preview.yml",
+      "line": 9,
+      "tool": "turso",
+      "snippet": "# per-PR worker + workers.dev URL, turso import = per-PR DB). No path filter:"
+    },
+    {
+      "file": ".github/workflows/e2e.yml",
+      "line": 30,
+      "tool": "turso",
+      "snippet": "# scripts/with-worktree-db.sh serves leads-local.db through `turso dev`,"
+    },
+    {
+      "file": ".github/workflows/e2e.yml",
+      "line": 32,
+      "tool": "turso",
+      "snippet": "- name: Install turso CLI"
+    }
+  ]
+}

@@ -1,0 +1,204 @@
+{
+  "id": "ceo",
+  "repo": "Zabaca/ceo",
+  "mode": "copy",
+  "tier": "driver",
+  "ref": "32bd3913f12fc3a01e01c0df6b0ffbb8368df166",
+  "surveyedAt": "2026-09-03T02:56:03.251Z",
+  "environments": {
+    "workstation": [
+      "obs"
+    ],
+    "production": [
+      "recon",
+      "qom",
+      "roamside-analytics",
+      "ceo",
+      "lov",
+      "campkit",
+      "roamside-email",
+      "household-ledger",
+      "feedback",
+      "tour-guide",
+      "tour-guide-cache",
+      "claude-sandbox"
+    ]
+  },
+  "modules": [
+    {
+      "name": "vercel",
+      "location": "own",
+      "path": "packages/infra/modules/vercel/index.ts",
+      "lines": 359,
+      "configKeys": [],
+      "outputKeys": [
+        "projectUrl",
+        "projectId",
+        "deployUrl"
+      ],
+      "verdict": "novel"
+    },
+    {
+      "name": "d1",
+      "location": "own",
+      "path": "packages/infra/modules/d1/index.ts",
+      "lines": 111,
+      "configKeys": [
+        "accountId",
+        "databaseName"
+      ],
+      "outputKeys": [
+        "databaseName",
+        "databaseId"
+      ],
+      "verdict": "novel"
+    },
+    {
+      "name": "cloudflare",
+      "location": "own",
+      "path": "packages/infra/modules/cloudflare/index.ts",
+      "lines": 545,
+      "configKeys": [
+        "workdir",
+        "accountId",
+        "build",
+        "workerSecrets",
+        "r2Buckets",
+        "immediateContainerRollout",
+        "wranglerEnv",
+        "workerName",
+        "zoneSettings",
+        "zoneName",
+        "accessOrganization",
+        "access"
+      ],
+      "outputKeys": [
+        "deployUrl"
+      ],
+      "verdict": "divergent",
+      "nearestRev": "e83bf83b5c86328409ff17c9feaa5a085fc4759e",
+      "similarity": 0.433
+    },
+    {
+      "name": "turso",
+      "location": "own",
+      "path": "packages/infra/modules/turso/index.ts",
+      "lines": 180,
+      "configKeys": [
+        "orgName",
+        "dbName",
+        "group",
+        "primaryLocation",
+        "ephemeral",
+        "migrationsDir"
+      ],
+      "outputKeys": [
+        "databaseUrl",
+        "authToken"
+      ],
+      "verdict": "stale",
+      "matchedRev": "a5a089bf20e6109114fe1b490c9c18e31254e4e8"
+    },
+    {
+      "name": "gcp",
+      "location": "own",
+      "path": "packages/infra/modules/gcp/index.ts",
+      "lines": 182,
+      "configKeys": [
+        "projectId",
+        "serviceAccountId",
+        "displayName",
+        "calendarSummary",
+        "calendarTimeZone",
+        "maxKeys"
+      ],
+      "outputKeys": [
+        "saKey",
+        "saEmail",
+        "calendarId"
+      ],
+      "verdict": "novel"
+    },
+    {
+      "name": "cloudflare-email",
+      "location": "own",
+      "path": "packages/infra/modules/cloudflare-email/index.ts",
+      "lines": 513,
+      "configKeys": [
+        "accountId",
+        "zoneId",
+        "domain",
+        "enableSending",
+        "enableRouting",
+        "catchAll",
+        "addresses"
+      ],
+      "outputKeys": [
+        "sendingEnabled",
+        "routingEnabled",
+        "dnsStatus",
+        "addresses",
+        "accountId",
+        "domain"
+      ],
+      "verdict": "stale",
+      "matchedRev": "74c795d37e0743b224263d7df19a949a0efb4e8a"
+    },
+    {
+      "name": "obs",
+      "location": "own",
+      "path": "packages/infra/modules/obs/index.ts",
+      "lines": 769,
+      "configKeys": [
+        "host",
+        "port",
+        "configPath",
+        "scenes",
+        "video",
+        "currentScene",
+        "recordDirectory",
+        "profileParameters",
+        "prune"
+      ],
+      "outputKeys": [
+        "url",
+        "scenes"
+      ],
+      "verdict": "novel"
+    },
+    {
+      "name": "posthog",
+      "location": "own",
+      "path": "packages/infra/modules/posthog/index.ts",
+      "lines": 120,
+      "configKeys": [
+        "projectId",
+        "host",
+        "dashboards",
+        "insights"
+      ],
+      "outputKeys": [
+        "dashboardUrls"
+      ],
+      "verdict": "novel"
+    },
+    {
+      "name": "r2",
+      "location": "own",
+      "path": "packages/infra/modules/r2/index.ts",
+      "lines": 138,
+      "configKeys": [
+        "accountId",
+        "bucketName",
+        "locationHint",
+        "ephemeral"
+      ],
+      "outputKeys": [
+        "bucketName"
+      ],
+      "verdict": "stale",
+      "matchedRev": "9f1326815be69993c85ba94340fbf2e591c695fa"
+    }
+  ],
+  "escapeHatches": []
+}

@@ -1,0 +1,1229 @@
+{
+  "id": "foundry",
+  "repo": null,
+  "mode": "subtree",
+  "tier": "driver",
+  "ref": "98861e9fb7ab39690b40c3dff9cefa7cdd9602f1",
+  "surveyedAt": "2026-09-03T02:56:00.898Z",
+  "environments": {
+    "ryzen-9": [
+      "assay-solve-timer",
+      "forge-preview-watch",
+      "hardening",
+      "incus-trust-cedarpad",
+      "claude-sync",
+      "claude-sync-timer",
+      "assay-triage-timer",
+      "assay-solve",
+      "gh-runner-foothill-metabolic",
+      "xdg-portal-gtk-mask",
+      "hardening-script",
+      "assay-dedupe-timer",
+      "assay-triage",
+      "vultr-authkey",
+      "deadman-probe",
+      "watchdog-timer",
+      "ci-fredrin",
+      "deadman-heartbeat",
+      "ci-ceo",
+      "agent-net",
+      "assay-observe",
+      "agent-host",
+      "agent-host-env",
+      "ntfy-topic",
+      "varnick-zone",
+      "gh-runner-ceo",
+      "rclone",
+      "monitoring-env",
+      "ci-fredrin-provision",
+      "transcribe",
+      "backup-r2-env",
+      "pipeline-timer",
+      "pipeline",
+      "vultr-deadman",
+      "incus-listener",
+      "deadman-probe-timer",
+      "incus-project-zabaca",
+      "ducklake-maintenance",
+      "claude-code-settings",
+      "incus-trust-agent-lab",
+      "agent-vm-provision",
+      "ducklake-env",
+      "claude-agent-foundry",
+      "monitoring-reload",
+      "voice-log",
+      "access-token",
+      "varnick-site",
+      "deadman-heartbeat-timer",
+      "tmux-conf",
+      "agent-proxy",
+      "gpu-metrics",
+      "agent-vm",
+      "ci-shared",
+      "ci-ceo-provision",
+      "agent-base",
+      "ci-shared-provision",
+      "assay-settle-timer",
+      "assay-observe-timer",
+      "headroom-env",
+      "dream",
+      "claude-skill-mermaid-validator",
+      "agent-vm-authkey",
+      "xdg-portal-mask",
+      "assay-morning",
+      "backup-timer",
+      "ticket-store-dir",
+      "tmux",
+      "forge-preview-serve",
+      "gh-runner-cedarpad",
+      "cloudflared",
+      "agent-base-provision",
+      "monitoring",
+      "claude-agent-diagram-generator",
+      "ducklake",
+      "varnick-deploy-token",
+      "dream-timer",
+      "agent-net-script",
+      "forge-preview",
+      "assay-canary",
+      "headroom",
+      "watchdog",
+      "forge-serve",
+      "claude-skill-ship",
+      "varnick-dns-token",
+      "incus-packages",
+      "assay-morning-timer",
+      "assay-settle",
+      "tailscale-acl",
+      "pipeline-env",
+      "incus-pool",
+      "forge-preview-worktree",
+      "ducklake-maintenance-timer",
+      "gh-runner-fredrin",
+      "agent-host-access",
+      "assay-dedupe",
+      "backup",
+      "assay-canary-timer",
+      "agent-tunnel",
+      "incus-docker-forward",
+      "agent-cap-limit",
+      "incus-trust-cedarpad-mac",
+      "forge-release",
+      "vultr",
+      "assay-records-worktree",
+      "backup-env",
+      "agent-tunnel-env",
+      "ntfy-bridge",
+      "forge",
+      "assay-audit-timer",
+      "assay-audit"
+    ]
+  },
+  "modules": [
+    {
+      "name": "github-runner",
+      "location": "own",
+      "path": "packages/infra/modules/github-runner/index.ts",
+      "lines": 579,
+      "configKeys": [
+        "repo",
+        "runnerName",
+        "installDir",
+        "workDir",
+        "labels",
+        "patSecretKey",
+        "count",
+        "memoryHigh",
+        "memoryMax",
+        "instance",
+        "user"
+      ],
+      "outputKeys": [],
+      "verdict": "novel"
+    },
+    {
+      "name": "tailscale-authkey",
+      "location": "own",
+      "path": "packages/infra/modules/tailscale-authkey/index.ts",
+      "lines": 226,
+      "configKeys": [
+        "tags",
+        "checkHostname",
+        "description",
+        "expirySeconds",
+        "reusable",
+        "ephemeral",
+        "preauthorized"
+      ],
+      "outputKeys": [
+        "key",
+        "minted",
+        "tags",
+        "reason"
+      ],
+      "verdict": "novel"
+    },
+    {
+      "name": "prometheus-reload",
+      "location": "own",
+      "path": "packages/infra/modules/prometheus-reload/index.ts",
+      "lines": 206,
+      "configKeys": [
+        "url",
+        "dir"
+      ],
+      "outputKeys": [],
+      "verdict": "novel"
+    },
+    {
+      "name": "tailscale-serve",
+      "location": "own",
+      "path": "packages/infra/modules/tailscale-serve/index.ts",
+      "lines": 179,
+      "configKeys": [
+        "port",
+        "target",
+        "path"
+      ],
+      "outputKeys": [
+        "port",
+        "url",
+        "changed"
+      ],
+      "verdict": "novel"
+    },
+    {
+      "name": "incus-project",
+      "location": "own",
+      "path": "packages/infra/modules/incus-project/index.ts",
+      "lines": 154,
+      "configKeys": [
+        "name",
+        "config"
+      ],
+      "outputKeys": [
+        "name",
+        "created",
+        "changed"
+      ],
+      "verdict": "novel"
+    },
+    {
+      "name": "git-worktree",
+      "location": "own",
+      "path": "packages/infra/modules/git-worktree/index.ts",
+      "lines": 215,
+      "configKeys": [
+        "repo",
+        "path",
+        "branch",
+        "hooksPath"
+      ],
+      "outputKeys": [
+        "path",
+        "branch",
+        "created",
+        "changed",
+        "hooksPath"
+      ],
+      "verdict": "novel"
+    },
+    {
+      "name": "claude-settings",
+      "location": "own",
+      "path": "packages/infra/modules/claude-settings/index.ts",
+      "lines": 233,
+      "configKeys": [
+        "settingsPath",
+        "owner",
+        "entries",
+        "settings"
+      ],
+      "outputKeys": [],
+      "verdict": "novel"
+    },
+    {
+      "name": "apt-packages",
+      "location": "own",
+      "path": "packages/infra/modules/apt-packages/index.ts",
+      "lines": 133,
+      "configKeys": [
+        "packages",
+        "updateTimeoutMs",
+        "installTimeoutMs"
+      ],
+      "outputKeys": [
+        "packages",
+        "installed",
+        "changed"
+      ],
+      "verdict": "novel"
+    },
+    {
+      "name": "tailscale-acl",
+      "location": "own",
+      "path": "packages/infra/modules/tailscale-acl/index.ts",
+      "lines": 212,
+      "configKeys": [
+        "policyPath"
+      ],
+      "outputKeys": [
+        "tailnet",
+        "sshActions",
+        "changed"
+      ],
+      "verdict": "novel"
+    },
+    {
+      "name": "tailscale-core",
+      "location": "own",
+      "path": "packages/infra/modules/tailscale-core/index.ts",
+      "lines": 93,
+      "configKeys": [],
+      "outputKeys": [],
+      "verdict": "novel"
+    },
+    {
+      "name": "forge-release",
+      "location": "own",
+      "path": "packages/infra/modules/forge-release/index.ts",
+      "lines": 111,
+      "configKeys": [
+        "repo",
+        "current",
+        "script",
+        "revision"
+      ],
+      "outputKeys": [
+        "current",
+        "created",
+        "changed"
+      ],
+      "verdict": "novel"
+    },
+    {
+      "name": "incus-trust",
+      "location": "own",
+      "path": "packages/infra/modules/incus-trust/index.ts",
+      "lines": 337,
+      "configKeys": [
+        "name",
+        "projects"
+      ],
+      "outputKeys": [
+        "name",
+        "projects",
+        "state",
+        "changed"
+      ],
+      "verdict": "novel"
+    },
+    {
+      "name": "incus-listener",
+      "location": "own",
+      "path": "packages/infra/modules/incus-listener/index.ts",
+      "lines": 204,
+      "configKeys": [
+        "port",
+        "tokenExpiry"
+      ],
+      "outputKeys": [
+        "address",
+        "tokenExpiry",
+        "changed"
+      ],
+      "verdict": "novel"
+    },
+    {
+      "name": "host-dir",
+      "location": "vendored",
+      "path": "vendor/zbc/modules/host-dir/index.ts",
+      "lines": 205,
+      "configKeys": [
+        "path",
+        "owner",
+        "mode"
+      ],
+      "outputKeys": [
+        "path",
+        "mode",
+        "owner",
+        "changed"
+      ],
+      "verdict": "current",
+      "matchedRev": "aefae2833a07124a1c6831a4c2c0ee8e4e920b68"
+    },
+    {
+      "name": "host-exec",
+      "location": "vendored",
+      "path": "vendor/zbc/modules/host-exec/index.ts",
+      "lines": 193,
+      "configKeys": [],
+      "outputKeys": [],
+      "verdict": "current",
+      "matchedRev": "aefae2833a07124a1c6831a4c2c0ee8e4e920b68"
+    },
+    {
+      "name": "provision-core",
+      "location": "vendored",
+      "path": "vendor/zbc/modules/provision-core/index.ts",
+      "lines": 147,
+      "configKeys": [],
+      "outputKeys": [],
+      "verdict": "stale",
+      "matchedRev": "b2491039df1760ef4c046ec2a412f5a663440438"
+    },
+    {
+      "name": "fly",
+      "location": "vendored",
+      "path": "vendor/zbc/modules/fly/index.ts",
+      "lines": 317,
+      "configKeys": [
+        "workdir",
+        "appName",
+        "org",
+        "build",
+        "flySecrets",
+        "ipv4",
+        "ipv6",
+        "highAvailability",
+        "localBuild",
+        "ephemeral"
+      ],
+      "outputKeys": [
+        "appName",
+        "hostname",
+        "ipv4",
+        "ipv6"
+      ],
+      "verdict": "stale",
+      "matchedRev": "ca81b9e508508835bd2bff092b1f6bc88a05fad7"
+    },
+    {
+      "name": "docker-compose-stack",
+      "location": "vendored",
+      "path": "vendor/zbc/modules/docker-compose-stack/index.ts",
+      "lines": 31,
+      "configKeys": [
+        "dir",
+        "services"
+      ],
+      "outputKeys": [],
+      "verdict": "current",
+      "matchedRev": "58d32bc00d7cca46c6e1f7f2f707653c6566a5db"
+    },
+    {
+      "name": "cloudflare-api",
+      "location": "vendored",
+      "path": "vendor/zbc/modules/cloudflare-api/index.ts",
+      "lines": 181,
+      "configKeys": [],
+      "outputKeys": [],
+      "verdict": "stale",
+      "matchedRev": "76007535ed540c63a8caaccf274bb170c9f6db62"
+    },
+    {
+      "name": "incus-core",
+      "location": "vendored",
+      "path": "vendor/zbc/modules/incus-core/index.ts",
+      "lines": 197,
+      "configKeys": [],
+      "outputKeys": [],
+      "verdict": "current",
+      "matchedRev": "aefae2833a07124a1c6831a4c2c0ee8e4e920b68"
+    },
+    {
+      "name": "systemd-mask",
+      "location": "vendored",
+      "path": "vendor/zbc/modules/systemd-mask/index.ts",
+      "lines": 150,
+      "configKeys": [
+        "unit",
+        "reason"
+      ],
+      "outputKeys": [],
+      "verdict": "current",
+      "matchedRev": "aefae2833a07124a1c6831a4c2c0ee8e4e920b68"
+    },
+    {
+      "name": "cloudflare",
+      "location": "vendored",
+      "path": "vendor/zbc/modules/cloudflare/index.ts",
+      "lines": 548,
+      "configKeys": [
+        "workdir",
+        "accountId",
+        "apiToken",
+        "build",
+        "workerSecrets",
+        "workerVars",
+        "r2Bindings",
+        "immediateContainerRollout",
+        "wranglerEnv",
+        "workerName"
+      ],
+      "outputKeys": [
+        "deployUrl",
+        "workerName"
+      ],
+      "verdict": "stale",
+      "matchedRev": "f06480507c37cb07f3868a004b17913c46bf9ed9"
+    },
+    {
+      "name": "turso",
+      "location": "vendored",
+      "path": "vendor/zbc/modules/turso/index.ts",
+      "lines": 187,
+      "configKeys": [
+        "orgName",
+        "dbName",
+        "group",
+        "primaryLocation",
+        "ephemeral",
+        "migrationsDir"
+      ],
+      "outputKeys": [
+        "databaseUrl",
+        "authToken"
+      ],
+      "verdict": "stale",
+      "matchedRev": "8a558a40b3e380f813ab6a275f9587a5a286475e"
+    },
+    {
+      "name": "cloudflare-tunnel",
+      "location": "vendored",
+      "path": "vendor/zbc/modules/cloudflare-tunnel/index.ts",
+      "lines": 442,
+      "configKeys": [],
+      "outputKeys": [
+        "tunnelId",
+        "runToken",
+        "hostnames",
+        "createdTunnel",
+        "changed"
+      ],
+      "verdict": "stale",
+      "matchedRev": "aefae2833a07124a1c6831a4c2c0ee8e4e920b68"
+    },
+    {
+      "name": "host-symlink",
+      "location": "vendored",
+      "path": "vendor/zbc/modules/host-symlink/index.ts",
+      "lines": 121,
+      "configKeys": [
+        "path",
+        "target"
+      ],
+      "outputKeys": [],
+      "verdict": "current",
+      "matchedRev": "aefae2833a07124a1c6831a4c2c0ee8e4e920b68"
+    },
+    {
+      "name": "cloudflare-email",
+      "location": "vendored",
+      "path": "vendor/zbc/modules/cloudflare-email/index.ts",
+      "lines": 574,
+      "configKeys": [
+        "accountId",
+        "zoneId",
+        "domain",
+        "enableSending",
+        "enableRouting",
+        "catchAll",
+        "addresses"
+      ],
+      "outputKeys": [
+        "sendingEnabled",
+        "routingEnabled",
+        "dnsStatus",
+        "addresses",
+        "accountId",
+        "domain"
+      ],
+      "verdict": "stale",
+      "matchedRev": "9224fda0145efb52698995ec1006dd4e69ca163c"
+    },
+    {
+      "name": "incus-storage-pool",
+      "location": "vendored",
+      "path": "vendor/zbc/modules/incus-storage-pool/index.ts",
+      "lines": 157,
+      "configKeys": [],
+      "outputKeys": [
+        "name",
+        "driver",
+        "created",
+        "changed"
+      ],
+      "verdict": "current",
+      "matchedRev": "aefae2833a07124a1c6831a4c2c0ee8e4e920b68"
+    },
+    {
+      "name": "cloudflare-token",
+      "location": "vendored",
+      "path": "vendor/zbc/modules/cloudflare-token/index.ts",
+      "lines": 265,
+      "configKeys": [
+        "accountId",
+        "tokenName",
+        "permissions",
+        "zones",
+        "ephemeral"
+      ],
+      "outputKeys": [
+        "tokenId",
+        "tokenValue",
+        "s3AccessKeyId",
+        "s3SecretAccessKey"
+      ],
+      "verdict": "stale",
+      "matchedRev": "ec24ecb833461ee66cc57ba685ef0236bc82572a"
+    },
+    {
+      "name": "vm",
+      "location": "vendored",
+      "path": "vendor/zbc/modules/vm/index.ts",
+      "lines": 709,
+      "configKeys": [],
+      "outputKeys": [
+        "name",
+        "type",
+        "sshUser",
+        "target",
+        "ipv4",
+        "created",
+        "changed"
+      ],
+      "verdict": "current",
+      "matchedRev": "aefae2833a07124a1c6831a4c2c0ee8e4e920b68"
+    },
+    {
+      "name": "vm-provision",
+      "location": "vendored",
+      "path": "vendor/zbc/modules/vm-provision/index.ts",
+      "lines": 174,
+      "configKeys": [
+        "instance",
+        "packages",
+        "script",
+        "env",
+        "envSecrets",
+        "volatileEnvFrom",
+        "marker",
+        "force"
+      ],
+      "outputKeys": [
+        "instance",
+        "digest",
+        "changed"
+      ],
+      "verdict": "stale",
+      "matchedRev": "aefae2833a07124a1c6831a4c2c0ee8e4e920b68"
+    },
+    {
+      "name": "host-file",
+      "location": "vendored",
+      "path": "vendor/zbc/modules/host-file/index.ts",
+      "lines": 47,
+      "configKeys": [],
+      "outputKeys": [],
+      "verdict": "stale",
+      "matchedRev": "58d32bc00d7cca46c6e1f7f2f707653c6566a5db"
+    },
+    {
+      "name": "cloudflare-zone",
+      "location": "vendored",
+      "path": "vendor/zbc/modules/cloudflare-zone/index.ts",
+      "lines": 559,
+      "configKeys": [],
+      "outputKeys": [
+        "zoneId",
+        "zoneName",
+        "nameServers",
+        "created",
+        "updated",
+        "deleted",
+        "undeclared",
+        "emailProvisioned",
+        "changed"
+      ],
+      "verdict": "stale",
+      "matchedRev": "aefae2833a07124a1c6831a4c2c0ee8e4e920b68"
+    },
+    {
+      "name": "cloudflare-access",
+      "location": "vendored",
+      "path": "vendor/zbc/modules/cloudflare-access/index.ts",
+      "lines": 1231,
+      "configKeys": [],
+      "outputKeys": [
+        "appId",
+        "aud",
+        "teamDomain",
+        "orgName",
+        "identityProviders",
+        "undeclaredIdentityProviders",
+        "appDomain",
+        "emails",
+        "policyId",
+        "policyIds",
+        "serviceTokenIds",
+        "serviceTokenId",
+        "clientId",
+        "clientSecret",
+        "created",
+        "appCreated",
+        "undeclared",
+        "changed"
+      ],
+      "verdict": "stale",
+      "matchedRev": "c96dd453ab3676ac89eb4648fb513e52242e0fb9"
+    },
+    {
+      "name": "systemd-unit",
+      "location": "vendored",
+      "path": "vendor/zbc/modules/systemd-unit/index.ts",
+      "lines": 66,
+      "configKeys": [
+        "unit",
+        "content",
+        "scope",
+        "enableNow"
+      ],
+      "outputKeys": [],
+      "verdict": "current",
+      "matchedRev": "aefae2833a07124a1c6831a4c2c0ee8e4e920b68"
+    },
+    {
+      "name": "remote-provision",
+      "location": "vendored",
+      "path": "vendor/zbc/modules/remote-provision/index.ts",
+      "lines": 166,
+      "configKeys": [
+        "hosts",
+        "user",
+        "connectTimeout",
+        "packages",
+        "script",
+        "env",
+        "envSecrets",
+        "volatileEnvFrom",
+        "marker",
+        "force"
+      ],
+      "outputKeys": [
+        "host",
+        "fallback",
+        "digest",
+        "changed"
+      ],
+      "verdict": "stale",
+      "matchedRev": "aefae2833a07124a1c6831a4c2c0ee8e4e920b68"
+    },
+    {
+      "name": "r2",
+      "location": "vendored",
+      "path": "vendor/zbc/modules/r2/index.ts",
+      "lines": 138,
+      "configKeys": [
+        "accountId",
+        "bucketName",
+        "locationHint",
+        "ephemeral"
+      ],
+      "outputKeys": [
+        "bucketName"
+      ],
+      "verdict": "stale",
+      "matchedRev": "9f1326815be69993c85ba94340fbf2e591c695fa"
+    }
+  ],
+  "escapeHatches": [
+    {
+      "file": "scripts/incus-enrol.test.ts",
+      "line": 40,
+      "tool": "incus",
+      "snippet": "if (command === 'sudo incus config trust list --format json') return JSON.stringify(state.entries)"
+    },
+    {
+      "file": "scripts/incus-enrol.test.ts",
+      "line": 41,
+      "tool": "incus",
+      "snippet": "if (command === 'sudo incus config trust list-tokens --format json') return JSON.stringify(state.tokens)"
+    },
+    {
+      "file": "scripts/incus-enrol.test.ts",
+      "line": 43,
+      "tool": "incus",
+      "snippet": "const get = /^sudo incus config get (\\S+)$/.exec(command)"
+    },
+    {
+      "file": "scripts/incus-enrol.test.ts",
+      "line": 46,
+      "tool": "incus",
+      "snippet": "const add = /^sudo incus config trust add (\\S+) --restricted --projects (\\S+)$/.exec(command)"
+    },
+    {
+      "file": "scripts/incus-enrol.test.ts",
+      "line": 146,
+      "tool": "incus",
+      "snippet": "'sudo incus config trust add cedarpad --restricted --projects zabaca',"
+    },
+    {
+      "file": "scripts/incus-enrol.test.ts",
+      "line": 151,
+      "tool": "incus",
+      "snippet": "test('prints the token incus printed, once, and says what to do with it', async () => {"
+    },
+    {
+      "file": "scripts/incus-enrol.test.ts",
+      "line": 160,
+      "tool": "incus",
+      "snippet": "expect(text).toContain('incus remote add ryzen-9')"
+    },
+    {
+      "file": "scripts/incus-enrol.test.ts",
+      "line": 252,
+      "tool": "incus",
+      "snippet": "if (command === 'sudo incus config trust list --format json') return '[]'"
+    },
+    {
+      "file": "scripts/incus-enrol.test.ts",
+      "line": 253,
+      "tool": "incus",
+      "snippet": "if (command === 'sudo incus config trust list-tokens --format json') return '[]'"
+    },
+    {
+      "file": "scripts/incus-enrol.test.ts",
+      "line": 254,
+      "tool": "incus",
+      "snippet": "if (command.startsWith('sudo incus config get')) return '1H\\n'"
+    },
+    {
+      "file": "scripts/incus-enrol.test.ts",
+      "line": 268,
+      "tool": "incus",
+      "snippet": "if (command === 'sudo incus config trust list --format json') return '[]'"
+    },
+    {
+      "file": "scripts/incus-enrol.test.ts",
+      "line": 269,
+      "tool": "incus",
+      "snippet": "if (command === 'sudo incus config trust list-tokens --format json')"
+    },
+    {
+      "file": "scripts/incus-enrol.test.ts",
+      "line": 271,
+      "tool": "incus",
+      "snippet": "if (command.startsWith('sudo incus config get')) return '1H\\n'"
+    },
+    {
+      "file": "scripts/incus-enrol.test.ts",
+      "line": 291,
+      "tool": "incus",
+      "snippet": "`sudo incus config trust add ${parsed.name} --restricted --projects ${parsed.projects.join(',')}`,"
+    },
+    {
+      "file": "scripts/incus-onboard.ts",
+      "line": 41,
+      "tool": "incus",
+      "snippet": "/** The incus project every issued certificate is scoped to. Never `default`:"
+    },
+    {
+      "file": "scripts/incus-onboard.ts",
+      "line": 165,
+      "tool": "incus",
+      "snippet": "`To take it away: \\`sudo incus config trust remove <fingerprint>\\` AND delete`,"
+    },
+    {
+      "file": "scripts/incus-onboard.ts",
+      "line": 212,
+      "tool": "incus",
+      "snippet": "`On ${machine}:  incus remote add ryzen-9 <token>`,"
+    },
+    {
+      "file": "scripts/incus-onboard.ts",
+      "line": 214,
+      "tool": "incus",
+      "snippet": "`If the token is lost or leaked: \\`sudo incus config trust revoke-token ${identity}\\`,`,"
+    },
+    {
+      "file": "scripts/incus-onboard.test.ts",
+      "line": 24,
+      "tool": "incus",
+      "snippet": "test('refuses shapes incus or the schema would refuse later, by name', () => {"
+    },
+    {
+      "file": "scripts/incus-onboard.test.ts",
+      "line": 105,
+      "tool": "incus",
+      "snippet": "expect(next.lines.join(' ')).toMatch(/incus remote add/)"
+    },
+    {
+      "file": "scripts/incus-enrol.ts",
+      "line": 157,
+      "tool": "incus",
+      "snippet": "`incus trust ${name} did not take effect — no pending token for it after \\`incus ${plan.command}\\`. ` +"
+    },
+    {
+      "file": "scripts/incus-enrol.ts",
+      "line": 173,
+      "tool": "incus",
+      "snippet": "`Redeem it from the Owner repo with \\`incus remote add ryzen-9 <token>\\`; the client generates its own`,"
+    },
+    {
+      "file": "scripts/incus-enrol.ts",
+      "line": 177,
+      "tool": "incus",
+      "snippet": "`reached somewhere it should not have, \\`sudo incus config trust revoke-token ${name}\\` kills it now.`,"
+    },
+    {
+      "file": "scripts/forge-prove-link.ts",
+      "line": 177,
+      "tool": "aws",
+      "snippet": "/** What the indicator says, straight off the element that draws it. */"
+    },
+    {
+      "file": "packages/infra/environments/guests-registered.test.ts",
+      "line": 123,
+      "tool": "incus",
+      "snippet": "'declared by cedarpad and converged from there over the incus remote (ADR-0026, remote-guests/09) — it runs on this box, so a reader of this README must still see it, and this repo no longer says what"
+    },
+    {
+      "file": "packages/infra/environments/ryzen-9/hardening.ts",
+      "line": 15,
+      "tool": "incus",
+      "snippet": "Description=Foundry host hardening (firewall, sshd, transmission, auditd, incus metrics)"
+    },
+    {
+      "file": "packages/infra/environments/ryzen-9/hardening-script.ts",
+      "line": 57,
+      "tool": "incus",
+      "snippet": "# Everything here coexists with docker/incus tables: any drop wins, so no"
+    },
+    {
+      "file": "packages/infra/environments/ryzen-9/hardening-script.ts",
+      "line": 299,
+      "tool": "incus",
+      "snippet": "# --- incus metrics endpoint + client cert for prometheus -------------------"
+    },
+    {
+      "file": "packages/infra/environments/ryzen-9/hardening-script.ts",
+      "line": 301,
+      "tool": "incus",
+      "snippet": "incus config get core.metrics_address | grep -q 8444 || \\\\"
+    },
+    {
+      "file": "packages/infra/environments/ryzen-9/hardening-script.ts",
+      "line": 302,
+      "tool": "incus",
+      "snippet": "incus config set core.metrics_address=127.0.0.1:8444"
+    },
+    {
+      "file": "packages/infra/environments/ryzen-9/hardening-script.ts",
+      "line": 311,
+      "tool": "incus",
+      "snippet": "incus config trust list --format csv | grep -q foundry-metrics || \\\\"
+    },
+    {
+      "file": "packages/infra/environments/ryzen-9/hardening-script.ts",
+      "line": 312,
+      "tool": "incus",
+      "snippet": "incus config trust add-certificate \"$dir/metrics.crt\" --name foundry-metrics --type=metrics"
+    },
+    {
+      "file": "packages/infra/environments/ryzen-9/agent-host.ts",
+      "line": 41,
+      "tool": "incus",
+      "snippet": "# Supervisor + broker only; sessions are incus containers accounted separately."
+    },
+    {
+      "file": "packages/infra/environments/ryzen-9/agent-base-provision.ts",
+      "line": 54,
+      "tool": "incus",
+      "snippet": "# which is what makes claude --resume survive incus stop/start."
+    },
+    {
+      "file": "packages/infra/environments/ryzen-9/agent-net-script.ts",
+      "line": 36,
+      "tool": "incus",
+      "snippet": "if ! incus network show ${AGENT_NET.bridge} >/dev/null 2>&1; then"
+    },
+    {
+      "file": "packages/infra/environments/ryzen-9/agent-net-script.ts",
+      "line": 37,
+      "tool": "incus",
+      "snippet": "incus network create ${AGENT_NET.bridge} \\\\"
+    },
+    {
+      "file": "packages/infra/environments/ryzen-9/agent-net-script.ts",
+      "line": 41,
+      "tool": "incus",
+      "snippet": "incus network set ${AGENT_NET.bridge} ipv4.nat false"
+    },
+    {
+      "file": "packages/infra/environments/ryzen-9/agent-net-script.ts",
+      "line": 42,
+      "tool": "incus",
+      "snippet": "incus network set ${AGENT_NET.bridge} ipv4.firewall false"
+    },
+    {
+      "file": "packages/infra/environments/machine-asserted.test.ts",
+      "line": 80,
+      "tool": "incus",
+      "snippet": "'`incus list` on the daemon — every guest names the repo that converges it',"
+    },
+    {
+      "file": "packages/infra/environments/ryzen-9-live-guest-owners.test.ts",
+      "line": 174,
+      "tool": "incus",
+      "snippet": "why: 'incus reports `Server version: unreachable` — no daemon reachable here',"
+    },
+    {
+      "file": "packages/infra/environments/ryzen-9-live-guest-owners.test.ts",
+      "line": 202,
+      "tool": "incus",
+      "snippet": "`\\`sudo -n incus ${PROBE_ARGV.join(' ')}\\` failed, and this incus does not understand ` +"
+    },
+    {
+      "file": "packages/infra/environments/ryzen-9-live-guest-owners.test.ts",
+      "line": 210,
+      "tool": "incus",
+      "snippet": "why: '`sudo -n incus version` failed; treating as no reachable incus here',"
+    },
+    {
+      "file": "packages/infra/environments/ryzen-9-live-guest-owners.test.ts",
+      "line": 218,
+      "tool": "incus",
+      "snippet": "why: `\\`sudo -n incus version\\` exited 0 without a Server version line: ${result.stdout.trim().slice(0, 200)}`,"
+    },
+    {
+      "file": "packages/infra/environments/ryzen-9-live-guest-owners.test.ts",
+      "line": 276,
+      "tool": "incus",
+      "snippet": "`\\`sudo incus config set ${guest.name} user.owner=${SCRATCH_PREFIX}<reason> --project ${guest.project}\\` ` +"
+    },
+    {
+      "file": "packages/infra/environments/ryzen-9-live-guest-owners.test.ts",
+      "line": 287,
+      "tool": "incus",
+      "snippet": "findings.push(`${where} sits in incus project \\`${guest.project}\\`, which this repo does not declare`)"
+    },
+    {
+      "file": "packages/infra/environments/ryzen-9-live-guest-owners.test.ts",
+      "line": 298,
+      "tool": "incus",
+      "snippet": "`incus project \\`${project}\\` exists on this daemon and is declared by no instance file`,"
+    },
+    {
+      "file": "packages/infra/environments/ryzen-9-live-guest-owners.test.ts",
+      "line": 350,
+      "tool": "incus",
+      "snippet": "/** The incus projects the repo declares — computed, never a pinned list. */"
+    },
+    {
+      "file": "packages/infra/environments/ryzen-9-live-guest-owners.test.ts",
+      "line": 430,
+      "tool": "incus",
+      "snippet": "test('the repo declares at least one incus project (guards a vacuous sweep)', () => {"
+    },
+    {
+      "file": "packages/infra/environments/ryzen-9-live-guest-owners.test.ts",
+      "line": 456,
+      "tool": "incus",
+      "snippet": "'every guest on this box names its Owner repo and sits in a declared incus project',"
+    },
+    {
+      "file": "packages/infra/environments/ryzen-9-live-guest-owners.test.ts",
+      "line": 522,
+      "tool": "incus",
+      "snippet": "'every incus project on this daemon is one this repo declares',"
+    },
+    {
+      "file": "packages/infra/environments/ryzen-9-live-guest-owners.test.ts",
+      "line": 542,
+      "tool": "incus",
+      "snippet": "test('no incus binary skips — this must run on a laptop', () => {"
+    },
+    {
+      "file": "packages/infra/environments/ryzen-9-live-guest-owners.test.ts",
+      "line": 575,
+      "tool": "incus",
+      "snippet": "expect(classifyProbe({ found: true, exitCode: 0, stdout: 'incus is up.' }, understood).kind).toBe("
+    },
+    {
+      "file": "packages/infra/environments/ryzen-9-live-guest-owners.test.ts",
+      "line": 706,
+      "tool": "incus",
+      "snippet": "'`sudo incus config set agent-vm user.owner=scratch:<reason> --project default` ' +"
+    },
+    {
+      "file": "packages/infra/environments/ryzen-9-live-guest-owners.test.ts",
+      "line": 742,
+      "tool": "incus",
+      "snippet": ").toEqual(['skunkworks/bench sits in incus project `skunkworks`, which this repo does not declare'])"
+    },
+    {
+      "file": "packages/infra/environments/ryzen-9-live-guest-owners.test.ts",
+      "line": 774,
+      "tool": "incus",
+      "snippet": "test('a guest in an undeclared incus project is a finding', () => {"
+    },
+    {
+      "file": "packages/infra/environments/ryzen-9-live-guest-owners.test.ts",
+      "line": 776,
+      "tool": "incus",
+      "snippet": "'skunkworks/x sits in incus project `skunkworks`, which this repo does not declare',"
+    },
+    {
+      "file": "packages/infra/environments/ryzen-9-live-guest-owners.test.ts",
+      "line": 784,
+      "tool": "incus",
+      "snippet": "test('an incus project nothing declares is a finding even with no guests in it', () => {"
+    },
+    {
+      "file": "packages/infra/environments/ryzen-9-live-guest-owners.test.ts",
+      "line": 789,
+      "tool": "incus",
+      "snippet": "'incus project `skunkworks` exists on this daemon and is declared by no instance file',"
+    },
+    {
+      "file": "packages/infra/environments/ryzen-9-live-guest-owners.test.ts",
+      "line": 834,
+      "tool": "incus",
+      "snippet": "name: 'every guest on this box names its Owner repo and sits in a declared incus project',"
+    },
+    {
+      "file": "packages/infra/environments/ryzen-9-live-guest-owners.test.ts",
+      "line": 838,
+      "tool": "incus",
+      "snippet": "name: 'every incus project on this daemon is one this repo declares',"
+    },
+    {
+      "file": "packages/infra/environments/ryzen-9-agent-network.test.ts",
+      "line": 33,
+      "tool": "incus",
+      "snippet": "expect(script).toContain(`incus network create ${AGENT_NET.bridge}`)"
+    },
+    {
+      "file": "packages/infra/environments/ryzen-9-resource-limits.test.ts",
+      "line": 69,
+      "tool": "incus",
+      "snippet": "if (!match) throw new Error(`unparseable incus memory value: ${value}`)"
+    },
+    {
+      "file": "packages/infra/environments/ryzen-9-resource-limits.test.ts",
+      "line": 129,
+      "tool": "incus",
+      "snippet": "if (!match) throw new Error(`unparseable incus memory value: ${value}`)"
+    },
+    {
+      "file": "packages/infra/environments/ryzen-9-incus-remote.test.ts",
+      "line": 44,
+      "tool": "incus",
+      "snippet": "/** Every incus project this repo declares. `default` is deliberately not one. */"
+    },
+    {
+      "file": "packages/infra/environments/ryzen-9-incus-remote.test.ts",
+      "line": 87,
+      "tool": "incus",
+      "snippet": "expect(zabaca, 'ADR-0026 names one shared `zabaca` incus project').toBeDefined()"
+    },
+    {
+      "file": "packages/infra/environments/ryzen-9-incus-remote.test.ts",
+      "line": 98,
+      "tool": "incus",
+      "snippet": "describe('every `incus config set` this environment ships uses the documented form', () => {"
+    },
+    {
+      "file": "packages/infra/environments/ryzen-9-incus-remote.test.ts",
+      "line": 122,
+      "tool": "incus",
+      "snippet": "const match = /(?:^|\\|\\||&&|;|\\bthen\\b)?\\s*(?:sudo )?incus config set (.+)$/.exec(line)"
+    },
+    {
+      "file": "packages/infra/environments/ryzen-9-incus-remote.test.ts",
+      "line": 147,
+      "tool": "incus",
+      "snippet": "test('no incus project this repo declares is the default one', () => {"
+    },
+    {
+      "file": "packages/infra/environments/ryzen-9-incus-remote.test.ts",
+      "line": 151,
+      "tool": "incus",
+      "snippet": "test('no trust declaration is scoped to the default incus project', () => {"
+    },
+    {
+      "file": "packages/infra/environments/ryzen-9-incus-remote.test.ts",
+      "line": 281,
+      "tool": "incus",
+      "snippet": "test('and every incus project a guest does name is one this repo declares', () => {"
+    },
+    {
+      "file": "packages/infra/environments/ryzen-9-incus-remote.test.ts",
+      "line": 303,
+      "tool": "incus",
+      "snippet": "expect(projected.length, 'guests naming an incus project').toBe(0)"
+    },
+    {
+      "file": "packages/infra/environments/ryzen-9-incus-remote.test.ts",
+      "line": 306,
+      "tool": "incus",
+      "snippet": "expect(declaredProjects, `${guest.name} sits in incus project ${project}`).toContain(project!)"
+    },
+    {
+      "file": "packages/infra/environments/guest-owner.ts",
+      "line": 35,
+      "tool": "incus",
+      "snippet": "/** RFC3339, nanosecond precision, stamped by incus at creation. */"
+    },
+    {
+      "file": "packages/infra/environments/guest-owner.ts",
+      "line": 74,
+      "tool": "incus",
+      "snippet": "return spelledArray('incus list --all-projects --format json', result).map((entry, index) => {"
+    },
+    {
+      "file": "packages/infra/environments/guest-owner.ts",
+      "line": 78,
+      "tool": "incus",
+      "snippet": "throw new Error(`incus list: ${where} has no name — the JSON shape has moved`)"
+    },
+    {
+      "file": "packages/infra/environments/guest-owner.ts",
+      "line": 80,
+      "tool": "incus",
+      "snippet": "throw new Error(`incus list: ${row.name} names no incus project — the JSON shape has moved`)"
+    },
+    {
+      "file": "packages/infra/environments/guest-owner.ts",
+      "line": 82,
+      "tool": "incus",
+      "snippet": "throw new Error(`incus list: ${row.name} carries no config map — the JSON shape has moved`)"
+    },
+    {
+      "file": "packages/infra/environments/guest-owner.ts",
+      "line": 85,
+      "tool": "incus",
+      "snippet": "`incus list: ${row.name} carries no readable created_at (${String(row.created_at)}) — ` +"
+    },
+    {
+      "file": "packages/infra/environments/guest-owner.ts",
+      "line": 106,
+      "tool": "incus",
+      "snippet": "const names = spelledArray('incus project list --format json', result).map((entry, index) => {"
+    },
+    {
+      "file": "packages/infra/environments/guest-owner.ts",
+      "line": 109,
+      "tool": "incus",
+      "snippet": "throw new Error(`incus project list: entry ${index} has no name — the JSON shape has moved`)"
+    },
+    {
+      "file": "packages/infra/environments/guest-owner.ts",
+      "line": 114,
+      "tool": "incus",
+      "snippet": "`incus project list reported ${names.length} projects and no \\`default\\`: ${names.join(', ')}. ` +"
+    }
+  ]
+}

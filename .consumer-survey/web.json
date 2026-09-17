@@ -1,0 +1,131 @@
+{
+  "id": "web",
+  "repo": "Zabaca/web",
+  "mode": "copy",
+  "tier": "consumer",
+  "ref": "33117a937996c7be5f0afe35d1715a1a558642fe",
+  "surveyedAt": "2026-09-03T02:56:06.808Z",
+  "environments": {
+    "production": [
+      "web-contracts-db",
+      "web-access-token",
+      "web-access",
+      "web"
+    ],
+    "preview": []
+  },
+  "modules": [
+    {
+      "name": "d1",
+      "location": "own",
+      "path": "packages/infra/modules/d1/index.ts",
+      "lines": 119,
+      "configKeys": [
+        "accountId",
+        "databaseName"
+      ],
+      "outputKeys": [
+        "databaseName",
+        "databaseId"
+      ],
+      "verdict": "novel"
+    },
+    {
+      "name": "cloudflare-api",
+      "location": "own",
+      "path": "packages/infra/modules/cloudflare-api/index.ts",
+      "lines": 181,
+      "configKeys": [],
+      "outputKeys": [],
+      "verdict": "stale",
+      "matchedRev": "76007535ed540c63a8caaccf274bb170c9f6db62"
+    },
+    {
+      "name": "cloudflare",
+      "location": "own",
+      "path": "packages/infra/modules/cloudflare/index.ts",
+      "lines": 512,
+      "configKeys": [
+        "workdir",
+        "accountId",
+        "build",
+        "workerSecrets",
+        "workerVars",
+        "r2Bindings",
+        "immediateContainerRollout",
+        "wranglerEnv",
+        "workerName"
+      ],
+      "outputKeys": [
+        "deployUrl",
+        "workerName"
+      ],
+      "verdict": "stale",
+      "matchedRev": "9f1326815be69993c85ba94340fbf2e591c695fa"
+    },
+    {
+      "name": "cloudflare-token",
+      "location": "own",
+      "path": "packages/infra/modules/cloudflare-token/index.ts",
+      "lines": 265,
+      "configKeys": [
+        "accountId",
+        "tokenName",
+        "permissions",
+        "zones",
+        "ephemeral"
+      ],
+      "outputKeys": [
+        "tokenId",
+        "tokenValue",
+        "s3AccessKeyId",
+        "s3SecretAccessKey"
+      ],
+      "verdict": "stale",
+      "matchedRev": "ec24ecb833461ee66cc57ba685ef0236bc82572a"
+    },
+    {
+      "name": "cloudflare-access",
+      "location": "own",
+      "path": "packages/infra/modules/cloudflare-access/index.ts",
+      "lines": 1231,
+      "configKeys": [],
+      "outputKeys": [
+        "appId",
+        "aud",
+        "teamDomain",
+        "orgName",
+        "identityProviders",
+        "undeclaredIdentityProviders",
+        "appDomain",
+        "emails",
+        "policyId",
+        "policyIds",
+        "serviceTokenIds",
+        "serviceTokenId",
+        "clientId",
+        "clientSecret",
+        "created",
+        "appCreated",
+        "undeclared",
+        "changed"
+      ],
+      "verdict": "stale",
+      "matchedRev": "c96dd453ab3676ac89eb4648fb513e52242e0fb9"
+    }
+  ],
+  "escapeHatches": [
+    {
+      "file": "packages/infra/package.json",
+      "line": 14,
+      "tool": "wrangler",
+      "snippet": "\"wrangler\": \"^4.0.0\""
+    },
+    {
+      "file": ".github/workflows/ci.yml",
+      "line": 86,
+      "tool": "wrangler",
+      "snippet": "# changed what wrangler's `main` points at, and added a generated"
+    }
+  ]
+}

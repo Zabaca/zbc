@@ -3,8 +3,14 @@ pre-commit:
   commands:
     oxlint:
       glob: "*.{js,jsx,ts,tsx}"
+      exclude:
+        - ".agents/**"
+        - ".claude/skills/**"
       run: bun node_modules/.bin/oxlint {staged_files}
     oxfmt:
       glob: "*.{js,jsx,ts,tsx}"
+      exclude:
+        - ".agents/**"
+        - ".claude/skills/**"
       run: bun node_modules/.bin/oxfmt --write {staged_files}
       stage_fixed: true

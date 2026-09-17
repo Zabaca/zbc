@@ -1,0 +1,471 @@
+{
+  "id": "agent-lab",
+  "repo": "Zabaca/agent-lab",
+  "mode": "subtree",
+  "tier": "consumer",
+  "ref": "4f705c584b4ff4bd714c1232e09857d77090b22f",
+  "surveyedAt": "2026-09-03T02:56:08.123Z",
+  "environments": {
+    "ryzen-9": [
+      "toolchain",
+      "guest",
+      "app",
+      "tunnel-token",
+      "access-token",
+      "tunnel",
+      "agent-stage-access",
+      "service",
+      "tunnel-run",
+      "agent-access"
+    ]
+  },
+  "modules": [
+    {
+      "name": "host-dir",
+      "location": "vendored",
+      "path": "vendor/zbc/modules/host-dir/index.ts",
+      "lines": 205,
+      "configKeys": [
+        "path",
+        "owner",
+        "mode"
+      ],
+      "outputKeys": [
+        "path",
+        "mode",
+        "owner",
+        "changed"
+      ],
+      "verdict": "current",
+      "matchedRev": "aefae2833a07124a1c6831a4c2c0ee8e4e920b68"
+    },
+    {
+      "name": "host-exec",
+      "location": "vendored",
+      "path": "vendor/zbc/modules/host-exec/index.ts",
+      "lines": 193,
+      "configKeys": [],
+      "outputKeys": [],
+      "verdict": "current",
+      "matchedRev": "aefae2833a07124a1c6831a4c2c0ee8e4e920b68"
+    },
+    {
+      "name": "provision-core",
+      "location": "vendored",
+      "path": "vendor/zbc/modules/provision-core/index.ts",
+      "lines": 147,
+      "configKeys": [],
+      "outputKeys": [],
+      "verdict": "stale",
+      "matchedRev": "b2491039df1760ef4c046ec2a412f5a663440438"
+    },
+    {
+      "name": "fly",
+      "location": "vendored",
+      "path": "vendor/zbc/modules/fly/index.ts",
+      "lines": 317,
+      "configKeys": [
+        "workdir",
+        "appName",
+        "org",
+        "build",
+        "flySecrets",
+        "ipv4",
+        "ipv6",
+        "highAvailability",
+        "localBuild",
+        "ephemeral"
+      ],
+      "outputKeys": [
+        "appName",
+        "hostname",
+        "ipv4",
+        "ipv6"
+      ],
+      "verdict": "stale",
+      "matchedRev": "ca81b9e508508835bd2bff092b1f6bc88a05fad7"
+    },
+    {
+      "name": "docker-compose-stack",
+      "location": "vendored",
+      "path": "vendor/zbc/modules/docker-compose-stack/index.ts",
+      "lines": 31,
+      "configKeys": [
+        "dir",
+        "services"
+      ],
+      "outputKeys": [],
+      "verdict": "current",
+      "matchedRev": "58d32bc00d7cca46c6e1f7f2f707653c6566a5db"
+    },
+    {
+      "name": "cloudflare-api",
+      "location": "vendored",
+      "path": "vendor/zbc/modules/cloudflare-api/index.ts",
+      "lines": 181,
+      "configKeys": [],
+      "outputKeys": [],
+      "verdict": "stale",
+      "matchedRev": "76007535ed540c63a8caaccf274bb170c9f6db62"
+    },
+    {
+      "name": "incus-core",
+      "location": "vendored",
+      "path": "vendor/zbc/modules/incus-core/index.ts",
+      "lines": 197,
+      "configKeys": [],
+      "outputKeys": [],
+      "verdict": "current",
+      "matchedRev": "aefae2833a07124a1c6831a4c2c0ee8e4e920b68"
+    },
+    {
+      "name": "systemd-mask",
+      "location": "vendored",
+      "path": "vendor/zbc/modules/systemd-mask/index.ts",
+      "lines": 150,
+      "configKeys": [
+        "unit",
+        "reason"
+      ],
+      "outputKeys": [],
+      "verdict": "current",
+      "matchedRev": "aefae2833a07124a1c6831a4c2c0ee8e4e920b68"
+    },
+    {
+      "name": "cloudflare",
+      "location": "vendored",
+      "path": "vendor/zbc/modules/cloudflare/index.ts",
+      "lines": 548,
+      "configKeys": [
+        "workdir",
+        "accountId",
+        "apiToken",
+        "build",
+        "workerSecrets",
+        "workerVars",
+        "r2Bindings",
+        "immediateContainerRollout",
+        "wranglerEnv",
+        "workerName"
+      ],
+      "outputKeys": [
+        "deployUrl",
+        "workerName"
+      ],
+      "verdict": "stale",
+      "matchedRev": "f06480507c37cb07f3868a004b17913c46bf9ed9"
+    },
+    {
+      "name": "turso",
+      "location": "vendored",
+      "path": "vendor/zbc/modules/turso/index.ts",
+      "lines": 187,
+      "configKeys": [
+        "orgName",
+        "dbName",
+        "group",
+        "primaryLocation",
+        "ephemeral",
+        "migrationsDir"
+      ],
+      "outputKeys": [
+        "databaseUrl",
+        "authToken"
+      ],
+      "verdict": "stale",
+      "matchedRev": "8a558a40b3e380f813ab6a275f9587a5a286475e"
+    },
+    {
+      "name": "cloudflare-tunnel",
+      "location": "vendored",
+      "path": "vendor/zbc/modules/cloudflare-tunnel/index.ts",
+      "lines": 442,
+      "configKeys": [],
+      "outputKeys": [
+        "tunnelId",
+        "runToken",
+        "hostnames",
+        "createdTunnel",
+        "changed"
+      ],
+      "verdict": "stale",
+      "matchedRev": "aefae2833a07124a1c6831a4c2c0ee8e4e920b68"
+    },
+    {
+      "name": "host-symlink",
+      "location": "vendored",
+      "path": "vendor/zbc/modules/host-symlink/index.ts",
+      "lines": 121,
+      "configKeys": [
+        "path",
+        "target"
+      ],
+      "outputKeys": [],
+      "verdict": "current",
+      "matchedRev": "aefae2833a07124a1c6831a4c2c0ee8e4e920b68"
+    },
+    {
+      "name": "cloudflare-email",
+      "location": "vendored",
+      "path": "vendor/zbc/modules/cloudflare-email/index.ts",
+      "lines": 574,
+      "configKeys": [
+        "accountId",
+        "zoneId",
+        "domain",
+        "enableSending",
+        "enableRouting",
+        "catchAll",
+        "addresses"
+      ],
+      "outputKeys": [
+        "sendingEnabled",
+        "routingEnabled",
+        "dnsStatus",
+        "addresses",
+        "accountId",
+        "domain"
+      ],
+      "verdict": "stale",
+      "matchedRev": "9224fda0145efb52698995ec1006dd4e69ca163c"
+    },
+    {
+      "name": "incus-storage-pool",
+      "location": "vendored",
+      "path": "vendor/zbc/modules/incus-storage-pool/index.ts",
+      "lines": 157,
+      "configKeys": [],
+      "outputKeys": [
+        "name",
+        "driver",
+        "created",
+        "changed"
+      ],
+      "verdict": "current",
+      "matchedRev": "aefae2833a07124a1c6831a4c2c0ee8e4e920b68"
+    },
+    {
+      "name": "cloudflare-token",
+      "location": "vendored",
+      "path": "vendor/zbc/modules/cloudflare-token/index.ts",
+      "lines": 265,
+      "configKeys": [
+        "accountId",
+        "tokenName",
+        "permissions",
+        "zones",
+        "ephemeral"
+      ],
+      "outputKeys": [
+        "tokenId",
+        "tokenValue",
+        "s3AccessKeyId",
+        "s3SecretAccessKey"
+      ],
+      "verdict": "stale",
+      "matchedRev": "ec24ecb833461ee66cc57ba685ef0236bc82572a"
+    },
+    {
+      "name": "vm",
+      "location": "vendored",
+      "path": "vendor/zbc/modules/vm/index.ts",
+      "lines": 709,
+      "configKeys": [],
+      "outputKeys": [
+        "name",
+        "type",
+        "sshUser",
+        "target",
+        "ipv4",
+        "created",
+        "changed"
+      ],
+      "verdict": "current",
+      "matchedRev": "aefae2833a07124a1c6831a4c2c0ee8e4e920b68"
+    },
+    {
+      "name": "vm-provision",
+      "location": "vendored",
+      "path": "vendor/zbc/modules/vm-provision/index.ts",
+      "lines": 174,
+      "configKeys": [
+        "instance",
+        "packages",
+        "script",
+        "env",
+        "envSecrets",
+        "volatileEnvFrom",
+        "marker",
+        "force"
+      ],
+      "outputKeys": [
+        "instance",
+        "digest",
+        "changed"
+      ],
+      "verdict": "stale",
+      "matchedRev": "aefae2833a07124a1c6831a4c2c0ee8e4e920b68"
+    },
+    {
+      "name": "host-file",
+      "location": "vendored",
+      "path": "vendor/zbc/modules/host-file/index.ts",
+      "lines": 47,
+      "configKeys": [],
+      "outputKeys": [],
+      "verdict": "stale",
+      "matchedRev": "58d32bc00d7cca46c6e1f7f2f707653c6566a5db"
+    },
+    {
+      "name": "cloudflare-zone",
+      "location": "vendored",
+      "path": "vendor/zbc/modules/cloudflare-zone/index.ts",
+      "lines": 559,
+      "configKeys": [],
+      "outputKeys": [
+        "zoneId",
+        "zoneName",
+        "nameServers",
+        "created",
+        "updated",
+        "deleted",
+        "undeclared",
+        "emailProvisioned",
+        "changed"
+      ],
+      "verdict": "stale",
+      "matchedRev": "aefae2833a07124a1c6831a4c2c0ee8e4e920b68"
+    },
+    {
+      "name": "cloudflare-access",
+      "location": "vendored",
+      "path": "vendor/zbc/modules/cloudflare-access/index.ts",
+      "lines": 1231,
+      "configKeys": [],
+      "outputKeys": [
+        "appId",
+        "aud",
+        "teamDomain",
+        "orgName",
+        "identityProviders",
+        "undeclaredIdentityProviders",
+        "appDomain",
+        "emails",
+        "policyId",
+        "policyIds",
+        "serviceTokenIds",
+        "serviceTokenId",
+        "clientId",
+        "clientSecret",
+        "created",
+        "appCreated",
+        "undeclared",
+        "changed"
+      ],
+      "verdict": "stale",
+      "matchedRev": "c96dd453ab3676ac89eb4648fb513e52242e0fb9"
+    },
+    {
+      "name": "systemd-unit",
+      "location": "vendored",
+      "path": "vendor/zbc/modules/systemd-unit/index.ts",
+      "lines": 66,
+      "configKeys": [
+        "unit",
+        "content",
+        "scope",
+        "enableNow"
+      ],
+      "outputKeys": [],
+      "verdict": "current",
+      "matchedRev": "aefae2833a07124a1c6831a4c2c0ee8e4e920b68"
+    },
+    {
+      "name": "remote-provision",
+      "location": "vendored",
+      "path": "vendor/zbc/modules/remote-provision/index.ts",
+      "lines": 166,
+      "configKeys": [
+        "hosts",
+        "user",
+        "connectTimeout",
+        "packages",
+        "script",
+        "env",
+        "envSecrets",
+        "volatileEnvFrom",
+        "marker",
+        "force"
+      ],
+      "outputKeys": [
+        "host",
+        "fallback",
+        "digest",
+        "changed"
+      ],
+      "verdict": "stale",
+      "matchedRev": "aefae2833a07124a1c6831a4c2c0ee8e4e920b68"
+    },
+    {
+      "name": "r2",
+      "location": "vendored",
+      "path": "vendor/zbc/modules/r2/index.ts",
+      "lines": 138,
+      "configKeys": [
+        "accountId",
+        "bucketName",
+        "locationHint",
+        "ephemeral"
+      ],
+      "outputKeys": [
+        "bucketName"
+      ],
+      "verdict": "stale",
+      "matchedRev": "9f1326815be69993c85ba94340fbf2e591c695fa"
+    }
+  ],
+  "escapeHatches": [
+    {
+      "file": "packages/infra/environments/ryzen-9-guest.test.ts",
+      "line": 81,
+      "tool": "incus",
+      "snippet": "expect(incusCommand(vm.target)).toBe('incus --project zabaca')"
+    },
+    {
+      "file": "packages/infra/service-script.ts",
+      "line": 620,
+      "tool": "incus",
+      "snippet": "# ssh nor incus exec."
+    },
+    {
+      "file": "packages/infra/service-script.ts",
+      "line": 722,
+      "tool": "incus",
+      "snippet": "# used it. The deploy path is \\`incus exec\\` — vm-provision runs over it — and the"
+    },
+    {
+      "file": "packages/infra/service-script.ts",
+      "line": 723,
+      "tool": "incus",
+      "snippet": "# declared debug path is \\`incus exec\\` too. The spec refused a tailnet enrolment"
+    },
+    {
+      "file": "packages/infra/service-script.ts",
+      "line": 741,
+      "tool": "incus",
+      "snippet": "# \\`incus exec\\` cannot give them."
+    },
+    {
+      "file": "packages/infra/service-script.ts",
+      "line": 760,
+      "tool": "incus",
+      "snippet": "# needed to repair it — on a Guest whose only other way in is incus exec."
+    },
+    {
+      "file": "packages/infra/service-script.ts",
+      "line": 773,
+      "tool": "incus",
+      "snippet": "# Run AS THE AGENT, and not for tidiness. The provision is root — \\`incus exec\\`"
+    }
+  ]
+}

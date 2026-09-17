@@ -1,0 +1,493 @@
+{
+  "id": "games",
+  "repo": "Zabaca/games",
+  "mode": "subtree",
+  "tier": "consumer",
+  "ref": "f9a62d7ac93b4833c5013ff6b5c714b93979f37a",
+  "surveyedAt": "2026-09-03T02:56:10.952Z",
+  "environments": {
+    "production": [
+      "railmid"
+    ],
+    "preview": []
+  },
+  "modules": [
+    {
+      "name": "host-dir",
+      "location": "vendored",
+      "path": "vendor/zbc/modules/host-dir/index.ts",
+      "lines": 205,
+      "configKeys": [
+        "path",
+        "owner",
+        "mode"
+      ],
+      "outputKeys": [
+        "path",
+        "mode",
+        "owner",
+        "changed"
+      ],
+      "verdict": "current",
+      "matchedRev": "aefae2833a07124a1c6831a4c2c0ee8e4e920b68"
+    },
+    {
+      "name": "host-exec",
+      "location": "vendored",
+      "path": "vendor/zbc/modules/host-exec/index.ts",
+      "lines": 193,
+      "configKeys": [],
+      "outputKeys": [],
+      "verdict": "current",
+      "matchedRev": "aefae2833a07124a1c6831a4c2c0ee8e4e920b68"
+    },
+    {
+      "name": "provision-core",
+      "location": "vendored",
+      "path": "vendor/zbc/modules/provision-core/index.ts",
+      "lines": 147,
+      "configKeys": [],
+      "outputKeys": [],
+      "verdict": "stale",
+      "matchedRev": "b2491039df1760ef4c046ec2a412f5a663440438"
+    },
+    {
+      "name": "fly",
+      "location": "vendored",
+      "path": "vendor/zbc/modules/fly/index.ts",
+      "lines": 317,
+      "configKeys": [
+        "workdir",
+        "appName",
+        "org",
+        "build",
+        "flySecrets",
+        "ipv4",
+        "ipv6",
+        "highAvailability",
+        "localBuild",
+        "ephemeral"
+      ],
+      "outputKeys": [
+        "appName",
+        "hostname",
+        "ipv4",
+        "ipv6"
+      ],
+      "verdict": "stale",
+      "matchedRev": "ca81b9e508508835bd2bff092b1f6bc88a05fad7"
+    },
+    {
+      "name": "docker-compose-stack",
+      "location": "vendored",
+      "path": "vendor/zbc/modules/docker-compose-stack/index.ts",
+      "lines": 31,
+      "configKeys": [
+        "dir",
+        "services"
+      ],
+      "outputKeys": [],
+      "verdict": "current",
+      "matchedRev": "58d32bc00d7cca46c6e1f7f2f707653c6566a5db"
+    },
+    {
+      "name": "cloudflare-api",
+      "location": "vendored",
+      "path": "vendor/zbc/modules/cloudflare-api/index.ts",
+      "lines": 181,
+      "configKeys": [],
+      "outputKeys": [],
+      "verdict": "stale",
+      "matchedRev": "76007535ed540c63a8caaccf274bb170c9f6db62"
+    },
+    {
+      "name": "incus-core",
+      "location": "vendored",
+      "path": "vendor/zbc/modules/incus-core/index.ts",
+      "lines": 197,
+      "configKeys": [],
+      "outputKeys": [],
+      "verdict": "current",
+      "matchedRev": "aefae2833a07124a1c6831a4c2c0ee8e4e920b68"
+    },
+    {
+      "name": "systemd-mask",
+      "location": "vendored",
+      "path": "vendor/zbc/modules/systemd-mask/index.ts",
+      "lines": 150,
+      "configKeys": [
+        "unit",
+        "reason"
+      ],
+      "outputKeys": [],
+      "verdict": "current",
+      "matchedRev": "aefae2833a07124a1c6831a4c2c0ee8e4e920b68"
+    },
+    {
+      "name": "cloudflare",
+      "location": "vendored",
+      "path": "vendor/zbc/modules/cloudflare/index.ts",
+      "lines": 548,
+      "configKeys": [
+        "workdir",
+        "accountId",
+        "apiToken",
+        "build",
+        "workerSecrets",
+        "workerVars",
+        "r2Bindings",
+        "immediateContainerRollout",
+        "wranglerEnv",
+        "workerName"
+      ],
+      "outputKeys": [
+        "deployUrl",
+        "workerName"
+      ],
+      "verdict": "stale",
+      "matchedRev": "f06480507c37cb07f3868a004b17913c46bf9ed9"
+    },
+    {
+      "name": "turso",
+      "location": "vendored",
+      "path": "vendor/zbc/modules/turso/index.ts",
+      "lines": 187,
+      "configKeys": [
+        "orgName",
+        "dbName",
+        "group",
+        "primaryLocation",
+        "ephemeral",
+        "migrationsDir"
+      ],
+      "outputKeys": [
+        "databaseUrl",
+        "authToken"
+      ],
+      "verdict": "stale",
+      "matchedRev": "8a558a40b3e380f813ab6a275f9587a5a286475e"
+    },
+    {
+      "name": "cloudflare-tunnel",
+      "location": "vendored",
+      "path": "vendor/zbc/modules/cloudflare-tunnel/index.ts",
+      "lines": 442,
+      "configKeys": [],
+      "outputKeys": [
+        "tunnelId",
+        "runToken",
+        "hostnames",
+        "createdTunnel",
+        "changed"
+      ],
+      "verdict": "stale",
+      "matchedRev": "aefae2833a07124a1c6831a4c2c0ee8e4e920b68"
+    },
+    {
+      "name": "host-symlink",
+      "location": "vendored",
+      "path": "vendor/zbc/modules/host-symlink/index.ts",
+      "lines": 121,
+      "configKeys": [
+        "path",
+        "target"
+      ],
+      "outputKeys": [],
+      "verdict": "current",
+      "matchedRev": "aefae2833a07124a1c6831a4c2c0ee8e4e920b68"
+    },
+    {
+      "name": "cloudflare-email",
+      "location": "vendored",
+      "path": "vendor/zbc/modules/cloudflare-email/index.ts",
+      "lines": 574,
+      "configKeys": [
+        "accountId",
+        "zoneId",
+        "domain",
+        "enableSending",
+        "enableRouting",
+        "catchAll",
+        "addresses"
+      ],
+      "outputKeys": [
+        "sendingEnabled",
+        "routingEnabled",
+        "dnsStatus",
+        "addresses",
+        "accountId",
+        "domain"
+      ],
+      "verdict": "stale",
+      "matchedRev": "9224fda0145efb52698995ec1006dd4e69ca163c"
+    },
+    {
+      "name": "incus-storage-pool",
+      "location": "vendored",
+      "path": "vendor/zbc/modules/incus-storage-pool/index.ts",
+      "lines": 157,
+      "configKeys": [],
+      "outputKeys": [
+        "name",
+        "driver",
+        "created",
+        "changed"
+      ],
+      "verdict": "current",
+      "matchedRev": "aefae2833a07124a1c6831a4c2c0ee8e4e920b68"
+    },
+    {
+      "name": "cloudflare-token",
+      "location": "vendored",
+      "path": "vendor/zbc/modules/cloudflare-token/index.ts",
+      "lines": 265,
+      "configKeys": [
+        "accountId",
+        "tokenName",
+        "permissions",
+        "zones",
+        "ephemeral"
+      ],
+      "outputKeys": [
+        "tokenId",
+        "tokenValue",
+        "s3AccessKeyId",
+        "s3SecretAccessKey"
+      ],
+      "verdict": "stale",
+      "matchedRev": "ec24ecb833461ee66cc57ba685ef0236bc82572a"
+    },
+    {
+      "name": "vm",
+      "location": "vendored",
+      "path": "vendor/zbc/modules/vm/index.ts",
+      "lines": 709,
+      "configKeys": [],
+      "outputKeys": [
+        "name",
+        "type",
+        "sshUser",
+        "target",
+        "ipv4",
+        "created",
+        "changed"
+      ],
+      "verdict": "current",
+      "matchedRev": "aefae2833a07124a1c6831a4c2c0ee8e4e920b68"
+    },
+    {
+      "name": "vm-provision",
+      "location": "vendored",
+      "path": "vendor/zbc/modules/vm-provision/index.ts",
+      "lines": 174,
+      "configKeys": [
+        "instance",
+        "packages",
+        "script",
+        "env",
+        "envSecrets",
+        "volatileEnvFrom",
+        "marker",
+        "force"
+      ],
+      "outputKeys": [
+        "instance",
+        "digest",
+        "changed"
+      ],
+      "verdict": "stale",
+      "matchedRev": "aefae2833a07124a1c6831a4c2c0ee8e4e920b68"
+    },
+    {
+      "name": "host-file",
+      "location": "vendored",
+      "path": "vendor/zbc/modules/host-file/index.ts",
+      "lines": 47,
+      "configKeys": [],
+      "outputKeys": [],
+      "verdict": "stale",
+      "matchedRev": "58d32bc00d7cca46c6e1f7f2f707653c6566a5db"
+    },
+    {
+      "name": "cloudflare-zone",
+      "location": "vendored",
+      "path": "vendor/zbc/modules/cloudflare-zone/index.ts",
+      "lines": 559,
+      "configKeys": [],
+      "outputKeys": [
+        "zoneId",
+        "zoneName",
+        "nameServers",
+        "created",
+        "updated",
+        "deleted",
+        "undeclared",
+        "emailProvisioned",
+        "changed"
+      ],
+      "verdict": "stale",
+      "matchedRev": "aefae2833a07124a1c6831a4c2c0ee8e4e920b68"
+    },
+    {
+      "name": "cloudflare-access",
+      "location": "vendored",
+      "path": "vendor/zbc/modules/cloudflare-access/index.ts",
+      "lines": 1231,
+      "configKeys": [],
+      "outputKeys": [
+        "appId",
+        "aud",
+        "teamDomain",
+        "orgName",
+        "identityProviders",
+        "undeclaredIdentityProviders",
+        "appDomain",
+        "emails",
+        "policyId",
+        "policyIds",
+        "serviceTokenIds",
+        "serviceTokenId",
+        "clientId",
+        "clientSecret",
+        "created",
+        "appCreated",
+        "undeclared",
+        "changed"
+      ],
+      "verdict": "stale",
+      "matchedRev": "c96dd453ab3676ac89eb4648fb513e52242e0fb9"
+    },
+    {
+      "name": "systemd-unit",
+      "location": "vendored",
+      "path": "vendor/zbc/modules/systemd-unit/index.ts",
+      "lines": 66,
+      "configKeys": [
+        "unit",
+        "content",
+        "scope",
+        "enableNow"
+      ],
+      "outputKeys": [],
+      "verdict": "current",
+      "matchedRev": "aefae2833a07124a1c6831a4c2c0ee8e4e920b68"
+    },
+    {
+      "name": "remote-provision",
+      "location": "vendored",
+      "path": "vendor/zbc/modules/remote-provision/index.ts",
+      "lines": 166,
+      "configKeys": [
+        "hosts",
+        "user",
+        "connectTimeout",
+        "packages",
+        "script",
+        "env",
+        "envSecrets",
+        "volatileEnvFrom",
+        "marker",
+        "force"
+      ],
+      "outputKeys": [
+        "host",
+        "fallback",
+        "digest",
+        "changed"
+      ],
+      "verdict": "stale",
+      "matchedRev": "aefae2833a07124a1c6831a4c2c0ee8e4e920b68"
+    },
+    {
+      "name": "r2",
+      "location": "vendored",
+      "path": "vendor/zbc/modules/r2/index.ts",
+      "lines": 138,
+      "configKeys": [
+        "accountId",
+        "bucketName",
+        "locationHint",
+        "ephemeral"
+      ],
+      "outputKeys": [
+        "bucketName"
+      ],
+      "verdict": "stale",
+      "matchedRev": "9f1326815be69993c85ba94340fbf2e591c695fa"
+    }
+  ],
+  "escapeHatches": [
+    {
+      "file": "packages/infra/package.json",
+      "line": 13,
+      "tool": "wrangler",
+      "snippet": "\"wrangler\": \"^4.0.0\""
+    },
+    {
+      "file": ".github/workflows/ci.yml",
+      "line": 15,
+      "tool": "wrangler",
+      "snippet": "#   runtime    the ones that build the client, stand a real `wrangler dev` up,"
+    },
+    {
+      "file": ".github/workflows/ci.yml",
+      "line": 84,
+      "tool": "wrangler",
+      "snippet": "# `wrangler dev` is local workerd and wants nothing from the network. Saying"
+    },
+    {
+      "file": ".github/workflows/ci.yml",
+      "line": 308,
+      "tool": "wrangler",
+      "snippet": "# wrangler refuses to start on anything below node 22, so this one is load"
+    },
+    {
+      "file": ".github/workflows/ci.yml",
+      "line": 330,
+      "tool": "wrangler",
+      "snippet": "# First, and not only for its own sake: `wrangler dev` serves"
+    },
+    {
+      "file": ".github/workflows/ci.yml",
+      "line": 336,
+      "tool": "wrangler",
+      "snippet": "# Starts its own two `wrangler dev`s on :3111 and :3112. The one suite the"
+    },
+    {
+      "file": ".github/workflows/ci.yml",
+      "line": 357,
+      "tool": "wrangler",
+      "snippet": "log=\"$RUNNER_TEMP/wrangler-e2e.log\""
+    },
+    {
+      "file": ".github/workflows/ci.yml",
+      "line": 359,
+      "tool": "wrangler",
+      "snippet": "bunx wrangler dev --port 3099 --ip 127.0.0.1 --var SPEED:25 > \"$log\" 2>&1 &"
+    },
+    {
+      "file": ".github/workflows/ci.yml",
+      "line": 361,
+      "tool": "wrangler",
+      "snippet": "# That output is the only place a wrangler failure explains itself, so"
+    },
+    {
+      "file": ".github/workflows/ci.yml",
+      "line": 367,
+      "tool": "wrangler",
+      "snippet": "echo \"--- wrangler dev said ---\"; cat \"$log\";"
+    },
+    {
+      "file": ".github/workflows/ci.yml",
+      "line": 371,
+      "tool": "wrangler",
+      "snippet": "# Stop waiting on something that has already exited: a wrangler that"
+    },
+    {
+      "file": ".github/workflows/ci.yml",
+      "line": 378,
+      "tool": "wrangler",
+      "snippet": "echo \"the sped-up wrangler dev never served /health.\""
+    }
+  ]
+}
