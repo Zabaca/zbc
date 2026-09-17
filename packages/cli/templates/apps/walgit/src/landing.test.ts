@@ -121,13 +121,13 @@ describe('renderLanding', () => {
     const page = renderLanding(HOST, NOTHING)
     expect(page).not.toContain('24 hours')
     expect(page).not.toContain('is collected')
-    expect(page).toContain('nothing about this service is a promise to keep your history')
+    expect(page).toContain('nothing here is a promise to keep your history')
   })
 
   test('with retention set, the window is stated twice and agrees with itself', () => {
     const page = renderLanding(HOST, caps({ WALGIT_RETENTION_HOURS: '24' }))
     expect(page).toContain('A repository lives 24 hours from its last push.')
-    expect(page).toContain('Not permanent: 24 hours from the last push, a repository is collected.')
+    expect(page).toContain('Built as scratch space: 24 hours from the last push, a repository is collected.')
   })
 
   test('with no retention but caps set, the third claim becomes the caps', () => {
@@ -425,7 +425,7 @@ describe('the terms that state a flag are rendered from it', () => {
 
     // With the flag it is word for word the paragraph that shipped.
     expect(renderLanding(HOST, caps({ ...OPEN, ...GATE, ...SEED }))).toContain(
-      'Nothing you push can be destroyed — and that cuts both ways. Anyone who knows the name can add a branch to the repository your agent is working in, and then <em>neither of you can ever remove it</em>. Append-only defends their write as carefully as it defends yours.',
+      "An unclaimed name takes anyone's push, and append-only keeps every one of them forever — so a stranger's branch in the repository your agent is working in is <em>there for good</em>. Claim the name and that stops being possible.",
     )
   })
 
@@ -512,10 +512,10 @@ describe('the terms that state a flag are rendered from it', () => {
     const html = renderLanding(HOST, caps({ ...OPEN, ...GATE, ...SEED, ...EVENTS }))
     expect(html).toContain(
       `      <ul class="claims">
-        <li><span class="k">Append-only</span><span class="v"><b>Nothing you push can be destroyed.</b> Whoever the name takes a push from may add; no one may rewrite or delete. A push that would rewrite history is refused in <code>pre-receive</code>, before anything is uploaded, by a message naming what to do instead.</span></li>
+        <li><span class="k">Append-only</span><span class="v"><b>Nothing you push can be destroyed.</b> Whoever the name takes a push from may add; no one may rewrite or delete. A push that would rewrite history is turned away before anything is uploaded, by a message naming what to do instead.</span></li>
         <li><span class="k">Public</span><span class="v"><b>Every repository is world-readable, and world-writable until its name is claimed.</b> Sharing is a URL, not an invitation. Privacy is not free yet.</span></li>
         <li><span class="k">Attributed</span><span class="v"><b>A push signed with your key records that key's fingerprint.</b> Unsigned is fine unless a name has written a Signer List, which takes pushes from its own keys only. There is still no account: the fingerprint is the whole identity. <code>git push --signed=if-asked</code>.</span></li>
-        <li><span class="k">Crawlable</span><span class="v"><b><code>/robots.txt</code> says yes, out loud.</b> <code>Allow: /</code> for every agent, and <code>Content-Signal: search=yes, ai-input=yes, ai-train=yes</code>. Silence was being read as a refusal.</span></li>
+        <li><span class="k">Crawlable</span><span class="v"><b><code>/robots.txt</code> says yes, out loud.</b> <code>Allow: /</code> for every agent, and <code>Content-Signal: search=yes, ai-input=yes, ai-train=yes</code>. Your agent is welcome to read this place, and told so in the one file it checks.</span></li>
       </ul>`,
     )
   })
@@ -543,8 +543,8 @@ describe('the section that argues for holding a name', () => {
     const flat = html.replace(/\s+/g, ' ')
     // The cost, which is the argument. Without it the section is a feature
     // announcement, and a reader has no reason to spend a push on one.
-    expect(flat).toContain('neither of you can ever remove it')
-    expect(flat).toContain('So a name can refuse a stranger.')
+    expect(flat).toContain('is <em>there for good</em>')
+    expect(flat).toContain('Claiming one takes a single push.')
     // The two things a visitor must have before they act: where the list goes,
     // and the one piece of advice with no way back if it is ignored.
     expect(html).toContain('<code>refs/walgit/signers</code>')
@@ -690,7 +690,7 @@ describe('the roadmap', () => {
     expect(html).not.toContain('<span class="when">Shipped</span>')
     expect(html).not.toContain('the one thing that no longer is')
     expect(html).toContain(
-      'What is missing, in the order it unblocks itself. Nothing here is a date',
+      'Where this is going, in the order it gets there. Nothing here is a date',
     )
     // And it stops describing a policy nobody built: the design that shipped is
     // a list a name writes, not first-key-wins.
@@ -749,7 +749,7 @@ describe('the roadmap', () => {
     const html = renderLanding(HOST, caps({ ...SEED, ...GATE }))
     expect(html).not.toContain('same fingerprint that already gets recorded')
     expect(html).toContain('Signer List')
-    expect(html).toContain('Reads are still gated on nothing')
+    expect(html).toContain('today a claimed repository reads as openly as any other')
     // Not promised, and not made next by ownership having shipped.
     expect(html).not.toContain('<span class="when">Next</span>')
   })
@@ -805,7 +805,7 @@ describe('Private moves from the roadmap to the rules', () => {
   test('with no seed the row keeps the words it has today', () => {
     const html = renderLanding(HOST, caps({ ...OPEN, ...SEED, ...GATE }))
     expect(html).toContain('<h3>Private</h3>')
-    expect(html).toContain('Reads are still gated on nothing')
+    expect(html).toContain('today a claimed repository reads as openly as any other')
     expect(html).not.toContain('<span class="k">Private</span>')
   })
 
