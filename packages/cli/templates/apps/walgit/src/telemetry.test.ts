@@ -14,6 +14,7 @@ import {
   DOUBLE_COLUMNS,
   classifyOutcome,
   classifyRequest,
+  otherBucket,
   toDataPoint,
   type RequestMetric,
 } from '../shared/telemetry'
@@ -67,11 +68,67 @@ describe('classifyRequest', () => {
     expect(classifyRequest('GET', '/alpha.git/info/refs', '')).toEqual({
       kind: 'other',
       repo: 'alpha',
+      bucket: 'else',
     })
     expect(classifyRequest('GET', '/alpha.git/objects/info/packs', '')).toEqual({
       kind: 'other',
       repo: '',
+      bucket: 'else',
     })
+  })
+
+  test('an other carries the shape of the path, and only other does', () => {
+    // The dataset records no path, so a spike in `other` used to be
+    // unattributable — this is the column that names it.
+    expect(classifyRequest('GET', '/.env', '').bucket).toBe('dotfile')
+    expect(classifyRequest('GET', '/wp-login.php', '').bucket).toBe('php')
+    // A kind walgit routes has nothing to explain.
+    expect(classifyRequest('GET', '/', '').bucket).toBeUndefined()
+    expect(classifyRequest('GET', '/_walgit/health', '').bucket).toBeUndefined()
+    expect(classifyRequest('POST', '/alpha.git/git-upload-pack', '').bucket).toBeUndefined()
+  })
+})
+
+describe('otherBucket', () => {
+  test('sorts a path into one of the seven', () => {
+    expect(otherBucket('/favicon.ico')).toBe('favicon')
+    expect(otherBucket('/apple-touch-icon.png')).toBe('apple-touch')
+    expect(otherBucket('/apple-touch-icon-precomposed.png')).toBe('apple-touch')
+    expect(otherBucket('/.well-known/security.txt')).toBe('well-known')
+    expect(otherBucket('/.env')).toBe('dotfile')
+    expect(otherBucket('/.git/config')).toBe('dotfile')
+    expect(otherBucket('/wp-login.php')).toBe('php')
+    // A `/<name>` with no `.git` — somebody typing a repository's name into a
+    // browser, which is a different question from a scanner.
+    expect(otherBucket('/alpha')).toBe('bare-name')
+    expect(otherBucket('/some/deep/path.html')).toBe('else')
+  })
+
+  test('never returns anything the caller supplied', () => {
+    const buckets = new Set([
+      'favicon',
+      'apple-touch',
+      'well-known',
+      'dotfile',
+      'php',
+      'bare-name',
+      'else',
+    ])
+    const hostile = [
+      '/secret-repo-name',
+      '/?token=sk-live-abcdef',
+      '/%2e%2e%2f%2e%2e%2fetc%2fpasswd',
+      `/${'a'.repeat(4096)}`,
+      '/\u0000',
+      '',
+    ]
+    for (const path of hostile) {
+      const bucket = otherBucket(path)
+      expect(buckets.has(bucket)).toBe(true)
+      // Bounded and never user-controlled: the path itself never reaches the
+      // dataset, whatever shape it arrived in.
+      expect(path.includes(bucket)).toBe(false)
+    }
   })
 })
 
@@ -146,6 +203,17 @@ describe('toDataPoint', () => {
     expect(
       toDataPoint({ ...metric, kind: 'push', outcome: 'reject', reject: 'size-cap' }).indexes,
     ).toEqual(['push'])
+  })
+
+  test('the bucket column is a bucket name on an other, and empty everywhere else', () => {
+    const blobs = (m: RequestMetric) =>
+      Object.fromEntries(BLOB_COLUMNS.map((name, i) => [name, toDataPoint(m).blobs[i]]))
+    expect(blobs(metric).bucket).toBe('')
+    expect(blobs({ ...metric, kind: 'other', repo: '', bucket: 'dotfile' }).bucket).toBe('dotfile')
+    // A kind that carried none still writes the column, so a GROUP BY over it
+    // is honest and every existing query is unaffected.
+    expect(blobs({ ...metric, kind: 'other', repo: '' }).bucket).toBe('else')
+    expect(blobs({ ...metric, kind: 'favicon', repo: '' }).bucket).toBe('')
   })
 
   test('records nothing that identifies a caller or carries repository content', () => {

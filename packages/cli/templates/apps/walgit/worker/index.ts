@@ -33,6 +33,14 @@ import { parseTokens } from '../shared/credentials'
 import { authorizeAnnounce, authorizeSubscribe } from '../shared/events'
 import { renderLanding, wantsLanding } from '../shared/landing'
 import { renderLlms, wantsLlms } from '../shared/llms'
+import {
+  FAVICON_BODY,
+  FAVICON_CONTENT_TYPE,
+  ICON_CACHE_CONTROL,
+  TOUCH_ICON_STATUS,
+  wantsFavicon,
+  wantsTouchIcon,
+} from '../shared/favicon'
 import { OG_IMAGE_CACHE_CONTROL, OG_IMAGE_CONTENT_TYPE, wantsOgImage } from '../shared/og-image'
 import { analyticsFrom } from '../shared/analytics'
 import { operatorFrom } from '../shared/operator'
@@ -452,6 +460,64 @@ export default {
       })
     }
 
+    // `/favicon.ico` — the request a browser makes on every first view of the
+    // page whatever the head declares, and the one the container was answering
+    // 404 to ~282 times in the two hours after the launch link went up. The
+    // bytes are the mark the head already inlines, read from one constant
+    // (shared/favicon.ts → shared/landing.ts), so the tab and the masthead
+    // cannot drift. Same collision argument as `/llms.txt`, `/robots.txt` and
+    // `/agentgit-og.png`: a repository called `favicon.ico` is reached at
+    // `/favicon.ico.git/…`, so this route cannot shadow one.
+    if (wantsFavicon(request.method, url.pathname)) {
+      const bytes = new TextEncoder().encode(FAVICON_BODY)
+      record(env, ctx, {
+        kind: 'favicon',
+        repo: '',
+        outcome: 'ok',
+        reject: '',
+        status: 200,
+        served: false,
+        cold: false,
+        ttfbMs: Date.now() - startedAt,
+        totalMs: Date.now() - startedAt,
+        bytesServed: request.method === 'HEAD' ? 0 : bytes.byteLength,
+        bytesReceived: 0,
+      })
+      return new Response(request.method === 'HEAD' ? null : bytes, {
+        status: 200,
+        headers: {
+          'content-type': FAVICON_CONTENT_TYPE,
+          'cache-control': ICON_CACHE_CONTROL,
+          // A HEAD must answer the size the GET would send.
+          'content-length': String(bytes.byteLength),
+        },
+      })
+    }
+
+    // The touch icons iOS asks for when a page is bookmarked, which the head
+    // does not declare and no raster exists for. 204 rather than 404 because a
+    // 404 is what a client retries; with the day-long cache header above, this
+    // is asked once a day instead of once a page. Same collision argument.
+    if (wantsTouchIcon(request.method, url.pathname)) {
+      record(env, ctx, {
+        kind: 'favicon',
+        repo: '',
+        outcome: 'ok',
+        reject: '',
+        status: TOUCH_ICON_STATUS,
+        served: false,
+        cold: false,
+        ttfbMs: Date.now() - startedAt,
+        totalMs: Date.now() - startedAt,
+        bytesServed: 0,
+        bytesReceived: 0,
+      })
+      return new Response(null, {
+        status: TOUCH_ICON_STATUS,
+        headers: { 'cache-control': ICON_CACHE_CONTROL },
+      })
+    }
+
     // The ref-event stream, answered at the edge for the same reason the
     // landing page is: a subscription is a socket the container has no reason
     // to hold, and holding one would keep the single container awake for as
@@ -673,13 +739,16 @@ function stripInternal(request: Request): Request {
 
 /** The facts known before the container answers. */
 function base(
-  facts: { kind: RequestMetric['kind']; repo: string },
+  facts: { kind: RequestMetric['kind']; repo: string; bucket?: RequestMetric['bucket'] },
   request: Request,
-): Pick<RequestMetric, 'kind' | 'repo' | 'bytesReceived'> {
+): Pick<RequestMetric, 'kind' | 'repo' | 'bucket' | 'bytesReceived'> {
   const declared = Number(request.headers.get('content-length') ?? '0')
   return {
     kind: facts.kind,
     repo: facts.repo,
+    // Only `other` carries one, and only `other` writes it to the datapoint —
+    // which is the one kind that reaches this helper without a route to name.
+    bucket: facts.bucket,
     bytesReceived: Number.isFinite(declared) ? declared : 0,
   }
 }

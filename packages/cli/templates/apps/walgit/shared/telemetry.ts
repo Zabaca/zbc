@@ -60,6 +60,11 @@ export type RequestKind =
   // together would put the second number into the first — which is the one
   // number a launch is read by.
   | 'og-image'
+  // `/favicon.ico` and the touch icons (`shared/favicon.ts`), answered at the
+  // edge. Its own kind rather than `other`, because `other` is the unroutable
+  // bucket and these are requests walgit now answers — and because the count
+  // is the measure of what the route absorbed.
+  | 'favicon'
   | 'health'
   // Someone asking who pushed (docs/adr/0011). Its own kind rather than
   // `other`, because `other` is the unroutable bucket and a provenance read is
@@ -75,6 +80,56 @@ export interface RequestFacts {
   kind: RequestKind
   /** The repository the path names, or `''` for a request that names none. */
   repo: string
+  /**
+   * For kind `other` only: which SHAPE of unroutable path this was. Present
+   * nowhere else, because nowhere else is a mystery.
+   */
+  bucket?: OtherBucket
+}
+
+/**
+ * The shape of an unroutable path, as a closed set.
+ *
+ * `other` is where every 404 lands, and until this existed a spike in it was
+ * unattributable: the dataset records no path, so the 282 rows of the
+ * 2026-09-18 launch burst could only be guessed at (browser favicons, plus a
+ * scanner baseline). One bounded blob makes the next such question a SQL query.
+ *
+ * Bounded is the whole design. A path is attacker-controlled and unbounded, so
+ * it never reaches the dataset; what reaches it is one of these seven names,
+ * and an input that matches none of them is `else`.
+ */
+export type OtherBucket =
+  | 'favicon'
+  | 'apple-touch'
+  | 'well-known'
+  | 'dotfile'
+  | 'php'
+  | 'bare-name'
+  | 'else'
+
+/**
+ * Sort a path into one of the seven. Pure, total and never throwing: a bucket
+ * is a count, and a count is never worth failing a request over, so anything
+ * unexpected is `else`.
+ *
+ * `favicon` and `apple-touch` should be empty once the edge routes answer them
+ * (`shared/favicon.ts`) — they are kept as tripwires, so a route that stops
+ * matching shows up as rows rather than as silence.
+ */
+export function otherBucket(pathname: string): OtherBucket {
+  try {
+    if (pathname === '/favicon.ico' || pathname === '/favicon.svg') return 'favicon'
+    if (pathname.startsWith('/apple-touch-icon')) return 'apple-touch'
+    if (pathname.startsWith('/.well-known/')) return 'well-known'
+    const segments = pathname.split('/').filter((s) => s.length > 0)
+    if (segments.some((s) => s.startsWith('.'))) return 'dotfile'
+    if (pathname.endsWith('.php')) return 'php'
+    if (segments.length === 1 && !segments[0]!.includes('.')) return 'bare-name'
+    return 'else'
+  } catch {
+    return 'else'
+  }
 }
 
 /**
@@ -104,7 +159,7 @@ export function classifyRequest(method: string, pathname: string, search: string
   }
 
   const route = SMART_HTTP.exec(pathname)
-  if (!route) return { kind: 'other', repo: '' }
+  if (!route) return { kind: 'other', repo: '', bucket: otherBucket(pathname) }
   const repo = route[1]!
 
   if (route[2] === 'git-upload-pack') return { kind: 'clone', repo }
@@ -115,7 +170,9 @@ export function classifyRequest(method: string, pathname: string, search: string
   const service = new URLSearchParams(search).get('service')
   if (service === 'git-receive-pack') return { kind: 'push-advertise', repo }
   if (service === 'git-upload-pack') return { kind: 'clone-advertise', repo }
-  return { kind: 'other', repo }
+  // A smart-HTTP-shaped path that named no service: routable enough to name a
+  // repository, so the bucket is `else` rather than anything about the shape.
+  return { kind: 'other', repo, bucket: 'else' }
 }
 
 /**
@@ -152,6 +209,11 @@ function fromStatus(status: number): RejectKind {
 export interface RequestMetric {
   kind: RequestKind
   repo: string
+  /**
+   * For kind `other`: which shape of unroutable path. Every other kind writes
+   * `''`, so the column exists on every row and a `GROUP BY` over it is honest.
+   */
+  bucket?: OtherBucket
   outcome: Outcome
   reject: RejectKind | ''
   status: number
@@ -194,6 +256,10 @@ export function toDataPoint(metric: RequestMetric): DataPoint {
       metric.repo,
       metric.cold ? 'cold' : 'warm',
       metric.served ? 'container' : 'edge',
+      // Seventh blob, added after a launch burst of unattributable 404s. A
+      // bucket name or `''` — never the path (see `otherBucket`). Appending
+      // rather than inserting is what keeps every existing query working.
+      metric.kind === 'other' ? (metric.bucket ?? 'else') : '',
     ],
     doubles: [
       metric.status,
@@ -214,6 +280,7 @@ export const BLOB_COLUMNS = [
   'repo',
   'temperature',
   'answered',
+  'bucket',
 ] as const
 export const DOUBLE_COLUMNS = [
   'status',
