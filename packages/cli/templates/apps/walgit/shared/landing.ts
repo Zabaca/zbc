@@ -1181,13 +1181,19 @@ const WIRE_CLIENT = `
 const MARK_GEOMETRY = `<rect width="32" height="32" rx="7" fill="#ede6de"/><g transform="translate(1 1) scale(.9375)"><path stroke="#14100e" fill="none" stroke-width="4.5" d="M9 25V9M9 13c0 6 14 3 14 11"/><circle fill="#14100e" cx="9" cy="8" r="5"/><circle fill="#14100e" cx="9" cy="25" r="5"/><rect fill="#c56a3e" x="17.5" y="18.5" width="11" height="11" rx="2"/></g>`
 
 /**
- * The favicon, inline as a data URI rather than as a route: a `/favicon.svg`
- * route would need the same repo-shadowing argument `/robots.txt` makes, and a
- * 600-byte tag needs none.
+ * The mark as a standalone document. Exported because `/favicon.ico` is now a
+ * route too (`shared/favicon.ts`) — the clients that ignore the tag below ask
+ * for that path whatever the head says — and the tag and the route must be the
+ * same picture, so they read one constant.
  */
-const MARK_FAVICON_HREF = `data:image/svg+xml,${encodeURIComponent(
-  `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">${MARK_GEOMETRY}</svg>`,
-)}`
+export const MARK_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">${MARK_GEOMETRY}</svg>`
+
+/**
+ * The favicon, inline as a data URI as well as a route: the tag costs no
+ * request for the browsers that honour it, and `shared/favicon.ts` catches the
+ * ones that ask for `/favicon.ico` regardless.
+ */
+const MARK_FAVICON_HREF = `data:image/svg+xml,${encodeURIComponent(MARK_SVG)}`
 
 /**
  * The masthead's copy. Inline, so it is there on the first paint and costs no

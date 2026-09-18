@@ -93,12 +93,20 @@ come from the log only, because two records of one fact disagree the first time
 a write fails between them.
 
 Each datapoint carries, as blobs: `kind` (`clone-advertise`, `clone`,
-`push-advertise`, `push`, `instructions`, `health`, `other`), `outcome`
+`push-advertise`, `push`, `instructions`, `landing`, `og-image`, `favicon`,
+`provenance`, `health`, `other`), `outcome`
 (`ok`/`reject`), `reject`, `repo`, `temperature` (`cold`/`warm`), `answered`
-(`container`/`edge`); and as doubles: `status`, `ttfb_ms`, `total_ms`,
+(`container`/`edge`), `bucket`; and as doubles: `status`, `ttfb_ms`, `total_ms`,
 `bytes_served`, `bytes_received`, `cold`. The index is `kind`, so refusals — the
 rare thing an operator is hunting — are sampled independently of clones, the
 loud thing.
+
+`bucket` (blob7) is the shape of an **unroutable** path, and is written only for
+`kind = other`, empty everywhere else: one of `favicon`, `apple-touch`,
+`well-known`, `dotfile`, `php`, `bare-name`, `else`. It exists because the
+dataset records no path on purpose — a path is attacker-controlled and unbounded
+— which left a burst of 404s unattributable. A bucket name is bounded, so the
+question "what are these?" is a `GROUP BY` rather than a guess.
 
 Refusals are counted **by kind**, never as an error rate, because the kinds mean
 different things: `size-cap` (abuse or a misconfigured client), `collision` (a
@@ -125,6 +133,14 @@ Query it with the [Analytics Engine SQL API](https://developers.cloudflare.com/a
 ```sql
 SELECT blob1 AS kind, blob3 AS reject, count() AS n, sum(double4) AS bytes_served
 FROM walgit_requests WHERE timestamp > now() - INTERVAL '24' HOUR GROUP BY kind, reject
+```
+
+And what the 404s actually are:
+
+```sql
+SELECT blob7 AS bucket, sum(_sample_interval) AS n
+FROM walgit_requests WHERE index1 = 'other' AND timestamp > now() - INTERVAL '24' HOUR
+GROUP BY bucket
 ```
 
 It runs where the app's environment is — inside the container, or anywhere the
