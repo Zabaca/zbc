@@ -56,7 +56,7 @@ export async function runSetup(request: SetupRequest, deps: SetupDeps): Promise<
       stdout: '',
       stderr:
         'agentgit: no walgit remote here to take a host from.\n' +
-        'Run this in a clone, or name the host: agentgit setup agentgit.zabaca.com\n',
+        'Run this in a clone, or name the host: agentgit setup agentgit.co\n',
       code: 2,
     }
   }

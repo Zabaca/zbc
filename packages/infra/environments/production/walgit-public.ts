@@ -1,12 +1,13 @@
 import { cloudflareModule } from '../../modules/cloudflare'
 import walgitPublicWal from './walgit-public-wal'
 import zabacaZone from './zabaca-zone'
+import agentgitZone from './agentgit-zone'
 
-// walgit.zabaca.com — the public git host: no account, no token, no key.
+// agentgit.co — the public git host: no account, no token, no key.
 //
 // A Durable-Object-bound Container running packages/walgit's Dockerfile behind
 // a thin Worker (docs/adr/0008), with the write-ahead log in its own R2 bucket.
-// `git push https://walgit.zabaca.com/<name>.git` creates the repository;
+// `git push https://agentgit.co/<name>.git` creates the repository;
 // everything is world-readable until a claimed name writes a Reader List and
 // world-writable until one writes a Signer List; refs are append-only, so
 // nothing can be destroyed; and the only removal path is idle expiry.
@@ -29,9 +30,9 @@ import zabacaZone from './zabaca-zone'
 // unique per zone — a route in the package config would let the most recently
 // deployed preview quietly take production's traffic.
 //
-// The AAAA record lives in `zabaca-zone`, proxied, and this instance imports
-// that one for ORDER, not for a value: the record has to exist before the route
-// is claimed. Proxied is now correct where `git.zabaca.com` had to be grey —
+// The AAAA records live in `agentgit-zone` (agentgit.co, www) and `zabaca-zone`
+// (the two legacy names), proxied, and this instance imports both for ORDER,
+// not for a value: the record has to exist before the route is claimed. Proxied is now correct where `git.zabaca.com` had to be grey —
 // that record was unproxied only because SSH needs raw TCP, and SSH is gone.
 //
 // A wrangler custom domain is deliberately NOT used: it creates its own managed
@@ -52,18 +53,19 @@ import zabacaZone from './zabaca-zone'
 // bucket this one does while adding a credential to rotate.
 export default cloudflareModule.instance({
   name: 'walgit-public',
-  imports: [walgitPublicWal, zabacaZone],
+  imports: [walgitPublicWal, agentgitZone, zabacaZone],
   config: {
     workdir: 'packages/walgit',
     accountId: '99a19e584439be0568f33aad0477372b',
     workerName: 'zbc-walgit-public',
-    // Two hostnames, one worker. `agentgit.zabaca.com` is the name the service
-    // launches under; `walgit.zabaca.com` stays routed so the remotes that
-    // already exist keep resolving — a git remote is configuration on somebody
-    // else's disk, and retiring a hostname breaks it silently on their next
-    // push. The page renders whichever host the request arrived on, so both
-    // read correctly rather than one advertising the other.
-    routes: ['agentgit.zabaca.com/*', 'walgit.zabaca.com/*'],
+    // Four hostnames, one worker. `agentgit.co` is the name the service
+    // launches under (bought 2026-09-18), `www` alongside it; the two
+    // `zabaca.com` names stay routed so the remotes that already exist keep
+    // resolving — a git remote is configuration on somebody else's disk, and
+    // retiring a hostname breaks it silently on their next push. The page
+    // renders whichever host the request arrived on, so every one reads
+    // correctly rather than advertising another.
+    routes: ['agentgit.co/*', 'www.agentgit.co/*', 'agentgit.zabaca.com/*', 'walgit.zabaca.com/*'],
     // Rolls the container APPLICATION to the new image instead of wrangler's
     // gradual default. Necessary, and on its own it has never been sufficient:
     // it does not drain the single always-warm instance this deployment runs,
@@ -416,16 +418,16 @@ export default cloudflareModule.instance({
       // can dial, and the Worker in front of these routes is the only thing
       // that can reach the Durable Object holding the sockets.
       //
-      // `agentgit.zabaca.com` of the two routed hostnames, because that is the
-      // name the service launches under; either would work (one worker answers
-      // both), and this one is not a client-visible choice — no subscriber ever
-      // sees this value, they connect to whichever host they already use.
+      // `agentgit.co` of the four routed hostnames, because that is the name
+      // the service launches under; any would work (one worker answers all),
+      // and this one is not a client-visible choice — no subscriber ever sees
+      // this value, they connect to whichever host they already use.
       //
       // The credential half lives in `workerSecrets` above. Both are required:
       // `src/announce.ts` reads the pair and stays silent unless both are set,
       // so a half-configured deployment announces nothing rather than
       // announcing unauthenticated.
-      { name: 'WALGIT_EVENTS_URL', value: 'https://agentgit.zabaca.com' },
+      { name: 'WALGIT_EVENTS_URL', value: 'https://agentgit.co' },
     ],
   },
 })
