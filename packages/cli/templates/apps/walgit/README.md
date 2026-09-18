@@ -483,8 +483,8 @@ Edge-only for the same reason as the operator pair: the container renders
 nothing a browser runs. The edge telemetry above already counts page views and
 records nothing about who made them; this is for the questions it cannot
 answer — referrer, scroll depth, return visits — once traffic is real. The
-snippet disables session recording and creates no profile for an anonymous
-reader. Unset, the page carries no script at all (`analyticsFrom`,
+snippet creates no profile for an anonymous reader; session replay follows
+the PostHog project's own setting. Unset, the page carries no script at all (`analyticsFrom`,
 `shared/analytics.ts`).
 
 For the three boolean flags — `WALGIT_APPEND_ONLY`, `WALGIT_PUBLIC` and

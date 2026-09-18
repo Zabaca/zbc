@@ -48,9 +48,10 @@ describe('the page', () => {
     const html = renderLanding(HOST, caps, null, analyticsFrom({ WALGIT_POSTHOG_KEY: 'phc_test' }))
     expect(html).toContain('window.posthog=e')
     expect(html).toContain(`posthog.init("phc_test",{api_host:"${DEFAULT_POSTHOG_HOST}"`)
-    // No screen recording of strangers, no profile for an anonymous reader.
-    expect(html).toContain('disable_session_recording:true')
+    // No profile for an anonymous reader. Session replay is the project's
+    // setting, not the page's, so the snippet says nothing about it.
     expect(html).toContain('person_profiles:"identified_only"')
+    expect(html).not.toContain('disable_session_recording')
     // In the head, before the page's own script.
     expect(html.indexOf('posthog.init')).toBeLessThan(html.indexOf('</head>'))
   })
