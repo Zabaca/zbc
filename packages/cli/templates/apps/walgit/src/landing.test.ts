@@ -72,11 +72,24 @@ describe('renderLanding', () => {
    * hero specifically, because a name in the tab title is not a name the
    * reader of the page sees.
    */
-  test('the hero names agentgit and says what it is for', () => {
-    const hero = renderLanding(HOST, NOTHING).split('<div class="cta">')[0] ?? ''
+  test('the hero names agentgit, and the handoff has a section of its own', () => {
+    const html = renderLanding(HOST, NOTHING)
+    const hero = html.split('<div class="cta">')[0] ?? ''
     expect(hero).toContain('agentgit')
-    expect(hero).toContain('Scratch repositories')
-    expect(hero).toContain('handing work to another agent')
+    // The handoff left the hero for a section, so it is asserted there.
+    expect(hero).not.toContain('handing work to another agent')
+    expect(html).toContain('<h2>Hand it to the next agent. Send the URL.</h2>')
+    expect(html).toContain('git clone https://agentgit.zabaca.com/study-42.git')
+  })
+
+  // "Nothing else to send" is a capability claim, and is rendered as one.
+  test('the handoff promises nothing else to send only where nothing else is asked for', () => {
+    expect(renderLanding(HOST, caps(OPEN))).toContain(
+      'There is nothing else to send: no invite, no token',
+    )
+    const held = renderLanding(HOST, NOTHING)
+    expect(held).not.toContain('no invite, no token')
+    expect(held).toContain('the one token the host already asks every agent for')
   })
 
   test('every command names the host the request arrived on', () => {
@@ -124,10 +137,28 @@ describe('renderLanding', () => {
     expect(page).toContain('nothing here is a promise to keep your history')
   })
 
-  test('with retention set, the window is stated twice and agrees with itself', () => {
-    const page = renderLanding(HOST, caps({ WALGIT_RETENTION_HOURS: '24' }))
-    expect(page).toContain('A repository lives 24 hours from its last push.')
-    expect(page).toContain('Built as scratch space: 24 hours from the last push, a repository is collected.')
+  /**
+   * The window is fine print, not a term.
+   *
+   * It used to take the fourth slot in `The rules.` ahead of the size caps and
+   * describe itself as "scratch space, on purpose". It is neither a feature nor
+   * a purpose: it is a safeguard against spam and the cost of a repository
+   * nobody pushes to again, and a claimed name is meant to outlive it. So the
+   * page states it once, in the caveat under the roadmap, and never sells it.
+   * The size caps and the per-client rate went the same way, for the same
+   * reason: a safeguard is not a term.
+   */
+  test('with retention set, the window is fine print and never a term', () => {
+    const page = renderLanding(
+      HOST,
+      caps({ WALGIT_RETENTION_HOURS: '24', WALGIT_MAX_PUSH_BYTES: String(99 * 1024 * 1024) }),
+    )
+    expect(page).toContain(
+      'Not permanent: 24 hours from the last push, an unclaimed repository is collected.',
+    )
+    expect(page).not.toContain('A repository lives 24 hours')
+    expect(page).not.toContain('scratch space')
+    expect(page).toContain('99 MiB per push')
   })
 
   /**
@@ -141,16 +172,18 @@ describe('renderLanding', () => {
    * `pre-receive` prints. Asserted both ways round: the figure survives, the
    * digits do not.
    */
-  test('with no retention but caps set, the third claim becomes the caps', () => {
+  test('the size caps are fine print in the caveat, not a term', () => {
     const page = renderLanding(HOST, caps({ WALGIT_MAX_PUSH_BYTES: String(99 * 1024 * 1024) }))
-    expect(page).toContain('99 MiB per push')
+    expect(page).toContain('Limits: 99 MiB per push.')
     expect(page).not.toContain('103809024')
+    expect(page).not.toContain('<span class="k">Bounded</span>')
   })
 
-  test('a deployment that enforces nothing makes no third claim at all', () => {
+  test('a deployment that enforces nothing prints no limits line at all', () => {
     const page = renderLanding(HOST, NOTHING)
     expect(page).not.toContain('per push')
     expect(page).not.toContain('per repository')
+    expect(page).not.toContain('Limits:')
   })
 })
 
@@ -252,6 +285,34 @@ describe('the events section carries a runnable client', () => {
     const html = renderLanding(HOST, NOTHING)
     expect(html).not.toContain('_walgit/events')
     expect(html).not.toContain('@zabaca/agentgit')
+  })
+})
+
+/**
+ * The collision section, which is what the socket is for.
+ *
+ * Every sentence in it is a behaviour of `packages/agentgit/src/watch.ts`, and
+ * the transcript is lines it prints — so the assertions are against the
+ * client's actual strings, not the page's own. Gated on `events` like the
+ * section above it: no socket, no event, no collision to report.
+ */
+describe('the collision section', () => {
+  test('with events on, it shows the notice and the all-clear the client prints', () => {
+    const html = renderLanding(HOST, caps(EVENTS))
+    expect(html).toContain('<h2>Stop discovering conflicts at push time.</h2>')
+    expect(html).toContain('COLLIDES with your work in src/index.ts')
+    expect(html).toContain('no longer collides with your work')
+    // Uncommitted edits count, which is the reason the check is worth having.
+    expect(html).toContain('uncommitted edits included')
+    // And it never merges on the agent's behalf.
+    expect(html).toContain('No merge, no stash, no rebase.')
+  })
+
+  test('and is absent wherever the socket is', () => {
+    for (const html of [renderLanding(HOST, NOTHING), renderLanding(HOST, caps(OPEN))]) {
+      expect(html).not.toContain('Stop discovering conflicts at push time')
+      expect(html).not.toContain('no longer collides')
+    }
   })
 })
 
@@ -476,7 +537,7 @@ describe('the terms that state a flag are rendered from it', () => {
 
     // With the flag it is word for word the paragraph that shipped.
     expect(renderLanding(HOST, caps({ ...OPEN, ...GATE, ...SEED }))).toContain(
-      "An unclaimed name takes anyone's push, and append-only keeps every one of them forever — so a stranger's branch in the repository your agent is working in is <em>there for good</em>. Claim the name and that stops being possible.",
+      "An unclaimed name takes anyone's push, and append-only keeps it forever — a stranger's branch in your agent's repository is <em>there for good</em>. Claim the name and that stops.",
     )
   })
 
@@ -668,22 +729,21 @@ describe('the section that argues for holding a name', () => {
   })
 
   /**
-   * `String.replace` reads `$` in a replacement STRING as a capture-group
-   * reference, and this section is the first fragment on the page to carry ones
-   * that look like real references — `$2` inside `awk '{print $2}'`. A mangled
-   * command would be a page showing something other than what a reader runs,
-   * and it would be silent. `renderLanding` passes function replacers so the
-   * question cannot arise; this is the assertion that says so out loud.
+   * No recipe on the page, and no PART of one.
+   *
+   * Every abbreviation of the six commands hands a reader a command that fails,
+   * and the `gpg.format` one locks them out of the name they just claimed. The
+   * only safe short form is none: the section names where the list goes and
+   * leaves the commands to the manual, which the page links twice.
    */
-  test('the recipe keeps its dollars, which replace() could have eaten', () => {
+  test('the recipe is in the manual, and no fragment of it is on the page', () => {
     const html = renderLanding(HOST, HELD)
-    expect(html).toContain("| awk '{print $2}' > signers")
-    expect(html).toContain('https://agentgit.zabaca.com/$NAME.git')
-    // The recipe is the WHOLE of it. Showing only the push hands a reader a
-    // command that pushes their project's HEAD at the signers ref, which is
-    // refused as an unreadable list.
-    expect(html).toContain('git init -q claim')
-    expect(html).toContain('git add signers')
+    expect(html).toContain('<code>refs/walgit/signers</code>')
+    for (const line of ['git init -q claim', 'git add signers', 'gpg.format=ssh', '$NAME.git']) {
+      expect(html).not.toContain(line)
+    }
+    expect(html).not.toContain('<details')
+    expect(html).toContain('<a href="/llms.txt">/llms.txt</a>')
   })
 
   test('with Signer Lists off, the whole section is absent', () => {
@@ -1147,15 +1207,17 @@ describe('the GitHub objection', () => {
     expect(html).not.toContain('three things a sandbox starts without')
   })
 
-  // The same rule the window follows everywhere else: a deployment that
-  // collects nothing must not tell anyone their repository is collected.
-  test('and states the window only where something collects it', () => {
-    expect(renderLanding(HOST, caps({ ...OPEN, WALGIT_RETENTION_HOURS: '24' }))).toContain(
-      'Here one is collected 24 hours after its last push',
-    )
-    const forever = renderLanding(HOST, caps(OPEN))
-    expect(forever).not.toContain('Here one is collected')
-    expect(forever).toContain('named for one task and abandoned, not kept')
+  // The objection is answered without the window. Retention is a safeguard,
+  // not a selling point, and an objection handler that reached for it would be
+  // selling it — so the section is one paragraph on every deployment.
+  test('and never reaches for the window to make its case', () => {
+    for (const html of [
+      renderLanding(HOST, caps({ ...OPEN, WALGIT_RETENTION_HOURS: '24' })),
+      renderLanding(HOST, caps(OPEN)),
+    ]) {
+      expect(html).not.toContain('Here one is collected')
+      expect(html).not.toContain('named for one task')
+    }
   })
 })
 
@@ -1201,61 +1263,6 @@ describe('the closing call to action', () => {
 })
 
 /**
- * The claim recipe, collapsed and not one line shorter.
- *
- * Six commands of shell was the tallest thing on the page and it pushed the
- * argument beside it below the fold. The obvious edit — cut to the last line —
- * is the one `ownershipSection` rules out in three paragraphs: every
- * abbreviation hands a reader a command that fails, and dropping
- * `gpg.format=ssh` locks them out of the name they just claimed. So it is
- * behind a disclosure, with every line still in the document.
- */
-describe('the claim recipe is collapsed, not trimmed', () => {
-  const HELD_OPEN = caps({ ...OPEN, ...SEED, ...GATE })
-
-  test('it sits behind a summary a reader opens', () => {
-    const html = renderLanding(HOST, HELD_OPEN)
-    expect(html).toContain('<details class="recipe">')
-    expect(html).toContain('<summary>The six commands that claim a name</summary>')
-    // The argument reads first, which is the point of collapsing it.
-    expect(html.indexOf('is <em>there for good</em>')).toBeLessThan(
-      html.indexOf('<details class="recipe">'),
-    )
-  })
-
-  /**
-   * Every line the recipe ever had, still served. This is the assertion that
-   * makes the disclosure safe: the three abbreviations `ownershipSection`
-   * rejects are rejected here too, by name, so a later edit that "tidies" the
-   * collapsed block fails instead of shipping a footgun.
-   */
-  test('and every line of it is still there', () => {
-    const html = renderLanding(HOST, HELD_OPEN)
-    for (const line of [
-      'git init -q claim',
-      "| awk '{print $2}' > signers",
-      'git add signers',
-      '-c user.name=agent commit -qm claim',
-      // The one whose absence would lock a reader with a PGP key out of the
-      // name they just claimed.
-      'git -c gpg.format=ssh',
-      'push --signed=if-asked',
-      'https://agentgit.zabaca.com/$NAME.git',
-    ]) {
-      expect(html).toContain(line)
-    }
-  })
-
-  // It was a `<span>`: an instruction to retype a path from memory, on the one
-  // line of the page that sends a reader somewhere else.
-  test('and the manual it defers to is reachable', () => {
-    expect(renderLanding(HOST, HELD_OPEN)).toContain(
-      'the full recipe is in <a href="/llms.txt">/llms.txt</a>',
-    )
-  })
-})
-
-/**
  * Per-source limits, stated for the same reason every other limit on this page
  * is: a visitor about to push should not learn the rule from the refusal.
  */
@@ -1278,6 +1285,7 @@ describe('renderLanding: per-source limits', () => {
     expect(page).toContain('20 new repositories')
     expect(page).toContain('300 pushes')
     expect(page).toContain('per client per hour')
+    expect(page).not.toContain('<span class="k">Throughput</span>')
   })
 
   test('states only the limits that are set', () => {
