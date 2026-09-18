@@ -412,7 +412,7 @@ export default {
     // `/agentgit-og.png.git/…`, so this route cannot shadow one.
     if (wantsOgImage(request.method, url.pathname)) {
       record(env, ctx, {
-        kind: 'landing',
+        kind: 'og-image',
         repo: '',
         outcome: 'ok',
         reject: '',
@@ -421,7 +421,8 @@ export default {
         cold: false,
         ttfbMs: Date.now() - startedAt,
         totalMs: Date.now() - startedAt,
-        bytesServed: OG_IMAGE_BYTES.byteLength,
+        // A HEAD is answered with headers only, so it served no bytes.
+        bytesServed: request.method === 'HEAD' ? 0 : OG_IMAGE_BYTES.byteLength,
         bytesReceived: 0,
       })
       return new Response(request.method === 'HEAD' ? null : OG_IMAGE_BYTES, {

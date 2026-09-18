@@ -54,6 +54,12 @@ export type RequestKind =
   // would hide the one number a launch actually turns on: how many people read
   // the page versus how many clients read the protocol.
   | 'landing'
+  // The card's picture (`shared/og-image.ts`), answered at the edge like the
+  // page and, like the page, its own kind. A crawler burst fetching a 40 KB
+  // raster is not a burst of people reading the page, and counting the two
+  // together would put the second number into the first — which is the one
+  // number a launch is read by.
+  | 'og-image'
   | 'health'
   // Someone asking who pushed (docs/adr/0011). Its own kind rather than
   // `other`, because `other` is the unroutable bucket and a provenance read is

@@ -7,6 +7,7 @@
  */
 
 import { describe, expect, test } from 'bun:test'
+import * as path from 'node:path'
 
 import { capabilitiesFrom, type CapabilityEnv } from '../shared/capabilities'
 import { ZERO_OID } from '../shared/protocol'
@@ -1316,6 +1317,22 @@ describe('the masthead wears the mark', () => {
     // Decorative: the wordmark beside it already says the name, so a screen
     // reader that announced the mark too would say it twice.
     expect(badge).toContain('aria-hidden="true"')
+  })
+
+  /**
+   * The page's copy of the mark against the source file the card is rendered
+   * from. Without this the geometry lives in two files — `assets/
+   * agentgit-mark.svg` and `MARK_GEOMETRY` — and only one of them is looked at
+   * when the mark is redrawn, so the tab, the masthead and the link preview
+   * can quietly stop being the same logo.
+   */
+  test('and is exactly the source mark, not a transcription of it', async () => {
+    const svg = await Bun.file(
+      path.join(import.meta.dir, '..', 'assets', 'agentgit-mark.svg'),
+    ).text()
+    const inner = /<svg[^>]*>([\s\S]*)<\/svg>/.exec(svg.trim())?.[1]
+    expect(inner).toBeTruthy()
+    expect(renderLanding(HOST, caps(OPEN))).toContain(inner as string)
   })
 
   test('and is the same geometry the favicon is drawn from', () => {
