@@ -692,6 +692,55 @@ describe('a Proposal on a claimed name', () => {
     ).toBe(false)
   })
 
+  /**
+   * The Signer List is a target like a branch (docs/adr/0018): a stranger asks
+   * to be listed by proposing the list with its own fingerprint added. The gate
+   * is the ordinary one — the ref is under the Proposal namespace, so it is
+   * HELD, and the list ref itself is untouched by the same key's push.
+   */
+  const listProposal = [change('refs/walgit/proposals/walgit/signers/add-me')]
+
+  test('a stranger may propose the Signer List, and still may not write it', () => {
+    expect(
+      checkSignerAllowed('alpha', signed(KEY_B), [KEY_A], listProposal, 'pre-receive', open),
+    ).toEqual({ ok: true })
+    expect(
+      checkSignerAllowed(
+        'alpha',
+        signed(KEY_B),
+        [KEY_A],
+        [change(SIGNERS_REF)],
+        'pre-receive',
+        open,
+      ).ok,
+    ).toBe(false)
+  })
+
+  test('an unsigned Proposal of the Signer List is refused like any other', () => {
+    expect(
+      checkSignerAllowed('alpha', unsigned, [KEY_A], listProposal, 'pre-receive', open).ok,
+    ).toBe(false)
+  })
+
+  test('the remedy a stranger reads offers the Proposal only where Proposals are on', () => {
+    const refused = (proposals: typeof open | undefined) =>
+      checkSignerAllowed('alpha', signed(KEY_B), [KEY_A], branch, 'pre-receive', proposals)
+
+    const on = refused(open)
+    expect(on.ok).toBe(false)
+    if (on.ok) return
+    expect(on.message).toContain('refs/walgit/proposals/walgit/signers/')
+    // Still true where it always was: a listed key granting is the other door.
+    expect(on.message).toContain('a listed key pushes a commit on refs/walgit/signers')
+
+    const off = refused(undefined)
+    expect(off.ok).toBe(false)
+    if (off.ok) return
+    // A door that 404s is worse than no door: the deployment does not take
+    // Proposals, so the refusal must not name one.
+    expect(off.message).not.toContain('refs/walgit/proposals/')
+  })
+
   test('a push mixing a Proposal with any other ref is judged as it was before', () => {
     // All or nothing: git shows the hook every ref at once, and allowing the
     // Proposal half would publish the branch half beside it.

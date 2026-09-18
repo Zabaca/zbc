@@ -13,7 +13,7 @@ walgit gains a **Proposal**: a ref under `refs/walgit/proposals/<target>/<id>` t
 - **No rejection, no withdrawal, no comments.** Append-only means a Proposal ref cannot be deleted, and a rejection is a message to the proposer, which this host does not carry. A Proposal nobody accepts is open until the repository expires. *Superseded* — an open Proposal whose tip is an ancestor of a newer Proposal to the same target — may be derived from the same walk if it is free; it is not stored either.
 - **A Proposal is a push.** It counts against the name's size caps and it extends idle expiry, because the landing page promises "pushing does". No separate budget. A world-readable name that is being filled with junk goes Private with one file.
 - **Read surface.** `GET /<name>.git/proposals` returns id, target, tip, pusher fingerprint and merged, behind the Read Challenge like the Provenance Read. A Ref Event for a target moving carries the ids it newly merged, so a Watcher on `main` learns without a second call — the first field a Ref Event has carried beyond ref and sha. `agentgit watch --proposals` subscribes to the namespace for the current branch and reports `proposal` and `merged` events; it is opt-in because the default watch keeps a branch current and a stranger's push must not move a working agent's clone.
-- **The receive hook refuses a malformed Proposal** rather than storing it: a target that does not exist, a target outside `refs/heads/` (so nobody proposes a Signer List), a tip that is not a commit. With the flag off the namespace is an ordinary ref namespace under the ordinary gate.
+- **The receive hook refuses a malformed Proposal** rather than storing it: a target that does not exist, a target outside `refs/heads/` and not the Signer List (see the amendment below), a tip that is not a commit. With the flag off the namespace is an ordinary ref namespace under the ordinary gate.
 
 ## Why not the alternatives
 
@@ -27,3 +27,44 @@ walgit gains a **Proposal**: a ref under `refs/walgit/proposals/<target>/<id>` t
 - The word is **Proposal**. "Pull request" already means a GitHub PR elsewhere in this repository, and "change request" is an approval-board ticket; the glossary in `packages/walgit/CONTEXT.md` lists both under _Avoid_.
 - The first thing walgit ships that a stranger can put in a claimed repository. Its blast radius is bounded by what a push already is: attributable, append-only, capped, expiring.
 - walgit may gain capabilities, never opinions: everything above is instance configuration for agentgit, and nothing in `packages/agentgit/` but the Client changes.
+
+
+## Amendment (2026-09-18): the Signer List is a target
+
+This ADR originally refused every target outside `refs/heads/`, in one clause,
+"so nobody proposes a Signer List". That refusal was aimed at a write, and it
+also closed the only door a stranger has: a name's refusal could say how to be
+added but not what the reader itself could do, because the answer was always
+"get somebody already listed to push a commit". A Proposal is exactly the shape
+of that request, and refusing it bought nothing — a Proposal is not a write to
+its target.
+
+- **One more target, spelled `walgit/signers`.** The ref is
+  `refs/walgit/proposals/walgit/signers/<id>`: the id is still the last segment,
+  the target is still in the ref name, and the spelling is the list's ref with
+  `refs/` dropped. The exception is exact — `walgit/signers/deeper` is an
+  ordinary branch name and is resolved as one — so the grammar gains a constant
+  rather than a rule. Every other target that begins `refs/` is refused as
+  before.
+- **Nothing else changes.** Who may propose is the same rule (signed, and a
+  reader where a Reader List exists); it is held under the Proposal namespace
+  like any other; Merged is `merge-base --is-ancestor` against
+  `refs/walgit/signers`; and the list itself is still written only by a key it
+  already names. A Proposal against the list is a request, not a grant.
+- **The refusal offers it.** `heldMessage` leads its remedy with proposing the
+  list wherever Proposals are open to the key reading it, and leaves the line
+  out entirely where they are not — a remedy naming a door that 404s is worse
+  than the terse one it replaces.
+- **`agentgit accept` grows a second path.** A branch is accepted where it is
+  checked out; the list is accepted with no checkout at all — fetch both tips,
+  fast-forward or `merge-tree` + `commit-tree`, push the result signed to
+  `refs/walgit/signers`. Nobody has the list checked out, and an agent's own
+  working tree must not move to accept a stranger's request. A conflict in the
+  `signers` file is left to the Signer with the manual recipe: which lines hold
+  the name is not something a client decides.
+- **Ref Events are unchanged.** `merged` is still computed for branch moves
+  only. A Signer who accepted a list Proposal knows it landed; a Watcher reading
+  `merged` on the Signer List ref is a surface nothing has asked for.
+- **Not generalised.** The Reader List (`refs/walgit/readers`) is the same shape
+  and is deliberately not admitted here: asking to read a Private name is a
+  different question from asking to write one, and it can have its own decision.

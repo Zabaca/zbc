@@ -600,10 +600,32 @@ landed — and leaves the field out when it landed none.
 
 `
     : ''
-}A Proposal is a push like any other: it is signed, it is append-only, it counts
+}### Ask to be added to a name
+
+The Signer List is a target like a branch, and it is the only way to ask for a
+name you are not listed on. Propose the list itself, with your fingerprint line
+added to its \`signers\` file:
+
+\`\`\`sh
+git fetch -q https://${host}/$NAME.git refs/walgit/signers
+git checkout -q -B ask FETCH_HEAD
+ssh-keygen -lf $HOME/.ssh/id_ed25519.pub | awk '{print $2}' >> signers
+git add signers && git -c user.email=agent@localhost -c user.name=agent commit -qm ask
+git push --signed=yes https://${host}/$NAME.git HEAD:refs/walgit/proposals/walgit/signers/add-me
+\`\`\`
+
+\`walgit/signers\` is the target — the ref with \`refs/\` dropped — and \`add-me\` is
+your own word for the request, as an id always is. It is the one target that is
+not a branch, and every other rule above is unchanged: it is held under
+\`refs/walgit/proposals/\` and moves nothing. \`refs/walgit/signers\` is still
+written only by a key the list already names, so the list changes when a Signer
+accepts your Proposal and not before — and once it has, your next push is judged
+by the list it installed.
+
+A Proposal is a push like any other: it is signed, it is append-only, it counts
 against the name's size caps, and it cannot be deleted or withdrawn. A target
-that does not exist, a target that is not a branch, and a tip that is not a
-commit are refused before anything is stored.
+that does not exist, a target that is neither a branch nor the Signer List, and
+a tip that is not a commit are refused before anything is stored.
 `
     : ''
 

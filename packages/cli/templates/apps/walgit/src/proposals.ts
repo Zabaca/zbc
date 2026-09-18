@@ -3,8 +3,9 @@
  * List (docs/adr/0018).
  *
  * A Proposal is a ref under `refs/walgit/proposals/<target>/<id>` naming a
- * commit its pusher wants in `refs/heads/<target>`, plus the Push Certificate
- * behind it, and nothing else. There is no record, no row and no file: whether
+ * commit its pusher wants in `refs/heads/<target>` — or in `refs/walgit/signers`,
+ * the one non-branch target, which is how a stranger asks to be listed — plus
+ * the Push Certificate behind it, and nothing else. There is no record, no row and no file: whether
  * it is Merged is `merge-base --is-ancestor` against the target, computed on
  * read from the Cache and never written down.
  *
@@ -36,7 +37,7 @@
  */
 
 import { flagEnabled } from '../shared/policy'
-import { ZERO_OID } from '../shared/protocol'
+import { SIGNERS_REF, ZERO_OID } from '../shared/protocol'
 import { git } from './git'
 import type { Provenance, RefChange } from './wal-index'
 
@@ -51,11 +52,40 @@ export function proposalsEnabled(env: Record<string, string | undefined> = proce
  */
 export const PROPOSALS_PREFIX = 'refs/walgit/proposals/'
 
-/** The branch a Proposal wants its commit in, spelled as a ref. */
-export const targetRef = (target: string): string => `refs/heads/${target}`
+/**
+ * The one target that is not a branch: the Signer List itself (docs/adr/0018).
+ *
+ * A stranger who may read a claimed name has nothing it can DO about not being
+ * listed — the refusal could only tell it what somebody else must push. So the
+ * list is proposable like a branch: the stranger pushes the `signers` file with
+ * its own fingerprint line added, and a Signer accepts it. The invariant is
+ * untouched, because a Proposal moves nothing: `refs/walgit/signers` is still
+ * only ever written by a listed key's push.
+ *
+ * The spelling is the ref with `refs/` dropped, which is the cheapest thing it
+ * could be: the id is still the last segment, the "no target begins with
+ * `refs/`" refusal is untouched, and `ls-remote` still shows the target without
+ * anything being fetched.
+ */
+export const SIGNERS_TARGET = 'walgit/signers'
+
+/**
+ * The ref a Proposal wants its commit in.
+ *
+ * `refs/heads/<target>` for every target but one, and the exception is exact:
+ * `walgit/signers/deeper` is an ordinary branch name and is resolved as one, so
+ * the Signer List cannot be reached by a target that merely starts with its
+ * spelling.
+ */
+export const targetRef = (target: string): string =>
+  target === SIGNERS_TARGET ? SIGNERS_REF : `refs/heads/${target}`
 
 export interface Proposal {
-  /** The branch this Proposal is for, WITHOUT the `refs/heads/` prefix. */
+  /**
+   * What this Proposal is for: a branch WITHOUT its `refs/heads/` prefix, or
+   * `walgit/signers` for the Signer List. `targetRef` is the one place that
+   * knows which.
+   */
   target: string
   /** The pusher's word. The host assigns nothing and collisions are refused. */
   id: string
@@ -121,9 +151,11 @@ export function gitObjectType(gitDir: string): (oid: string) => string | null {
 export type ProposalRefusal =
   /** The ref is in the namespace and names no `<target>/<id>`. */
   | 'grammar'
-  /** `refs/heads/<target>` is not a ref this repository holds. */
+  /** The target's ref — `refs/heads/<target>`, or the Signer List — is not one
+   * this repository holds. */
   | 'missing-target'
-  /** The target is not a branch — it names something outside `refs/heads/`. */
+  /** The target is neither a branch nor `walgit/signers`: it names something
+   * outside `refs/heads/`. */
   | 'not-a-branch'
   /** The tip is a tree, a blob, a tag, or an object the host cannot see. */
   | 'not-a-commit'
@@ -162,7 +194,7 @@ export function checkProposalRefs(
         repoId,
         'not-a-branch',
         change.ref,
-        `its target \`${proposal.target}\` is not a branch — a Proposal names one under refs/heads/`,
+        `its target \`${proposal.target}\` is not a branch — a Proposal names one under refs/heads/, or \`${SIGNERS_TARGET}\` for the Signer List`,
       )
     }
 
@@ -212,7 +244,10 @@ function rejectionMessage(repoId: string, ref: string, why: string): string {
     '',
     'The branch is the one you want it merged into and must already exist here;',
     'the id is your own word for this change, and a taken one is refused as a',
-    'non-fast-forward, so pick another. Refs here are append-only like every',
+    'non-fast-forward, so pick another. To ask to be added to this name instead,',
+    `propose its Signer List: the same push with \`${SIGNERS_TARGET}\` where the branch`,
+    `goes, carrying ${SIGNERS_REF}'s \`signers\` file with your fingerprint added.`,
+    'Refs here are append-only like every',
     'other, which is why a Proposal is judged before it is stored rather than',
     'after.',
     '',

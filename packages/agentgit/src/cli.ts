@@ -62,6 +62,14 @@ PROPOSALS
 
     agentgit accept fix-auth
 
+  The Signer List is a target too, and it is how someone asks to be listed at
+  all — the signers file with their fingerprint line added, pushed as:
+
+    git push --signed=if-asked origin HEAD:refs/walgit/proposals/walgit/signers/add-me
+
+  Accepting that one needs no checkout and never touches your tree: it merges
+  and pushes refs/walgit/signers, which only a listed key may write.
+
   A watcher hears about them only when asked: agentgit watch --proposals adds
   a proposal line (id, target, sha, pusher) and a merged line (id, target,
   sha) to the stream, and fetches neither — a Proposal reaches your tree
