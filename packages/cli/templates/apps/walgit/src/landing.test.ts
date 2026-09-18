@@ -12,6 +12,7 @@ import { capabilitiesFrom, type CapabilityEnv } from '../shared/capabilities'
 import { ZERO_OID } from '../shared/protocol'
 import { renderLanding, wantsLanding } from '../shared/landing'
 import { operatorFrom, type OperatorEnv } from '../shared/operator'
+import { PROPOSALS_PREFIX, SIGNERS_TARGET } from './proposals'
 import { checkSignerAllowed } from './signers'
 
 const HOST = 'agentgit.zabaca.com'
@@ -319,12 +320,13 @@ describe('the grant and the private sections', () => {
   })
 
   // With Proposals on, the new agent asks instead of sending a fingerprint.
-  // The ref spelling is the one ZBC-IJYLMD's grammar admits; pinned here so a
-  // different spelling fails this test rather than shipping a 404.
+  // The ref is built from the same constant the gate resolves, so the page
+  // cannot advertise a target the host does not admit.
   test('with Proposals on, the new agent proposes itself and a Signer accepts', () => {
     const html = renderLanding(HOST, caps({ ...OPEN, ...SEED, ...GATE, WALGIT_PROPOSALS: '1' }))
-    expect(html).toContain('HEAD:refs/walgit/proposals/walgit/signers/kq3LmW')
+    expect(html).toContain(`HEAD:${PROPOSALS_PREFIX}${SIGNERS_TARGET}/kq3LmW`)
     expect(html).toContain('agentgit accept kq3LmW')
+    expect(html).toContain('accepted kq3LmW (5b1c09e4) onto refs/walgit/signers')
     expect(html).not.toContain('+SHA256:kq3LmW…')
   })
 

@@ -596,10 +596,10 @@ function ownershipSection(caps: Capabilities): string {
  * Where they are off, what exists is the grant: a listed key adds the line and
  * pushes the list signed, and the fingerprint reaches that key out of band.
  *
- * The Proposal-against-the-list target is ZBC-IJYLMD, landing alongside this;
- * the ref spelling here (`refs/walgit/proposals/walgit/signers/<id>`) is the
- * one that ticket's grammar has to admit, and `landing.test.ts` pins it so a
- * different spelling fails here rather than shipping a command that 404s.
+ * The target is `SIGNERS_TARGET` in `src/proposals.ts` (ADR-0018, amended by
+ * #160): `walgit/signers` in the slot a branch name takes. `landing.test.ts`
+ * pins the spelling against that constant, and the success line is the one
+ * `runAccept` in `packages/agentgit/src/accept.ts` prints for this path.
  *
  * The grant illustration is the DIFF, not the commands: those are the six the
  * claim recipe needs and every shorter form is one that fails. The Proposal
@@ -629,7 +629,7 @@ function grantSection(host: string, caps: Capabilities): string {
 </span><span class="ln">
 <span class="c"># agent A, a Signer, in its clone.</span>
 </span><span class="ln"><span class="p">$</span> agentgit accept kq3LmW
-</span><span class="ln"><span class="ok">kq3LmW merged into ${SIGNERS_REF}</span></span></pre>
+</span><span class="ln"><span class="ok">accepted kq3LmW (5b1c09e4) onto ${SIGNERS_REF} — it is now e0a7d2c1</span></span></pre>
           <div class="panel-foot">Two commands, one each. Nobody sent a fingerprint anywhere.</div>
         </div>
       </div>
