@@ -844,39 +844,6 @@ ${rows.join('\n')}
 }
 
 /**
- * The objection, which is the first thought a reader arrives with.
- *
- * "One argument, not three" is the rule this page is edited by, and it is about
- * the two arguments the hero's commands ALREADY MAKE — reading a case for what
- * you just watched happen is a page arguing with somebody who agreed. This is
- * the opposite shape: nothing above it addresses *I already have GitHub, and
- * `gh repo create` is one command*, and every reader who has one thinks it
- * before they reach `The rules.` An unanswered objection is not a paragraph
- * saved, it is the reader gone.
- *
- * So it is an objection handler and not a third argument: a heading and one
- * paragraph, no illustration, no transcript, no command. The section reads in
- * the time it takes to decide the page is not for you.
- *
- * Rendered from `Capabilities` like everything else that states what this host
- * asks for. On a credentialed deployment the case is NOT that there is no
- * credential — there is one — it is that there is no per-agent identity to
- * provision, which is the half that survives a token at the front door.
- */
-function whyNotSection(caps: Capabilities): string {
-  const cost = caps.publicAccess
-    ? 'Creating one there takes an account, a token scoped to make repositories, and somewhere to keep that token — three things a sandbox starts without, and the last is one no prompt should be carrying.'
-    : 'Creating one there takes an account per identity, a token scoped to make repositories, and somewhere to keep it. Here there is one credential for the whole host, set once by whoever runs it, and no per-agent identity to provision at all.'
-
-  return `
-    <section>
-      <h2>You have GitHub. Your agent does not.</h2>
-      <p>${cost}</p>
-    </section>
-`
-}
-
-/**
  * The last thing on the page, which used to be a takedown address.
  *
  * The page's whole asset is two commands that work, and they appeared once,
@@ -977,7 +944,6 @@ export function renderLanding(
       .replace('{{ROADMAP_LEDE}}', () => roadmapLede(caps))
       .replace('{{ROADMAP_OWNERSHIP}}', () => roadmapOwnership(caps))
       .replace('{{ROADMAP_PULLS}}', () => roadmapPulls(caps))
-      .replace('{{WHY}}', () => whyNotSection(caps))
       .replace('{{EVENTS}}', () => eventsSection(host, caps))
       .replace('{{COLLISION}}', () => collisionSection(host, caps))
       .replace('{{HANDOFF}}', () => handoffSection(host, caps))
@@ -1571,7 +1537,7 @@ const PAGE = `<!doctype html>
 
     <h1>Git for AI agents<span class="dot">.</span></h1>
 
-    <p class="lede">Your agent writes code all day and has nowhere of its own to put it. <em>Push to a name and the repository exists</em> — no account, no key, no API besides git itself.</p>
+    <p class="lede">You have GitHub. Your agent does not. <em>Push to a name and the repository exists.</em></p>
 
     <div class="cta">
       <label class="repo-field" for="repo">
@@ -1590,7 +1556,7 @@ const PAGE = `<!doctype html>
       </div>
     </div>
     <p class="under" id="repo-help">{{HERO_UNDER}}</p>
-{{WHY}}{{EVENTS}}{{COLLISION}}{{HANDOFF}}{{OWNERSHIP}}
+{{EVENTS}}{{COLLISION}}{{HANDOFF}}{{OWNERSHIP}}
     <section>
       <h2>The rules.</h2>
       <ul class="claims">

@@ -1179,45 +1179,24 @@ describe('the link preview', () => {
 })
 
 /**
- * The objection, which is the one thing a reader thinks that nothing above it
- * answers: I already have GitHub, and `gh repo create` is one command.
+ * The objection is the hero now.
  *
- * It is rendered from `Capabilities` like every other statement of what this
- * host asks for. On a credentialed deployment the case is NOT that there is no
- * credential — there is one — so the sentence that survives a token at the
- * front door is the one about there being no per-agent identity to provision.
+ * "You have GitHub. Your agent does not." was a section of its own — a heading
+ * and a paragraph on the cost of an account, a scoped token and somewhere to
+ * keep it. As the lede it is two sentences: the objection, then the promise,
+ * and the cost is left to the reader who already knows it. The section leaves
+ * with it, so the same argument is not made twice three inches apart.
  */
 describe('the GitHub objection', () => {
-  test('it is answered, and answered before the rules', () => {
+  test('is the hero, and no longer a section', () => {
     const html = renderLanding(HOST, caps(OPEN))
-    expect(html).toContain('<h2>You have GitHub. Your agent does not.</h2>')
-    expect(html.indexOf('You have GitHub')).toBeLessThan(html.indexOf('<h2>The rules.</h2>'))
-  })
-
-  test('on a public deployment the cost is the account nobody has', () => {
-    const html = renderLanding(HOST, caps(OPEN))
-    expect(html).toContain('three things a sandbox starts without')
-  })
-
-  // The claim that would be false there: this deployment does ask for a
-  // credential, so the page must not argue that nothing does.
-  test('and on a credentialed one it argues the half that is still true', () => {
-    const html = renderLanding(HOST, caps(APPEND))
-    expect(html).toContain('no per-agent identity to provision')
+    const hero = html.split('<div class="cta">')[0] ?? ''
+    expect(hero).toContain(
+      'You have GitHub. Your agent does not. <em>Push to a name and the repository exists.</em>',
+    )
+    expect(html).not.toContain('<h2>You have GitHub. Your agent does not.</h2>')
     expect(html).not.toContain('three things a sandbox starts without')
-  })
-
-  // The objection is answered without the window. Retention is a safeguard,
-  // not a selling point, and an objection handler that reached for it would be
-  // selling it — so the section is one paragraph on every deployment.
-  test('and never reaches for the window to make its case', () => {
-    for (const html of [
-      renderLanding(HOST, caps({ ...OPEN, WALGIT_RETENTION_HOURS: '24' })),
-      renderLanding(HOST, caps(OPEN)),
-    ]) {
-      expect(html).not.toContain('Here one is collected')
-      expect(html).not.toContain('named for one task')
-    }
+    expect(html).not.toContain('no per-agent identity to provision')
   })
 })
 
