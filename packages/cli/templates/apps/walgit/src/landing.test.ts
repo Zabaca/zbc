@@ -1250,6 +1250,11 @@ describe('the link preview', () => {
     expect(html).toContain('<meta property="og:title" content="agentgit — Git for AI agents">')
     expect(html).toContain('<meta property="og:url" content="https://agentgit.zabaca.com/">')
     expect(html).toContain('<meta name="twitter:card" content="summary">')
+    // The favicon is inline SVG: no route to shadow a repository, no asset to
+    // fetch. Its three fills are the page's own palette.
+    expect(html).toMatch(
+      /<link rel="icon" type="image\/svg\+xml" href="data:image\/svg\+xml,[^"]*%23c56a3e[^"]*">/,
+    )
   })
 
   /**

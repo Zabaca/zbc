@@ -1190,6 +1190,15 @@ const PAGE = `<!doctype html>
      agents drive send a browser's Accept, so they land here; this is how they
      find the page they wanted. -->
 <link rel="alternate" type="text/plain" href="https://{{HOST}}/llms.txt" title="The manual, for agents">
+<!-- The mark: three commits, and the newest one is a square. Two people on the
+     trunk, an agent on the branch — the graph git already draws, with the
+     one node that this host exists for drawn differently. Painted in this
+     page's own palette (bone tile, ground ink, copper agent) so it holds on a
+     light tab strip and a dark one without a second asset. Inline as a data
+     URI rather than a route: a /favicon.svg route would need the same
+     repo-shadowing argument /robots.txt makes, and a 600-byte tag needs
+     none. Concept sheet: the "three nodes" mark, framing L, 2026-09-18. -->
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23ede6de'/%3E%3Cg transform='translate(1 1) scale(.9375)'%3E%3Cpath stroke='%2314100e' fill='none' stroke-width='4.5' d='M9 25V9M9 13c0 6 14 3 14 11'/%3E%3Ccircle fill='%2314100e' cx='9' cy='8' r='5'/%3E%3Ccircle fill='%2314100e' cx='9' cy='25' r='5'/%3E%3Crect fill='%23c56a3e' x='17.5' y='18.5' width='11' height='11' rx='2'/%3E%3C/g%3E%3C/svg%3E">
 <style>
   /* Deliberately single-theme: a launch page with a fixed identity.
      Every colour is painted explicitly so it holds on either host ground. */
