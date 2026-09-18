@@ -100,54 +100,32 @@ const claim = (key: string, value: string) =>
   `        <li><span class="k">${key}</span><span class="v">${value}</span></li>`
 
 /**
- * The fourth term.
+ * The size caps, as fine print.
  *
- * With retention on it is the window, because a window is the most surprising
- * thing about the service and the one nobody must learn only after pushing.
- * With retention off there is no window to state, so the slot goes to the size
- * caps — and when a deployment enforces nothing at all, the claim is absent
- * rather than replaced by a reassuring sentence nothing backs.
+ * These used to be the fourth term in `The rules.`, and the retention window
+ * before them. Neither is a feature: a cap is a safeguard against one push
+ * costing what a thousand should, and a term is a highlight. So the caps join
+ * the window in the caveat under the roadmap — stated once, in the muted line
+ * a reader checks before pointing an agent loop here, and never sold. The
+ * figures still derive from `describeBytes`, so the page cannot print a cap
+ * `pre-receive` does not refuse on. Empty when a deployment enforces none.
  */
-function thirdClaim(caps: Capabilities): string {
-  if (caps.retentionHours !== null) {
-    const window = describeHours(caps.retentionHours)
-    return claim(
-      window,
-      `<b>A repository lives ${window} from its last push.</b> This is scratch space, on purpose.`,
-    )
-  }
-  if (caps.maxPushBytes !== null || caps.maxRepoBytes !== null) {
-    const parts: string[] = []
-    if (caps.maxPushBytes !== null) parts.push(`${shortBytes(caps.maxPushBytes)} per push`)
-    if (caps.maxRepoBytes !== null) {
-      parts.push(`${shortBytes(caps.maxRepoBytes)} per repository`)
-    }
-    return claim(
-      'Bounded',
-      `<b>${parts.join(', ')}.</b> Anything over is turned away before it uploads, by a message naming the limit.`,
-    )
-  }
-  return ''
+function sizeLimits(caps: Capabilities): string {
+  const parts: string[] = []
+  if (caps.maxPushBytes !== null) parts.push(`${shortBytes(caps.maxPushBytes)} per push`)
+  if (caps.maxRepoBytes !== null) parts.push(`${shortBytes(caps.maxRepoBytes)} per repository`)
+  return parts.join(', ')
 }
 
 /**
- * What one client may spend in a window (`src/rate-limit.ts`).
+ * What one client may spend in a window (`src/rate-limit.ts`), as fine print.
  *
- * Its own term rather than a share of the slot above, because it answers a
- * different question: the size caps say how big a thing may be, this says how
- * much throughput a visitor can count on. Somebody about to point an agent loop
- * at this page should read the number here rather than in the refusal — which
- * is the same reason every other limit is on this page at all.
- *
- * **Stated as an allowance, never as a topology.** It used to close with *"One
- * host serves everybody here"*, which is an operations note on a marketing
- * page: it tells a prospect how the service is built rather than what they get,
- * and what they get is the only half of it that is theirs. The number is
- * unchanged — the frame is the reader's budget, not our capacity plan.
- *
- * Absent when the deployment bounds nothing per source, which is the default.
+ * Was its own term, `Throughput`, framed as an allowance. Same demotion as the
+ * size caps and for the same reason: a rate limit is a safeguard, and the page
+ * should not be selling its safeguards. Empty when the deployment bounds
+ * nothing per source, which is the default.
  */
-function sourceLimitClaim(caps: Capabilities): string {
+function sourceLimits(caps: Capabilities): string {
   if (!caps.sourceLimited) return ''
   const window = describeWindow(caps.rateWindowSeconds)
   const parts: string[] = []
@@ -158,17 +136,26 @@ function sourceLimitClaim(caps: Capabilities): string {
   if (caps.maxPushBytesPerSource !== null) {
     parts.push(shortBytes(caps.maxPushBytesPerSource))
   }
-  return claim(
-    'Throughput',
-    `<b>${parts.join(', ')} per client per ${window}.</b> Room for an agent loop at full speed, and the allowance is yours alone.`,
-  )
+  return `${parts.join(', ')} per client per ${window}`
+}
+
+/**
+ * The limits sentence in the caveat, or nothing.
+ *
+ * One sentence, two clauses, each absent where nothing is enforced — so a
+ * deployment that bounds nothing prints no reassuring "no limits" it cannot
+ * back, exactly as the terms did.
+ */
+function limits(caps: Capabilities): string {
+  const clauses = [sizeLimits(caps), sourceLimits(caps)].filter((c) => c !== '')
+  return clauses.length === 0 ? '' : ` Limits: ${clauses.join('; ')}.`
 }
 
 /** The permanence sentence, which turns on the same variable as the claim. */
 function permanence(caps: Capabilities): string {
   return caps.retentionHours === null
     ? 'Built as a working surface rather than an archive: nothing here is a promise to keep your history.'
-    : `Built as scratch space: ${describeHours(caps.retentionHours)} from the last push, a repository is collected.`
+    : `Not permanent: ${describeHours(caps.retentionHours)} from the last push, an unclaimed repository is collected.`
 }
 
 /**
@@ -224,6 +211,58 @@ function eventsSection(host: string, caps: Capabilities): string {
 <span class="ok">study-42 main: origin/main is ef759899</span>
 </span><span class="ln" style="--d:2400ms"><span class="no">study-42 main: COLLIDES with your work in src/index.ts</span><span class="caret"></span></span></pre>
           <div class="panel-foot">Opened from the inside, so a sandbox needs no address.</div>
+        </div>
+      </div>
+    </section>
+`
+}
+
+/**
+ * The collision, which is the half of `watch` that a timer could never do.
+ *
+ * The section above sells the socket: no polling, no webhook. This one sells
+ * what the socket is FOR. Being told main moved is an event; being told *main
+ * moved in the file you are editing right now* is a decision the agent can
+ * act on, and it is the one thing on this page a cron job could not replicate.
+ *
+ * Every sentence here is a behaviour of `packages/agentgit/src/watch.ts`, and
+ * the transcript is a line it prints. `git stash create` is why uncommitted
+ * work counts — `merge-tree` compares commits, so an agent mid-task would be
+ * invisible to it without the throwaway commit. The notice fires on CHANGE
+ * only, and clears itself, which is the whole reason an agent keeps believing
+ * the channel. And it never merges: a line and a file list is information, a
+ * merge attempt would be work the agent did not ask for.
+ *
+ * Gated on `events` exactly as the section above: there is no collision notice
+ * without a socket to carry the event that triggers it.
+ */
+function collisionSection(host: string, caps: Capabilities): string {
+  if (!caps.events) return ''
+  const socket = `wss://${host}${EVENTS_PATH}`
+
+  return `
+    <section class="split">
+      <div class="split-say">
+        <h2>Stop discovering conflicts at push time.</h2>
+        <p>Two agents on one branch meet when the second one pushes — an hour of work later, with a merge to resolve cold. The client checks the moment the first push lands, uncommitted edits included.</p>
+        <p><strong>It says so once.</strong> Reported when it appears, cleared when it goes, never repeated.</p>
+        <p><strong>It touches nothing.</strong> No merge, no stash, no rebase. The line names the files; the call is yours.</p>
+      </div>
+
+      <div class="split-show">
+        <div class="panel wire">
+          <div class="panel-head">
+            <span><span class="pulse"></span>${socket}</span>
+          </div>
+          <pre class="tx"><span class="ln" style="--d:0ms"><span class="c"># you are editing src/index.ts. nothing committed yet.</span>
+</span><span class="ln" style="--d:900ms">
+<span class="ok">study-42 main: origin/main is ef759899</span>
+</span><span class="ln" style="--d:1250ms"><span class="no">study-42 main: COLLIDES with your work in src/index.ts</span>
+</span><span class="ln" style="--d:2300ms">
+<span class="c"># you rebase, or finish first and resolve. your call.</span>
+</span><span class="ln" style="--d:3300ms">
+<span class="ok">study-42 main: no longer collides with your work</span><span class="caret"></span></span></pre>
+          <div class="panel-foot">Said once when it appears, once when it clears. Never repeated.</div>
         </div>
       </div>
     </section>
@@ -399,35 +438,18 @@ function privateClaim(caps: Capabilities): string {
  * summary of it, so the two arguments read together and the terms below read as
  * what both of them settle.
  *
- * The right column is the claim and then its consequence, in the order they
- * happen: the commands that write the list, then the refusal a stranger reads.
- *
- * **The recipe is the whole of it, not the last line of it**, and every line it
- * does show has to run. Three abbreviations were each tried and each is wrong:
- * showing only the `git push` hands a reader a command that pushes their
- * PROJECT's `HEAD` at the signers ref and is refused as an unreadable list;
- * dropping `-c user.email`/`-c user.name` aborts in a fresh container with
- * *"Please tell me who you are"*; and dropping `-c gpg.format=ssh` is the worst
- * of the three, because this section only renders where the host advertises
- * `push-cert`, so `--signed=if-asked` really does sign — with git's default
- * OpenPGP format, from a key whose fingerprint is not the one just written into
- * `signers`. A reader who has a PGP key would claim the name and then be locked
- * out of it by their own next push.
- *
- * What is left to `/llms.txt` (`shared/llms.ts`) is `set -e` and the second
- * key: this panel is the argument, and that document is the manual.
- *
- * **Behind a disclosure, and not one line shorter.** Six commands of shell was
- * the tallest thing on a pitch page, and it pushed the argument beside it — the
- * cost a stranger's permanent branch imposes, which is the only reason anybody
- * spends a push on a Signer List — below the fold on a laptop. The obvious edit
- * was to cut the recipe to its last line, and that is the one edit the three
- * paragraphs above rule out: every abbreviation tried hands a reader a command
- * that fails, and the `gpg.format` one locks them out of the name they just
- * claimed. So the recipe is collapsed rather than trimmed. `<details>` keeps
- * every line in the document — served, searchable, copyable, and asserted by
- * `landing.test.ts` exactly as before — and costs one click from a reader who
- * has decided to claim a name, which is a reader already past being sold to.
+ * The right column is one thing: the refusal a stranger reads. The six
+ * commands that write the list used to sit above it — first in full, then
+ * behind a disclosure — and both were the tallest thing on a pitch page, beside
+ * prose that had been cut to three sentences. They are gone from the page
+ * entirely, not abbreviated: every shorter form tried hands a reader a command
+ * that fails (only the `git push` pushes their project's `HEAD` at the signers
+ * ref; without `-c user.email` a fresh container aborts; without
+ * `-c gpg.format=ssh` a PGP holder signs with the wrong key and is locked out of
+ * the name they just claimed). Zero lines is the one abbreviation with no
+ * footgun. The recipe is in `/llms.txt` (`shared/llms.ts`), whole, which the
+ * closing block and the footer both link — this section is the argument, and
+ * that document is the manual.
  *
  * **The transcript is an excerpt, and says so.** Every line of it is a line
  * `heldMessage` (`src/signers.ts`) actually writes, and `landing.test.ts`
@@ -456,13 +478,59 @@ function privateClaim(caps: Capabilities): string {
  * enforce it would be the promise `appendOnlyClaim` just stopped making,
  * reappearing two sections up the page.
  */
+/**
+ * The handoff, which used to be one sentence under the hero.
+ *
+ * *"Handing work to another agent is the URL, and there is nothing else to
+ * send"* was the hero's second lede, and it was the second-best sentence on the
+ * page carrying its own argument in a place built for one. A section gives it
+ * the shape the other arguments have: the pain first, then what the URL
+ * replaces, then the one thing to send.
+ *
+ * "Nothing else to send" is only true where nothing else is asked for. On a
+ * credentialed deployment the receiving agent needs the host's token as well,
+ * so the closing sentence is rendered from `publicAccess` — the same rule
+ * `heroUnder` follows, one section down from where it made the same promise.
+ */
+function handoffSection(host: string, caps: Capabilities): string {
+  const send = caps.publicAccess
+    ? 'There is nothing else to send: no invite, no token, no archive of a working directory.'
+    : 'There is nothing else to send but the one token the host already asks every agent for.'
+
+  return `
+    <section class="split">
+      <div class="split-say">
+        <h2>Hand it to the next agent. Send the URL.</h2>
+        <p>Work passes between agents as a tarball, a shared volume, or a token to a repository somebody had to create first — and the agent receiving it starts by working out which.</p>
+        <p><strong>Here the handoff is the URL.</strong> Push, send the address, and the next agent clones it. ${send}</p>
+        <p><strong>Nobody set it up.</strong> The repository came into being on the first push, so there was never a step before the handoff.</p>
+      </div>
+
+      <div class="split-show">
+        <div class="panel">
+          <div class="panel-head"><span>the whole handoff</span></div>
+          <pre class="tx"><span class="ln" style="--d:0ms"><span class="c"># agent A, done for now.</span>
+</span><span class="ln" style="--d:200ms"><span class="p">$</span> git push agentgit main
+</span><span class="ln" style="--d:1000ms">
+<span class="c"># what it sends. all of it.</span>
+</span><span class="ln" style="--d:1250ms"><span class="ok">https://${host}/study-42.git</span>
+</span><span class="ln" style="--d:2200ms">
+<span class="c"># agent B, in a different sandbox.</span>
+</span><span class="ln" style="--d:2450ms"><span class="p">$</span> git clone https://${host}/study-42.git<span class="caret"></span></span></pre>
+          <div class="panel-foot">A URL is the one thing every sandbox can already receive.</div>
+        </div>
+      </div>
+    </section>
+`
+}
+
 function ownershipCost(caps: Capabilities): string {
   return caps.appendOnly
-    ? "An unclaimed name takes anyone's push, and append-only keeps every one of them forever — so a stranger's branch in the repository your agent is working in is <em>there for good</em>. Claim the name and that stops being possible."
+    ? "An unclaimed name takes anyone's push, and append-only keeps it forever — a stranger's branch in your agent's repository is <em>there for good</em>. Claim the name and that stops."
     : "An unclaimed name takes anyone's push — a branch, a moved <code>main</code>, a deleted ref — and <em>whoever pushes last wins</em>. Claim the name and your history is yours."
 }
 
-function ownershipSection(host: string, caps: Capabilities): string {
+function ownershipSection(caps: Capabilities): string {
   if (!caps.namesCanBeClaimed) return ''
 
   return `
@@ -470,32 +538,11 @@ function ownershipSection(host: string, caps: Capabilities): string {
       <div class="split-say">
         <h2>A name a stranger cannot take.</h2>
         <p>${ownershipCost(caps)}</p>
-        <p><strong>Claiming one takes a single push.</strong> Write the fingerprints you trust to <code>${SIGNERS_REF}</code>. From the next push on, the repository takes pushes signed by those keys and refuses everything else — no account to open, no invite to send, no dashboard to visit. Claiming is opt-in: every name nobody has claimed still takes anyone's.</p>
-        <p><strong>List two keys.</strong> The keys are the whole of it and there is nothing to reset, so a second one is how you keep a way back in.</p>
+        <p><strong>Claiming one takes a single push.</strong> Write the fingerprints you trust to <code>${SIGNERS_REF}</code>; from then on only their pushes land. No account, no invite, no dashboard.</p>
+        <p><strong>List two keys.</strong> There is nothing to reset, so a second one is your way back in.</p>
       </div>
 
       <div class="split-show">
-        <div>
-          <details class="recipe">
-            <summary>The six commands that claim a name</summary>
-            <div class="term term-solo">
-            <pre><span class="c"># a repository whose tree is one file: signers.</span>
-<span class="p">$</span> git init -q claim &amp;&amp; cd claim
-<span class="p">$</span> ssh-keygen -lf $HOME/.ssh/id_ed25519.pub \\
-      | awk '{print $2}' > signers
-<span class="p">$</span> git add signers
-<span class="p">$</span> git -c user.email=agent@localhost \\
-      -c user.name=agent commit -qm claim
-<span class="p">$</span> git -c gpg.format=ssh \\
-      -c user.signingkey=$HOME/.ssh/id_ed25519.pub \\
-      push --signed=if-asked \\
-      https://${host}/$NAME.git \\
-      HEAD:${SIGNERS_REF}</pre>
-            </div>
-          </details>
-          <p class="under">List a second key · the full recipe is in <a href="/llms.txt">/llms.txt</a></p>
-        </div>
-
         <div class="panel">
           <div class="panel-head">
             <span>what a stranger reads</span>
@@ -553,8 +600,6 @@ function claims(caps: Capabilities): string {
     publicClaim(caps),
     privateClaim(caps),
     proposalsClaim(caps),
-    thirdClaim(caps),
-    sourceLimitClaim(caps),
     signingClaim(caps),
     // Unconditional, unlike every term above it: nothing in `/robots.txt` is
     // read from a flag. It is the one claim on this page addressed to the
@@ -705,8 +750,7 @@ function roadmapPulls(caps: Capabilities): string {
  * as much however many rows are left to admit it about.
  */
 function roadmapLede(caps: Capabilities): string {
-  const rows =
-    1 + (roadmapOwnership(caps) + roadmapPulls(caps)).split('<h3>').length - 1
+  const rows = 1 + (roadmapOwnership(caps) + roadmapPulls(caps)).split('<h3>').length - 1
 
   return rows === 1
     ? 'One thing is left, and nothing here is a date — it is designed in the open before it ships.'
@@ -800,48 +844,6 @@ ${rows.join('\n')}
 }
 
 /**
- * The objection, which is the first thought a reader arrives with.
- *
- * "One argument, not three" is the rule this page is edited by, and it is about
- * the two arguments the hero's commands ALREADY MAKE — reading a case for what
- * you just watched happen is a page arguing with somebody who agreed. This is
- * the opposite shape: nothing above it addresses *I already have GitHub, and
- * `gh repo create` is one command*, and every reader who has one thinks it
- * before they reach `The rules.` An unanswered objection is not a paragraph
- * saved, it is the reader gone.
- *
- * So it is an objection handler and not a third argument: a heading and two
- * sentences, no illustration, no transcript, no command. The section reads in
- * the time it takes to decide the page is not for you.
- *
- * Rendered from `Capabilities` like everything else that states what this host
- * asks for. On a credentialed deployment the case is NOT that there is no
- * credential — there is one — it is that there is no per-agent identity to
- * provision, which is the half that survives a token at the front door. And the
- * churn sentence states the window only where something collects it.
- */
-function whyNotSection(caps: Capabilities): string {
-  const cost = caps.publicAccess
-    ? 'Creating one there takes an account, a token scoped to make repositories, and somewhere to keep that token — three things a sandbox starts without, and the last is one no prompt should be carrying.'
-    : 'Creating one there takes an account per identity, a token scoped to make repositories, and somewhere to keep it. Here there is one credential for the whole host, set once by whoever runs it, and no per-agent identity to provision at all.'
-
-  const churn =
-    caps.retentionHours !== null
-      ? `And a repository per task is not something an organization should be made to accumulate. Here one is collected ${describeHours(
-          caps.retentionHours,
-        )} after its last push — the shape of the service, not a limit on it.`
-      : 'And a repository per task is not something an organization should be made to accumulate. These are named for one task and abandoned, not kept.'
-
-  return `
-    <section class="why">
-      <h2>You have GitHub. Your agent does not.</h2>
-      <p>${cost}</p>
-      <p>${churn}</p>
-    </section>
-`
-}
-
-/**
  * The last thing on the page, which used to be a takedown address.
  *
  * The page's whole asset is two commands that work, and they appeared once,
@@ -910,9 +912,9 @@ function footerLinks(caps: Capabilities): string {
  * Every substitution passes a FUNCTION, never the string itself.
  *
  * `String.replace` reads `$` sequences in a replacement STRING as capture-group
- * references, and these fragments are full of them: a shell prompt is
- * `<span class="p">$</span>`, the claim recipe carries `awk '{print $2}'` and
- * `$NAME`. Today every one of those is left literal — there are no capture
+ * references, and these fragments carry them: every shell prompt is
+ * `<span class="p">$</span>`, and the hero's credentialed form is
+ * `https://walgit:$TOKEN@`. Today every one of those is left literal — there are no capture
  * groups in a string pattern — but that is a rule about what the fragments
  * happen to contain, re-checked on every copy edit, and the failure it guards
  * is silent: a command on the page that quietly differs from the one anybody
@@ -931,24 +933,28 @@ export function renderLanding(
    */
   operator: Operator | null = null,
 ): string {
-  return PAGE.replaceAll('{{HOST}}', () => host)
-    // `replaceAll`, because the sentence written to travel now travels in
-    // three places: the description, the Open Graph card and the Twitter card.
-    // One rendering, substituted thrice — not three strings to keep in step.
-    .replaceAll('{{META_DESCRIPTION}}', () => metaDescription(caps))
-    .replace('{{HERO_UNDER}}', () => heroUnder(caps))
-    .replace('{{CLAIMS}}', () => claims(caps))
-    .replace('{{ROADMAP_LEDE}}', () => roadmapLede(caps))
-    .replace('{{ROADMAP_OWNERSHIP}}', () => roadmapOwnership(caps))
-    .replace('{{ROADMAP_PULLS}}', () => roadmapPulls(caps))
-    .replace('{{WHY}}', () => whyNotSection(caps))
-    .replace('{{EVENTS}}', () => eventsSection(host, caps))
-    .replace('{{OWNERSHIP}}', () => ownershipSection(host, caps))
-    .replace('{{CLOSE}}', () => closeSection(host, caps))
-    .replace('{{FOOTER_LINKS}}', () => footerLinks(caps))
-    .replace('{{WIRE_SCRIPT}}', () => (caps.events ? wireScript() : ''))
-    .replace('{{PERMANENCE}}', () => permanence(caps))
-    .replace('{{OPERATOR}}', () => operatorSection(caps, operator))
+  return (
+    PAGE.replaceAll('{{HOST}}', () => host)
+      // `replaceAll`, because the sentence written to travel now travels in
+      // three places: the description, the Open Graph card and the Twitter card.
+      // One rendering, substituted thrice — not three strings to keep in step.
+      .replaceAll('{{META_DESCRIPTION}}', () => metaDescription(caps))
+      .replace('{{HERO_UNDER}}', () => heroUnder(caps))
+      .replace('{{CLAIMS}}', () => claims(caps))
+      .replace('{{ROADMAP_LEDE}}', () => roadmapLede(caps))
+      .replace('{{ROADMAP_OWNERSHIP}}', () => roadmapOwnership(caps))
+      .replace('{{ROADMAP_PULLS}}', () => roadmapPulls(caps))
+      .replace('{{EVENTS}}', () => eventsSection(host, caps))
+      .replace('{{COLLISION}}', () => collisionSection(host, caps))
+      .replace('{{HANDOFF}}', () => handoffSection(host, caps))
+      .replace('{{OWNERSHIP}}', () => ownershipSection(caps))
+      .replace('{{CLOSE}}', () => closeSection(host, caps))
+      .replace('{{FOOTER_LINKS}}', () => footerLinks(caps))
+      .replace('{{WIRE_SCRIPT}}', () => (caps.events ? wireScript() : ''))
+      .replace('{{PERMANENCE}}', () => permanence(caps))
+      .replace('{{LIMITS}}', () => limits(caps))
+      .replace('{{OPERATOR}}', () => operatorSection(caps, operator))
+  )
 }
 
 const WIRE_CLIENT = `
@@ -971,19 +977,26 @@ const WIRE_CLIENT = `
     // takes them away to give them back in order, so no JavaScript, a script
     // that fails, or a request for less motion all leave the whole transcript
     // on screen.
-    var tx = document.getElementById("wire-tx");
-    if (!tx || !("IntersectionObserver" in window)) return;
+    //
+    // Every transcript on the page, not one by id: the collision panel below
+    // the socket panel is the same illustration with a different script, and
+    // each one arms and plays on its own as it scrolls into view.
+    var txs = document.querySelectorAll(".tx");
+    if (!txs.length || !("IntersectionObserver" in window)) return;
     if (window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
 
-    tx.classList.add("armed");
-    var io = new IntersectionObserver(function (entries) {
-      if (!entries[0] || !entries[0].isIntersecting) return;
-      io.disconnect();
-      // Played once. A transcript that restarted every time it came back into
-      // view would read as a loop rather than as something that happened.
-      tx.classList.add("play");
-    }, { threshold: 0.35 });
-    io.observe(tx);
+    Array.prototype.forEach.call(txs, function (tx) {
+      tx.classList.add("armed");
+      var io = new IntersectionObserver(function (entries) {
+        if (!entries[0] || !entries[0].isIntersecting) return;
+        io.disconnect();
+        // Played once. A transcript that restarted every time it came back
+        // into view would read as a loop rather than as something that
+        // happened.
+        tx.classList.add("play");
+      }, { threshold: 0.35 });
+      io.observe(tx);
+    });
 `
 
 const PAGE = `<!doctype html>
@@ -1122,19 +1135,12 @@ const PAGE = `<!doctype html>
     font-size: clamp(1.15rem, 2.9vw, 1.5rem);
     line-height: 1.5;
     color: var(--bone);
-    max-width: 38ch;
+    /* Three lines, one sentence each, broken by hand — so the column has to
+       hold the longest of them unwrapped, and the promise is 42 characters. */
+    max-width: 46ch;
     margin: 0 0 2.75rem;
   }
   .lede em { font-style: normal; color: var(--copper); }
-  /* The second half of the pitch — what the service is FOR, as opposed to what
-     it does — set a step down so the two read as one thought rather than as
-     two competing opening lines. */
-  .lede-2 {
-    font-size: clamp(1.02rem, 2.3vw, 1.2rem);
-    color: var(--muted);
-    max-width: 44ch;
-  }
-
   /* ── the command, which is the CTA ────────────────────── */
 
   .cta { margin: 0 0 1rem; max-width: 44rem; }
@@ -1252,26 +1258,6 @@ const PAGE = `<!doctype html>
     max-width: none;
   }
   .under span { color: var(--muted); }
-
-  /* The claim recipe, collapsed. Closed it is one line of type the width of
-     the argument beside it; open it is exactly the block it always was. */
-  .recipe { margin: 0 0 .75rem; }
-  .recipe summary {
-    font-family: var(--mono);
-    font-size: .72rem;
-    letter-spacing: .1em;
-    text-transform: uppercase;
-    color: var(--verdi);
-    cursor: pointer;
-    padding: .5rem 0;
-    min-height: 44px;
-    display: flex;
-    align-items: center;
-    gap: .5rem;
-  }
-  .recipe summary:hover { color: var(--copper); }
-  .recipe[open] summary { color: var(--muted); margin-bottom: .5rem; }
-  .recipe .term-solo { margin-bottom: 0; }
 
   /* ── panels ───────────────────────────────────────────── */
 
@@ -1392,7 +1378,9 @@ const PAGE = `<!doctype html>
     display: grid;
     grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr);
     gap: 0 2.5rem;
-    align-items: start;
+    /* The illustration sits at the vertical middle of the prose beside it,
+       so a shorter transcript is not left hanging off the top of a column. */
+    align-items: center;
   }
   /* A grid item defaults to min-width:auto, so a track cannot shrink below its
      content's min-content width — and .tx is white-space:pre with 53-character
@@ -1496,18 +1484,6 @@ const PAGE = `<!doctype html>
     margin: 0;
   }
 
-  /* The objection, set as an aside rather than as one of the arguments: a
-     rule down its left, tighter type, and closer to the hero than a section
-     of its own would sit. It is answering a thought, not making a case. */
-  .why {
-    margin-top: 3.25rem;
-    border-left: 1px solid var(--rule-2);
-    padding-left: 1.5rem;
-  }
-  .why h2 { font-size: clamp(1.1rem, 3vw, 1.35rem); margin-bottom: .75rem; }
-  .why p { font-size: 1rem; max-width: 54ch; margin-bottom: .75rem; }
-  .why p:last-child { margin-bottom: 0; }
-
   /* The last block, and the only one after it is the footer. The command is
      the point of it, so the prose above is one line and the type is the
      hero's rather than a section's. */
@@ -1563,9 +1539,7 @@ const PAGE = `<!doctype html>
 
     <h1>Git for AI agents<span class="dot">.</span></h1>
 
-    <p class="lede">Your agent writes code all day and has nowhere of its own to put it. <em>Push to a name and the repository exists</em> — no account, no key, no API besides git itself.</p>
-
-    <p class="lede lede-2">Scratch repositories, and the handoff between two agents: <em>handing work to another agent is the URL</em>, and there is nothing else to send.</p>
+    <p class="lede">You have GitHub.<br>Your agent does not.<br><em>Push to a name and the repository exists.</em></p>
 
     <div class="cta">
       <label class="repo-field" for="repo">
@@ -1584,7 +1558,7 @@ const PAGE = `<!doctype html>
       </div>
     </div>
     <p class="under" id="repo-help">{{HERO_UNDER}}</p>
-{{WHY}}{{EVENTS}}{{OWNERSHIP}}
+{{HANDOFF}}{{OWNERSHIP}}{{EVENTS}}{{COLLISION}}
     <section>
       <h2>The rules.</h2>
       <ul class="claims">
@@ -1604,7 +1578,7 @@ const PAGE = `<!doctype html>
           <p>A ref moving is already an event and the client already runs a command on it, so the step left is running that command somewhere other than your laptop.</p>
         </li>
       </ul>
-      <p class="caveat">{{PERMANENCE}} Not a place for anything you cannot lose.</p>
+      <p class="caveat">{{PERMANENCE}} Not a place for anything you cannot lose.{{LIMITS}}</p>
     </section>
 {{OPERATOR}}{{CLOSE}}
   </main>
