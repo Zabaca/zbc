@@ -1558,7 +1558,7 @@ const PAGE = `<!doctype html>
       </div>
     </div>
     <p class="under" id="repo-help">{{HERO_UNDER}}</p>
-{{HANDOFF}}{{EVENTS}}{{COLLISION}}{{OWNERSHIP}}
+{{HANDOFF}}{{OWNERSHIP}}{{EVENTS}}{{COLLISION}}
     <section>
       <h2>The rules.</h2>
       <ul class="claims">

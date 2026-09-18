@@ -82,9 +82,12 @@ describe('renderLanding', () => {
     expect(html).toContain('git clone https://agentgit.zabaca.com/study-42.git')
     // First argument after the hero: the handoff is what the URL is FOR, and
     // it reads before the socket, which is what makes the handoff instant.
-    const withEvents = renderLanding(HOST, caps(EVENTS))
-    expect(withEvents.indexOf('Hand it to the next agent')).toBeLessThan(
-      withEvents.indexOf('Stop asking whether main moved'),
+    const withEvents = renderLanding(HOST, caps({ ...EVENTS, ...SEED, ...GATE }))
+    const at = (s: string) => withEvents.indexOf(s)
+    expect(at('Hand it to the next agent')).toBeLessThan(at('A name a stranger cannot take'))
+    expect(at('A name a stranger cannot take')).toBeLessThan(at('Stop asking whether main moved'))
+    expect(at('Stop asking whether main moved')).toBeLessThan(
+      at('Stop discovering conflicts at push time'),
     )
   })
 
