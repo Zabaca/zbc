@@ -51,7 +51,7 @@ import { SIGNERS_REF, ZERO_OID } from '../shared/protocol'
 import { suggestName } from './append-only'
 import { git } from './git'
 import { readAllowed } from './private'
-import { isProposalRef } from './proposals'
+import { PROPOSALS_PREFIX, SIGNERS_TARGET, isProposalRef } from './proposals'
 import { certificatePresented, signedPushEnabled, type PushCertEnv } from './push-cert'
 import type { RefChange } from './wal-index'
 
@@ -603,9 +603,25 @@ function mayPropose(
   changes: readonly RefChange[],
   proposals: ProposalGate,
 ): boolean {
+  if (changes.length === 0 || !changes.every((c) => isProposalRef(c.ref))) return false
+  return proposalsOpenTo(signer, claimed, proposals)
+}
+
+/**
+ * The same three conditions minus the refs, so the refusal can ask whether this
+ * pusher has the Proposal door at all before offering it one.
+ *
+ * Split rather than duplicated: a remedy naming a door this deployment does not
+ * open, or one this key would be refused at, is worse than the terse remedy it
+ * replaces — an agent acts on it and is refused a second time.
+ */
+function proposalsOpenTo(
+  signer: PushSigner,
+  claimed: readonly string[],
+  proposals: ProposalGate,
+): boolean {
   if (!proposals.enabled) return false
   if (signer.kind !== 'signed') return false
-  if (changes.length === 0 || !changes.every((c) => isProposalRef(c.ref))) return false
   return readAllowed({
     enabled: proposals.privateRepos,
     claim: {
@@ -676,7 +692,13 @@ export function checkSignerAllowed(
   return {
     ok: false,
     kind: signer.kind === 'signed' ? 'not-listed' : signer.kind,
-    message: heldMessage(repoId, signer, changes, stage),
+    message: heldMessage(
+      repoId,
+      signer,
+      changes,
+      stage,
+      proposalsOpenTo(signer, claimed, proposals),
+    ),
   }
 }
 
@@ -689,12 +711,20 @@ export function checkSignerAllowed(
  * (docs/adr/0012). So this says three things and an agent can act on each: the
  * name is held, here is a free one to use instead, and here is how to be added
  * to this one.
+ *
+ * `canPropose` decides whether the third of those is something the READER can
+ * do or only something somebody else can. Where Proposals are open to this key
+ * (docs/adr/0018), the remedy leads with proposing the Signer List — the one
+ * remedy a stranger can act on alone — and keeps the grant recipe under it,
+ * because the grant is still what lands. Where they are not, the line is left
+ * out entirely: a door that 404s is worse than the terse remedy it replaces.
  */
 function heldMessage(
   repoId: string,
   signer: PushSigner,
   changes: readonly RefChange[],
   stage: GateStage,
+  canPropose: boolean,
 ): string {
   const why =
     signer.kind === 'signed'
@@ -755,6 +785,17 @@ function heldMessage(
     '',
     'What you can do instead:',
     `  - push to a free name:  git remote set-url origin <same-host>/${suggestName(repoId)}.git`,
+    ...(canPropose
+      ? [
+          "  - or ask to be added, yourself: propose this name's Signer List — commit",
+          `    ${SIGNERS_REF}'s \`signers\` file with the line \`ssh-keygen -lf <your-key>\``,
+          '    prints added, and push it as a Proposal:',
+          '',
+          `        git push --signed=yes origin HEAD:${PROPOSALS_PREFIX}${SIGNERS_TARGET}/<your-id>`,
+          '',
+          '    That moves nothing: it is held until a listed key merges it.',
+        ]
+      : []),
     `  - or be added to this one: a listed key pushes a commit on ${SIGNERS_REF}`,
     '    whose `signers` file gains the line `ssh-keygen -lf <your-key>` prints.',
     '    A grant governs the NEXT push, so retry once theirs has landed.',

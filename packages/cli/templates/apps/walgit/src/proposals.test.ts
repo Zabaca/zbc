@@ -15,6 +15,7 @@ import {
   parseProposalRef,
   mergedProposals,
   proposalsEnabled,
+  targetRef,
   type ProposalSource,
 } from './proposals'
 import { ZERO_OID } from '../shared/protocol'
@@ -100,6 +101,62 @@ describe('what the hook refuses', () => {
     if (verdict.ok) return
     expect(verdict.kind).toBe('not-a-branch')
     expect(verdict.message).toContain('refs/heads/')
+  })
+
+  /**
+   * The one non-branch target (docs/adr/0018): a stranger asks to be added to
+   * a name by proposing the Signer List itself. The spelling is the list's ref
+   * with `refs/` dropped, so the ordinary "no target begins with refs/" rule is
+   * untouched and the id is still the last segment.
+   */
+  test('the Signer List is a target, spelled `walgit/signers`', () => {
+    expect(parseProposalRef(`${PROPOSALS_PREFIX}walgit/signers/add-me`)).toEqual({
+      target: 'walgit/signers',
+      id: 'add-me',
+    })
+    expect(targetRef('walgit/signers')).toBe('refs/walgit/signers')
+
+    const claimed: ProposalSource = {
+      ...source,
+      refs: { ...source.refs, 'refs/walgit/signers': 'd'.repeat(40) },
+    }
+    const verdict = checkProposalRefs(
+      'alpha',
+      [change(`${PROPOSALS_PREFIX}walgit/signers/add-me`)],
+      claimed,
+    )
+    expect(verdict).toEqual({ ok: true })
+  })
+
+  test('proposing the Signer List of a name that holds none names that ref', () => {
+    const verdict = checkProposalRefs(
+      'alpha',
+      [change(`${PROPOSALS_PREFIX}walgit/signers/add-me`)],
+      source,
+    )
+    expect(verdict.ok).toBe(false)
+    if (verdict.ok) return
+    expect(verdict.kind).toBe('missing-target')
+    expect(verdict.message).toContain('refs/walgit/signers does not exist here')
+  })
+
+  // `walgit/signers` is the WHOLE target or nothing: a deeper ref is an
+  // ordinary branch target, so it is judged against `refs/heads/` like any
+  // other and not admitted by being a prefix of the one exception.
+  test('a target merely starting with the Signer List spelling is an ordinary branch', () => {
+    const claimed: ProposalSource = {
+      ...source,
+      refs: { ...source.refs, 'refs/walgit/signers': 'd'.repeat(40) },
+    }
+    const verdict = checkProposalRefs(
+      'alpha',
+      [change(`${PROPOSALS_PREFIX}walgit/signers/deeper/add-me`)],
+      claimed,
+    )
+    expect(verdict.ok).toBe(false)
+    if (verdict.ok) return
+    expect(verdict.kind).toBe('missing-target')
+    expect(verdict.message).toContain('refs/heads/walgit/signers/deeper')
   })
 
   test('a tip that is not a commit', () => {

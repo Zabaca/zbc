@@ -63,8 +63,14 @@ describe('agentgit accept: refusals', () => {
     expect(ran).toEqual([])
   })
 
+  // Both refusals below belong to accepting onto a BRANCH, so both are asked
+  // once the Proposal's target is known: the Signer List path has no checkout
+  // to be detached from and never touches the working tree.
   test('a detached HEAD is refused: there is no target branch to accept onto', async () => {
-    const { deps, ran } = harness({ discover: () => ({ ...clone, branch: null }) })
+    const { deps, ran } = harness({
+      discover: () => ({ ...clone, branch: null }),
+      proposals: async () => [proposal()],
+    })
     const result = await runAccept({ id: 'fix-auth' }, deps)
 
     expect(result.code).toBe(2)
@@ -72,23 +78,19 @@ describe('agentgit accept: refusals', () => {
     expect(ran).toEqual([])
   })
 
-  test('a dirty working tree is refused before anything is fetched', async () => {
-    let asked = false
+  test('a dirty working tree is refused before anything is fetched or merged', async () => {
     const { deps, ran } = harness({
       run: (args) =>
         args[0] === 'status' ? { code: 0, stdout: ' M src/a.ts\n', stderr: '' } : undefined,
-      proposals: async () => {
-        asked = true
-        return []
-      },
+      proposals: async () => [proposal()],
     })
     const result = await runAccept({ id: 'fix-auth' }, deps)
 
     expect(result.code).toBe(2)
     expect(result.stderr).toContain('src/a.ts')
-    // The whole point of the refusal: no network call, and no fetch.
-    expect(asked).toBe(false)
+    // The whole point of the refusal: nothing is fetched and nothing is merged.
     expect(ran.some((args) => args[0] === 'fetch')).toBe(false)
+    expect(ran.some((args) => args[0] === 'merge')).toBe(false)
   })
 })
 
@@ -234,5 +236,186 @@ describe('agentgit accept: fetch, merge, push', () => {
 
     expect(result.code).toBe(1)
     expect(ran.some((args) => args[0] === 'merge')).toBe(false)
+  })
+})
+
+/**
+ * The Signer List is a target like a branch (docs/adr/0018): a stranger asks to
+ * be listed by proposing the list, and accepting it is the Signer's ordinary
+ * signed push — to `refs/walgit/signers` rather than to a branch.
+ *
+ * It gets its own path because the branch flow's every step is wrong for it:
+ * there is no checkout of the list, so nothing here may touch the working tree,
+ * which is also why a dirty tree and a detached HEAD stop refusing it.
+ */
+describe('agentgit accept: the Signer List', () => {
+  const LIST = 'refs/walgit/signers'
+  const listProposal = (over: Partial<ProposalListing> = {}): ProposalListing =>
+    proposal({ id: 'add-me', target: 'walgit/signers', tip: 'b'.repeat(40), ...over })
+
+  const TIP = 'b'.repeat(40)
+  const LIST_TIP = 'd'.repeat(40)
+  const MERGE = 'e'.repeat(40)
+
+  /**
+   * A clone whose FETCH_HEAD answers whichever ref was fetched last, so the two
+   * fetches this path makes can be told apart.
+   */
+  const listHarness = (over: Over = {}) => {
+    let last = ''
+    const base = (args: readonly string[]) => {
+      if (args[0] === 'fetch') {
+        last = args[args.length - 1] ?? ''
+        return { code: 0, stdout: '', stderr: '' }
+      }
+      if (args[0] === 'rev-parse') {
+        return { code: 0, stdout: `${last === LIST ? LIST_TIP : TIP}\n`, stderr: '' }
+      }
+      if (args[0] === 'commit-tree') return { code: 0, stdout: `${MERGE}\n`, stderr: '' }
+      return undefined
+    }
+    return harness({ ...over, run: (args) => over.run?.(args) ?? base(args) })
+  }
+
+  test('fast-forwards the list when the Proposal already contains it, and pushes it signed', async () => {
+    const { deps, ran } = listHarness({
+      proposals: async () => [listProposal()],
+      // The list's tip is already in the Proposal's history: nothing to merge.
+      run: (args) => (args[0] === 'merge-base' ? { code: 0, stdout: '', stderr: '' } : undefined),
+    })
+    const result = await runAccept({ id: 'add-me' }, deps)
+
+    expect(result.code).toBe(0)
+    expect(ran).toContainEqual([
+      'fetch',
+      '--quiet',
+      'origin',
+      'refs/walgit/proposals/walgit/signers/add-me',
+    ])
+    expect(ran).toContainEqual(['fetch', '--quiet', 'origin', LIST])
+    expect(ran).toContainEqual(['push', '--signed=if-asked', 'origin', `${TIP}:${LIST}`])
+    // Never the branch, and never the working tree.
+    expect(ran.some((args) => args.some((a) => a.includes('refs/heads/')))).toBe(false)
+    expect(ran.some((args) => args[0] === 'merge' || args[0] === 'checkout')).toBe(false)
+  })
+
+  test('merges without a checkout when the list has moved on, and pushes the merge', async () => {
+    const { deps, ran } = listHarness({
+      proposals: async () => [listProposal()],
+      run: (args) => {
+        // The list's tip is NOT in the Proposal's history, so the two diverged.
+        if (args[0] === 'merge-base') return { code: 1, stdout: '', stderr: '' }
+        if (args[0] === 'merge-tree') return { code: 0, stdout: `${'f'.repeat(40)}\n`, stderr: '' }
+        return undefined
+      },
+    })
+    const result = await runAccept({ id: 'add-me' }, deps)
+
+    expect(result.code).toBe(0)
+    const commit = ran.find((args) => args[0] === 'commit-tree')
+    expect(commit).toBeDefined()
+    // Both sides are parents, which is what makes the Proposal an ancestor of
+    // the list — ADR-0018's whole definition of merged.
+    expect(commit).toContain(LIST_TIP)
+    expect(commit).toContain(TIP)
+    expect(ran).toContainEqual(['push', '--signed=if-asked', 'origin', `${MERGE}:${LIST}`])
+  })
+
+  test('a conflicting list merge is refused, and nothing is pushed', async () => {
+    const { deps, ran } = listHarness({
+      proposals: async () => [listProposal()],
+      run: (args) => {
+        if (args[0] === 'merge-base') return { code: 1, stdout: '', stderr: '' }
+        if (args[0] === 'merge-tree')
+          return { code: 1, stdout: 'CONFLICT (content): Merge conflict in signers\n', stderr: '' }
+        return undefined
+      },
+    })
+    const result = await runAccept({ id: 'add-me' }, deps)
+
+    expect(result.code).toBe(1)
+    expect(result.stderr).toContain('signers')
+    expect(ran.some((args) => args[0] === 'push')).toBe(false)
+  })
+
+  test('is accepted from a detached HEAD and a dirty tree, which it never touches', async () => {
+    const { deps, ran } = listHarness({
+      discover: () => ({ ...clone, branch: null }),
+      proposals: async () => [listProposal()],
+      run: (args) => {
+        if (args[0] === 'status') return { code: 0, stdout: ' M src/a.ts\n', stderr: '' }
+        if (args[0] === 'merge-base') return { code: 0, stdout: '', stderr: '' }
+        return undefined
+      },
+    })
+    const result = await runAccept({ id: 'add-me' }, deps)
+
+    expect(result.code).toBe(0)
+    expect(ran).toContainEqual(['push', '--signed=if-asked', 'origin', `${TIP}:${LIST}`])
+  })
+
+  test('a merge git could not attempt is not reported as a conflict', async () => {
+    const { deps, ran } = listHarness({
+      proposals: async () => [listProposal()],
+      run: (args) => {
+        if (args[0] === 'merge-base') return { code: 1, stdout: '', stderr: '' }
+        // Not exit 1: git failed to run the merge at all.
+        if (args[0] === 'merge-tree')
+          return { code: 128, stdout: '', stderr: 'fatal: not a valid object name\n' }
+        return undefined
+      },
+    })
+    const result = await runAccept({ id: 'add-me' }, deps)
+
+    expect(result.code).toBe(1)
+    expect(result.stderr).toContain('not a valid object name')
+    expect(result.stderr).not.toContain('yours to decide')
+    expect(ran.some((args) => args[0] === 'push')).toBe(false)
+  })
+
+  test('a list tip the fetch did not bring back is refused, not merged', async () => {
+    // FETCH_HEAD reads back empty after the list's own fetch. Carried onward it
+    // would reach `merge-tree` and come back to the Signer as a conflict in the
+    // `signers` file, which is a different thing entirely.
+    let fetched = ''
+    const { deps, ran } = harness({
+      proposals: async () => [listProposal()],
+      run: (args) => {
+        if (args[0] === 'fetch') {
+          fetched = args[args.length - 1] ?? ''
+          return { code: 0, stdout: '', stderr: '' }
+        }
+        if (args[0] === 'rev-parse') {
+          return fetched === LIST
+            ? { code: 0, stdout: '\n', stderr: '' }
+            : { code: 0, stdout: `${TIP}\n`, stderr: '' }
+        }
+        return undefined
+      },
+    })
+    const result = await runAccept({ id: 'add-me' }, deps)
+
+    expect(result.code).toBe(1)
+    expect(result.stderr).toContain(LIST)
+    expect(ran.some((args) => args[0] === 'merge-tree' || args[0] === 'push')).toBe(false)
+  })
+
+  test('a list Proposal that moved between the listing and the fetch is refused', async () => {
+    const { deps, ran } = listHarness({
+      proposals: async () => [listProposal({ tip: 'c'.repeat(40) })],
+    })
+    const result = await runAccept({ id: 'add-me' }, deps)
+
+    expect(result.code).toBe(1)
+    expect(ran.some((args) => args[0] === 'push')).toBe(false)
+  })
+
+  test('an already-merged list Proposal is reported, and nothing is pushed', async () => {
+    const { deps, ran } = listHarness({ proposals: async () => [listProposal({ merged: true })] })
+    const result = await runAccept({ id: 'add-me' }, deps)
+
+    expect(result.code).toBe(0)
+    expect(result.stdout).toContain('already merged')
+    expect(ran.some((args) => args[0] === 'push')).toBe(false)
   })
 })

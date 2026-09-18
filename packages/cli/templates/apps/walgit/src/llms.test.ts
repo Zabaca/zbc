@@ -632,9 +632,21 @@ describe('Propose a change', () => {
     expect(text).toContain('fast-forward')
   })
 
+  test('asking to be listed is a Proposal of the Signer List itself', () => {
+    const text = renderLlms(HOST, OPEN_PROPOSALS)
+    // The recipe a stranger can act on alone, and the ref it is pushed to.
+    expect(text).toContain('refs/walgit/proposals/walgit/signers/')
+    expect(text).toContain('refs/walgit/signers')
+    // It asks: the list moves only when a listed key accepts.
+    expect(text).toContain('Signer')
+  })
+
   test('and says nothing at all where the capability is off', () => {
     for (const env of [OPEN, { ...OPEN, ...SEED, ...GATE }, { ...OPEN, ...PROPOSALS }]) {
-      expect(renderLlms(HOST, caps(env))).not.toContain('## Propose a change')
+      const text = renderLlms(HOST, caps(env))
+      expect(text).not.toContain('## Propose a change')
+      // And no door to a namespace this deployment does not take.
+      expect(text).not.toContain('refs/walgit/proposals/')
     }
   })
 })

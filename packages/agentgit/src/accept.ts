@@ -9,6 +9,12 @@
  * assemble the three steps nobody should have to type: fetch the Proposal's
  * ref, merge it, push the target signed.
  *
+ * Two targets, two paths. A BRANCH is accepted where it is checked out, in the
+ * accepter's tree. The SIGNER LIST — the one non-branch target, and how a
+ * stranger asks to be listed — is accepted without a checkout at all, because
+ * nobody has the list checked out and an agent's own work must not be moved to
+ * accept one. See `acceptSignerList`.
+ *
  * Which makes the refusals the substance. A `git merge` run over a working tree
  * somebody is in the middle of, or a conflict quietly aborted, would each cost
  * an agent work it cannot get back, so both stop here: the tree is checked
@@ -74,6 +80,17 @@ export function proposalRef(target: string, id: string): string {
   return `refs/walgit/proposals/${target}/${id}`
 }
 
+/**
+ * The Signer List, and the one target that is not a branch (docs/adr/0018).
+ *
+ * A stranger asks to be listed by proposing the list itself, so accepting one
+ * is still an ordinary signed push by a Signer — to this ref rather than to a
+ * branch. Spelled here rather than imported, for the reason `ProposalListing`
+ * is: nothing in this package imports walgit.
+ */
+export const SIGNERS_REF = 'refs/walgit/signers'
+export const SIGNERS_TARGET = 'walgit/signers'
+
 const refuse = (message: string, code = 2): AcceptResult => ({
   stdout: '',
   stderr: `agentgit: ${message}\n`,
@@ -87,26 +104,6 @@ export async function runAccept(request: AcceptRequest, deps: AcceptDeps): Promi
       'not inside a clone of a walgit repository — run accept where the target branch is checked out',
     )
   }
-  if (clone.branch === null) {
-    return refuse('HEAD is detached: check out the branch the Proposal targets, then accept it')
-  }
-  const branch = clone.branch
-
-  // Before the network, not merely before the merge. A dirty tree is refused
-  // whatever the Proposal turns out to be, so asking the host first would be a
-  // request made only to throw the answer away.
-  const status = deps.git(['status', '--porcelain'])
-  if (status.code !== 0) {
-    return refuse(`could not read the working tree: ${status.stderr.trim()}`, 1)
-  }
-  if (status.stdout.trim() !== '') {
-    return refuse(
-      'the working tree is not clean — commit, or stash it (`git stash -u`, which ' +
-        'untracked files need too):\n' +
-        status.stdout.trimEnd().replace(/^/gm, '  '),
-    )
-  }
-
   let listing: ProposalListing[]
   try {
     listing = await deps.proposals(clone)
@@ -128,12 +125,50 @@ export async function runAccept(request: AcceptRequest, deps: AcceptDeps): Promi
         (held.length === 0 ? '  it holds no Proposals' : `  it holds: ${held.join(', ')}`),
     )
   }
+
+  // The Signer List first, because it is the one target with no checkout to
+  // match against: a list Proposal is accepted from wherever the Signer
+  // happens to be standing.
+  const list = found.find((entry) => entry.target === SIGNERS_TARGET)
+  if (list && found.length > 1) {
+    // One id, two targets, and this command accepts one thing. Which is asked
+    // rather than guessed: quietly preferring either would move a ref the
+    // Signer did not name.
+    const targets = found.map((entry) => entry.target).join(', ')
+    return refuse(
+      `Proposal ${JSON.stringify(request.id)} is held for more than one target on ${clone.repo}: ${targets}.\n` +
+        '  accept them one at a time, from a clone where only one is open',
+    )
+  }
+  if (list) return acceptSignerList(clone, list, deps)
+
+  const branch = clone.branch
+  if (branch === null) {
+    return refuse('HEAD is detached: check out the branch the Proposal targets, then accept it')
+  }
   const proposal = found.find((entry) => entry.target === branch)
   if (!proposal) {
     const targets = found.map((entry) => entry.target).join(', ')
     return refuse(
       `Proposal ${JSON.stringify(request.id)} targets ${targets}, and you are on ${branch}.\n` +
         `  check out ${targets} and accept it there`,
+    )
+  }
+
+  // Before the merge, and before a single object is fetched: a `git merge` run
+  // over a tree somebody is in the middle of costs work that cannot be got
+  // back. It is asked here rather than at the top — after the listing, which is
+  // one read of the host — because whether the tree matters at all depends on
+  // the target: the Signer List path never touches it.
+  const status = deps.git(['status', '--porcelain'])
+  if (status.code !== 0) {
+    return refuse(`could not read the working tree: ${status.stderr.trim()}`, 1)
+  }
+  if (status.stdout.trim() !== '') {
+    return refuse(
+      'the working tree is not clean — commit, or stash it (`git stash -u`, which ' +
+        'untracked files need too):\n' +
+        status.stdout.trimEnd().replace(/^/gm, '  '),
     )
   }
 
@@ -204,6 +239,140 @@ export async function runAccept(request: AcceptRequest, deps: AcceptDeps): Promi
     stderr: '',
     code: 0,
   }
+}
+
+/**
+ * Accepting a Proposal of the Signer List, which is the same act as accepting
+ * one of a branch and shares none of its steps.
+ *
+ * Nothing here touches the working tree. The list is a ref nobody has checked
+ * out — it holds one `signers` file and a Signer is in the middle of their own
+ * work — so a checkout, a merge and a reset would be three ways to lose that
+ * work to an act that has nothing to do with it. The merge is made with
+ * `merge-tree` and `commit-tree` instead: a tree and a commit written straight
+ * into the object database, and a push of the result.
+ *
+ * What lands is still exactly what ADR-0018 requires: a fast-forward or a true
+ * merge, pushed by a Signer, so the Proposal's tip is an ancestor of the list.
+ * A conflict is left to the Signer with the manual recipe, because a `signers`
+ * file two people edited is a decision about who holds the name.
+ */
+async function acceptSignerList(
+  clone: AcceptClone,
+  proposal: ProposalListing,
+  deps: AcceptDeps,
+): Promise<AcceptResult> {
+  if (proposal.merged) {
+    return {
+      stdout: `${proposal.id} is already merged into ${SIGNERS_REF} (${proposal.tip.slice(0, 8)})\n`,
+      stderr: '',
+      code: 0,
+    }
+  }
+
+  const ref = proposalRef(SIGNERS_TARGET, proposal.id)
+  const tip = fetchOid(clone, ref, deps)
+  if (typeof tip !== 'string') return tip
+  if (tip !== proposal.tip) {
+    return refuse(
+      `${proposal.id} moved while we were reading it: the host listed ${proposal.tip.slice(0, 8)}, ` +
+        `the fetch brought ${tip.slice(0, 8) || 'nothing'}. Run accept again.`,
+      1,
+    )
+  }
+
+  const listTip = fetchOid(clone, SIGNERS_REF, deps)
+  if (typeof listTip !== 'string') return listTip
+
+  // A fast-forward where the Proposal already contains the list, and a true merge
+  // otherwise. The order matters only for what is pushed: either way the tip
+  // ends up an ancestor.
+  let push = tip
+  if (deps.git(['merge-base', '--is-ancestor', listTip, tip]).code !== 0) {
+    const tree = deps.git(['merge-tree', '--write-tree', listTip, tip])
+    // Exit 1 is git's "the merge conflicted"; anything else is git failing to
+    // do the merge at all — a missing object, unrelated histories, a version
+    // without `--write-tree`. Reported apart, because "which lines hold the
+    // name is yours to decide" is a false thing to tell a Signer whose git
+    // never got as far as comparing them.
+    if (tree.code === 1) {
+      return refuse(
+        `merging ${proposal.id} into ${SIGNERS_REF} conflicts — two commits edited the ` +
+          `\`signers\` file, and which lines hold the name is yours to decide:\n` +
+          `${(tree.stdout + tree.stderr).trimEnd().replace(/^/gm, '  ')}\n` +
+          `  resolve it in a scratch clone, then: git push --signed=if-asked ` +
+          `${clone.remoteName} HEAD:${SIGNERS_REF}`,
+        1,
+      )
+    }
+    if (tree.code !== 0) {
+      return refuse(
+        `could not merge ${proposal.id} into ${SIGNERS_REF}: ` +
+          `${(tree.stderr + tree.stdout).trim()}`,
+        1,
+      )
+    }
+    const merged = tree.stdout.trim().split('\n')[0] ?? ''
+    if (merged === '') {
+      return refuse(`merging ${proposal.id} produced no tree — nothing was pushed`, 1)
+    }
+    const commit = deps.git([
+      'commit-tree',
+      merged,
+      '-p',
+      listTip,
+      '-p',
+      tip,
+      '-m',
+      `accept ${proposal.id} onto the Signer List`,
+    ])
+    if (commit.code !== 0) {
+      return refuse(`could not record the merge: ${commit.stderr.trim()}`, 1)
+    }
+    push = commit.stdout.trim()
+    if (push === '') return refuse('could not record the merge: git wrote no commit', 1)
+  }
+
+  const pushed = deps.git(['push', '--signed=if-asked', clone.remoteName, `${push}:${SIGNERS_REF}`])
+  if (pushed.code !== 0) {
+    return refuse(
+      `pushing ${SIGNERS_REF} was refused: ${(pushed.stderr + pushed.stdout).trim()}`,
+      1,
+    )
+  }
+
+  return {
+    stdout:
+      `accepted ${proposal.id} (${proposal.tip.slice(0, 8)}) onto ${SIGNERS_REF}` +
+      ` — it is now ${push.slice(0, 8)}\n`,
+    stderr: '',
+    code: 0,
+  }
+}
+
+/**
+ * Fetch one ref and say what commit came back, or the refusal to return.
+ *
+ * `FETCH_HEAD` is read immediately after its own fetch, which is the whole
+ * reason this is a function: the two refs this path needs both land there, and
+ * reading it once at the end would answer for whichever was fetched last.
+ */
+function fetchOid(clone: AcceptClone, ref: string, deps: AcceptDeps): string | AcceptResult {
+  const fetched = deps.git(['fetch', '--quiet', clone.remoteName, ref])
+  if (fetched.code !== 0) {
+    return refuse(`could not fetch ${ref}: ${fetched.stderr.trim()}`, 1)
+  }
+  // An oid we could not read is refused HERE rather than carried onward as an
+  // empty string: downstream it would reach `merge-tree`, whose failure this
+  // command reports as a conflict in the `signers` file — telling a Signer to
+  // decide who holds the name, when all that happened is a fetch we could not
+  // read back.
+  const read = deps.git(['rev-parse', 'FETCH_HEAD'])
+  const oid = read.stdout.trim()
+  if (read.code !== 0 || oid === '') {
+    return refuse(`fetched ${ref}, but could not read what came back: ${read.stderr.trim()}`, 1)
+  }
+  return oid
 }
 
 /**

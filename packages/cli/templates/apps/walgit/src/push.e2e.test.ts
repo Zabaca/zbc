@@ -1084,6 +1084,42 @@ describe('Signer Lists', () => {
       ).toBeUndefined()
     })
 
+    /**
+     * The whole of the ask (docs/adr/0018, amended): a stranger who may read
+     * the name proposes the Signer List with its own fingerprint added, the
+     * list does not move, and it moves when a Signer pushes the merge.
+     */
+    test('a stranger proposes the Signer List, and only a Signer’s push moves it', async () => {
+      const list = await claimedWithMain()
+      const claimOid = (await loadIndex(store, repoId)).index.refs['refs/walgit/signers']
+
+      // Bob asks: the list, plus his own line.
+      await writeList(list, [aliceFp, bobFp], 'add bob')
+      const asked = (await git(list, 'rev-parse', 'HEAD')).out.trim()
+      const proposed = await pushAs(
+        list,
+        bobPub,
+        'HEAD:refs/walgit/proposals/walgit/signers/add-bob',
+      )
+      expect(proposed.status).toBe(0)
+
+      const held = await loadIndex(store, repoId)
+      expect(held.index.refs['refs/walgit/proposals/walgit/signers/add-bob']).toBe(asked)
+      // The request is held, and the list is exactly where it was.
+      expect(held.index.refs['refs/walgit/signers']).toBe(claimOid)
+      expect(held.index.claim!.signers).toEqual([aliceFp])
+
+      const bob = await clientWithCommit('proposer-of-list', 'bob proposes\n')
+      expect((await pushAs(bob.dir, bobPub, 'HEAD:refs/heads/main')).status).not.toBe(0)
+
+      // Alice accepts it: an ordinary signed push of the list, by a listed key.
+      expect((await pushAs(list, alicePub, `${asked}:refs/walgit/signers`)).status).toBe(0)
+
+      // A grant governs the NEXT push, and this is it.
+      const granted = await pushAs(bob.dir, bobPub, 'HEAD:refs/heads/main')
+      expect(granted.status).toBe(0)
+    })
+
     test('a Proposal whose target is not a branch is refused', async () => {
       // The refusal that stops anybody proposing a Signer List.
       await claimedWithMain()
