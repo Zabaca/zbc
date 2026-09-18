@@ -37,6 +37,18 @@ export default cloudflareZoneModule.instance({
     records: [
       { type: 'AAAA', name: 'agentgit.co', content: '100::', proxied: true },
       { type: 'AAAA', name: 'www.agentgit.co', content: '100::', proxied: true },
+      // PostHog's managed reverse proxy for the landing page's analytics
+      // (`WALGIT_POSTHOG_HOST` on `walgit-public`), so the browser talks to a
+      // first-party name. Unproxied because PostHog terminates TLS for the
+      // hostname itself, the same shape as `m.zabaca.com`. Added by hand in
+      // the PostHog UI on 2026-09-18 and transcribed here the same day, so the
+      // zone module stops reading it as drift.
+      {
+        type: 'CNAME',
+        name: 'd.agentgit.co',
+        content: '7ed5f6068ed021d42d44.cf-prod-us-proxy.proxyhog.com',
+        proxied: false,
+      },
     ],
   },
 })

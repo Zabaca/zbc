@@ -417,9 +417,12 @@ export default cloudflareModule.instance({
       // that uses PostHog — so a var, not a secret. Edge-only, like the two
       // above. The edge telemetry (walgit_requests) keeps counting page views
       // with no identity; this answers where readers come from and whether
-      // they come back, which that dataset cannot. Host left at the default,
-      // PostHog Cloud US.
+      // they come back, which that dataset cannot. The host is PostHog's
+      // managed reverse proxy on our own name (`d.agentgit.co`, declared in
+      // `agentgit-zone`), so a browser sees one first-party origin; the UI
+      // host says which PostHog region owns the project.
       { name: 'WALGIT_POSTHOG_KEY', value: 'phc_tvfFcfPyMXbCMCQEvFLp7sVPooGUL7ZBQeG9ktM4agZh' },
+      { name: 'WALGIT_POSTHOG_HOST', value: 'https://d.agentgit.co' },
       // ── ref events ───────────────────────────────────────────────────────
       //
       // Where the container announces a push TO — this deployment's own public

@@ -5,6 +5,8 @@
 import { describe, expect, test } from 'bun:test'
 import {
   DEFAULT_POSTHOG_HOST,
+  DEFAULT_POSTHOG_UI_HOST,
+  POSTHOG_DEFAULTS,
   analyticsFrom,
   analyticsScript,
   type AnalyticsEnv,
@@ -25,7 +27,21 @@ describe('reading the environment', () => {
 
   test('a key alone means PostHog Cloud US', () => {
     const env: AnalyticsEnv = { WALGIT_POSTHOG_KEY: 'phc_test' }
-    expect(analyticsFrom(env)).toEqual({ key: 'phc_test', host: DEFAULT_POSTHOG_HOST })
+    expect(analyticsFrom(env)).toEqual({
+      key: 'phc_test',
+      host: DEFAULT_POSTHOG_HOST,
+      uiHost: DEFAULT_POSTHOG_UI_HOST,
+    })
+  })
+
+  test('a proxy host keeps the app host separate', () => {
+    const env: AnalyticsEnv = {
+      WALGIT_POSTHOG_KEY: 'phc_test',
+      WALGIT_POSTHOG_HOST: 'https://d.example.com',
+    }
+    const script = analyticsScript(analyticsFrom(env))
+    expect(script).toContain('api_host:"https://d.example.com"')
+    expect(script).toContain(`ui_host:"${DEFAULT_POSTHOG_UI_HOST}"`)
   })
 
   test('the host is the instance’s to set', () => {
@@ -47,7 +63,9 @@ describe('the page', () => {
   test('carries the loader and the init with the key when configured', () => {
     const html = renderLanding(HOST, caps, null, analyticsFrom({ WALGIT_POSTHOG_KEY: 'phc_test' }))
     expect(html).toContain('window.posthog=e')
-    expect(html).toContain(`posthog.init("phc_test",{api_host:"${DEFAULT_POSTHOG_HOST}"`)
+    expect(html).toContain(
+      `posthog.init("phc_test",{api_host:"${DEFAULT_POSTHOG_HOST}",ui_host:"${DEFAULT_POSTHOG_UI_HOST}",defaults:"${POSTHOG_DEFAULTS}"`,
+    )
     // No profile for an anonymous reader. Session replay is the project's
     // setting, not the page's, so the snippet says nothing about it.
     expect(html).toContain('person_profiles:"identified_only"')
@@ -57,7 +75,11 @@ describe('the page', () => {
   })
 
   test('a quote in the key cannot escape the literal', () => {
-    const script = analyticsScript({ key: 'phc_"x', host: DEFAULT_POSTHOG_HOST })
+    const script = analyticsScript({
+      key: 'phc_"x',
+      host: DEFAULT_POSTHOG_HOST,
+      uiHost: DEFAULT_POSTHOG_UI_HOST,
+    })
     expect(script).toContain('posthog.init("phc_\\"x"')
   })
 })

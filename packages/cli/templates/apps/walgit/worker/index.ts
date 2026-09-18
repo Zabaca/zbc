@@ -162,6 +162,7 @@ export interface Env {
    */
   WALGIT_POSTHOG_KEY?: string
   WALGIT_POSTHOG_HOST?: string
+  WALGIT_POSTHOG_UI_HOST?: string
   WALGIT_EVENTS: DurableObjectNamespace<WalgitEvents>
 }
 

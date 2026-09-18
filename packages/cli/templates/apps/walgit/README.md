@@ -478,7 +478,9 @@ address or an `https://` URL is rendered as a link on the page; anything else is
 rendered as text.
 
 `WALGIT_POSTHOG_KEY` turns on **browser analytics** on the landing page, and
-`WALGIT_POSTHOG_HOST` says where to send them (PostHog Cloud US unless set).
+`WALGIT_POSTHOG_HOST` says where to send them (PostHog Cloud US unless set —
+usually set to a reverse proxy on the deployment's own name, with
+`WALGIT_POSTHOG_UI_HOST` naming the PostHog region the project lives in).
 Edge-only for the same reason as the operator pair: the container renders
 nothing a browser runs. The edge telemetry above already counts page views and
 records nothing about who made them; this is for the questions it cannot
