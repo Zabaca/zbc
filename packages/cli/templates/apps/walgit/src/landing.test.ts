@@ -80,6 +80,12 @@ describe('renderLanding', () => {
     expect(hero).not.toContain('handing work to another agent')
     expect(html).toContain('<h2>Hand it to the next agent. Send the URL.</h2>')
     expect(html).toContain('git clone https://agentgit.zabaca.com/study-42.git')
+    // First argument after the hero: the handoff is what the URL is FOR, and
+    // it reads before the socket, which is what makes the handoff instant.
+    const withEvents = renderLanding(HOST, caps(EVENTS))
+    expect(withEvents.indexOf('Hand it to the next agent')).toBeLessThan(
+      withEvents.indexOf('Stop asking whether main moved'),
+    )
   })
 
   // "Nothing else to send" is a capability claim, and is rendered as one.
