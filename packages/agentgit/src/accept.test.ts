@@ -78,7 +78,7 @@ describe('agentgit accept: refusals', () => {
     expect(ran).toEqual([])
   })
 
-  test('a dirty working tree is refused before anything is fetched', async () => {
+  test('a dirty working tree is refused before anything is fetched or merged', async () => {
     const { deps, ran } = harness({
       run: (args) =>
         args[0] === 'status' ? { code: 0, stdout: ' M src/a.ts\n', stderr: '' } : undefined,
@@ -352,6 +352,52 @@ describe('agentgit accept: the Signer List', () => {
 
     expect(result.code).toBe(0)
     expect(ran).toContainEqual(['push', '--signed=if-asked', 'origin', `${TIP}:${LIST}`])
+  })
+
+  test('a merge git could not attempt is not reported as a conflict', async () => {
+    const { deps, ran } = listHarness({
+      proposals: async () => [listProposal()],
+      run: (args) => {
+        if (args[0] === 'merge-base') return { code: 1, stdout: '', stderr: '' }
+        // Not exit 1: git failed to run the merge at all.
+        if (args[0] === 'merge-tree')
+          return { code: 128, stdout: '', stderr: 'fatal: not a valid object name\n' }
+        return undefined
+      },
+    })
+    const result = await runAccept({ id: 'add-me' }, deps)
+
+    expect(result.code).toBe(1)
+    expect(result.stderr).toContain('not a valid object name')
+    expect(result.stderr).not.toContain('yours to decide')
+    expect(ran.some((args) => args[0] === 'push')).toBe(false)
+  })
+
+  test('a list tip the fetch did not bring back is refused, not merged', async () => {
+    // FETCH_HEAD reads back empty after the list's own fetch. Carried onward it
+    // would reach `merge-tree` and come back to the Signer as a conflict in the
+    // `signers` file, which is a different thing entirely.
+    let fetched = ''
+    const { deps, ran } = harness({
+      proposals: async () => [listProposal()],
+      run: (args) => {
+        if (args[0] === 'fetch') {
+          fetched = args[args.length - 1] ?? ''
+          return { code: 0, stdout: '', stderr: '' }
+        }
+        if (args[0] === 'rev-parse') {
+          return fetched === LIST
+            ? { code: 0, stdout: '\n', stderr: '' }
+            : { code: 0, stdout: `${TIP}\n`, stderr: '' }
+        }
+        return undefined
+      },
+    })
+    const result = await runAccept({ id: 'add-me' }, deps)
+
+    expect(result.code).toBe(1)
+    expect(result.stderr).toContain(LIST)
+    expect(ran.some((args) => args[0] === 'merge-tree' || args[0] === 'push')).toBe(false)
   })
 
   test('a list Proposal that moved between the listing and the fetch is refused', async () => {

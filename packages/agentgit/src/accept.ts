@@ -130,6 +130,16 @@ export async function runAccept(request: AcceptRequest, deps: AcceptDeps): Promi
   // match against: a list Proposal is accepted from wherever the Signer
   // happens to be standing.
   const list = found.find((entry) => entry.target === SIGNERS_TARGET)
+  if (list && found.length > 1) {
+    // One id, two targets, and this command accepts one thing. Which is asked
+    // rather than guessed: quietly preferring either would move a ref the
+    // Signer did not name.
+    const targets = found.map((entry) => entry.target).join(', ')
+    return refuse(
+      `Proposal ${JSON.stringify(request.id)} is held for more than one target on ${clone.repo}: ${targets}.\n` +
+        '  accept them one at a time, from a clone where only one is open',
+    )
+  }
   if (list) return acceptSignerList(clone, list, deps)
 
   const branch = clone.branch
@@ -145,10 +155,11 @@ export async function runAccept(request: AcceptRequest, deps: AcceptDeps): Promi
     )
   }
 
-  // Before the merge, and before a single byte is fetched: a `git merge` run
+  // Before the merge, and before a single object is fetched: a `git merge` run
   // over a tree somebody is in the middle of costs work that cannot be got
-  // back. It is asked only on this path, because the Signer List path never
-  // touches the working tree at all.
+  // back. It is asked here rather than at the top — after the listing, which is
+  // one read of the host — because whether the tree matters at all depends on
+  // the target: the Signer List path never touches it.
   const status = deps.git(['status', '--porcelain'])
   if (status.code !== 0) {
     return refuse(`could not read the working tree: ${status.stderr.trim()}`, 1)
@@ -279,13 +290,25 @@ async function acceptSignerList(
   let push = tip
   if (deps.git(['merge-base', '--is-ancestor', listTip, tip]).code !== 0) {
     const tree = deps.git(['merge-tree', '--write-tree', listTip, tip])
-    if (tree.code !== 0) {
+    // Exit 1 is git's "the merge conflicted"; anything else is git failing to
+    // do the merge at all — a missing object, unrelated histories, a version
+    // without `--write-tree`. Reported apart, because "which lines hold the
+    // name is yours to decide" is a false thing to tell a Signer whose git
+    // never got as far as comparing them.
+    if (tree.code === 1) {
       return refuse(
         `merging ${proposal.id} into ${SIGNERS_REF} conflicts — two commits edited the ` +
           `\`signers\` file, and which lines hold the name is yours to decide:\n` +
           `${(tree.stdout + tree.stderr).trimEnd().replace(/^/gm, '  ')}\n` +
           `  resolve it in a scratch clone, then: git push --signed=if-asked ` +
           `${clone.remoteName} HEAD:${SIGNERS_REF}`,
+        1,
+      )
+    }
+    if (tree.code !== 0) {
+      return refuse(
+        `could not merge ${proposal.id} into ${SIGNERS_REF}: ` +
+          `${(tree.stderr + tree.stdout).trim()}`,
         1,
       )
     }
@@ -339,7 +362,17 @@ function fetchOid(clone: AcceptClone, ref: string, deps: AcceptDeps): string | A
   if (fetched.code !== 0) {
     return refuse(`could not fetch ${ref}: ${fetched.stderr.trim()}`, 1)
   }
-  return deps.git(['rev-parse', 'FETCH_HEAD']).stdout.trim()
+  // An oid we could not read is refused HERE rather than carried onward as an
+  // empty string: downstream it would reach `merge-tree`, whose failure this
+  // command reports as a conflict in the `signers` file — telling a Signer to
+  // decide who holds the name, when all that happened is a fetch we could not
+  // read back.
+  const read = deps.git(['rev-parse', 'FETCH_HEAD'])
+  const oid = read.stdout.trim()
+  if (read.code !== 0 || oid === '') {
+    return refuse(`fetched ${ref}, but could not read what came back: ${read.stderr.trim()}`, 1)
+  }
+  return oid
 }
 
 /**

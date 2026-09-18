@@ -238,7 +238,8 @@ function rejectionMessage(repoId: string, ref: string, why: string): string {
   return [
     `walgit: refused — ${ref} is not a Proposal ${repoId} can hold: ${why}.`,
     '',
-    'A Proposal is a ref naming the commit you want in an existing branch:',
+    'A Proposal is a ref naming the commit you want in a branch that already',
+    "exists here — or in this name's Signer List:",
     '',
     `    git push --signed=yes origin HEAD:${PROPOSALS_PREFIX}<branch>/<your-id>`,
     '',

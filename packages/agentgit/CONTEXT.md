@@ -42,7 +42,9 @@ _Avoid_: "the SDK", "the library" — it is a command.
 **Accept**:
 The third thing the Client does: `agentgit accept <id>` turns a **Proposal** ([ADR-0018](../../docs/adr/0018-a-proposal-is-a-ref-and-merged-is-ancestry.md)) into a merge of the branch it targets — read the Proposals endpoint, fetch `refs/walgit/proposals/<target>/<id>`, `git merge --no-edit`, push `--signed=if-asked`. It is sugar and the ADR says so: the host never accepts, because a ref it moved would be a write with no Push Certificate behind it, so acceptance is an ordinary push judged by the Signer List and a conflict is resolved where git resolves conflicts.
 
-What it adds over typing those three commands is the refusals. A dirty working tree stops it before the host is asked anything; a conflict is left exactly as git left it rather than aborted, because the merge state is what resolving it needs; an unknown id is named, alongside what the repository does hold. It never squashes and never rebases — merged is ancestry, so neither would ever make a Proposal merged.
+A **Signer List Proposal** (target `walgit/signers`) is the one it accepts differently: there is no checkout of the list, so it merges with `merge-tree` and `commit-tree` and pushes `refs/walgit/signers`, touching the working tree not at all.
+
+What it adds over typing those three commands is the refusals. A dirty working tree and a detached HEAD stop a *branch* acceptance once the Proposal's target is known — they are asked after the Proposals endpoint, because the Signer List path is subject to neither; a conflict is left exactly as git left it rather than aborted, because the merge state is what resolving it needs; an unknown id is named, alongside what the repository does hold. It never squashes and never rebases — merged is ancestry, so neither would ever make a Proposal merged.
 _Avoid_: merge (the git verb, which this is one of), approve, land — acceptance is not a review decision the host records, it is a push.
 
 **Credential Helper**:
