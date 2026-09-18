@@ -852,9 +852,12 @@ describe('the section that argues for holding a name', () => {
 describe('the roadmap', () => {
   test('names what is missing, in every deployment', () => {
     const html = renderLanding(HOST, caps(EVENTS))
-    for (const row of ['Ownership', 'Private', 'Pull requests', 'CI']) {
+    for (const row of ['Ownership', 'Private', 'Pull requests']) {
       expect(html).toContain(row)
     }
+    // CI is a runner — logs, status, compute — which is a different product,
+    // not the next feature of this one. It was the row that never left.
+    expect(html).not.toContain('<h3>CI</h3>')
   })
 
   // The one promise on the page that is not rendered from config, so it is the
@@ -865,26 +868,36 @@ describe('the roadmap', () => {
   })
 
   /**
-   * The lede has to survive the rows leaving.
+   * The section has to survive its rows leaving — all of them.
    *
-   * Rows LEAVE as a deployment ships them, which is the rule that keeps this
-   * list honest — and nobody checked what the sentence above the list says once
-   * three of the four have gone. *"Where this is going, in the order it gets
-   * there"* promises a sequence, and on the deployment that has shipped the
-   * most (Signer Lists, Reader Lists and Proposals all on — agentgit) the list
-   * under it is one row. An order over a single item reads as a roadmap that
-   * ran out rather than one that was delivered.
+   * Rows LEAVE as a deployment ships them. On the one that has shipped the most
+   * (Signer Lists, Reader Lists and Proposals all on — agentgit) nothing is
+   * left, and a heading over an empty list would read as a roadmap that ran
+   * out. So the section is absent there, and the fine print that used to
+   * close it stands on its own, on every deployment.
    */
-  test('the lede stops promising an order once one row is left', () => {
+  test('the section leaves with its last row, and the fine print stays', () => {
     const shipped = caps({
       ...OPEN,
       ...SEED,
       ...GATE,
       WALGIT_PRIVATE_REPOS: 'read-seed',
       WALGIT_PROPOSALS: '1',
+      WALGIT_RETENTION_HOURS: '72',
     })
     const html = renderLanding(HOST, shipped)
-    // One row, so no order to describe.
+    expect(html.split('<h3>').length - 1).toBe(0)
+    expect(html).not.toContain("<h2>What's next.</h2>")
+    expect(html).not.toContain('Nothing here is a date')
+    expect(html).toContain('<p class="caveat fine">Not permanent: 72 hours from the last push')
+  })
+
+  // One row, so no order to describe.
+  test('the lede stops promising an order once one row is left', () => {
+    const html = renderLanding(
+      HOST,
+      caps({ ...OPEN, ...SEED, ...GATE, WALGIT_PRIVATE_REPOS: 'read-seed' }),
+    )
     expect(html.split('<h3>').length - 1).toBe(1)
     expect(html).toContain('One thing is left, and nothing here is a date')
     expect(html).not.toContain('in the order it gets there')
@@ -929,7 +942,7 @@ describe('the roadmap', () => {
     expect(html).not.toContain('the first key to push a name keeps it')
     expect(html).not.toContain('<h3>Ownership</h3>')
     // Nothing else in the roadmap moved.
-    for (const row of ['Private', 'Pull requests', 'CI']) expect(html).toContain(row)
+    for (const row of ['Private', 'Pull requests']) expect(html).toContain(row)
   })
 
   /**
@@ -940,11 +953,11 @@ describe('the roadmap', () => {
    * both parities are ordinary and the last card spans when it is alone.
    */
   test('an odd roadmap does not leave a painted hole beside the last card', () => {
-    const html = renderLanding(HOST, caps({ ...SEED, ...GATE }))
+    const html = renderLanding(HOST, caps(SEED))
     expect(html.split('<h3>').length - 1).toBe(3)
     expect(html).toContain('.road li:last-child:nth-child(odd) { grid-column: 1 / -1; }')
-    // With ownership unbuilt the list is four rows, and the rule is inert.
-    expect(renderLanding(HOST, caps(SEED)).split('<h3>').length - 1).toBe(4)
+    // With ownership built the list is two rows, and the rule is inert.
+    expect(renderLanding(HOST, caps({ ...SEED, ...GATE })).split('<h3>').length - 1).toBe(2)
   })
 
   /**
@@ -1017,8 +1030,9 @@ describe('Private moves from the roadmap to the rules', () => {
     expect(html).not.toContain('<h3>Private</h3>')
     expect(html).not.toContain('Reads are still gated on nothing')
     expect(html).not.toContain('holding a name is not a step toward closing it')
-    // Two rows left, which is even, so the last-child rule stays inert.
-    expect(html.split('<h3>').length - 1).toBe(2)
+    // One row left — Pull requests — and the lede says so without an order.
+    expect(html.split('<h3>').length - 1).toBe(1)
+    expect(html).toContain('One thing is left')
   })
 
   // The term four lines above it said "Privacy is not free yet", which is the

@@ -872,32 +872,43 @@ function roadmapPulls(caps: Capabilities): string {
 }
 
 /**
- * The standfirst under `What's next.`, which has to survive the rows leaving.
+ * `What's next.`, which has to survive its rows leaving — all of them.
  *
  * The two functions above are the page's best rule applied to a promise: a row
  * LEAVES when its deployment ships the thing, so the list is always what is
- * still ahead. What nobody checked is what the sentence above the list says
- * once three of the four rows have left. *"Where this is going, in the order it
- * gets there"* promises a sequence, and on the deployment that has shipped the
- * most — Signer Lists, Reader Lists and Proposals all on, which is agentgit —
- * the list under it is one row. A standfirst describing an ORDER over a single
- * item reads as a roadmap that ran out rather than one that was delivered.
+ * still ahead. The section follows the same rule. It used to end in a CI row
+ * that never left, because nothing on any deployment could ship it — and that
+ * was the tell: CI is a runner, with logs, status and compute of its own,
+ * which is a different product, not the next feature of this one. With that
+ * row gone the deployment that has shipped the most (agentgit: Signer Lists,
+ * Reader Lists, Proposals) has nothing left to promise, and a heading over an
+ * empty list would say the roadmap ran out. So the section renders only where
+ * a row is left, and the fine print that used to close it (`permanence`,
+ * `limits`) stands on its own below, on every deployment.
  *
- * So the lede is rendered from the same fragments the list is built from: the
- * rows are COUNTED out of the markup rather than re-derived from the flags,
- * because a count computed from the capabilities is a second reading of the
- * same question and the two would eventually disagree. `<h3>` is one per row.
- *
- * The no-date promise is in both spellings. It is the one thing on this page
- * that is not rendered from config, so it is the one sentence that has to admit
- * as much however many rows are left to admit it about.
+ * The lede counts rows out of the markup rather than re-deriving them from
+ * the flags — a second reading of the same question would eventually
+ * disagree with the first. One row gets a sentence that promises no order.
  */
-function roadmapLede(caps: Capabilities): string {
-  const rows = 1 + (roadmapOwnership(caps) + roadmapPulls(caps)).split('<h3>').length - 1
+function roadmapSection(caps: Capabilities): string {
+  const rows = roadmapOwnership(caps) + roadmapPulls(caps)
+  const count = rows.split('<h3>').length - 1
+  if (count === 0) return ''
 
-  return rows === 1
-    ? 'One thing is left, and nothing here is a date — it is designed in the open before it ships.'
-    : 'Where this is going, in the order it gets there. Nothing here is a date — each one is designed in the open before it ships.'
+  const lede =
+    count === 1
+      ? 'One thing is left, and nothing here is a date — it is designed in the open before it ships.'
+      : 'Where this is going, in the order it gets there. Nothing here is a date — each one is designed in the open before it ships.'
+
+  return `
+    <section>
+      <h2>What's next.</h2>
+      <p>${lede}</p>
+      <ul class="road">
+${rows}
+      </ul>
+    </section>
+`
 }
 
 /**
@@ -1084,9 +1095,7 @@ export function renderLanding(
       .replaceAll('{{META_DESCRIPTION}}', () => metaDescription(caps))
       .replace('{{HERO_UNDER}}', () => heroUnder(caps))
       .replace('{{CLAIMS}}', () => claims(caps))
-      .replace('{{ROADMAP_LEDE}}', () => roadmapLede(caps))
-      .replace('{{ROADMAP_OWNERSHIP}}', () => roadmapOwnership(caps))
-      .replace('{{ROADMAP_PULLS}}', () => roadmapPulls(caps))
+      .replace('{{ROADMAP}}', () => roadmapSection(caps))
       .replace('{{CLIENT}}', () => clientChapter(caps))
       .replace('{{EVENTS}}', () => eventsSection(host, caps))
       .replace('{{COLLISION}}', () => collisionSection(host, caps))
@@ -1629,6 +1638,9 @@ const PAGE = `<!doctype html>
     max-width: 58ch;
     margin: 0;
   }
+  /* The fine print stands on its own now that the roadmap can be absent: the
+     same muted line, set a section's distance below whatever came before. */
+  .caveat.fine { margin-top: 5rem; }
 
   /* A chapter break: the rule says "different subject", the kicker names it,
      and the paragraph is the widest prose on the page because it has no
@@ -1732,20 +1744,8 @@ const PAGE = `<!doctype html>
       </ul>
     </section>
 
-    <section>
-      <h2>What's next.</h2>
-      <p>{{ROADMAP_LEDE}}</p>
-      <ul class="road">
-{{ROADMAP_OWNERSHIP}}
-{{ROADMAP_PULLS}}
-        <li>
-          <span class="when">Soon</span>
-          <h3>CI</h3>
-          <p>A ref moving is already an event and the client already runs a command on it, so the step left is running that command somewhere other than your laptop.</p>
-        </li>
-      </ul>
-      <p class="caveat">{{PERMANENCE}} Not a place for anything you cannot lose.{{LIMITS}}</p>
-    </section>
+{{ROADMAP}}
+    <p class="caveat fine">{{PERMANENCE}} Not a place for anything you cannot lose.{{LIMITS}}</p>
 {{OPERATOR}}{{CLOSE}}
   </main>
 
