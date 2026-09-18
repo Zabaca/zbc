@@ -1192,7 +1192,7 @@ describe('the GitHub objection', () => {
     const html = renderLanding(HOST, caps(OPEN))
     const hero = html.split('<div class="cta">')[0] ?? ''
     expect(hero).toContain(
-      'You have GitHub. Your agent does not. <em>Push to a name and the repository exists.</em>',
+      'You have GitHub.<br>Your agent does not.<br><em>Push to a name and the repository exists.</em>',
     )
     expect(html).not.toContain('<h2>You have GitHub. Your agent does not.</h2>')
     expect(html).not.toContain('three things a sandbox starts without')

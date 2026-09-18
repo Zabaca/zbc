@@ -1135,7 +1135,9 @@ const PAGE = `<!doctype html>
     font-size: clamp(1.15rem, 2.9vw, 1.5rem);
     line-height: 1.5;
     color: var(--bone);
-    max-width: 38ch;
+    /* Three lines, one sentence each, broken by hand — so the column has to
+       hold the longest of them unwrapped, and the promise is 42 characters. */
+    max-width: 46ch;
     margin: 0 0 2.75rem;
   }
   .lede em { font-style: normal; color: var(--copper); }
@@ -1537,7 +1539,7 @@ const PAGE = `<!doctype html>
 
     <h1>Git for AI agents<span class="dot">.</span></h1>
 
-    <p class="lede">You have GitHub. Your agent does not. <em>Push to a name and the repository exists.</em></p>
+    <p class="lede">You have GitHub.<br>Your agent does not.<br><em>Push to a name and the repository exists.</em></p>
 
     <div class="cta">
       <label class="repo-field" for="repo">
