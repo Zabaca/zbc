@@ -26,6 +26,29 @@ function substitute(body: string, vars: Record<string, string>): string {
 }
 
 /**
+ * Extensions a template may carry that are bytes rather than source. Kept as an
+ * allow-list rather than sniffed: a template tree is ours, so what is in it is
+ * known, and a guess that reads a source file as binary would silently stop
+ * substituting its `{{VARS}}`.
+ */
+const BINARY_TEMPLATE_EXTENSIONS = new Set([
+  '.png',
+  '.jpg',
+  '.jpeg',
+  '.gif',
+  '.webp',
+  '.avif',
+  '.ico',
+  '.woff',
+  '.woff2',
+  '.pdf',
+])
+
+function isBinaryTemplate(sourcePath: string): boolean {
+  return BINARY_TEMPLATE_EXTENSIONS.has(path.extname(sourcePath).toLowerCase())
+}
+
+/**
  * Copy a single template file. Returns true if written, false if skipped.
  * Always logs the action.
  */
@@ -40,6 +63,20 @@ export async function copyTemplateFile(
   if (skipIfExists && (await destFile.exists())) {
     console.log(`  skip ${path.relative(process.cwd(), destPath)} (exists)`)
     return false
+  }
+
+  // A binary template is copied as bytes, not as text. Every template was text
+  // until walgit's `assets/agentgit-og.png` — the card its Worker serves — and
+  // reading a file as UTF-8 and writing the string back does not round-trip:
+  // the bytes that are not valid UTF-8 come out as U+FFFD, so the scaffolded
+  // PNG is not a PNG. Substitution is skipped too, deliberately: `{{VARS}}` is
+  // a source-text convention and a match inside compressed bytes would be
+  // damage rather than configuration.
+  if (isBinaryTemplate(sourcePath)) {
+    await fs.mkdir(path.dirname(destPath), { recursive: true })
+    await Bun.write(destPath, Bun.file(sourcePath))
+    console.log(`  write ${path.relative(process.cwd(), destPath)}`)
+    return true
   }
 
   let body = await Bun.file(sourcePath).text()

@@ -14,6 +14,16 @@
   "compatibility_date": "2026-07-01",
   "compatibility_flags": ["nodejs_compat"],
   "observability": { "enabled": true },
+  // The link-preview card (assets/agentgit-og.png, shared/og-image.ts) travels
+  // in the Worker bundle as bytes: a crawler fetching the picture must not
+  // wake the container any more than a reader fetching the page does, and a
+  // 40 KB flat-colour PNG is cheaper to carry than a second service to fetch
+  // it from. `Data` is the loader that makes `import png from './x.png'` the
+  // file's ArrayBuffer (worker/assets.d.ts declares that for TypeScript).
+  // `fallthrough` so wrangler's own default Data rule (`**/*.bin`) still
+  // applies after this one; without it wrangler warns that this rule silently
+  // replaces the built-in.
+  "rules": [{ "type": "Data", "globs": ["**/*.png"], "fallthrough": true }],
   "containers": [
     {
       "class_name": "WalgitContainer",
