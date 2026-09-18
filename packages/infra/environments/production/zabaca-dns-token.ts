@@ -9,8 +9,11 @@ import { cloudflareTokenModule } from '../../modules/cloudflare-token'
 // that module's docstring — never copy this token for local use, it dies on
 // the next apply.
 //
-// Scopes are the two the zone module actually calls: "Zone Read" to resolve
-// zabaca.com to a zone id, "DNS Write" to converge dns_records.
+// Scopes are what the zone module actually calls: "Zone Read" to resolve a
+// zone name to an id, "DNS Write" to converge dns_records, and the two Zone
+// Settings groups because `agentgit-zone` declares `settings` — the module
+// GETs `/zones/:id/settings` before it PATCHes one, and Cloudflare answers
+// that read with 9109 on a token holding only the write half.
 //
 // `zones` is deliberately NOT set, which grants both groups across every zone
 // in the account rather than zabaca.com alone. Narrowing it would be better,
@@ -23,6 +26,6 @@ export default cloudflareTokenModule.instance({
   config: {
     accountId: '99a19e584439be0568f33aad0477372b',
     tokenName: 'zabaca-dns',
-    permissions: ['Zone Read', 'DNS Write'],
+    permissions: ['Zone Read', 'DNS Write', 'Zone Settings Read', 'Zone Settings Write'],
   },
 })
