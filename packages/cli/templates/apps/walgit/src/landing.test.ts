@@ -130,9 +130,21 @@ describe('renderLanding', () => {
     expect(page).toContain('Built as scratch space: 24 hours from the last push, a repository is collected.')
   })
 
+  /**
+   * The figure, without the nine digits behind it.
+   *
+   * `describeBytes` renders the exact count because the REFUSAL it was written
+   * for is read by a client comparing a number to its own. On a page somebody
+   * is deciding whether to use this host at all it is noise mid-sentence, so
+   * `shortBytes` strips the parenthetical — derived from the same rendering,
+   * never formatted a second time, so the page still cannot disagree with what
+   * `pre-receive` prints. Asserted both ways round: the figure survives, the
+   * digits do not.
+   */
   test('with no retention but caps set, the third claim becomes the caps', () => {
     const page = renderLanding(HOST, caps({ WALGIT_MAX_PUSH_BYTES: String(99 * 1024 * 1024) }))
-    expect(page).toContain('99 MiB (103809024 bytes) per push')
+    expect(page).toContain('99 MiB per push')
+    expect(page).not.toContain('103809024')
   })
 
   test('a deployment that enforces nothing makes no third claim at all', () => {
@@ -182,19 +194,58 @@ describe('the events section carries a runnable client', () => {
     expect(html).toContain('npx')
   })
 
-  // The page argues; it does not index. Every one of these earned its place
-  // somewhere else — the manual, the README — and none of them earned it here.
-  test('it sells nothing and links nowhere', () => {
+  /**
+   * It still sells nothing. It no longer links nowhere.
+   *
+   * This test asserted the opposite until now — that `/llms.txt` appeared
+   * exactly once, in the `<head>`, and that no anchor a reader could click
+   * existed anywhere on the page. *"The page argues; it does not index"* was
+   * the rule, and the half of it that held up is the half about selling: there
+   * is still no pricing, no signup, no logo wall and no flag index.
+   *
+   * What did not hold up is the linking. The page carried two anchors in total
+   * — an in-page skip link and the operator's mailto — so `Open source` was a
+   * claim with nowhere to check it and *"the full recipe is in /llms.txt"* was
+   * an instruction to retype a path from memory. A reader who finished the
+   * argument and wanted the source, the client or the manual was handed
+   * nothing to follow, which is not restraint, it is a dead end.
+   *
+   * The `<head>` alternate stays and is still the one an agent's fetch tool
+   * finds. The count is gone with the rule it encoded.
+   */
+  test('it sells nothing, and links to the three things a reader wants next', () => {
     const html = renderLanding(HOST, caps(EVENTS))
-    // One exception, and it is not a link a reader clicks: the <head> names
-    // /llms.txt as this page's text/plain alternate, so an agent whose fetch
-    // tool sent a browser's Accept and landed on the HTML can find the manual.
+    // Unchanged: the agent-facing route to the manual, for a fetch tool that
+    // sent a browser's Accept and landed on the HTML.
     expect(html).toContain(
       '<link rel="alternate" type="text/plain" href="https://agentgit.zabaca.com/llms.txt"',
     )
-    expect(html.split('llms.txt').length - 1).toBe(1)
+    // The manual, the source and the client, each reachable by clicking.
+    expect(html).toContain('<a href="/llms.txt">')
+    expect(html).toContain('<a href="https://github.com/Zabaca/zbc">Open source</a>')
+    expect(html).toContain('https://www.npmjs.com/package/@zabaca/agentgit')
+    // Still not a shop and still not an index.
     expect(html).not.toContain('SDK: ')
     expect(html).not.toContain('--json')
+    expect(html).not.toContain('Pricing')
+    expect(html).not.toContain('Sign up')
+  })
+
+  /**
+   * The client link is gated like every other mention of the client.
+   *
+   * A footer is the easiest place on a page to put an unconditional link, and
+   * an unconditional link to a watcher is the one lie this file exists to
+   * prevent: a deployment serving no stream would be advertising a command
+   * against a socket its own Worker answers 404 for.
+   */
+  test('and the client link is absent wherever the client is', () => {
+    const html = renderLanding(HOST, caps(OPEN))
+    expect(html).not.toContain('npmjs.com')
+    expect(html).not.toContain('@zabaca/agentgit')
+    // The two that hold on every deployment do not leave with it.
+    expect(html).toContain('<a href="/llms.txt">')
+    expect(html).toContain('<a href="https://github.com/Zabaca/zbc">Open source</a>')
   })
 
   test('with events off, no client is shown', () => {
@@ -512,10 +563,10 @@ describe('the terms that state a flag are rendered from it', () => {
     const html = renderLanding(HOST, caps({ ...OPEN, ...GATE, ...SEED, ...EVENTS }))
     expect(html).toContain(
       `      <ul class="claims">
-        <li><span class="k">Append-only</span><span class="v"><b>Nothing you push can be destroyed.</b> Whoever the name takes a push from may add; no one may rewrite or delete. A push that would rewrite history is turned away before anything is uploaded, by a message naming what to do instead.</span></li>
+        <li><span class="k">Append-only</span><span class="v"><b>Nothing you push can be destroyed.</b> Whoever the name takes a push from may add; no one may rewrite or delete.</span></li>
         <li><span class="k">Public</span><span class="v"><b>Every repository is world-readable, and world-writable until its name is claimed.</b> Sharing is a URL, not an invitation. Privacy is not free yet.</span></li>
-        <li><span class="k">Attributed</span><span class="v"><b>A push signed with your key records that key's fingerprint.</b> Unsigned is fine unless a name has written a Signer List, which takes pushes from its own keys only. There is still no account: the fingerprint is the whole identity. <code>git push --signed=if-asked</code>.</span></li>
-        <li><span class="k">Crawlable</span><span class="v"><b><code>/robots.txt</code> says yes, out loud.</b> <code>Allow: /</code> for every agent, and <code>Content-Signal: search=yes, ai-input=yes, ai-train=yes</code>. Your agent is welcome to read this place, and told so in the one file it checks.</span></li>
+        <li><span class="k">Attributed</span><span class="v"><b>A push signed with your key records that key's fingerprint.</b> Unsigned is fine unless a name has written a Signer List. The fingerprint is the whole identity. <code>git push --signed=if-asked</code>.</span></li>
+        <li><span class="k">Crawlable</span><span class="v"><b><code>/robots.txt</code> says yes, out loud.</b> <code>Allow: /</code> for every agent, and <code>Content-Signal: search=yes, ai-input=yes, ai-train=yes</code> — told so in the one file it checks.</span></li>
       </ul>`,
     )
   })
@@ -666,6 +717,42 @@ describe('the roadmap', () => {
   test('promises no date', () => {
     expect(renderLanding(HOST, NOTHING)).toContain('Nothing here is a date')
     expect(renderLanding(HOST, caps({ ...SEED, ...GATE }))).toContain('Nothing here is a date')
+  })
+
+  /**
+   * The lede has to survive the rows leaving.
+   *
+   * Rows LEAVE as a deployment ships them, which is the rule that keeps this
+   * list honest — and nobody checked what the sentence above the list says once
+   * three of the four have gone. *"Where this is going, in the order it gets
+   * there"* promises a sequence, and on the deployment that has shipped the
+   * most (Signer Lists, Reader Lists and Proposals all on — agentgit) the list
+   * under it is one row. An order over a single item reads as a roadmap that
+   * ran out rather than one that was delivered.
+   */
+  test('the lede stops promising an order once one row is left', () => {
+    const shipped = caps({
+      ...OPEN,
+      ...SEED,
+      ...GATE,
+      WALGIT_PRIVATE_REPOS: 'read-seed',
+      WALGIT_PROPOSALS: '1',
+    })
+    const html = renderLanding(HOST, shipped)
+    // One row, so no order to describe.
+    expect(html.split('<h3>').length - 1).toBe(1)
+    expect(html).toContain('One thing is left, and nothing here is a date')
+    expect(html).not.toContain('in the order it gets there')
+  })
+
+  // And keeps promising one everywhere there is still a sequence to promise.
+  test('and keeps it wherever more than one row survives', () => {
+    for (const env of [{}, SEED, { ...SEED, ...GATE }] satisfies CapabilityEnv[]) {
+      const html = renderLanding(HOST, caps(env))
+      expect(html.split('<h3>').length - 1).toBeGreaterThan(1)
+      expect(html).toContain('Where this is going, in the order it gets there')
+      expect(html).not.toContain('One thing is left')
+    }
   })
 
   /**
@@ -987,6 +1074,184 @@ describe('Proposals, Private and the Client are advertised together', () => {
     expect(html).not.toContain('<span class="k">Proposals</span>')
     expect(html).not.toContain('<span class="k">Private</span>')
     expect(html).not.toContain('@zabaca/agentgit')
+  })
+})
+
+/**
+ * The card, which is the page as an aggregator renders it.
+ *
+ * The placement of this whole document is justified by aggregator traffic, and
+ * it had no card — so the one sentence written to travel further than the page
+ * travelled nowhere, and a link posted anywhere rendered as a bare hostname.
+ */
+describe('the link preview', () => {
+  test('the card carries the title and the sentence written to travel', () => {
+    const html = renderLanding(HOST, caps(OPEN))
+    expect(html).toContain('<meta property="og:type" content="website">')
+    expect(html).toContain('<meta property="og:title" content="agentgit — Git for AI agents">')
+    expect(html).toContain('<meta property="og:url" content="https://agentgit.zabaca.com/">')
+    expect(html).toContain('<meta name="twitter:card" content="summary">')
+  })
+
+  /**
+   * One rendering, three places. The description is the claim this page cannot
+   * let outlive the config — it names two capability flags — and a card that
+   * quoted a stale copy of it would put the lie where it travels furthest and
+   * where nobody checking the page would ever see it.
+   */
+  test('and the card says exactly what the description says, on either deployment', () => {
+    for (const env of [OPEN, APPEND] satisfies CapabilityEnv[]) {
+      const html = renderLanding(HOST, caps(env))
+      const described = /<meta name="description" content="([^"]+)">/.exec(html)?.[1]
+      expect(described).toBeTruthy()
+      expect(html).toContain(`<meta property="og:description" content="${described}">`)
+      expect(html).toContain(`<meta name="twitter:description" content="${described}">`)
+    }
+  })
+
+  // The card names no image, so it must not claim a layout that needs one: an
+  // empty `summary_large_image` degrades worse than a `summary` with none.
+  test('and claims no image it does not have', () => {
+    const html = renderLanding(HOST, caps(OPEN))
+    expect(html).not.toContain('og:image')
+    expect(html).not.toContain('summary_large_image')
+  })
+})
+
+/**
+ * The objection, which is the one thing a reader thinks that nothing above it
+ * answers: I already have GitHub, and `gh repo create` is one command.
+ *
+ * It is rendered from `Capabilities` like every other statement of what this
+ * host asks for. On a credentialed deployment the case is NOT that there is no
+ * credential — there is one — so the sentence that survives a token at the
+ * front door is the one about there being no per-agent identity to provision.
+ */
+describe('the GitHub objection', () => {
+  test('it is answered, and answered before the rules', () => {
+    const html = renderLanding(HOST, caps(OPEN))
+    expect(html).toContain('<h2>You have GitHub. Your agent does not.</h2>')
+    expect(html.indexOf('You have GitHub')).toBeLessThan(html.indexOf('<h2>The rules.</h2>'))
+  })
+
+  test('on a public deployment the cost is the account nobody has', () => {
+    const html = renderLanding(HOST, caps(OPEN))
+    expect(html).toContain('three things a sandbox starts without')
+  })
+
+  // The claim that would be false there: this deployment does ask for a
+  // credential, so the page must not argue that nothing does.
+  test('and on a credentialed one it argues the half that is still true', () => {
+    const html = renderLanding(HOST, caps(APPEND))
+    expect(html).toContain('no per-agent identity to provision')
+    expect(html).not.toContain('three things a sandbox starts without')
+  })
+
+  // The same rule the window follows everywhere else: a deployment that
+  // collects nothing must not tell anyone their repository is collected.
+  test('and states the window only where something collects it', () => {
+    expect(renderLanding(HOST, caps({ ...OPEN, WALGIT_RETENTION_HOURS: '24' }))).toContain(
+      'Here one is collected 24 hours after its last push',
+    )
+    const forever = renderLanding(HOST, caps(OPEN))
+    expect(forever).not.toContain('Here one is collected')
+    expect(forever).toContain('named for one task and abandoned, not kept')
+  })
+})
+
+/**
+ * The last block on the page, which used to be a takedown address.
+ *
+ * The page's whole asset is two commands that work, and they appeared once,
+ * above the fold, and never again — so a reader who read the argument to its
+ * end was returned nothing to do.
+ */
+describe('the closing call to action', () => {
+  test('the page ends on the command rather than on the abuse contact', () => {
+    const html = renderLanding(HOST, caps(OPEN), operatorFrom({ WALGIT_CONTACT: 'a@b.com' }))
+    expect(html).toContain('<h2>Push something.</h2>')
+    expect(html.indexOf('Push something.')).toBeGreaterThan(html.indexOf('Who runs this.'))
+    expect(html.indexOf('Push something.')).toBeLessThan(html.indexOf('</main>'))
+  })
+
+  /**
+   * The hero's command, not a second copy of it. One field feeds both echoes,
+   * so the page can never show two different names — the same reason the copy
+   * buttons read their text out of the block beside them.
+   */
+  test('it repeats the hero command, fed by the same name field', () => {
+    const html = renderLanding('walgit.zabaca.com', caps(OPEN))
+    expect(html).toContain(
+      'git remote add agentgit https://walgit.zabaca.com/<span id="repo-echo-end">my-thing</span>.git',
+    )
+    expect(html).toContain('id="copy-end"')
+    expect(html).toContain('copy(document.getElementById("copy-end"));')
+    // Both echoes are driven, so neither can go stale against the field.
+    expect(html).toContain('document.getElementById("repo-echo-end")')
+  })
+
+  test('and points at the manual, with the client only where there is one', () => {
+    expect(renderLanding(HOST, caps({ ...OPEN, ...EVENTS }))).toContain(
+      'keep a clone current with <a href="https://www.npmjs.com/package/@zabaca/agentgit">',
+    )
+    const quiet = renderLanding(HOST, caps(OPEN))
+    expect(quiet).toContain('The whole manual is <a href="/llms.txt">/llms.txt</a>')
+    expect(quiet).not.toContain('keep a clone current')
+  })
+})
+
+/**
+ * The claim recipe, collapsed and not one line shorter.
+ *
+ * Six commands of shell was the tallest thing on the page and it pushed the
+ * argument beside it below the fold. The obvious edit — cut to the last line —
+ * is the one `ownershipSection` rules out in three paragraphs: every
+ * abbreviation hands a reader a command that fails, and dropping
+ * `gpg.format=ssh` locks them out of the name they just claimed. So it is
+ * behind a disclosure, with every line still in the document.
+ */
+describe('the claim recipe is collapsed, not trimmed', () => {
+  const HELD_OPEN = caps({ ...OPEN, ...SEED, ...GATE })
+
+  test('it sits behind a summary a reader opens', () => {
+    const html = renderLanding(HOST, HELD_OPEN)
+    expect(html).toContain('<details class="recipe">')
+    expect(html).toContain('<summary>The six commands that claim a name</summary>')
+    // The argument reads first, which is the point of collapsing it.
+    expect(html.indexOf('is <em>there for good</em>')).toBeLessThan(
+      html.indexOf('<details class="recipe">'),
+    )
+  })
+
+  /**
+   * Every line the recipe ever had, still served. This is the assertion that
+   * makes the disclosure safe: the three abbreviations `ownershipSection`
+   * rejects are rejected here too, by name, so a later edit that "tidies" the
+   * collapsed block fails instead of shipping a footgun.
+   */
+  test('and every line of it is still there', () => {
+    const html = renderLanding(HOST, HELD_OPEN)
+    for (const line of [
+      'git init -q claim',
+      "| awk '{print $2}' > signers",
+      'git add signers',
+      '-c user.name=agent commit -qm claim',
+      // The one whose absence would lock a reader with a PGP key out of the
+      // name they just claimed.
+      'git -c gpg.format=ssh',
+      'push --signed=if-asked',
+      'https://agentgit.zabaca.com/$NAME.git',
+    ]) {
+      expect(html).toContain(line)
+    }
+  })
+
+  // It was a `<span>`: an instruction to retype a path from memory, on the one
+  // line of the page that sends a reader somewhere else.
+  test('and the manual it defers to is reachable', () => {
+    expect(renderLanding(HOST, HELD_OPEN)).toContain(
+      'the full recipe is in <a href="/llms.txt">/llms.txt</a>',
+    )
   })
 })
 

@@ -74,6 +74,28 @@ function describeHours(hours: number): string {
   return `${hours} hours`
 }
 
+/**
+ * A cap without its exact byte count.
+ *
+ * `describeBytes` renders `99 MiB (103809024 bytes)` because the refusal it was
+ * written for is read by a client comparing a number to its own, and a
+ * parenthetical there is the difference between a machine acting on the message
+ * and a machine guessing at a rounded figure. On a page somebody is deciding
+ * whether to use this host at all, the same nine digits are noise in the middle
+ * of a sentence — and `The rules.` is where every term is being cut to what
+ * scans.
+ *
+ * DERIVED from `describeBytes` rather than formatted again, which is the whole
+ * care here: the invariant this file keeps is that the cap the page prints and
+ * the cap `pre-receive` refuses on cannot look like two different numbers, and
+ * a second formatter is exactly how they would. Stripping a suffix off the one
+ * rendering cannot change the figure in front of it, so the page still cannot
+ * disagree with the hook — it only says less.
+ */
+function shortBytes(bytes: number): string {
+  return describeBytes(bytes).replace(/ \(\d+ bytes\)$/, '')
+}
+
 const claim = (key: string, value: string) =>
   `        <li><span class="k">${key}</span><span class="v">${value}</span></li>`
 
@@ -96,13 +118,13 @@ function thirdClaim(caps: Capabilities): string {
   }
   if (caps.maxPushBytes !== null || caps.maxRepoBytes !== null) {
     const parts: string[] = []
-    if (caps.maxPushBytes !== null) parts.push(`${describeBytes(caps.maxPushBytes)} per push`)
+    if (caps.maxPushBytes !== null) parts.push(`${shortBytes(caps.maxPushBytes)} per push`)
     if (caps.maxRepoBytes !== null) {
-      parts.push(`${describeBytes(caps.maxRepoBytes)} per repository`)
+      parts.push(`${shortBytes(caps.maxRepoBytes)} per repository`)
     }
     return claim(
       'Bounded',
-      `<b>${parts.join(', ')}.</b> Anything over is turned away before it uploads, by a message that names the limit and what to do instead.`,
+      `<b>${parts.join(', ')}.</b> Anything over is turned away before it uploads, by a message naming the limit.`,
     )
   }
   return ''
@@ -134,11 +156,11 @@ function sourceLimitClaim(caps: Capabilities): string {
   }
   if (caps.maxPushesPerSource !== null) parts.push(`${caps.maxPushesPerSource} pushes`)
   if (caps.maxPushBytesPerSource !== null) {
-    parts.push(describeBytes(caps.maxPushBytesPerSource))
+    parts.push(shortBytes(caps.maxPushBytesPerSource))
   }
   return claim(
     'Throughput',
-    `<b>${parts.join(', ')} per client per ${window}.</b> Room for an agent loop to work at full speed, and the allowance is yours alone — nobody else's traffic spends it.`,
+    `<b>${parts.join(', ')} per client per ${window}.</b> Room for an agent loop at full speed, and the allowance is yours alone.`,
   )
 }
 
@@ -232,8 +254,12 @@ function appendOnlyClaim(caps: Capabilities): string {
     '<b>Nothing you push can be destroyed.</b> ' +
       (caps.namesCanRefuse
         ? 'Whoever the name takes a push from may add; no one may rewrite or delete.'
-        : 'Anyone may add; no one may rewrite or delete.') +
-      ' A push that would rewrite history is turned away before anything is uploaded, by a message naming what to do instead.',
+        : 'Anyone may add; no one may rewrite or delete.'),
+    // The sentence that used to close this term — a rewrite is turned away
+    // before anything uploads, by a message naming the remedy — is the foot of
+    // the refusal panel two sections up, word for word. Saying it in both
+    // places cost this term half its length to repeat a thing the page has
+    // already SHOWN, which is the stronger telling of the two.
   )
 }
 
@@ -340,7 +366,7 @@ function proposalsClaim(caps: Capabilities): string {
   if (!caps.proposals) return ''
   return claim(
     'Proposals',
-    '<b>A claimed name takes a change from anyone who may read it.</b> Push to <code>refs/walgit/proposals/&lt;branch&gt;/&lt;your-id&gt;</code> and it is held, signed and append-only, without being a Signer. Nobody accepts it but a Signer merging it themselves: it is <em>merged</em> when the branch\u2019s history contains it, and there is nothing else to be.',
+    '<b>A claimed name takes a change from anyone who may read it.</b> Push to <code>refs/walgit/proposals/&lt;branch&gt;/&lt;your-id&gt;</code>. A Signer merges it, and <em>merged</em> means the branch\u2019s history contains it.',
   )
 }
 
@@ -348,7 +374,7 @@ function privateClaim(caps: Capabilities): string {
   if (!caps.namesCanBePrivate) return ''
   return claim(
     'Private',
-    '<b>A claimed name can refuse a stranger reading it.</b> Write a <b>Reader List</b> beside the signers and every clone, fetch and watch is refused unless the reader signs for a listed key. No account and no token: the key that signs your pushes is the key that reads.',
+    '<b>A claimed name can refuse a stranger reading it.</b> Write a <b>Reader List</b> beside the signers, and the key that signs your pushes is the key that reads.',
   )
 }
 
@@ -390,6 +416,18 @@ function privateClaim(caps: Capabilities): string {
  *
  * What is left to `/llms.txt` (`shared/llms.ts`) is `set -e` and the second
  * key: this panel is the argument, and that document is the manual.
+ *
+ * **Behind a disclosure, and not one line shorter.** Six commands of shell was
+ * the tallest thing on a pitch page, and it pushed the argument beside it — the
+ * cost a stranger's permanent branch imposes, which is the only reason anybody
+ * spends a push on a Signer List — below the fold on a laptop. The obvious edit
+ * was to cut the recipe to its last line, and that is the one edit the three
+ * paragraphs above rule out: every abbreviation tried hands a reader a command
+ * that fails, and the `gpg.format` one locks them out of the name they just
+ * claimed. So the recipe is collapsed rather than trimmed. `<details>` keeps
+ * every line in the document — served, searchable, copyable, and asserted by
+ * `landing.test.ts` exactly as before — and costs one click from a reader who
+ * has decided to claim a name, which is a reader already past being sold to.
  *
  * **The transcript is an excerpt, and says so.** Every line of it is a line
  * `heldMessage` (`src/signers.ts`) actually writes, and `landing.test.ts`
@@ -438,7 +476,9 @@ function ownershipSection(host: string, caps: Capabilities): string {
 
       <div class="split-show">
         <div>
-          <div class="term term-solo">
+          <details class="recipe">
+            <summary>The six commands that claim a name</summary>
+            <div class="term term-solo">
             <pre><span class="c"># a repository whose tree is one file: signers.</span>
 <span class="p">$</span> git init -q claim &amp;&amp; cd claim
 <span class="p">$</span> ssh-keygen -lf $HOME/.ssh/id_ed25519.pub \\
@@ -451,8 +491,9 @@ function ownershipSection(host: string, caps: Capabilities): string {
       push --signed=if-asked \\
       https://${host}/$NAME.git \\
       HEAD:${SIGNERS_REF}</pre>
-          </div>
-          <p class="under">List a second key · the full recipe is in <span>/llms.txt</span></p>
+            </div>
+          </details>
+          <p class="under">List a second key · the full recipe is in <a href="/llms.txt">/llms.txt</a></p>
         </div>
 
         <div class="panel">
@@ -487,8 +528,8 @@ function signingClaim(caps: Capabilities): string {
     'Attributed',
     "<b>A push signed with your key records that key's fingerprint.</b> " +
       (caps.namesCanRefuse
-        ? 'Unsigned is fine unless a name has written a Signer List, which takes pushes from its own keys only. There is still no account: the fingerprint is the whole identity.'
-        : 'Nothing is refused for being unsigned, and there is still no account: the fingerprint is the whole identity.') +
+        ? 'Unsigned is fine unless a name has written a Signer List. The fingerprint is the whole identity.'
+        : 'Nothing is refused for being unsigned. The fingerprint is the whole identity.') +
       ' <code>git push --signed=if-asked</code>.',
   )
 }
@@ -520,7 +561,7 @@ function claims(caps: Capabilities): string {
     // crawler rather than to the agent driving it.
     claim(
       'Crawlable',
-      `<b><code>/robots.txt</code> says yes, out loud.</b> <code>Allow: /</code> for every agent, and <code>Content-Signal: ${CONTENT_SIGNAL}</code>. Your agent is welcome to read this place, and told so in the one file it checks.`,
+      `<b><code>/robots.txt</code> says yes, out loud.</b> <code>Allow: /</code> for every agent, and <code>Content-Signal: ${CONTENT_SIGNAL}</code> — told so in the one file it checks.`,
     ),
   ]
     .filter((term) => term !== '')
@@ -643,6 +684,36 @@ function roadmapPulls(caps: Capabilities): string {
 }
 
 /**
+ * The standfirst under `What's next.`, which has to survive the rows leaving.
+ *
+ * The two functions above are the page's best rule applied to a promise: a row
+ * LEAVES when its deployment ships the thing, so the list is always what is
+ * still ahead. What nobody checked is what the sentence above the list says
+ * once three of the four rows have left. *"Where this is going, in the order it
+ * gets there"* promises a sequence, and on the deployment that has shipped the
+ * most — Signer Lists, Reader Lists and Proposals all on, which is agentgit —
+ * the list under it is one row. A standfirst describing an ORDER over a single
+ * item reads as a roadmap that ran out rather than one that was delivered.
+ *
+ * So the lede is rendered from the same fragments the list is built from: the
+ * rows are COUNTED out of the markup rather than re-derived from the flags,
+ * because a count computed from the capabilities is a second reading of the
+ * same question and the two would eventually disagree. `<h3>` is one per row.
+ *
+ * The no-date promise is in both spellings. It is the one thing on this page
+ * that is not rendered from config, so it is the one sentence that has to admit
+ * as much however many rows are left to admit it about.
+ */
+function roadmapLede(caps: Capabilities): string {
+  const rows =
+    1 + (roadmapOwnership(caps) + roadmapPulls(caps)).split('<h3>').length - 1
+
+  return rows === 1
+    ? 'One thing is left, and nothing here is a date — it is designed in the open before it ships.'
+    : 'Where this is going, in the order it gets there. Nothing here is a date — each one is designed in the open before it ships.'
+}
+
+/**
  * The live client, shipped only where there is a socket to open.
  *
  * It sits behind the same gate as every other claim on this page: a deployment
@@ -729,6 +800,113 @@ ${rows.join('\n')}
 }
 
 /**
+ * The objection, which is the first thought a reader arrives with.
+ *
+ * "One argument, not three" is the rule this page is edited by, and it is about
+ * the two arguments the hero's commands ALREADY MAKE — reading a case for what
+ * you just watched happen is a page arguing with somebody who agreed. This is
+ * the opposite shape: nothing above it addresses *I already have GitHub, and
+ * `gh repo create` is one command*, and every reader who has one thinks it
+ * before they reach `The rules.` An unanswered objection is not a paragraph
+ * saved, it is the reader gone.
+ *
+ * So it is an objection handler and not a third argument: a heading and two
+ * sentences, no illustration, no transcript, no command. The section reads in
+ * the time it takes to decide the page is not for you.
+ *
+ * Rendered from `Capabilities` like everything else that states what this host
+ * asks for. On a credentialed deployment the case is NOT that there is no
+ * credential — there is one — it is that there is no per-agent identity to
+ * provision, which is the half that survives a token at the front door. And the
+ * churn sentence states the window only where something collects it.
+ */
+function whyNotSection(caps: Capabilities): string {
+  const cost = caps.publicAccess
+    ? 'Creating one there takes an account, a token scoped to make repositories, and somewhere to keep that token — three things a sandbox starts without, and the last is one no prompt should be carrying.'
+    : 'Creating one there takes an account per identity, a token scoped to make repositories, and somewhere to keep it. Here there is one credential for the whole host, set once by whoever runs it, and no per-agent identity to provision at all.'
+
+  const churn =
+    caps.retentionHours !== null
+      ? `And a repository per task is not something an organization should be made to accumulate. Here one is collected ${describeHours(
+          caps.retentionHours,
+        )} after its last push — the shape of the service, not a limit on it.`
+      : 'And a repository per task is not something an organization should be made to accumulate. These are named for one task and abandoned, not kept.'
+
+  return `
+    <section class="why">
+      <h2>You have GitHub. Your agent does not.</h2>
+      <p>${cost}</p>
+      <p>${churn}</p>
+    </section>
+`
+}
+
+/**
+ * The last thing on the page, which used to be a takedown address.
+ *
+ * The page's whole asset is two commands that work, and they appeared once,
+ * above the fold, and never again — so a reader who scrolled the argument to
+ * its end was returned nothing to do. `Who runs this.` is the right block to
+ * have last of the informational ones and the wrong one to LEAVE last: it is
+ * addressed to somebody who is not about to push, and it was closing a page
+ * for everybody who was.
+ *
+ * The commands are the hero's, not a second copy of them: the name field above
+ * echoes into this block as well (`repo-echo-end`), so what a visitor reads
+ * here is the name they typed there, and the copy button reads its text out of
+ * the block beside it exactly as the other two do.
+ *
+ * The client is named only where there is a socket to open, the same gate
+ * `eventsSection` sits behind — a page that linked a watcher for a stream its
+ * own Worker answers 404 for would be the one lie this file exists to prevent.
+ */
+function closeSection(host: string, caps: Capabilities): string {
+  const line = caps.publicAccess
+    ? 'No account, no key. The name you pick <em>is</em> the repository, and it exists the moment the push lands.'
+    : 'The name you pick <em>is</em> the repository, and it exists the moment the push lands.'
+
+  const client = caps.events
+    ? ' · keep a clone current with <a href="https://www.npmjs.com/package/@zabaca/agentgit">@zabaca/agentgit</a>'
+    : ''
+
+  return `
+    <section class="close">
+      <h2>Push something.</h2>
+      <p>${line}</p>
+      <div class="term">
+        <pre id="cmd-end"><span class="p">$</span> git remote add agentgit https://${host}/<span id="repo-echo-end">my-thing</span>.git
+<span class="p">$</span> git push agentgit main</pre>
+        <button class="copy" id="copy-end" type="button" aria-live="polite" aria-label="Copy the two commands">Copy</button>
+      </div>
+      <p class="under">The whole manual is <a href="/llms.txt">/llms.txt</a>${client}</p>
+    </section>
+`
+}
+
+/**
+ * The footer, which is where a reader goes looking for the source.
+ *
+ * It said `Open source` and `Run your own: zbc add walgit` as plain text, which
+ * is a claim with nowhere to check it: the page carried exactly two anchors,
+ * one of them an in-page skip link, so anybody who wanted the repository, the
+ * client or the manual had to retype a path from memory.
+ *
+ * The client's entry is gated like every other mention of it. The source and
+ * the manual are not: walgit is open source wherever it is deployed, and
+ * `/llms.txt` is served by every deployment.
+ */
+function footerLinks(caps: Capabilities): string {
+  const rows = [
+    '    <a href="https://github.com/Zabaca/zbc">Open source</a>',
+    caps.events
+      ? '    <a href="https://www.npmjs.com/package/@zabaca/agentgit">@zabaca/agentgit</a>'
+      : '',
+    '    <a href="/llms.txt">The manual</a>',
+  ]
+  return rows.filter((row) => row !== '').join('\n')
+}
+
+/**
  * Every substitution passes a FUNCTION, never the string itself.
  *
  * `String.replace` reads `$` sequences in a replacement STRING as capture-group
@@ -754,13 +932,20 @@ export function renderLanding(
   operator: Operator | null = null,
 ): string {
   return PAGE.replaceAll('{{HOST}}', () => host)
-    .replace('{{META_DESCRIPTION}}', () => metaDescription(caps))
+    // `replaceAll`, because the sentence written to travel now travels in
+    // three places: the description, the Open Graph card and the Twitter card.
+    // One rendering, substituted thrice — not three strings to keep in step.
+    .replaceAll('{{META_DESCRIPTION}}', () => metaDescription(caps))
     .replace('{{HERO_UNDER}}', () => heroUnder(caps))
     .replace('{{CLAIMS}}', () => claims(caps))
+    .replace('{{ROADMAP_LEDE}}', () => roadmapLede(caps))
     .replace('{{ROADMAP_OWNERSHIP}}', () => roadmapOwnership(caps))
     .replace('{{ROADMAP_PULLS}}', () => roadmapPulls(caps))
+    .replace('{{WHY}}', () => whyNotSection(caps))
     .replace('{{EVENTS}}', () => eventsSection(host, caps))
     .replace('{{OWNERSHIP}}', () => ownershipSection(host, caps))
+    .replace('{{CLOSE}}', () => closeSection(host, caps))
+    .replace('{{FOOTER_LINKS}}', () => footerLinks(caps))
     .replace('{{WIRE_SCRIPT}}', () => (caps.events ? wireScript() : ''))
     .replace('{{PERMANENCE}}', () => permanence(caps))
     .replace('{{OPERATOR}}', () => operatorSection(caps, operator))
@@ -808,6 +993,30 @@ const PAGE = `<!doctype html>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>agentgit — Git for AI agents</title>
 <meta name="description" content="{{META_DESCRIPTION}}">
+<!-- The card this page becomes when somebody posts the link.
+     The placement of this whole document is justified by aggregator traffic —
+     a link on one sends thousands of people to the root, which is why the
+     Worker answers it and never wakes the container. That argument was being
+     made by a page with no card: posted to HN, Reddit, Slack or Discord it
+     rendered as a bare hostname, so the one sentence written to travel
+     (metaDescription) travelled nowhere.
+     Same two strings as the title and the description, deliberately: a card
+     that says something the page does not is the drift every rendered claim
+     here exists to prevent, so the description below is the SAME rendering,
+     not a second copy of it.
+     No picture, and no card layout that needs one. A preview image has to be
+     a fetchable raster at a stable URL, which means an asset in the Worker
+     bundle and a route serving it, and neither exists yet. The summary card is
+     the one that is honest without a picture; the wide variant pointing at
+     nothing degrades worse than this does. -->
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="agentgit">
+<meta property="og:title" content="agentgit — Git for AI agents">
+<meta property="og:description" content="{{META_DESCRIPTION}}">
+<meta property="og:url" content="https://{{HOST}}/">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:title" content="agentgit — Git for AI agents">
+<meta name="twitter:description" content="{{META_DESCRIPTION}}">
 <!-- The agent-facing version of this page. GET / splits on Accept: a browser
      gets this HTML, everything else gets the manual as text. Fetch tools that
      agents drive send a browser's Accept, so they land here; this is how they
@@ -1044,6 +1253,26 @@ const PAGE = `<!doctype html>
   }
   .under span { color: var(--muted); }
 
+  /* The claim recipe, collapsed. Closed it is one line of type the width of
+     the argument beside it; open it is exactly the block it always was. */
+  .recipe { margin: 0 0 .75rem; }
+  .recipe summary {
+    font-family: var(--mono);
+    font-size: .72rem;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--verdi);
+    cursor: pointer;
+    padding: .5rem 0;
+    min-height: 44px;
+    display: flex;
+    align-items: center;
+    gap: .5rem;
+  }
+  .recipe summary:hover { color: var(--copper); }
+  .recipe[open] summary { color: var(--muted); margin-bottom: .5rem; }
+  .recipe .term-solo { margin-bottom: 0; }
+
   /* ── panels ───────────────────────────────────────────── */
 
   .panel { border: 1px solid var(--rule-2); background: var(--raised); }
@@ -1267,6 +1496,31 @@ const PAGE = `<!doctype html>
     margin: 0;
   }
 
+  /* The objection, set as an aside rather than as one of the arguments: a
+     rule down its left, tighter type, and closer to the hero than a section
+     of its own would sit. It is answering a thought, not making a case. */
+  .why {
+    margin-top: 3.25rem;
+    border-left: 1px solid var(--rule-2);
+    padding-left: 1.5rem;
+  }
+  .why h2 { font-size: clamp(1.1rem, 3vw, 1.35rem); margin-bottom: .75rem; }
+  .why p { font-size: 1rem; max-width: 54ch; margin-bottom: .75rem; }
+  .why p:last-child { margin-bottom: 0; }
+
+  /* The last block, and the only one after it is the footer. The command is
+     the point of it, so the prose above is one line and the type is the
+     hero's rather than a section's. */
+  .close { margin-top: 5rem; }
+  .close p { font-size: 1.08rem; max-width: 50ch; margin-bottom: 1.4rem; }
+  /* Not the faint italic every other section's em is: this one is stress on
+     the word the whole page turns on, not something the tool said. */
+  .close p em { font-style: normal; color: var(--copper); }
+  /* The hero's width, not the 34rem of .term-solo: this is the same command,
+     and at 34rem the host is long enough to push the URL into a scroll nobody
+     scrolls — a closing command a reader cannot read is not a call to act. */
+  .close .term { max-width: 44rem; margin-bottom: .75rem; }
+
   footer {
     margin-top: 5rem;
     padding-top: 1.4rem;
@@ -1330,7 +1584,7 @@ const PAGE = `<!doctype html>
       </div>
     </div>
     <p class="under" id="repo-help">{{HERO_UNDER}}</p>
-{{EVENTS}}{{OWNERSHIP}}
+{{WHY}}{{EVENTS}}{{OWNERSHIP}}
     <section>
       <h2>The rules.</h2>
       <ul class="claims">
@@ -1340,7 +1594,7 @@ const PAGE = `<!doctype html>
 
     <section>
       <h2>What's next.</h2>
-      <p>Where this is going, in the order it gets there. Nothing here is a date — each one is designed in the open before it ships.</p>
+      <p>{{ROADMAP_LEDE}}</p>
       <ul class="road">
 {{ROADMAP_OWNERSHIP}}
 {{ROADMAP_PULLS}}
@@ -1352,12 +1606,12 @@ const PAGE = `<!doctype html>
       </ul>
       <p class="caveat">{{PERMANENCE}} Not a place for anything you cannot lose.</p>
     </section>
-{{OPERATOR}}
+{{OPERATOR}}{{CLOSE}}
   </main>
 
   <footer>
     <span>agentgit</span>
-    <span>Open source</span>
+{{FOOTER_LINKS}}
     <span>Run your own: <code>zbc add walgit</code></span>
   </footer>
 </div>
@@ -1373,7 +1627,10 @@ const PAGE = `<!doctype html>
     // near-identical prompts at the same time, and a plain name is probably
     // taken — is better given as the default anyone starts from.
     var field = document.getElementById("repo");
-    var echo = document.getElementById("repo-echo");
+    // Both places the command appears: the hero, and the closing block that
+    // sends a reader who scrolled the whole page back to it. One field feeds
+    // both, so the page never shows two different names.
+    var echoes = [document.getElementById("repo-echo"), document.getElementById("repo-echo-end")];
 
     var chars = "abcdefghjkmnpqrstuvwxyz23456789";
     var suffix = "";
@@ -1388,7 +1645,10 @@ const PAGE = `<!doctype html>
     };
 
     var render = function () {
-      echo.textContent = clean(field.value) || "my-thing";
+      var name = clean(field.value) || "my-thing";
+      for (var e = 0; e < echoes.length; e++) {
+        if (echoes[e]) echoes[e].textContent = name;
+      }
     };
 
     field.value = "my-thing-" + suffix;
@@ -1463,6 +1723,7 @@ const PAGE = `<!doctype html>
 
     copy(document.getElementById("copy"));
     copy(document.getElementById("copy-watch"));
+    copy(document.getElementById("copy-end"));
 
 {{WIRE_SCRIPT}}
   })();
