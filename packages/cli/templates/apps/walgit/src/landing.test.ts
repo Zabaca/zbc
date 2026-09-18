@@ -7,6 +7,7 @@
  */
 
 import { describe, expect, test } from 'bun:test'
+import * as path from 'node:path'
 
 import { capabilitiesFrom, type CapabilityEnv } from '../shared/capabilities'
 import { ZERO_OID } from '../shared/protocol'
@@ -1249,7 +1250,7 @@ describe('the link preview', () => {
     expect(html).toContain('<meta property="og:type" content="website">')
     expect(html).toContain('<meta property="og:title" content="agentgit — Git for AI agents">')
     expect(html).toContain('<meta property="og:url" content="https://agentgit.zabaca.com/">')
-    expect(html).toContain('<meta name="twitter:card" content="summary">')
+    expect(html).toContain('<meta name="twitter:card" content="summary_large_image">')
     // The favicon is inline SVG: no route to shadow a repository, no asset to
     // fetch. Its three fills are the page's own palette.
     expect(html).toMatch(
@@ -1273,12 +1274,74 @@ describe('the link preview', () => {
     }
   })
 
-  // The card names no image, so it must not claim a layout that needs one: an
-  // empty `summary_large_image` degrades worse than a `summary` with none.
-  test('and claims no image it does not have', () => {
+  /**
+   * The card now has a picture, so it claims the layout that needs one.
+   *
+   * The absolute URL is the point of the assertion: a crawler resolves neither
+   * a relative path nor a data URI, so an `og:image` that is not a full origin
+   * on this deployment's own host is an empty card that looks filled in.
+   */
+  test('and carries the picture, absolute, at the size it is rendered', () => {
     const html = renderLanding(HOST, caps(OPEN))
-    expect(html).not.toContain('og:image')
-    expect(html).not.toContain('summary_large_image')
+    const url = `https://${HOST}/agentgit-og.png`
+    expect(html).toContain(`<meta property="og:image" content="${url}">`)
+    expect(html).toContain(`<meta name="twitter:image" content="${url}">`)
+    // The two numbers a large-summary card is specified at, and the two the
+    // committed PNG is rendered at (`og-image.test.ts`).
+    expect(html).toContain('<meta property="og:image:width" content="1200">')
+    expect(html).toContain('<meta property="og:image:height" content="630">')
+    expect(html).toContain('<meta property="og:image:alt" content="agentgit — Git for AI agents">')
+  })
+})
+
+/**
+ * The mark on the page itself.
+ *
+ * It shipped as a favicon — sixteen pixels on a tab strip — and the page the
+ * tab belongs to wore nothing. The masthead badge is where the name is said
+ * first, so the mark is said with it, from the SAME geometry the favicon is
+ * drawn from: two copies of a logo drift, and the one nobody looks at drifts
+ * first.
+ */
+describe('the masthead wears the mark', () => {
+  test('inline beside the wordmark, in the page’s own palette', () => {
+    const html = renderLanding(HOST, caps(OPEN))
+    const badge = /<span class="badge">([\s\S]*?)<\/span>\s*\n/.exec(html)?.[1]
+    expect(badge).toBeTruthy()
+    // Inline SVG, not a fetch: the mark must be there on the first paint, and
+    // a second request for 400 bytes is not worth the round trip.
+    expect(badge).toContain('<svg')
+    // The copper agent node — the one fill that is only in this mark.
+    expect(badge).toContain('#c56a3e')
+    expect(badge).toContain('agentgit')
+    // Decorative: the wordmark beside it already says the name, so a screen
+    // reader that announced the mark too would say it twice.
+    expect(badge).toContain('aria-hidden="true"')
+  })
+
+  /**
+   * The page's copy of the mark against the source file the card is rendered
+   * from. Without this the geometry lives in two files — `assets/
+   * agentgit-mark.svg` and `MARK_GEOMETRY` — and only one of them is looked at
+   * when the mark is redrawn, so the tab, the masthead and the link preview
+   * can quietly stop being the same logo.
+   */
+  test('and is exactly the source mark, not a transcription of it', async () => {
+    const svg = await Bun.file(
+      path.join(import.meta.dir, '..', 'assets', 'agentgit-mark.svg'),
+    ).text()
+    const inner = /<svg[^>]*>([\s\S]*)<\/svg>/.exec(svg.trim())?.[1]
+    expect(inner).toBeTruthy()
+    expect(renderLanding(HOST, caps(OPEN))).toContain(inner as string)
+  })
+
+  test('and is the same geometry the favicon is drawn from', () => {
+    const html = renderLanding(HOST, caps(OPEN))
+    // The agent node, at the coordinates the source mark
+    // (`assets/agentgit-mark.svg`) places it on its 32-unit grid.
+    const node = '<rect fill="#c56a3e" x="17.5" y="18.5" width="11" height="11" rx="2"/>'
+    expect(html).toContain(node)
+    expect(html).toContain(encodeURIComponent(node))
   })
 })
 

@@ -33,6 +33,7 @@ import { parseTokens } from '../shared/credentials'
 import { authorizeAnnounce, authorizeSubscribe } from '../shared/events'
 import { renderLanding, wantsLanding } from '../shared/landing'
 import { renderLlms, wantsLlms } from '../shared/llms'
+import { OG_IMAGE_CACHE_CONTROL, OG_IMAGE_CONTENT_TYPE, wantsOgImage } from '../shared/og-image'
 import { operatorFrom } from '../shared/operator'
 import { renderRobots, wantsRobots } from '../shared/robots'
 import {
@@ -51,6 +52,10 @@ import {
   type RequestMetric,
 } from '../shared/telemetry'
 import { BROADCAST_PATH, EVENTS_OBJECT_NAME, WalgitEvents } from './events-do'
+// The card's picture, as bytes in the bundle (wrangler.jsonc's `Data` rule).
+// Rendered once by `scripts/render-og-image.ts` in the zbc repository and
+// committed — never drawn per request.
+import OG_IMAGE_BYTES from '../assets/agentgit-og.png'
 
 export interface Env {
   WALGIT_CONTAINER: DurableObjectNamespace<WalgitContainer>
@@ -393,6 +398,44 @@ export default {
         headers: {
           'content-type': 'text/plain; charset=utf-8',
           'cache-control': 'public, max-age=60',
+        },
+      })
+    }
+
+    // `/agentgit-og.png` — the picture the card the head advertises is made
+    // of (shared/og-image.ts). At the edge for the reason the page is, and
+    // more so: the traffic is crawlers, arriving in a burst when a link is
+    // posted, and not one of them should wake the container for a picture
+    // that changes only on deploy. The bytes are in the bundle, so nothing is
+    // fetched to serve it. Same collision argument as `/llms.txt` and
+    // `/robots.txt`: a repository called `agentgit-og.png` is reached at
+    // `/agentgit-og.png.git/…`, so this route cannot shadow one.
+    if (wantsOgImage(request.method, url.pathname)) {
+      record(env, ctx, {
+        kind: 'og-image',
+        repo: '',
+        outcome: 'ok',
+        reject: '',
+        status: 200,
+        served: false,
+        cold: false,
+        ttfbMs: Date.now() - startedAt,
+        totalMs: Date.now() - startedAt,
+        // A HEAD is answered with headers only, so it served no bytes.
+        bytesServed: request.method === 'HEAD' ? 0 : OG_IMAGE_BYTES.byteLength,
+        bytesReceived: 0,
+      })
+      return new Response(request.method === 'HEAD' ? null : OG_IMAGE_BYTES, {
+        status: 200,
+        headers: {
+          'content-type': OG_IMAGE_CONTENT_TYPE,
+          // A day, where the page and the manual get a minute: the picture
+          // states no capability and no limit, so nothing in it can outlive a
+          // config change.
+          'cache-control': OG_IMAGE_CACHE_CONTROL,
+          // A HEAD must answer the size the GET would send; a Response built
+          // from a null body would otherwise report none.
+          'content-length': String(OG_IMAGE_BYTES.byteLength),
         },
       })
     }

@@ -1,3 +1,5 @@
+<img src="assets/agentgit-mark.svg" alt="" width="72" height="72">
+
 # walgit
 
 A git host where **object storage holds the write-ahead log and is the source of

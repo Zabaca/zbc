@@ -51,6 +51,7 @@
 
 import type { Capabilities } from './capabilities'
 import { contactHref, type Operator } from './operator'
+import { OG_IMAGE_HEIGHT, OG_IMAGE_PATH, OG_IMAGE_WIDTH } from './og-image'
 import { describeBytes, describeWindow } from './policy'
 import { EVENTS_PATH, SIGNERS_REF } from './protocol'
 import { CONTENT_SIGNAL } from './robots'
@@ -1154,6 +1155,39 @@ const WIRE_CLIENT = `
     });
 `
 
+/**
+ * The mark, once — three commits, and the newest one is a square.
+ *
+ * Two people on the trunk, an agent on the branch: the graph git already
+ * draws, with the one node this host exists for drawn differently. Painted in
+ * the page's own palette (bone tile, ground ink, copper agent) so it holds on
+ * a light tab strip and a dark one without a second asset. Concept sheet: the
+ * "three nodes" mark, framing L, 2026-09-18. The source of truth for the
+ * geometry is `assets/agentgit-mark.svg`, which this is a transcription of and
+ * which the og card is rendered from.
+ *
+ * ONE constant because the mark now appears twice on this page — as the
+ * favicon and in the masthead — and a logo kept in two places drifts, starting
+ * with the copy nobody looks at closely.
+ */
+const MARK_GEOMETRY = `<rect width="32" height="32" rx="7" fill="#ede6de"/><g transform="translate(1 1) scale(.9375)"><path stroke="#14100e" fill="none" stroke-width="4.5" d="M9 25V9M9 13c0 6 14 3 14 11"/><circle fill="#14100e" cx="9" cy="8" r="5"/><circle fill="#14100e" cx="9" cy="25" r="5"/><rect fill="#c56a3e" x="17.5" y="18.5" width="11" height="11" rx="2"/></g>`
+
+/**
+ * The favicon, inline as a data URI rather than as a route: a `/favicon.svg`
+ * route would need the same repo-shadowing argument `/robots.txt` makes, and a
+ * 600-byte tag needs none.
+ */
+const MARK_FAVICON_HREF = `data:image/svg+xml,${encodeURIComponent(
+  `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">${MARK_GEOMETRY}</svg>`,
+)}`
+
+/**
+ * The masthead's copy. Inline, so it is there on the first paint and costs no
+ * request, and `aria-hidden` because the wordmark it sits beside already says
+ * the name — a screen reader announcing both would say it twice.
+ */
+const MARK_INLINE = `<svg class="mark" viewBox="0 0 32 32" aria-hidden="true" focusable="false">${MARK_GEOMETRY}</svg>`
+
 const PAGE = `<!doctype html>
 <html lang="en">
 <head>
@@ -1172,33 +1206,35 @@ const PAGE = `<!doctype html>
      that says something the page does not is the drift every rendered claim
      here exists to prevent, so the description below is the SAME rendering,
      not a second copy of it.
-     No picture, and no card layout that needs one. A preview image has to be
-     a fetchable raster at a stable URL, which means an asset in the Worker
-     bundle and a route serving it, and neither exists yet. The summary card is
-     the one that is honest without a picture; the wide variant pointing at
-     nothing degrades worse than this does. -->
+     The picture is the mark, rendered once and committed — assets/
+     agentgit-og.png, served by the Worker at ${OG_IMAGE_PATH}
+     (shared/og-image.ts). It is stated absolutely, on this deployment's own
+     host: a crawler resolves neither a relative path nor a data URI, so a
+     relative one is an empty card that looks filled in. The size is declared
+     because several platforms lay the card out before they have fetched the
+     bytes, and it is the size the PNG is actually rendered at — the two
+     numbers live in shared/og-image.ts so they cannot drift apart. -->
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="agentgit">
 <meta property="og:title" content="agentgit — Git for AI agents">
 <meta property="og:description" content="{{META_DESCRIPTION}}">
 <meta property="og:url" content="https://{{HOST}}/">
-<meta name="twitter:card" content="summary">
+<meta property="og:image" content="https://{{HOST}}${OG_IMAGE_PATH}">
+<meta property="og:image:width" content="${OG_IMAGE_WIDTH}">
+<meta property="og:image:height" content="${OG_IMAGE_HEIGHT}">
+<meta property="og:image:alt" content="agentgit — Git for AI agents">
+<meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="agentgit — Git for AI agents">
 <meta name="twitter:description" content="{{META_DESCRIPTION}}">
+<meta name="twitter:image" content="https://{{HOST}}${OG_IMAGE_PATH}">
 <!-- The agent-facing version of this page. GET / splits on Accept: a browser
      gets this HTML, everything else gets the manual as text. Fetch tools that
      agents drive send a browser's Accept, so they land here; this is how they
      find the page they wanted. -->
 <link rel="alternate" type="text/plain" href="https://{{HOST}}/llms.txt" title="The manual, for agents">
-<!-- The mark: three commits, and the newest one is a square. Two people on the
-     trunk, an agent on the branch — the graph git already draws, with the
-     one node that this host exists for drawn differently. Painted in this
-     page's own palette (bone tile, ground ink, copper agent) so it holds on a
-     light tab strip and a dark one without a second asset. Inline as a data
-     URI rather than a route: a /favicon.svg route would need the same
-     repo-shadowing argument /robots.txt makes, and a 600-byte tag needs
-     none. Concept sheet: the "three nodes" mark, framing L, 2026-09-18. -->
-<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23ede6de'/%3E%3Cg transform='translate(1 1) scale(.9375)'%3E%3Cpath stroke='%2314100e' fill='none' stroke-width='4.5' d='M9 25V9M9 13c0 6 14 3 14 11'/%3E%3Ccircle fill='%2314100e' cx='9' cy='8' r='5'/%3E%3Ccircle fill='%2314100e' cx='9' cy='25' r='5'/%3E%3Crect fill='%23c56a3e' x='17.5' y='18.5' width='11' height='11' rx='2'/%3E%3C/g%3E%3C/svg%3E">
+<!-- The mark, from the one MARK_GEOMETRY constant above: the favicon and the
+     masthead are the same paths, so they cannot drift. -->
+<link rel="icon" type="image/svg+xml" href="${MARK_FAVICON_HREF}">
 <style>
   /* Deliberately single-theme: a launch page with a fixed identity.
      Every colour is painted explicitly so it holds on either host ground. */
@@ -1272,7 +1308,9 @@ const PAGE = `<!doctype html>
   .skip:focus { clip-path: none; color: var(--sunk); }
 
   .badge {
-    display: inline-block;
+    display: inline-flex;
+    align-items: center;
+    gap: .5rem;
     font-size: .68rem;
     letter-spacing: .14em;
     text-transform: uppercase;
@@ -1280,6 +1318,16 @@ const PAGE = `<!doctype html>
     border: 1px solid var(--rule-2);
     padding: .32rem .6rem;
     margin-bottom: 2rem;
+  }
+
+  /* The mark, at the badge's own cap height so it reads as part of the line
+     rather than as a picture next to it. It carries its own bone tile, so it
+     needs nothing from the ground behind it. */
+  .badge .mark {
+    width: 1.15rem;
+    height: 1.15rem;
+    flex: none;
+    display: block;
   }
 
   h1 {
@@ -1722,7 +1770,7 @@ const PAGE = `<!doctype html>
 <div class="wrap">
 
   <main id="start">
-    <span class="badge">agentgit — open source, run your own</span>
+    <span class="badge">${MARK_INLINE}<span>agentgit — open source, run your own</span></span>
 
     <h1>Git for AI agents<span class="dot">.</span></h1>
 

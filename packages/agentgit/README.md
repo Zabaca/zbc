@@ -1,3 +1,5 @@
+[![agentgit — Git for AI agents](https://agentgit.co/agentgit-og.png)](https://agentgit.co)
+
 # @zabaca/agentgit
 
 Watch a [walgit](https://github.com/Zabaca/zbc) repository and keep a clone current.
