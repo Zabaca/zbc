@@ -34,6 +34,7 @@ import { authorizeAnnounce, authorizeSubscribe } from '../shared/events'
 import { renderLanding, wantsLanding } from '../shared/landing'
 import { renderLlms, wantsLlms } from '../shared/llms'
 import { OG_IMAGE_CACHE_CONTROL, OG_IMAGE_CONTENT_TYPE, wantsOgImage } from '../shared/og-image'
+import { analyticsFrom } from '../shared/analytics'
 import { operatorFrom } from '../shared/operator'
 import { renderRobots, wantsRobots } from '../shared/robots'
 import {
@@ -154,6 +155,13 @@ export interface Env {
    */
   WALGIT_OPERATOR?: string
   WALGIT_CONTACT?: string
+  /**
+   * Browser analytics on the landing page (`shared/analytics.ts`). Edge-only,
+   * like the two above and for the same reason. Read ONLY through
+   * `analyticsFrom`.
+   */
+  WALGIT_POSTHOG_KEY?: string
+  WALGIT_POSTHOG_HOST?: string
   WALGIT_EVENTS: DurableObjectNamespace<WalgitEvents>
 }
 
@@ -290,6 +298,9 @@ export default {
     // beside the capabilities and passed to both documents, so the page and
     // the manual cannot name two different operators.
     const operator = operatorFrom(env)
+    // Browser analytics for the page (`shared/analytics.ts`), off unless the
+    // instance set a key. Read beside the two reads it mirrors.
+    const analytics = analyticsFrom(env)
 
     // The browser half of `/`, answered at the edge (shared/landing.ts). Placed
     // before every other decision on purpose: a link on an aggregator points at
@@ -302,7 +313,7 @@ export default {
       // them: this document and `/llms.txt` want a bare hostname they prefix
       // with `https://`/`wss://` themselves, while `GET /` needs a full origin
       // including the scheme, and one field could not serve both.
-      const page = renderLanding(url.host, caps, operator)
+      const page = renderLanding(url.host, caps, operator, analytics)
       const bytes = new TextEncoder().encode(page)
       record(env, ctx, {
         kind: 'landing',

@@ -477,6 +477,16 @@ nobody reads (`operatorFrom`, `shared/operator.ts`). A contact that is an email
 address or an `https://` URL is rendered as a link on the page; anything else is
 rendered as text.
 
+`WALGIT_POSTHOG_KEY` turns on **browser analytics** on the landing page, and
+`WALGIT_POSTHOG_HOST` says where to send them (PostHog Cloud US unless set).
+Edge-only for the same reason as the operator pair: the container renders
+nothing a browser runs. The edge telemetry above already counts page views and
+records nothing about who made them; this is for the questions it cannot
+answer — referrer, scroll depth, return visits — once traffic is real. The
+snippet disables session recording and creates no profile for an anonymous
+reader. Unset, the page carries no script at all (`analyticsFrom`,
+`shared/analytics.ts`).
+
 For the three boolean flags — `WALGIT_APPEND_ONLY`, `WALGIT_PUBLIC` and
 `WALGIT_SIGNER_LISTS` — **on means `1` or `true`, and nothing else**
 (`flagEnabled`, `shared/policy.ts`). An unrecognised value (`yes`, `on`, `TRUE`)

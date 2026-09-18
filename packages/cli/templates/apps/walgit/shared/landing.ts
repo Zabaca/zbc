@@ -50,6 +50,7 @@
  */
 
 import type { Capabilities } from './capabilities'
+import { analyticsScript, type Analytics } from './analytics'
 import { contactHref, type Operator } from './operator'
 import { OG_IMAGE_HEIGHT, OG_IMAGE_PATH, OG_IMAGE_WIDTH } from './og-image'
 import { describeBytes, describeWindow } from './policy'
@@ -1087,9 +1088,16 @@ export function renderLanding(
    * fixture that is not about the operator wants to say.
    */
   operator: Operator | null = null,
+  /**
+   * Browser analytics (`shared/analytics.ts`), beside the operator for the
+   * same reason: nothing branches on it, the manual never carries it, and a
+   * deployment that configured none renders a page with no script at all.
+   */
+  analytics: Analytics | null = null,
 ): string {
   return (
     PAGE.replaceAll('{{HOST}}', () => host)
+      .replace('{{ANALYTICS}}', () => analyticsScript(analytics))
       // `replaceAll`, because the sentence written to travel now travels in
       // three places: the description, the Open Graph card and the Twitter card.
       // One rendering, substituted thrice — not three strings to keep in step.
@@ -1235,7 +1243,9 @@ const PAGE = `<!doctype html>
 <!-- The mark, from the one MARK_GEOMETRY constant above: the favicon and the
      masthead are the same paths, so they cannot drift. -->
 <link rel="icon" type="image/svg+xml" href="${MARK_FAVICON_HREF}">
-<style>
+<!-- Browser analytics, when the instance configured any (shared/analytics.ts).
+     Empty otherwise: a template that ships to other companies carries no key. -->
+{{ANALYTICS}}<style>
   /* Deliberately single-theme: a launch page with a fixed identity.
      Every colour is painted explicitly so it holds on either host ground. */
   :root {

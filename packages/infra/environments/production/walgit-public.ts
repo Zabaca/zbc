@@ -410,6 +410,16 @@ export default cloudflareModule.instance({
       // one is not routed.
       { name: 'WALGIT_OPERATOR', value: 'Zabaca' },
       { name: 'WALGIT_CONTACT', value: 'abuse@zabaca.com' },
+      // ── browser analytics ────────────────────────────────────────────────
+      //
+      // PostHog on the landing page (shared/analytics.ts). The project key is
+      // a public write-only token — it is in the page source of every site
+      // that uses PostHog — so a var, not a secret. Edge-only, like the two
+      // above. The edge telemetry (walgit_requests) keeps counting page views
+      // with no identity; this answers where readers come from and whether
+      // they come back, which that dataset cannot. Host left at the default,
+      // PostHog Cloud US.
+      { name: 'WALGIT_POSTHOG_KEY', value: 'phc_tvfFcfPyMXbCMCQEvFLp7sVPooGUL7ZBQeG9ktM4agZh' },
       // ── ref events ───────────────────────────────────────────────────────
       //
       // Where the container announces a push TO — this deployment's own public
