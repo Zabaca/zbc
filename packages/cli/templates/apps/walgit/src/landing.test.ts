@@ -84,8 +84,8 @@ describe('renderLanding', () => {
     // it reads before the socket, which is what makes the handoff instant.
     const withEvents = renderLanding(HOST, caps({ ...EVENTS, ...SEED, ...GATE }))
     const at = (s: string) => withEvents.indexOf(s)
-    expect(at('Hand it to the next agent')).toBeLessThan(at('A name a stranger cannot take'))
-    expect(at('A name a stranger cannot take')).toBeLessThan(at('Stop asking whether main moved'))
+    expect(at('Hand it to the next agent')).toBeLessThan(at('Claim it. Only your keys push'))
+    expect(at('Claim it. Only your keys push')).toBeLessThan(at('Stop asking whether main moved'))
     expect(at('Stop asking whether main moved')).toBeLessThan(
       at('Stop discovering conflicts at push time'),
     )
@@ -294,6 +294,80 @@ describe('the events section carries a runnable client', () => {
     const html = renderLanding(HOST, NOTHING)
     expect(html).not.toContain('_walgit/events')
     expect(html).not.toContain('@zabaca/agentgit')
+  })
+})
+
+/**
+ * The two sections after the claim: letting another key push, and going
+ * private. Both are rendered from the flags the claim needs, and Private from
+ * one more — so a deployment that cannot hold a Reader List never describes
+ * one.
+ */
+describe('the grant and the private sections', () => {
+  const HELD = caps({ ...OPEN, ...SEED, ...GATE })
+  const PRIVATE = caps({ ...OPEN, ...SEED, ...GATE, WALGIT_PRIVATE_REPOS: 'private-seed' })
+
+  test('a claimed deployment describes the grant, as a diff and not a recipe', () => {
+    const html = renderLanding(HOST, HELD)
+    expect(html).toContain('<h2>Let another agent push.</h2>')
+    expect(html).toContain('+SHA256:kq3LmW…')
+    expect(html).not.toContain('gpg.format=ssh')
+    expect(html).not.toContain('agentgit accept')
+    expect(html.indexOf('Claim it. Only your keys push')).toBeLessThan(
+      html.indexOf('Let another agent push'),
+    )
+  })
+
+  // With Proposals on, the new agent asks instead of sending a fingerprint.
+  // The ref spelling is the one ZBC-IJYLMD's grammar admits; pinned here so a
+  // different spelling fails this test rather than shipping a 404.
+  test('with Proposals on, the new agent proposes itself and a Signer accepts', () => {
+    const html = renderLanding(HOST, caps({ ...OPEN, ...SEED, ...GATE, WALGIT_PROPOSALS: '1' }))
+    expect(html).toContain('HEAD:refs/walgit/proposals/walgit/signers/kq3LmW')
+    expect(html).toContain('agentgit accept kq3LmW')
+    expect(html).not.toContain('+SHA256:kq3LmW…')
+  })
+
+  test('private renders only where a Reader List can be written', () => {
+    const html = renderLanding(HOST, PRIVATE)
+    expect(html).toContain('<h2>Keep it to yourselves.</h2>')
+    expect(html).toContain(`fatal: could not read Username for 'https://${HOST}'`)
+    expect(html).toContain('Signers read without being listed')
+    expect(html.indexOf('Let another agent push')).toBeLessThan(
+      html.indexOf('Keep it to yourselves'),
+    )
+    expect(renderLanding(HOST, HELD)).not.toContain('Keep it to yourselves')
+  })
+
+  test('neither renders where nothing can be claimed', () => {
+    for (const html of [renderLanding(HOST, NOTHING), renderLanding(HOST, caps(OPEN))]) {
+      expect(html).not.toContain('Let another agent push')
+      expect(html).not.toContain('Keep it to yourselves')
+    }
+  })
+})
+
+/**
+ * The chapter break before the client: a rule, a kicker, a heading, one
+ * paragraph, no illustration. It says "different problem" and names the
+ * command, and it is gated on the socket the two sections under it need.
+ */
+describe('the client chapter', () => {
+  test('opens the client half of the page, before the socket', () => {
+    const html = renderLanding(HOST, caps(EVENTS))
+    expect(html).toContain('<h2>Many agents, one branch.</h2>')
+    expect(html).toContain('<code>@zabaca/agentgit</code>')
+    // The command is the chapter's, so it reads before either section on it.
+    expect(html.indexOf('Many agents, one branch')).toBeLessThan(html.indexOf('id="watch-cmd"'))
+    expect(html.indexOf('id="watch-cmd"')).toBeLessThan(
+      html.indexOf('Stop asking whether main moved'),
+    )
+  })
+
+  test('and is absent wherever the socket is', () => {
+    for (const html of [renderLanding(HOST, NOTHING), renderLanding(HOST, caps(OPEN))]) {
+      expect(html).not.toContain('Many agents, one branch')
+    }
   })
 })
 
@@ -539,7 +613,7 @@ describe('the terms that state a flag are rendered from it', () => {
    */
   test('and the section that argues for a name argues the right cost', () => {
     const held = renderLanding(HOST, caps({ ...PUBLIC, ...GATE, ...SEED }))
-    expect(held).toContain('A name a stranger cannot take')
+    expect(held).toContain('Claim it. Only your keys push')
     expect(held).not.toContain('Append-only defends their write')
     expect(held).not.toContain('neither of you can ever remove it')
     expect(held).toContain('<em>whoever pushes last wins</em>')
@@ -660,7 +734,7 @@ describe('the section that argues for holding a name', () => {
 
   test('it makes the case append-only creates, then answers it', () => {
     const html = renderLanding(HOST, HELD)
-    expect(html).toContain('<h2>A name a stranger cannot take.</h2>')
+    expect(html).toContain('<h2>Claim it. Only your keys push.</h2>')
     const flat = html.replace(/\s+/g, ' ')
     // The cost, which is the argument. Without it the section is a feature
     // announcement, and a reader has no reason to spend a push on one.
@@ -672,7 +746,7 @@ describe('the section that argues for holding a name', () => {
     expect(flat).toContain('List two keys')
     // It renders before `The rules.`, beside the events argument rather than
     // after the summary of it, so the terms below read as what both settle.
-    expect(html.indexOf('A name a stranger cannot take')).toBeLessThan(
+    expect(html.indexOf('Claim it. Only your keys push')).toBeLessThan(
       html.indexOf('<h2>The rules.</h2>'),
     )
   })
@@ -757,7 +831,7 @@ describe('the section that argues for holding a name', () => {
 
   test('with Signer Lists off, the whole section is absent', () => {
     const html = renderLanding(HOST, caps(SEED))
-    expect(html).not.toContain('A name a stranger cannot take')
+    expect(html).not.toContain('Claim it. Only your keys push')
     expect(html).not.toContain('refs/walgit/signers')
     expect(html).not.toContain('{{')
   })
@@ -768,7 +842,7 @@ describe('the section that argues for holding a name', () => {
   // included, is refused for carrying no certificate.
   test('and the flag alone does not earn it: with no seed, there is no section', () => {
     const html = renderLanding(HOST, caps(GATE))
-    expect(html).not.toContain('A name a stranger cannot take')
+    expect(html).not.toContain('Claim it. Only your keys push')
     expect(html).not.toContain('{{')
   })
 })
@@ -892,7 +966,7 @@ describe('the roadmap', () => {
     // And still sends nobody to claim anything on a host where no push can be
     // signed: no ref, no command, no section.
     expect(html).not.toContain('refs/walgit/signers')
-    expect(html).not.toContain('A name a stranger cannot take')
+    expect(html).not.toContain('Claim it. Only your keys push')
   })
 
   /**

@@ -159,6 +159,38 @@ function permanence(caps: Capabilities): string {
 }
 
 /**
+ * The chapter break before the client.
+ *
+ * The two sections above it are about the host: get a repository, own it. The
+ * two below are about a different problem — several agents inside one branch,
+ * none knowing what the others just did — and the thing that solves it is not
+ * the host but a command run in the clone. Without a break the page slides
+ * from one into the other and a reader takes the socket for another feature
+ * of the same thing. A rule, a kicker, a heading, one paragraph and the
+ * command: it names the problem and the client and hands over the one thing
+ * to run, and argues nothing — the two sections under it are the argument.
+ * The command lives here rather than beside the socket because it is the
+ * client's, not the socket's: both sections below are what it does.
+ *
+ * Gated on `events` exactly as they are: no socket, no client to introduce.
+ */
+function clientChapter(caps: Capabilities): string {
+  if (!caps.events) return ''
+  return `
+    <section class="chapter">
+      <span class="kicker">the client</span>
+      <h2>Many agents, one branch.</h2>
+      <p>Getting a repository is solved above. Keeping several agents straight inside one is the other problem, and git has no opinion on it. <code>@zabaca/agentgit</code> is one command, run in the clone, that keeps it current and speaks only when it matters.</p>
+      <div class="term term-solo">
+        <pre id="watch-cmd"><span class="p">$</span> bunx @zabaca/agentgit watch</pre>
+        <button class="copy" id="copy-watch" type="button" aria-live="polite" aria-label="Copy the watch command">Copy</button>
+      </div>
+      <p class="under"><span>npx</span> too · <span>--once</span> waits for the handoff</p>
+    </section>
+`
+}
+
+/**
  * The one argument the two commands in the hero do not already make.
  *
  * One section and one illustration, and both were arrived at by deleting. The
@@ -190,14 +222,6 @@ function eventsSection(host: string, caps: Capabilities): string {
       </div>
 
       <div class="split-show">
-        <div>
-          <div class="term term-solo">
-            <pre id="watch-cmd"><span class="p">$</span> bunx @zabaca/agentgit watch</pre>
-            <button class="copy" id="copy-watch" type="button" aria-live="polite" aria-label="Copy the watch command">Copy</button>
-          </div>
-          <p class="under"><span>npx</span> too · <span>--once</span> waits for the handoff</p>
-        </div>
-
         <div class="panel wire" id="wire">
           <div class="panel-head">
             <span><span class="pulse"></span>${socket}</span>
@@ -536,7 +560,7 @@ function ownershipSection(caps: Capabilities): string {
   return `
     <section class="split">
       <div class="split-say">
-        <h2>A name a stranger cannot take.</h2>
+        <h2>Claim it. Only your keys push.</h2>
         <p>${ownershipCost(caps)}</p>
         <p><strong>Claiming one takes a single push.</strong> Write the fingerprints you trust to <code>${SIGNERS_REF}</code>; from then on only their pushes land. No account, no invite, no dashboard.</p>
         <p><strong>List two keys.</strong> There is nothing to reset, so a second one is your way back in.</p>
@@ -556,6 +580,125 @@ function ownershipSection(caps: Capabilities): string {
 </span><span class="ln"><span class="c">…</span>
 </span><span class="ln"><span class="ok">Nothing was uploaded; the repository is unchanged.</span></span></pre>
           <div class="panel-foot">Turned away before anything is uploaded. The message names a free name to use instead, and how to be added to this one.</div>
+        </div>
+      </div>
+    </section>
+`
+}
+
+/**
+ * Letting another agent push, which is the step the claim section leaves open.
+ *
+ * Two routes, rendered from `proposals`. Where Proposals are on, the new agent
+ * ASKS: a signed Proposal against the Signer List itself, carrying its own
+ * fingerprint line, and a Signer runs `agentgit accept` — which is the page's
+ * whole pitch (no invite, no seat, no dashboard) applied to access itself.
+ * Where they are off, what exists is the grant: a listed key adds the line and
+ * pushes the list signed, and the fingerprint reaches that key out of band.
+ *
+ * The Proposal-against-the-list target is ZBC-IJYLMD, landing alongside this;
+ * the ref spelling here (`refs/walgit/proposals/walgit/signers/<id>`) is the
+ * one that ticket's grammar has to admit, and `landing.test.ts` pins it so a
+ * different spelling fails here rather than shipping a command that 404s.
+ *
+ * The grant illustration is the DIFF, not the commands: those are the six the
+ * claim recipe needs and every shorter form is one that fails. The Proposal
+ * illustration IS commands, because there are exactly two and both are whole.
+ */
+function grantSection(host: string, caps: Capabilities): string {
+  if (!caps.namesCanBeClaimed) return ''
+
+  if (caps.proposals) {
+    return `
+    <section class="split">
+      <div class="split-say">
+        <h2>Let another agent push.</h2>
+        <p>A claimed name refuses the next agent too — that is what claiming is for. Letting one in is not a seat, a role or an invite: the agent asks, and a Signer says yes.</p>
+        <p><strong>The new agent proposes itself.</strong> A signed push of the Signer List with its own line added, to the Proposals namespace, from any key that may read the name.</p>
+        <p><strong>A Signer accepts.</strong> One command in its clone, and the next push from the new key lands. Nothing is retroactive, in either direction.</p>
+      </div>
+
+      <div class="split-show">
+        <div class="panel">
+          <div class="panel-head">
+            <span>the whole grant</span>
+          </div>
+          <pre class="tx"><span class="ln"><span class="c"># agent B, anywhere it may read the name.</span>
+</span><span class="ln"><span class="p">$</span> git push --signed=yes agentgit \\
+      HEAD:refs/walgit/proposals/walgit/signers/kq3LmW
+</span><span class="ln">
+<span class="c"># agent A, a Signer, in its clone.</span>
+</span><span class="ln"><span class="p">$</span> agentgit accept kq3LmW
+</span><span class="ln"><span class="ok">kq3LmW merged into ${SIGNERS_REF}</span></span></pre>
+          <div class="panel-foot">Two commands, one each. Nobody sent a fingerprint anywhere.</div>
+        </div>
+      </div>
+    </section>
+`
+  }
+
+  return `
+    <section class="split">
+      <div class="split-say">
+        <h2>Let another agent push.</h2>
+        <p>A claimed name refuses the next agent too — that is what claiming is for. Letting one in is a line in a file, not a seat, a role or an invite.</p>
+        <p><strong>The new agent sends its fingerprint.</strong> <code>ssh-keygen -lf</code> prints it. A listed key adds the line to <code>signers</code> and pushes the list, signed.</p>
+        <p><strong>The grant governs the next push.</strong> Nothing is retroactive, in either direction: remove the line the same way.</p>
+      </div>
+
+      <div class="split-show">
+        <div class="panel">
+          <div class="panel-head">
+            <span>the whole grant</span>
+          </div>
+          <pre class="tx"><span class="ln"><span class="c"># ${SIGNERS_REF}, one commit later</span>
+</span><span class="ln"><span class="c">--- a/signers</span>
+</span><span class="ln"><span class="c">+++ b/signers</span>
+</span><span class="ln"> SHA256:9fXbQ2…   <span class="c"># agent A</span>
+</span><span class="ln"><span class="ok">+SHA256:kq3LmW…   <span class="c"># agent B</span></span></span></pre>
+          <div class="panel-foot">Pushed by a key already on the list. Agent B's next push lands.</div>
+        </div>
+      </div>
+    </section>
+`
+}
+
+/**
+ * Going private, which is the second file on the same ref.
+ *
+ * Claimed is who may WRITE (`signers`); Private is who may READ (`readers`),
+ * beside it on the same commit chain, written by the same signed push. Three
+ * rules from `shared/llms.ts` are the ones every agent gets wrong, so the
+ * section states all three: an empty Reader List is valid and means only the
+ * Signers read; Signers read without being listed; and your own pushes are
+ * gated too, because a push begins with a read. The manual carries the fourth,
+ * which is the credential-helper line to run before writing the file.
+ *
+ * Gated on `namesCanBePrivate`, which already requires everything the claim
+ * section needs plus the private seed — so this never renders where the claim
+ * section does not.
+ */
+function privateSection(host: string, caps: Capabilities): string {
+  if (!caps.namesCanBePrivate) return ''
+
+  return `
+    <section class="split">
+      <div class="split-say">
+        <h2>Keep it to yourselves.</h2>
+        <p>Claimed says who may push. Everyone can still clone it, and work in progress is not always something to leave in the open.</p>
+        <p><strong>Private is a second file.</strong> Write <code>readers</code> beside <code>signers</code>, one fingerprint per line, and every clone, fetch and watch is refused unless the reader proves a listed key. Empty means only the Signers read.</p>
+        <p><strong>Signers read without being listed.</strong> So <code>readers</code> is for agents that may read and not push — and your own pushes are gated too, since a push begins with a read.</p>
+      </div>
+
+      <div class="split-show">
+        <div class="panel">
+          <div class="panel-head">
+            <span>what a stranger reads</span>
+          </div>
+          <pre class="tx"><span class="ln"><span class="p">$</span> git clone https://${host}/study-42.git
+</span><span class="ln"><span class="c">Cloning into 'study-42'...</span>
+</span><span class="ln"><span class="no">fatal: could not read Username for 'https://${host}'</span></span></pre>
+          <div class="panel-foot">A 401 is the whole answer: taken, and kept private by a Reader List. The manual has the one line that makes your own clone pass.</div>
         </div>
       </div>
     </section>
@@ -944,10 +1087,13 @@ export function renderLanding(
       .replace('{{ROADMAP_LEDE}}', () => roadmapLede(caps))
       .replace('{{ROADMAP_OWNERSHIP}}', () => roadmapOwnership(caps))
       .replace('{{ROADMAP_PULLS}}', () => roadmapPulls(caps))
+      .replace('{{CLIENT}}', () => clientChapter(caps))
       .replace('{{EVENTS}}', () => eventsSection(host, caps))
       .replace('{{COLLISION}}', () => collisionSection(host, caps))
       .replace('{{HANDOFF}}', () => handoffSection(host, caps))
       .replace('{{OWNERSHIP}}', () => ownershipSection(caps))
+      .replace('{{GRANT}}', () => grantSection(host, caps))
+      .replace('{{PRIVATE}}', () => privateSection(host, caps))
       .replace('{{CLOSE}}', () => closeSection(host, caps))
       .replace('{{FOOTER_LINKS}}', () => footerLinks(caps))
       .replace('{{WIRE_SCRIPT}}', () => (caps.events ? wireScript() : ''))
@@ -1484,6 +1630,26 @@ const PAGE = `<!doctype html>
     margin: 0;
   }
 
+  /* A chapter break: the rule says "different subject", the kicker names it,
+     and the paragraph is the widest prose on the page because it has no
+     illustration to share the row with. */
+  .chapter {
+    margin-top: 6rem;
+    padding-top: 2.5rem;
+    border-top: 1px solid var(--rule-2);
+  }
+  .chapter .kicker {
+    display: block;
+    font-family: var(--mono);
+    font-size: .72rem;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+    color: var(--verdi);
+    margin-bottom: 1rem;
+  }
+  .chapter p { max-width: 58ch; }
+  .chapter .term-solo { margin-top: 1.75rem; }
+
   /* The last block, and the only one after it is the footer. The command is
      the point of it, so the prose above is one line and the type is the
      hero's rather than a section's. */
@@ -1558,7 +1724,7 @@ const PAGE = `<!doctype html>
       </div>
     </div>
     <p class="under" id="repo-help">{{HERO_UNDER}}</p>
-{{HANDOFF}}{{OWNERSHIP}}{{EVENTS}}{{COLLISION}}
+{{HANDOFF}}{{OWNERSHIP}}{{GRANT}}{{PRIVATE}}{{CLIENT}}{{EVENTS}}{{COLLISION}}
     <section>
       <h2>The rules.</h2>
       <ul class="claims">
