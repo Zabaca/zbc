@@ -19,6 +19,15 @@ const EVENTS_PATH = '/_walgit/events'
 
 export interface WatchConfig {
   host: string
+  /**
+   * The remote's scheme and host, where the clone named one.
+   *
+   * Read for exactly one thing: a deployment served over plain http — a
+   * self-hosted node, a test — has a plain-ws event stream, and a subscriber
+   * that assumed TLS against it never connects. Absent means `wss`, which is
+   * every hosted deployment.
+   */
+  origin?: string | null
   token: string | null
   /**
    * The `Authorization` a Private repository's event stream needs, built fresh
@@ -53,10 +62,35 @@ export interface WatchConfig {
   pusher?:
     | ((proposal: { repo: string; id: string; target: string }) => Promise<string | null>)
     | null
+  /**
+   * Where the events go, instead of this process's stdout.
+   *
+   * Everything a watcher reports already funnels through one `Emit`, so a
+   * caller that is not a terminal — the MCP server, whose stdout belongs to the
+   * transport — substitutes a sink here rather than parsing lines back out of a
+   * pipe. Absent means the CLI's own printer, and `--json` picks its format.
+   */
+  emit?: Emit | null
+  /**
+   * The watcher stopped, and why.
+   *
+   * `'once'` is `--once` satisfied; `'refused'` is the host naming what it
+   * refused. The exit code is the caller's to decide, which is what lets the
+   * same watcher be a command and a library call.
+   */
+  onDone?: ((reason: WatchStop) => void) | null
+}
+
+/** Why a watcher stopped on purpose, as opposed to dropping and reconnecting. */
+export type WatchStop = 'once' | 'refused'
+
+/** A running watcher, for a caller that has to be able to stop it. */
+export interface Watcher {
+  close(): void
 }
 
 /** Everything printed goes through here, so `--json` is a format and not a fork. */
-type Emit = (event: string, fields: Record<string, unknown>, human: string) => void
+export type Emit = (event: string, fields: Record<string, unknown>, human: string) => void
 
 function makeEmit(json: boolean): Emit {
   if (json) {
@@ -149,14 +183,28 @@ export function route(
   return { kind: 'ref', merged: interest.proposals ? [...(event.merged ?? [])] : [] }
 }
 
-export function watch(config: WatchConfig): void {
-  const emit = makeEmit(config.json)
+export function watch(config: WatchConfig): Watcher {
+  const emit = config.emit ?? makeEmit(config.json)
   /** The collision each watched ref last reported, so repeats stay quiet. */
   const standing = new Map<string, string>()
   let attempt = 0
   let closing = false
   /** The live socket, so a Proposal's pusher can arrive after the message did. */
   let socket: WebSocket | null = null
+
+  /**
+   * Stop for good, as opposed to the drop that `onclose` reconnects from.
+   *
+   * `closing` is what tells those two apart, so every deliberate stop goes
+   * through here — including the caller's, which is how a timeout ends a watch
+   * without racing the reconnect backoff.
+   */
+  const stop = (reason: WatchStop | null): void => {
+    if (closing) return
+    closing = true
+    socket?.close()
+    if (reason !== null) config.onDone?.(reason)
+  }
 
   /**
    * What one event does, and whether it satisfies `--once`.
@@ -200,10 +248,7 @@ export function watch(config: WatchConfig): void {
         .catch(() => null)
         .then((pusher) => {
           say(pusher)
-          if (!catchUp && config.once) {
-            closing = true
-            socket?.close()
-          }
+          if (!catchUp && config.once) stop('once')
         })
       return 'pending'
     }
@@ -280,7 +325,8 @@ export function watch(config: WatchConfig): void {
   }
 
   const connect = async (): Promise<void> => {
-    const url = `wss://${config.host}${EVENTS_PATH}`
+    const scheme = config.origin?.startsWith('http://') ? 'ws' : 'wss'
+    const url = `${scheme}://${config.host}${EVENTS_PATH}`
     const authorization = config.token
       ? `Bearer ${config.token}`
       : ((await config.credential?.().catch(() => null)) ?? null)
@@ -320,9 +366,7 @@ export function watch(config: WatchConfig): void {
       // over the cap — and is worth reading rather than retrying blindly.
       if (message.error) {
         emit('refused', { error: message.error }, `refused: ${message.error}`)
-        closing = true
-        live.close()
-        process.exitCode = 1
+        stop('refused')
         return
       }
 
@@ -350,10 +394,7 @@ export function watch(config: WatchConfig): void {
         false,
         message.merged ?? [],
       )
-      if (acted === true && config.once) {
-        closing = true
-        live.close()
-      }
+      if (acted === true && config.once) stop('once')
     }
 
     // Reconnect with a backoff, and nothing else: whatever moved while the
@@ -376,6 +417,61 @@ export function watch(config: WatchConfig): void {
   }
 
   void connect()
+  return { close: () => stop(null) }
+}
+
+/** What one event was, to a caller holding the events rather than printing them. */
+export interface WatchEvent {
+  event: string
+  fields: Record<string, unknown>
+}
+
+/** How a `watchOnce` ended, and everything it heard on the way. */
+export interface WatchOnceOutcome {
+  /** The watcher gave up on the clock rather than on a ref moving. */
+  timedOut: boolean
+  /** `'refused'` where the host named a refusal; `null` where nothing stopped it. */
+  stopped: WatchStop | null
+  events: WatchEvent[]
+}
+
+/**
+ * `--once`, for a caller that wants the answer rather than the output.
+ *
+ * The deadline is the only thing here that `watch` does not already do, and it
+ * exists because the caller is an agent's tool call: a socket that never moves
+ * is a watcher waiting forever, which as a CLI is a deliberate block and as a
+ * tool call is a hung session. Timing out is reported, never thrown — nothing
+ * moved is an answer.
+ */
+export function watchOnce(
+  config: Omit<WatchConfig, 'once' | 'emit' | 'onDone'>,
+  timeoutMs: number,
+): Promise<WatchOnceOutcome> {
+  return new Promise((resolve) => {
+    const events: WatchEvent[] = []
+    let settled = false
+    let timer: ReturnType<typeof setTimeout> | null = null
+    /** Null only for the window in which `watch` has not returned yet. */
+    let watcher: Watcher | null = null
+
+    const finish = (timedOut: boolean, stopped: WatchStop | null): void => {
+      if (settled) return
+      settled = true
+      if (timer !== null) clearTimeout(timer)
+      watcher?.close()
+      resolve({ timedOut, stopped, events })
+    }
+
+    watcher = watch({
+      ...config,
+      once: true,
+      emit: (event, fields) => events.push({ event, fields }),
+      onDone: (reason) => finish(false, reason),
+    })
+
+    timer = setTimeout(() => finish(true, null), timeoutMs)
+  })
 }
 
 /**

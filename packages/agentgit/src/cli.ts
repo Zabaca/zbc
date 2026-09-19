@@ -21,6 +21,7 @@ import { type AcceptClone, fetchProposals, realAcceptDeps, runAccept } from './a
 import { parseArgs, type WatchOptions } from './args'
 import { readAuthorization, realCredentialDeps, runCredential } from './credential'
 import { remoteList, symbolicHead, toplevel } from './git'
+import { realMcpDeps, runMcp } from './mcp'
 import { originOf, parseHead, parseRemoteList, pickRemote } from './remote'
 import { realSetupDeps, runSetup } from './setup'
 import { watch } from './watch'
@@ -34,6 +35,7 @@ USAGE
   agentgit accept <id>
   agentgit setup [<host>] [--local]
   agentgit credential get|store|erase
+  agentgit mcp
 
   Run it inside a clone with no arguments and it reads the host, the
   repository and the ref from the remote and the branch you are on.
@@ -78,6 +80,17 @@ PROPOSALS
   That is a fetch, a merge and a signed push of the branch, and nothing else:
   no squash and no rebase, because a Proposal is merged when its commit is an
   ancestor of the branch. A conflict stops it and leaves the tree for you.
+
+FROM AN AGENT
+
+  agentgit mcp is this same client as a stdio MCP server, so a harness can
+  call it rather than shelling out. Point one at it:
+
+    claude mcp add agentgit -- npx -y @zabaca/agentgit mcp
+
+  It offers agentgit_status, agentgit_watch_once, agentgit_accept and
+  agentgit_setup, and serves the host's own manual as agentgit://manual. It
+  speaks JSON-RPC on stdin and stdout; there is nothing to read here by eye.
 
 PRIVATE REPOSITORIES
   A walgit repository carrying a Reader List refuses every read until a listed
@@ -178,6 +191,7 @@ function resolve(options: WatchOptions): Parameters<typeof watch>[0] {
 
   return {
     host,
+    origin,
     token: options.token ?? envToken,
     // Only where no token was given: a deployment token and a Read Challenge
     // signature arrive in the same header, and presenting both is not a thing
@@ -196,6 +210,12 @@ function resolve(options: WatchOptions): Parameters<typeof watch>[0] {
     onChange: options.onChange,
     json: options.json,
     proposals: options.proposals,
+    // A refusal is the host naming what it refused, and a watcher that stopped
+    // because of one did not do what it was asked. `watch` reports the stop and
+    // leaves the exit code here, so the same watcher is also a library call.
+    onDone: (reason) => {
+      if (reason === 'refused') process.exitCode = 1
+    },
     // A Ref Event names a ref and a sha; the fingerprint that pushed a Proposal
     // is the Proposals read's (docs/adr/0018), so it is a second call, made only
     // under the flag and only for the repository this clone belongs to.
@@ -258,6 +278,10 @@ switch (parsed.kind) {
     process.exitCode = accepted.code
     break
   }
+  case 'mcp':
+    // No output of any kind from here on: stdout is the transport.
+    await runMcp(realMcpDeps(VERSION))
+    break
   case 'setup': {
     const done = await runSetup({ host: parsed.host, global: parsed.global }, realSetupDeps())
     if (done.stdout) process.stdout.write(done.stdout)
