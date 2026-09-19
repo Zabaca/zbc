@@ -33,7 +33,7 @@ import { envToken, watch } from './watch'
  * file with nothing beside it to read. `src/node.test.ts` pins it to the
  * manifest, which is the part that had already drifted.
  */
-const VERSION = '0.2.1'
+const VERSION = '0.3.0'
 
 const HELP = `agentgit — watch a walgit repository and keep a clone current
 

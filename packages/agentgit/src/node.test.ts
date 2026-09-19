@@ -53,6 +53,12 @@ test('node runs it', () => {
 test('the version it reports is the version it is published as', async () => {
   const manifest = await Bun.file(new URL('../package.json', import.meta.url).pathname).json()
   expect(node('--version').stdout.trim()).toBe(manifest.version)
+  // The plugin manifest names the same release, so an install and an npx
+  // resolve to one version rather than two.
+  const plugin = await Bun.file(
+    new URL('../plugin/.claude-plugin/plugin.json', import.meta.url).pathname,
+  ).json()
+  expect(plugin.version).toBe(manifest.version)
 })
 
 test('a bad flag is named, under node, with a non-zero status', () => {
