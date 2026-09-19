@@ -350,3 +350,7 @@ Scope a ticket to what a Worker can do from a worktree. A Worker cannot deploy t
 ### Domain docs
 
 Linked at the top of this file. **Infrastructure** keeps its glossary at the root (`CONTEXT.md` + `docs/adr/`) because it spans `packages/cli/` and `packages/infra/`; **Agent** keeps its own under `packages/agent/`; **walgit** keeps its own with the package, so it ships to consumers (edit it at `packages/cli/templates/apps/walgit/CONTEXT.md`, never through the symlink); **agentgit** keeps its own under `packages/agentgit/`. See `docs/agents/domain.md` for how to maintain them.
+
+## License
+
+[MIT](./LICENSE) — Copyright (c) 2026 Zabaca.

@@ -1,5 +1,6 @@
 {
   "name": "secret-relay",
+  "license": "MIT",
   "private": true,
   "type": "module",
   "description": "zbc Secret Relay — brokers E2E-encrypted Secret Requests between the CLI and a browser",

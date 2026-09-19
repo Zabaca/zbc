@@ -40,6 +40,9 @@ on:
       - 'packages/infra/**'
       - 'tsconfig.json'
       - 'scripts/**'
+      - 'LICENSE'
+      - 'packages/*/package.json'
+      - 'packages/cli/templates/apps/*/package.json'
       - '.github/workflows/core-tests.yml'
   pull_request:
     paths:
@@ -48,6 +51,9 @@ on:
       - 'packages/infra/**'
       - 'tsconfig.json'
       - 'scripts/**'
+      - 'LICENSE'
+      - 'packages/*/package.json'
+      - 'packages/cli/templates/apps/*/package.json'
       - '.github/workflows/core-tests.yml'
   workflow_dispatch:
 
@@ -130,3 +136,13 @@ jobs:
       - name: Typecheck the modules consumers vendor
         run: bun run typecheck
         working-directory: packages/infra
+
+      # Every package agrees with the root LICENSE. A new package.json defaults
+      # to no license at all, and nothing notices until it is published under a
+      # licence the repository never granted — which is how four packages came
+      # to claim MIT on npm while the repository itself answered 404 to
+      # GitHub's license API. It also asserts packages/cli/LICENSE is still a
+      # byte-identical copy of the root one: `bun publish` carries only a
+      # LICENSE inside the package directory, so the text is committed twice.
+      - name: Check every package declares MIT
+        run: bun scripts/check-licenses.ts
