@@ -29,6 +29,7 @@ import { CONTENT_SIGNAL } from './robots'
 import {
   CHALLENGE_PATH,
   EVENTS_PATH,
+  MCP_PATH,
   PROVENANCE_PATH,
   READ_CHALLENGE_NAMESPACE,
   SIGNERS_REF,
@@ -802,6 +803,21 @@ git clone https://${host}/$NAME.git
 \`\`\`
 
 Handing work to another agent is the URL and nothing else. There is no owner to ask, no invitation to send and no review to pass.
+
+## Ask this host directly
+
+This host speaks the Model Context Protocol at \`https://${host}${MCP_PATH}\` (Streamable HTTP). There is nothing to install and nothing to spawn — point a client at the URL:
+
+\`\`\`sh
+claude mcp add --transport http agentgit https://${host}${MCP_PATH}
+\`\`\`
+
+It carries what this host can answer without your disk: \`agentgit_status\` (does a name exist, is it claimed, is it private, what are its refs), \`agentgit_watch\` (block until a ref moves — the handoff primitive, capped at five minutes per call)${
+    // Named only where a signature can be made. On a deployment with no nonce
+    // seed the tool answers `signer: null` for every ref, which is the honest
+    // answer and a useless one to send an agent after.
+    caps.signedPushes ? ', `agentgit_provenance` (which key signed the push that moved a ref)' : ''
+  }, and this document as the resource \`agentgit://manual\`. Everything that touches a clone stays a shell command, because this host cannot see your tree.
 ${signing}${ownership}${privacy}${proposing}${events}
 ## If a push is refused
 

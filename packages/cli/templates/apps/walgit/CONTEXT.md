@@ -197,3 +197,15 @@ not exist at all on a deployment that does not offer Proposals. *Superseded* is
 deliberately not reported: ADR-0018 admits it only if the same walk yields it
 free, and it does not.
 _Avoid_: list endpoint, PR list, the proposals API
+
+## The MCP endpoint
+
+**MCP Endpoint**:
+`/_walgit/mcp` — a Model Context Protocol server over Streamable HTTP, answered at the edge on every deployment (`shared/mcp.ts`, transported by `worker/mcp.ts`). The rule that decides what belongs on it: **it carries only what the host can answer without the agent's disk** — `agentgit_status` (a name's existence, its Claim, its Reader List, its refs), `agentgit_watch` (block until a ref moves), `agentgit_provenance` (who signed the push that moved one), and the manual as the resource `agentgit://manual`. Accepting a Proposal, writing a credential helper and fetching into a clone act on a tree the host cannot see, so they stay client commands.
+_Avoid_: "the API" — it is one more way to ask the questions the existing routes answer, not a second surface with its own answers.
+
+**The gate is not copied**:
+The MCP reads reach the host's own gated routes rather than re-deciding anything: `agentgit_status` and `agentgit_provenance` go through `PROVENANCE_PATH` (the deployment credential, then the Read Challenge on a Private name), and `agentgit_watch` subscribes to the **Fan-out** the way a **Watch** client does. A refusal is forwarded verbatim and is the *whole* answer — a Private name an unproven reader asked about leaks no refs, no existence and no lists alongside its 401, which is the property `info/refs` has.
+
+**The watch cap**:
+`agentgit_watch` holds a Worker request open, so the five-minute deadline is the **host's** and not the caller's: a longer `timeoutMs` is clamped, not honoured. Reaching it answers `{ timedOut: true }` — an answer, never an error — and calling again loses nothing, because a **Ref Event** is latest state and the next call is current state rather than a replay (ADR-0009).

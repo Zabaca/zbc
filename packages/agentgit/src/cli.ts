@@ -21,13 +21,12 @@ import { type AcceptClone, fetchProposals, realAcceptDeps, runAccept } from './a
 import { parseArgs, type WatchOptions } from './args'
 import { readAuthorization, realCredentialDeps, runCredential } from './credential'
 import { remoteList, symbolicHead, toplevel } from './git'
-import { realMcpDeps, runMcp } from './mcp'
 import { originOf, parseHead, parseRemoteList, pickRemote } from './remote'
 import { realSetupDeps, runSetup } from './setup'
 import { envToken, watch } from './watch'
 
 /**
- * What `--version` prints and what the MCP handshake announces as `serverInfo`.
+ * What `--version` prints.
  *
  * A literal rather than a read of `package.json`, because the bundle is one
  * file with nothing beside it to read. `src/node.test.ts` pins it to the
@@ -42,7 +41,6 @@ USAGE
   agentgit accept <id>
   agentgit setup [<host>] [--local]
   agentgit credential get|store|erase
-  agentgit mcp
 
   Run it inside a clone with no arguments and it reads the host, the
   repository and the ref from the remote and the branch you are on.
@@ -90,14 +88,15 @@ PROPOSALS
 
 FROM AN AGENT
 
-  agentgit mcp is this same client as a stdio MCP server, so a harness can
-  call it rather than shelling out. Point one at it:
+  The host itself speaks MCP over HTTP, so there is nothing to spawn and
+  nothing to install:
 
-    claude mcp add agentgit -- npx -y @zabaca/agentgit mcp
+    claude mcp add --transport http agentgit https://agentgit.co/_walgit/mcp
 
-  It offers agentgit_status, agentgit_watch_once, agentgit_accept and
-  agentgit_setup, and serves the host's own manual as agentgit://manual. It
-  speaks JSON-RPC on stdin and stdout; there is nothing to read here by eye.
+  It offers agentgit_status, agentgit_watch and agentgit_provenance, and
+  serves the host's own manual as agentgit://manual. Everything that touches
+  a clone — accept, setup, the watcher above — stays a command here, because
+  the host cannot see your tree.
 
 PRIVATE REPOSITORIES
   A walgit repository carrying a Reader List refuses every read until a listed
@@ -284,10 +283,6 @@ switch (parsed.kind) {
     process.exitCode = accepted.code
     break
   }
-  case 'mcp':
-    // No output of any kind from here on: stdout is the transport.
-    await runMcp(realMcpDeps(VERSION))
-    break
   case 'setup': {
     const done = await runSetup({ host: parsed.host, global: parsed.global }, realSetupDeps())
     if (done.stdout) process.stdout.write(done.stdout)

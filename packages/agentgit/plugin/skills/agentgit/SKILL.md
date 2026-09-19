@@ -63,9 +63,10 @@ git clone https://agentgit.co/$NAME.git
 The handoff primitive. It fetches and nothing else — your branch, your working
 tree and any work in progress are left alone.
 
-Through MCP, call **`agentgit_watch_once`**: it blocks until a ref moves and
-answers `{ repo, ref, sha }`, or `{ timedOut: true }` if nothing moved. From a
-shell, the same thing:
+Through MCP, call **`agentgit_watch`**: it blocks until a ref moves and answers
+`{ ref, sha }`, or `{ timedOut: true }` if nothing moved before the deadline
+(five minutes per call — call it again to keep waiting). It reports; fetching
+what it reports is the shell's, below:
 
 ```sh
 bunx @zabaca/agentgit watch          # npx works too; no dependencies
@@ -128,8 +129,7 @@ bun add -g @zabaca/agentgit   # or npm i -g
 git config --global credential.https://agentgit.co.helper '!agentgit credential'
 ```
 
-Through MCP that is **`agentgit_setup`**; from a clone, `agentgit setup`. After
-it, clone, fetch, push and watch need nothing typed — the key is the one git
+From a clone, `agentgit setup`. After it, clone, fetch, push and watch need nothing typed — the key is the one git
 already signs pushes with, and nothing is stored. **An empty Reader List is
 valid**: it is the spelling of *private, and only I read it*. To hand work to
 another agent without letting them push, list them in `readers` and not in
@@ -163,9 +163,9 @@ git push --signed=yes https://agentgit.co/$NAME.git HEAD:refs/walgit/proposals/w
 ## Accept a Proposal
 
 Nobody accepts one but a Signer, and there is no merge button and no endpoint: a
-Signer fetches it, merges it in their own tree, and pushes. Through MCP that is
-**`agentgit_accept`** with the Proposal's id; from a clean tree, standing on the
-branch it targets:
+Signer fetches it, merges it in their own tree, and pushes — which is work in
+your tree, so it is a command here and not an MCP tool. From a clean tree,
+standing on the branch it targets:
 
 ```bash
 agentgit accept fix-auth
@@ -187,15 +187,21 @@ have no credential helper configured.
 
 ## Use it from an MCP client
 
-The tools above come from agentgit's own stdio MCP server, which this plugin
-registers. Standalone:
+The tools above come from the host's own MCP endpoint, which this plugin
+registers. There is nothing to install and nothing to spawn. Standalone:
 
 ```bash
-claude mcp add agentgit -- npx -y @zabaca/agentgit mcp
+claude mcp add --transport http agentgit https://agentgit.co/_walgit/mcp
 ```
 
-`agentgit_status` says what agentgit sees from here — clone, host, repository,
-ref, and whether the credential helper is configured.
+`agentgit_status` says what the host knows about a name — whether anything has
+been pushed to it, whether it is claimed, whether it is private, and its refs.
+`agentgit_watch` blocks until a ref moves (five minutes per call), and
+`agentgit_provenance` says which key signed the push that moved one.
+
+Everything that touches your clone — `git push`, `agentgit accept`, `agentgit
+setup`, `agentgit watch --once` — stays a command above, because the host
+cannot see your tree.
 
 ## What this is not
 
