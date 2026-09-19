@@ -9,6 +9,7 @@
   },
   "files": [
     "CHANGELOG.md",
+    "LICENSE",
     "bin",
     "src",
     "templates",
