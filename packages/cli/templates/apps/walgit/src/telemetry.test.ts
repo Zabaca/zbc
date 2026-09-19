@@ -64,6 +64,29 @@ describe('classifyRequest', () => {
     expect(classifyRequest('GET', '/_walgit/provenance', '').repo).toBe('')
   })
 
+  test('an MCP call is its own kind, and names no repository', () => {
+    // Its own kind for the reason provenance is: `other` is the unroutable
+    // bucket, and an endpoint walgit answers should not be counted as one it
+    // does not route. The repository a tool call names is INSIDE the JSON-RPC
+    // body, which is not something a classifier reads — so the kind is the
+    // whole of what this row carries.
+    expect(classifyRequest('POST', '/_walgit/mcp', '')).toEqual({ kind: 'mcp', repo: '' })
+    expect(classifyRequest('GET', '/_walgit/mcp', '').kind).toBe('mcp')
+  })
+
+  test('a repository named mcp is still reached under the reserved prefix', () => {
+    // `/_walgit/` is reserved and a repository is reached at `/<name>.git/…`,
+    // so the route above cannot shadow one — the same argument every other
+    // edge-answered path carries.
+    expect(
+      classifyRequest('GET', '/_walgit/mcp.git/info/refs', '?service=git-upload-pack'),
+    ).toEqual({ kind: 'other', repo: '', bucket: 'else' })
+    expect(classifyRequest('GET', '/mcp.git/info/refs', '?service=git-upload-pack')).toEqual({
+      kind: 'clone-advertise',
+      repo: 'mcp',
+    })
+  })
+
   test('dumb-HTTP and unknown paths are other, and name no repository', () => {
     expect(classifyRequest('GET', '/alpha.git/info/refs', '')).toEqual({
       kind: 'other',

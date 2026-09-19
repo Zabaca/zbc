@@ -147,6 +147,26 @@ export const READ_CHALLENGE_SCHEME = 'walgit-ssh'
 export const EVENTS_PATH = '/_walgit/events'
 
 /**
+ * The Model Context Protocol endpoint (Streamable HTTP), answered at the edge.
+ *
+ * An MCP client reaches walgit by URL, so there is nothing to install and
+ * nothing to spawn — which is the whole reason it is here rather than in a
+ * package an agent's harness has to start. It carries only what the host can
+ * answer without the agent's disk: a name's state, a ref moving, who pushed it,
+ * and the manual. Everything that touches a clone stays a shell command.
+ *
+ * Under `/_walgit/` like health, events and provenance, and for the same
+ * reason: the prefix is reserved, and a repository is reached at
+ * `/<name>.git/…`, so this route cannot shadow one — not even a repository
+ * actually called `mcp`, which lives at `/mcp.git/…`.
+ *
+ * Both verbs, on one path: Streamable HTTP puts client messages on POST and the
+ * server-to-client stream on GET, and a transport that claimed only one of them
+ * is a client that connects and then hears nothing.
+ */
+export const MCP_PATH = '/_walgit/mcp'
+
+/**
  * Where the container publishes a push it has already made durable.
  *
  * The container reaches the Worker over the public internet, so unlike the

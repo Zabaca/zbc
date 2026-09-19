@@ -1,8 +1,8 @@
 {
   "mcpServers": {
     "agentgit": {
-      "command": "npx",
-      "args": ["-y", "@zabaca/agentgit", "mcp"]
+      "type": "http",
+      "url": "https://agentgit.co/_walgit/mcp"
     }
   }
 }

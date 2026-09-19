@@ -25,6 +25,7 @@
 
 import {
   HEALTH_PATH,
+  MCP_PATH,
   PROVENANCE_PATH,
   REJECT_HEADER,
   REPO_ID,
@@ -72,6 +73,13 @@ export type RequestKind =
   // demand for the feature and any refusal it produces, and would lose the
   // repository name with them.
   | 'provenance'
+  // An MCP client calling a tool (`shared/mcp.ts`), answered at the edge like
+  // the documents above. Its own kind rather than `other` for the reason
+  // `provenance` is, and one kind for the whole endpoint rather than one per
+  // tool: the tool and the repository it names are inside a JSON-RPC body, and
+  // a classifier that read request bodies to label a row would be buffering
+  // every push to count it.
+  | 'mcp'
   | 'other'
 
 export type Outcome = 'ok' | 'reject'
@@ -143,6 +151,9 @@ export function otherBucket(pathname: string): OtherBucket {
  */
 export function classifyRequest(method: string, pathname: string, search: string): RequestFacts {
   if (pathname === HEALTH_PATH) return { kind: 'health', repo: '' }
+  // No repository: the name a tool acts on travels in the JSON-RPC body, and
+  // the body is not something this function reads (see `RequestKind`).
+  if (pathname === MCP_PATH) return { kind: 'mcp', repo: '' }
   if (pathname === '/' && (method === 'GET' || method === 'HEAD')) {
     return { kind: 'instructions', repo: '' }
   }

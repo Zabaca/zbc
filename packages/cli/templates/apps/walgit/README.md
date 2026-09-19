@@ -434,6 +434,47 @@ A repository is created on first contact: pushing to a name nobody has used
 creates it, with `receive.unpackLimit=0` so even a tiny push is retained as a
 packfile (what the WAL will upload).
 
+### The MCP endpoint
+
+`/_walgit/mcp` is a Model Context Protocol server over Streamable HTTP
+(`shared/mcp.ts` builds it, `worker/mcp.ts` transports it), answered at the edge
+on every deployment. An MCP client reaches it by URL — nothing to install,
+nothing to spawn:
+
+```bash
+claude mcp add --transport http agentgit https://<worker-host>/_walgit/mcp
+```
+
+It carries only what the host can answer **without the agent's disk**:
+
+| tool | what it answers |
+| --- | --- |
+| `agentgit_status` | does a name exist, is it claimed, is it private, and its refs |
+| `agentgit_watch` | blocks until a ref moves; `{ ref, sha }` or `{ timedOut: true }`, capped at five minutes per call |
+| `agentgit_provenance` | which key signed the push that moved a ref |
+
+plus `agentgit://manual` as a resource — the same `renderLlms` output `/llms.txt`
+serves, from the same capabilities.
+
+The gate is the host's own and never a second copy: `status` and `provenance`
+both go through the container's `PROVENANCE_PATH`, which already sits behind
+exactly the credential a clone needs and already applies the Read Challenge for
+a Private name, so an unproven reader is refused there and the refusal is
+forwarded verbatim. `watch` subscribes to the ref-event Durable Object exactly
+as a WebSocket client does, so the Reader List is judged by the same code that
+judges a subscription — and it needs the event stream configured, saying so
+where it is not.
+
+Which means `status` and `provenance` **do** wake the container, and `status`
+twice (the gated provenance read, then `REFS_PATH`). Refs are authoritative in
+the Index, the Index is reachable only with the container's object-store
+credentials, and the gate is the container's — an edge answer would need a
+second verifier and a second reader, which is what
+[ADR-0013](../../../../../docs/adr/0013-a-name-can-refuse-a-stranger-reading.md)
+and [ADR-0007](../../../../../docs/adr/0007-walgit-object-storage-holds-the-log.md)
+each refuse. The protocol itself, `agentgit_watch` and the manual are answered
+at the edge and touch it not at all.
+
 ## Deployment
 
 Through the `cloudflare` module, never by hand — `zbc apply <env>`. The Worker

@@ -186,34 +186,37 @@ retroactive in either direction.
 ## Use from an agent
 
 An agent finds a tool through the registry its harness already reads, not by
-being told a one-liner. So the same client is also a **stdio MCP server** and a
-**Claude Code plugin**, and neither is a second package:
+being told a one-liner. That registry entry is now a **URL on the host**, so
+there is nothing to install and nothing to spawn:
 
 ```sh
-claude mcp add agentgit -- npx -y @zabaca/agentgit mcp
+claude mcp add --transport http agentgit https://agentgit.co/_walgit/mcp
 ```
 
 ```sh
 claude plugin marketplace add Zabaca/zbc && claude plugin install agentgit@zbc
 ```
 
-`npx` rather than `bunx` in both, and in the plugin's `.mcp.json`: the command
-is spawned by whatever harness the *consumer* runs, and node is the runtime an
-MCP client can be assumed to have. `bunx` works identically where bun is there —
-this package is published to run under both, and `src/node.test.ts` is what
-keeps that true.
+It used to be a stdio server this package started (`npx -y @zabaca/agentgit
+mcp`), and both ways it failed to connect were spawn problems rather than
+protocol ones: a cold npx cache racing the client's startup timeout, and a
+workspace checkout resolving the unlinked package. A URL has neither.
 
-The first registers the server alone. The second adds it *and* the `agentgit`
+The first registers the endpoint alone. The second adds it *and* the `agentgit`
 skill — push-to-create, claiming a name with a Signer List, Reader Lists,
 Proposals, accepting one, watching, and the credential helper, each with the
 command the host's own manual states (a test asserts they cannot drift apart).
 
-The server offers `agentgit_status`, `agentgit_watch_once` (the handoff: block
-until a ref moves, answer `{ repo, ref, sha }`, or `{ timedOut: true }`),
-`agentgit_accept` and `agentgit_setup`, and serves the host's `llms.txt` as the
-`agentgit://manual` resource. Every tool is the function the matching CLI verb
-calls, so a refusal reads the same either way. `agentgit mcp` speaks JSON-RPC on
-stdin and stdout and prints nothing else.
+The endpoint offers `agentgit_status` (does a name exist, is it claimed, is it
+private, what are its refs), `agentgit_watch` (the handoff: block until a ref
+moves, answer `{ ref, sha }` or `{ timedOut: true }`, capped at five minutes per
+call) and `agentgit_provenance` (which key signed the push that moved a ref),
+and serves the host's `llms.txt` as the `agentgit://manual` resource.
+
+**It carries only what the host can answer without your disk.** Accepting a
+Proposal, configuring the credential helper and fetching into a clone stay
+commands in this CLI and in the skill, because they act on a tree the host
+cannot see — a tool that pretended otherwise could only fail.
 
 ## There is still no SDK
 

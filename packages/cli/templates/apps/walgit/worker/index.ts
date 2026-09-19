@@ -52,6 +52,7 @@ import {
   EXPIRE_PATH,
   INTERNAL_HEADER,
   INTERNAL_HEADERS,
+  MCP_PATH,
   SERVED_HEADER,
 } from '../shared/protocol'
 import {
@@ -61,6 +62,7 @@ import {
   type RequestMetric,
 } from '../shared/telemetry'
 import { BROADCAST_PATH, EVENTS_OBJECT_NAME, WalgitEvents } from './events-do'
+import { handleMcp } from './mcp'
 // The card's picture, as bytes in the bundle (wrangler.jsonc's `Data` rule).
 // Rendered once by `scripts/render-og-image.ts` in the zbc repository and
 // committed — never drawn per request.
@@ -533,6 +535,50 @@ export default {
     // `post-receive` had no URL to announce to.
     if ((url.pathname === EVENTS_PATH || url.pathname === ANNOUNCE_PATH) && caps.events) {
       return events(request, url, env, caps)
+    }
+
+    // The MCP endpoint (`shared/mcp.ts`), answered at the edge like the two
+    // documents above: a tool call is a question about a name, and the manual
+    // it also serves is rendered from these same capabilities rather than
+    // fetched. Unconditionally routed, unlike the socket above — the endpoint
+    // is a read surface that exists on every deployment, and the one tool that
+    // needs the stream (`agentgit_watch`) says so itself where it is off.
+    //
+    // Same collision argument as `/llms.txt` and its neighbours, and stronger:
+    // `/_walgit/` is reserved, and a repository called `mcp` is reached at
+    // `/mcp.git/…`, so this route cannot shadow one.
+    if (url.pathname === MCP_PATH) {
+      const response = await handleMcp(request, env, caps, operator, url.host)
+      record(env, ctx, {
+        // Classified rather than hand-labelled, so the kind this row carries
+        // and the kind `shared/telemetry.ts` names for this path cannot become
+        // two facts.
+        ...classifyRequest(request.method, url.pathname, url.search),
+        // From the HTTP status, and deliberately not from the JSON-RPC body:
+        // a tool that REFUSED — a Private name an unproven reader asked about —
+        // answers 200 carrying `isError`, and is counted `ok` here. That is the
+        // honest reading of this column (the request was served) and the only
+        // affordable one: seeing the refusal would mean buffering and parsing
+        // every response body to label a row. A refusal the endpoint makes at
+        // the HTTP level, a malformed JSON-RPC body's 400, is counted.
+        outcome: response.ok ? 'ok' : 'reject',
+        reject: response.ok ? '' : 'other',
+        status: response.status,
+        // The container answers `agentgit_status` and `agentgit_provenance`
+        // behind this, but the REQUEST was answered here — `served` is about
+        // which layer produced the response, and saying otherwise would make
+        // the `edge` refusal signal unreadable.
+        served: false,
+        cold: false,
+        ttfbMs: Date.now() - startedAt,
+        totalMs: Date.now() - startedAt,
+        // Not counted: an MCP body is small and may be a stream held open for
+        // five minutes by `agentgit_watch`, and wrapping it to weigh it would
+        // hold the datapoint for the length of the wait.
+        bytesServed: 0,
+        bytesReceived: Number(request.headers.get('content-length') ?? '0') || 0,
+      })
+      return response
     }
 
     const facts = classifyRequest(request.method, url.pathname, url.search)

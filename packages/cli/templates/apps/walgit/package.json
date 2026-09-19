@@ -18,7 +18,11 @@
     "deploy": "wrangler deploy"
   },
   "dependencies": {
-    "aws4fetch": "^1.0.20"
+    "@hono/mcp": "^0.3.1",
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "aws4fetch": "^1.0.20",
+    "hono": "^4.12.30",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@cloudflare/containers": "^0.3.7",
