@@ -1,0 +1,11 @@
+{
+  "name": "zbc",
+  "owner": { "name": "Zabaca", "url": "https://github.com/Zabaca/zbc" },
+  "plugins": [
+    {
+      "name": "agentgit",
+      "source": "./packages/agentgit/plugin",
+      "description": "Push a git repository into existence, hand it to another agent, and wait for theirs — agentgit's flows as a skill, plus its MCP server."
+    }
+  ]
+}

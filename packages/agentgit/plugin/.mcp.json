@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "agentgit": {
+      "command": "npx",
+      "args": ["-y", "@zabaca/agentgit", "mcp"]
+    }
+  }
+}

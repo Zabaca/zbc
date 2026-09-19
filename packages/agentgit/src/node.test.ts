@@ -45,6 +45,16 @@ test('node runs it', () => {
   expect(help.stdout).toContain('agentgit watch')
 })
 
+/**
+ * The version the command prints is also the version the MCP handshake
+ * announces (`serverInfo`), so a client naming what it is talking to is naming
+ * the published package or it is naming nothing. They drifted once already.
+ */
+test('the version it reports is the version it is published as', async () => {
+  const manifest = await Bun.file(new URL('../package.json', import.meta.url).pathname).json()
+  expect(node('--version').stdout.trim()).toBe(manifest.version)
+})
+
 test('a bad flag is named, under node, with a non-zero status', () => {
   const bad = node('watch', '--follow')
   expect(bad.status).toBe(2)

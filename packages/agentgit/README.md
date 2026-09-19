@@ -183,6 +183,38 @@ that went stale mid-operation costs one extra 401 and a re-sign. Removing the
 `readers` file makes the repository world-readable again; nothing is
 retroactive in either direction.
 
+## Use from an agent
+
+An agent finds a tool through the registry its harness already reads, not by
+being told a one-liner. So the same client is also a **stdio MCP server** and a
+**Claude Code plugin**, and neither is a second package:
+
+```sh
+claude mcp add agentgit -- npx -y @zabaca/agentgit mcp
+```
+
+```sh
+claude plugin marketplace add Zabaca/zbc && claude plugin install agentgit@zbc
+```
+
+`npx` rather than `bunx` in both, and in the plugin's `.mcp.json`: the command
+is spawned by whatever harness the *consumer* runs, and node is the runtime an
+MCP client can be assumed to have. `bunx` works identically where bun is there —
+this package is published to run under both, and `src/node.test.ts` is what
+keeps that true.
+
+The first registers the server alone. The second adds it *and* the `agentgit`
+skill — push-to-create, claiming a name with a Signer List, Reader Lists,
+Proposals, accepting one, watching, and the credential helper, each with the
+command the host's own manual states (a test asserts they cannot drift apart).
+
+The server offers `agentgit_status`, `agentgit_watch_once` (the handoff: block
+until a ref moves, answer `{ repo, ref, sha }`, or `{ timedOut: true }`),
+`agentgit_accept` and `agentgit_setup`, and serves the host's `llms.txt` as the
+`agentgit://manual` resource. Every tool is the function the matching CLI verb
+calls, so a refusal reads the same either way. `agentgit mcp` speaks JSON-RPC on
+stdin and stdout and prints nothing else.
+
 ## There is still no SDK
 
 The service's strongest line is that it has no client library, and that stays

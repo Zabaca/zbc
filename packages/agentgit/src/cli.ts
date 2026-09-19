@@ -21,11 +21,19 @@ import { type AcceptClone, fetchProposals, realAcceptDeps, runAccept } from './a
 import { parseArgs, type WatchOptions } from './args'
 import { readAuthorization, realCredentialDeps, runCredential } from './credential'
 import { remoteList, symbolicHead, toplevel } from './git'
+import { realMcpDeps, runMcp } from './mcp'
 import { originOf, parseHead, parseRemoteList, pickRemote } from './remote'
 import { realSetupDeps, runSetup } from './setup'
-import { watch } from './watch'
+import { envToken, watch } from './watch'
 
-const VERSION = '0.1.0'
+/**
+ * What `--version` prints and what the MCP handshake announces as `serverInfo`.
+ *
+ * A literal rather than a read of `package.json`, because the bundle is one
+ * file with nothing beside it to read. `src/node.test.ts` pins it to the
+ * manifest, which is the part that had already drifted.
+ */
+const VERSION = '0.2.1'
 
 const HELP = `agentgit — watch a walgit repository and keep a clone current
 
@@ -34,6 +42,7 @@ USAGE
   agentgit accept <id>
   agentgit setup [<host>] [--local]
   agentgit credential get|store|erase
+  agentgit mcp
 
   Run it inside a clone with no arguments and it reads the host, the
   repository and the ref from the remote and the branch you are on.
@@ -79,6 +88,17 @@ PROPOSALS
   no squash and no rebase, because a Proposal is merged when its commit is an
   ancestor of the branch. A conflict stops it and leaves the tree for you.
 
+FROM AN AGENT
+
+  agentgit mcp is this same client as a stdio MCP server, so a harness can
+  call it rather than shelling out. Point one at it:
+
+    claude mcp add agentgit -- npx -y @zabaca/agentgit mcp
+
+  It offers agentgit_status, agentgit_watch_once, agentgit_accept and
+  agentgit_setup, and serves the host's own manual as agentgit://manual. It
+  speaks JSON-RPC on stdin and stdout; there is nothing to read here by eye.
+
 PRIVATE REPOSITORIES
   A walgit repository carrying a Reader List refuses every read until a listed
   key signs the host's challenge. agentgit setup writes the one config line
@@ -117,7 +137,7 @@ function fail(message: string): never {
  */
 function resolve(options: WatchOptions): Parameters<typeof watch>[0] {
   const envHost = process.env.AGENTGIT_HOST ?? process.env.WALGIT_HOST ?? null
-  const envToken = process.env.AGENTGIT_TOKEN ?? process.env.WALGIT_TOKEN ?? null
+  const presented = envToken()
 
   let host = options.host ?? envHost
   let remoteName = 'origin'
@@ -178,14 +198,15 @@ function resolve(options: WatchOptions): Parameters<typeof watch>[0] {
 
   return {
     host,
-    token: options.token ?? envToken,
+    origin,
+    token: options.token ?? presented,
     // Only where no token was given: a deployment token and a Read Challenge
     // signature arrive in the same header, and presenting both is not a thing
     // one request can do. Re-derived on every connect rather than cached — a
     // nonce stands for five minutes, and a stale one is a socket that is
     // refused rather than one that reconnects.
     credential:
-      (options.token ?? envToken) !== null
+      (options.token ?? presented) !== null
         ? null
         : () => readAuthorization(origin ?? `https://${host}`, realCredentialDeps()),
     targets,
@@ -196,6 +217,12 @@ function resolve(options: WatchOptions): Parameters<typeof watch>[0] {
     onChange: options.onChange,
     json: options.json,
     proposals: options.proposals,
+    // A refusal is the host naming what it refused, and a watcher that stopped
+    // because of one did not do what it was asked. `watch` reports the stop and
+    // leaves the exit code here, so the same watcher is also a library call.
+    onDone: (reason) => {
+      if (reason === 'refused') process.exitCode = 1
+    },
     // A Ref Event names a ref and a sha; the fingerprint that pushed a Proposal
     // is the Proposals read's (docs/adr/0018), so it is a second call, made only
     // under the flag and only for the repository this clone belongs to.
@@ -210,7 +237,7 @@ function resolve(options: WatchOptions): Parameters<typeof watch>[0] {
             repo,
             branch: target,
           }
-          const listing = await fetchProposals(clone, options.token ?? envToken)
+          const listing = await fetchProposals(clone, options.token ?? presented)
           return listing.find((entry) => entry.id === id && entry.target === target)?.pusher ?? null
         }
       : null,
@@ -251,13 +278,16 @@ switch (parsed.kind) {
     // The same token `watch` takes from the environment: a deployment gate and
     // a Read Challenge signature arrive in one header, and where a token is set
     // it is the one to present.
-    const token = process.env.AGENTGIT_TOKEN ?? process.env.WALGIT_TOKEN ?? null
-    const accepted = await runAccept({ id: parsed.id }, realAcceptDeps(process.cwd(), token))
+    const accepted = await runAccept({ id: parsed.id }, realAcceptDeps(process.cwd(), envToken()))
     if (accepted.stdout) process.stdout.write(accepted.stdout)
     if (accepted.stderr) process.stderr.write(accepted.stderr)
     process.exitCode = accepted.code
     break
   }
+  case 'mcp':
+    // No output of any kind from here on: stdout is the transport.
+    await runMcp(realMcpDeps(VERSION))
+    break
   case 'setup': {
     const done = await runSetup({ host: parsed.host, global: parsed.global }, realSetupDeps())
     if (done.stdout) process.stdout.write(done.stdout)

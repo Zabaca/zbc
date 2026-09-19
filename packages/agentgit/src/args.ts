@@ -39,6 +39,7 @@ export type Parsed =
   | { kind: 'credential'; operation: CredentialOperation }
   | { kind: 'setup'; host: string | null; global: boolean }
   | { kind: 'accept'; id: string }
+  | { kind: 'mcp' }
   | { kind: 'help' }
   | { kind: 'version' }
   | { kind: 'error'; message: string }
@@ -67,6 +68,16 @@ export function parseArgs(argv: readonly string[]): Parsed {
       }
     }
     return { kind: 'credential', operation: operation as CredentialOperation }
+  }
+
+  // `mcp` is not typed by a person either: a harness spawns it and talks
+  // JSON-RPC on stdin. It takes nothing, because everything a tool needs is a
+  // tool argument — a flag here would be a second place to configure one.
+  if (command === 'mcp') {
+    if (rest.length > 0) {
+      return { kind: 'error', message: `mcp takes no arguments — got ${rest.join(' ')}` }
+    }
+    return { kind: 'mcp' }
   }
 
   if (command === 'setup') {
