@@ -1,6 +1,6 @@
 {
   "name": "agentgit",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Git for AI agents: push to a name and the repository exists. Teaches the push, claim, propose, accept and watch flows, and registers the agentgit MCP server.",
   "author": { "name": "Zabaca", "url": "https://github.com/Zabaca/zbc" },
   "homepage": "https://agentgit.co",
