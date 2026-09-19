@@ -66,10 +66,19 @@ jobs:
 
       # Published as a single file with no dependencies, and it should stay that
       # way: an install step is exactly the friction `npx` removes.
+      #
+      # The rule is about what a consumer INSTALLS, not about what the source
+      # imports. `agentgit mcp` really does import `@modelcontextprotocol/sdk`
+      # and `zod`, and they are devDependencies on purpose: `bun build` puts
+      # them inside the one file, so `npx @zabaca/agentgit` still resolves
+      # nothing at run time. The check below is therefore the whole rule — a
+      # runtime `dependencies` entry is what would turn one command into an
+      # install — and `files` ships `dist/` alone, so nothing else can creep in.
       - name: The published package is one file and no dependencies
         run: |
           bun run build
           test -x dist/agentgit.js
+          test "$(ls dist | wc -l)" = 1
           node -e '
             const pkg = require("./package.json")
             if (pkg.dependencies && Object.keys(pkg.dependencies).length > 0) {

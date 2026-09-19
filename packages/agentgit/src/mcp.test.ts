@@ -25,6 +25,7 @@ const deps = (over: Partial<McpDeps> = {}): McpDeps => ({
   remoteList: () => REMOTE_V,
   symbolicHead: () => 'refs/heads/main\n',
   configGet: () => null,
+  token: () => null,
   watchOnce: async () => ({ timedOut: true, stopped: null, events: [] }),
   accept: async () => ({ stdout: '', stderr: '', code: 0 }),
   setup: async () => ({ stdout: '', stderr: '', code: 0 }),
@@ -120,6 +121,27 @@ describe('agentgit_watch_once', () => {
     expect(answer.repo).toBe('my-thing')
     expect(answer.ref).toBe('refs/heads/main')
     expect(answer.sha).toBe('d4e5f6a7b8c9')
+    expect(answer.event).toBe('fetched')
+  })
+
+  test('names the event, so a ref that was deleted is not read as a handoff', async () => {
+    const handlers = createHandlers(
+      deps({
+        watchOnce: async () => ({
+          timedOut: false,
+          stopped: 'once',
+          events: [{ event: 'deleted', fields: { repo: 'my-thing', ref: 'refs/heads/main' } }],
+        }),
+      }),
+    )
+
+    const answer = body(await handlers.watchOnce({}))
+
+    // A deleted ref carries no sha, so shape alone cannot tell it from a
+    // handoff that landed — the event name is what settles it.
+    expect(answer.event).toBe('deleted')
+    expect(answer.sha).toBeNull()
+    expect(answer.timedOut).toBe(false)
   })
 
   test('watches the branch the clone is on, for the repository the remote names', async () => {
@@ -170,7 +192,14 @@ describe('agentgit_watch_once', () => {
     const result = await handlers.watchOnce({ timeoutMs: 1 })
 
     expect(result.isError).toBeUndefined()
-    expect(body(result)).toEqual({ timedOut: true, repo: null, ref: null, sha: null, events: [] })
+    expect(body(result)).toEqual({
+      timedOut: true,
+      event: null,
+      repo: null,
+      ref: null,
+      sha: null,
+      events: [],
+    })
   })
 
   test('a refusal from the host comes back as an error naming what it refused', async () => {

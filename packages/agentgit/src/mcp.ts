@@ -24,8 +24,8 @@ import { git, remoteList, symbolicHead, toplevel } from './git'
 import { originOf, parseHead, parseRemoteList, pickRemote } from './remote'
 import type { SetupRequest, SetupResult } from './setup'
 import { helperConfigKey, realSetupDeps, runSetup } from './setup'
-import type { WatchConfig, WatchOnceOutcome } from './watch'
-import { watchOnce } from './watch'
+import type { WatchOnceConfig, WatchOnceOutcome } from './watch'
+import { envToken, watchOnce } from './watch'
 
 /** Where an agent with no clone is pointed, and the manual it is handed. */
 export const DEFAULT_HOST = 'agentgit.co'
@@ -54,12 +54,11 @@ export interface McpDeps {
   watchOnce(config: WatchOnceConfig, timeoutMs: number): Promise<WatchOnceOutcome>
   accept(id: string, cwd: string): Promise<AcceptResult>
   setup(request: SetupRequest): Promise<SetupResult>
+  /** The deployment token to present, where one is set. */
+  token(): string | null
   /** The host's own `/llms.txt`, which is the manual a person would read. */
   manual(host: string): Promise<string>
 }
-
-/** What `watchOnce` is handed, minus the parts only the CLI decides. */
-export type WatchOnceConfig = Omit<WatchConfig, 'once' | 'emit' | 'onDone'>
 
 /** An MCP tool result, in the shape `registerTool` hands straight back. */
 export interface ToolResult {
@@ -136,6 +135,9 @@ const TERMINAL_EVENTS = new Set(['fetched', 'moved', 'deleted', 'proposal'])
 
 const stringOrNull = (value: unknown): string | null => (typeof value === 'string' ? value : null)
 
+/** Where a tool acts, when the caller did not say. */
+const cwdOf = (input: { cwd?: string }) => input.cwd ?? process.cwd()
+
 export interface Handlers {
   status(input: { cwd?: string }): Promise<ToolResult>
   watchOnce(input: {
@@ -150,8 +152,6 @@ export interface Handlers {
 }
 
 export function createHandlers(deps: McpDeps): Handlers {
-  const cwdOf = (input: { cwd?: string }) => input.cwd ?? process.cwd()
-
   return {
     async status(input) {
       const found = discover(deps, cwdOf(input))
@@ -183,7 +183,7 @@ export function createHandlers(deps: McpDeps): Handlers {
         {
           host: found.host,
           origin: found.origin,
-          token: process.env.AGENTGIT_TOKEN ?? process.env.WALGIT_TOKEN ?? null,
+          token: deps.token(),
           targets: new Map([[found.repo, found.root]]),
           refs: [ref],
           remoteName: found.remote ?? 'origin',
@@ -205,9 +205,13 @@ export function createHandlers(deps: McpDeps): Handlers {
         )
       }
 
-      const moved = [...outcome.events].reverse().find((entry) => TERMINAL_EVENTS.has(entry.event))
+      const moved = outcome.events.toReversed().find((entry) => TERMINAL_EVENTS.has(entry.event))
       return json({
         timedOut: outcome.timedOut,
+        // Named, because shape alone is ambiguous: a `deleted` ref carries no
+        // sha, and an answer of `{ sha: null, timedOut: false }` would read as
+        // a handoff that landed.
+        event: moved?.event ?? null,
         repo: moved ? stringOrNull(moved.fields.repo) : null,
         ref: moved ? stringOrNull(moved.fields.ref) : null,
         sha: moved ? stringOrNull(moved.fields.sha) : null,
@@ -360,11 +364,8 @@ export function realMcpDeps(version: string): McpDeps {
       return run.code === 0 ? run.stdout.trim() : null
     },
     watchOnce,
-    accept: (id, cwd) =>
-      runAccept(
-        { id },
-        realAcceptDeps(cwd, process.env.AGENTGIT_TOKEN ?? process.env.WALGIT_TOKEN ?? null),
-      ),
+    token: envToken,
+    accept: (id, cwd) => runAccept({ id }, realAcceptDeps(cwd, envToken())),
     setup: (request) => runSetup(request, realSetupDeps()),
     async manual(host) {
       const response = await fetch(`https://${host}/llms.txt`)

@@ -24,9 +24,16 @@ import { remoteList, symbolicHead, toplevel } from './git'
 import { realMcpDeps, runMcp } from './mcp'
 import { originOf, parseHead, parseRemoteList, pickRemote } from './remote'
 import { realSetupDeps, runSetup } from './setup'
-import { watch } from './watch'
+import { envToken, watch } from './watch'
 
-const VERSION = '0.1.0'
+/**
+ * What `--version` prints and what the MCP handshake announces as `serverInfo`.
+ *
+ * A literal rather than a read of `package.json`, because the bundle is one
+ * file with nothing beside it to read. `src/node.test.ts` pins it to the
+ * manifest, which is the part that had already drifted.
+ */
+const VERSION = '0.2.1'
 
 const HELP = `agentgit — watch a walgit repository and keep a clone current
 
@@ -130,7 +137,7 @@ function fail(message: string): never {
  */
 function resolve(options: WatchOptions): Parameters<typeof watch>[0] {
   const envHost = process.env.AGENTGIT_HOST ?? process.env.WALGIT_HOST ?? null
-  const envToken = process.env.AGENTGIT_TOKEN ?? process.env.WALGIT_TOKEN ?? null
+  const presented = envToken()
 
   let host = options.host ?? envHost
   let remoteName = 'origin'
@@ -192,14 +199,14 @@ function resolve(options: WatchOptions): Parameters<typeof watch>[0] {
   return {
     host,
     origin,
-    token: options.token ?? envToken,
+    token: options.token ?? presented,
     // Only where no token was given: a deployment token and a Read Challenge
     // signature arrive in the same header, and presenting both is not a thing
     // one request can do. Re-derived on every connect rather than cached — a
     // nonce stands for five minutes, and a stale one is a socket that is
     // refused rather than one that reconnects.
     credential:
-      (options.token ?? envToken) !== null
+      (options.token ?? presented) !== null
         ? null
         : () => readAuthorization(origin ?? `https://${host}`, realCredentialDeps()),
     targets,
@@ -230,7 +237,7 @@ function resolve(options: WatchOptions): Parameters<typeof watch>[0] {
             repo,
             branch: target,
           }
-          const listing = await fetchProposals(clone, options.token ?? envToken)
+          const listing = await fetchProposals(clone, options.token ?? presented)
           return listing.find((entry) => entry.id === id && entry.target === target)?.pusher ?? null
         }
       : null,
@@ -271,8 +278,7 @@ switch (parsed.kind) {
     // The same token `watch` takes from the environment: a deployment gate and
     // a Read Challenge signature arrive in one header, and where a token is set
     // it is the one to present.
-    const token = process.env.AGENTGIT_TOKEN ?? process.env.WALGIT_TOKEN ?? null
-    const accepted = await runAccept({ id: parsed.id }, realAcceptDeps(process.cwd(), token))
+    const accepted = await runAccept({ id: parsed.id }, realAcceptDeps(process.cwd(), envToken()))
     if (accepted.stdout) process.stdout.write(accepted.stdout)
     if (accepted.stderr) process.stderr.write(accepted.stderr)
     process.exitCode = accepted.code

@@ -197,6 +197,12 @@ claude mcp add agentgit -- npx -y @zabaca/agentgit mcp
 claude plugin marketplace add Zabaca/zbc && claude plugin install agentgit@zbc
 ```
 
+`npx` rather than `bunx` in both, and in the plugin's `.mcp.json`: the command
+is spawned by whatever harness the *consumer* runs, and node is the runtime an
+MCP client can be assumed to have. `bunx` works identically where bun is there —
+this package is published to run under both, and `src/node.test.ts` is what
+keeps that true.
+
 The first registers the server alone. The second adds it *and* the `agentgit`
 skill — push-to-create, claiming a name with a Signer List, Reader Lists,
 Proposals, accepting one, watching, and the credential helper, each with the

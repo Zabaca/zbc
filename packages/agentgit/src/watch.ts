@@ -325,11 +325,20 @@ export function watch(config: WatchConfig): Watcher {
   }
 
   const connect = async (): Promise<void> => {
+    // A stop that lands inside a backoff window has a reconnect already
+    // scheduled, and nothing cancels a timer that has not fired. As a command
+    // that is a process about to exit; as a library call inside a long-lived
+    // MCP server it is a socket that opens after the caller was answered and
+    // then reconnects forever. Checked here because this is the one place both
+    // paths pass through — including the `await` below, which is a second
+    // window in which a stop can arrive.
+    if (closing) return
     const scheme = config.origin?.startsWith('http://') ? 'ws' : 'wss'
     const url = `${scheme}://${config.host}${EVENTS_PATH}`
     const authorization = config.token
       ? `Bearer ${config.token}`
       : ((await config.credential?.().catch(() => null)) ?? null)
+    if (closing) return
     socket = authorization
       ? new WebSocket(url, { headers: { authorization } } as never)
       : new WebSocket(url)
@@ -420,6 +429,17 @@ export function watch(config: WatchConfig): Watcher {
   return { close: () => stop(null) }
 }
 
+/**
+ * The token a deployment gate takes, from the environment.
+ *
+ * One reading, in one place: `watch`, `accept` and every MCP tool present the
+ * same header, and two spellings of "which variable wins" would be two
+ * deployments' worth of confusion.
+ */
+export function envToken(): string | null {
+  return process.env.AGENTGIT_TOKEN ?? process.env.WALGIT_TOKEN ?? null
+}
+
 /** What one event was, to a caller holding the events rather than printing them. */
 export interface WatchEvent {
   event: string
@@ -444,10 +464,10 @@ export interface WatchOnceOutcome {
  * tool call is a hung session. Timing out is reported, never thrown — nothing
  * moved is an answer.
  */
-export function watchOnce(
-  config: Omit<WatchConfig, 'once' | 'emit' | 'onDone'>,
-  timeoutMs: number,
-): Promise<WatchOnceOutcome> {
+/** What `watchOnce` is handed: a watch, minus the parts it decides itself. */
+export type WatchOnceConfig = Omit<WatchConfig, 'once' | 'emit' | 'onDone'>
+
+export function watchOnce(config: WatchOnceConfig, timeoutMs: number): Promise<WatchOnceOutcome> {
   return new Promise((resolve) => {
     const events: WatchEvent[] = []
     let settled = false
