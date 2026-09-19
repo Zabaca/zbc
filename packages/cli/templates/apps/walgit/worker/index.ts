@@ -550,8 +550,17 @@ export default {
     if (url.pathname === MCP_PATH) {
       const response = await handleMcp(request, env, caps, operator, url.host)
       record(env, ctx, {
-        kind: 'mcp',
-        repo: '',
+        // Classified rather than hand-labelled, so the kind this row carries
+        // and the kind `shared/telemetry.ts` names for this path cannot become
+        // two facts.
+        ...classifyRequest(request.method, url.pathname, url.search),
+        // From the HTTP status, and deliberately not from the JSON-RPC body:
+        // a tool that REFUSED — a Private name an unproven reader asked about —
+        // answers 200 carrying `isError`, and is counted `ok` here. That is the
+        // honest reading of this column (the request was served) and the only
+        // affordable one: seeing the refusal would mean buffering and parsing
+        // every response body to label a row. A refusal the endpoint makes at
+        // the HTTP level, a malformed JSON-RPC body's 400, is counted.
         outcome: response.ok ? 'ok' : 'reject',
         reject: response.ok ? '' : 'other',
         status: response.status,

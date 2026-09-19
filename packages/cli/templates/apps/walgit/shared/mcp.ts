@@ -21,6 +21,17 @@
  * in `src/mcp.test.ts` with no runtime at all. `shared/`'s one rule holds: this
  * module imports no runtime, and both halves may compile it (docs/adr/0010).
  *
+ * **The names are protocol, not an opinion.** `walgit may gain capabilities,
+ * never opinions` (CONTEXT.md), and `agentgit_*` plus `agentgit://manual` look
+ * like one deployment's brand in the mechanism. They are not configurable for
+ * the same reason `refs/walgit/signers` is not: a client TYPES them. A skill,
+ * a plugin and a harness config all name a tool, so a deployment that renamed
+ * its tools would be a deployment no existing client can call — the opposite
+ * of what instance configuration is for. What IS per-deployment — the host,
+ * the capabilities, the operator, every limit in the manual — arrives through
+ * `McpDeps`, and every refusal below is prefixed `walgit:` like the rest of
+ * this package, because the mechanism is what refused.
+ *
  * The one rule it DOES own is the refusal: a read that the host refused is
  * reported as a refusal and nothing else. `status` on a Private name a caller
  * cannot prove a key for must not leak refs, existence or the lists alongside
@@ -121,7 +132,7 @@ const refuse = (message: string): ToolResult => ({
 function badName(name: string): string | null {
   return REPO_ID.test(name)
     ? null
-    : `agentgit: "${name}" is not a repository name here — one flat segment of letters, digits, dot, dash or underscore, starting with a letter or a digit.`
+    : `walgit: "${name}" is not a repository name here — one flat segment of letters, digits, dot, dash or underscore, starting with a letter or a digit.`
 }
 
 /**
@@ -144,7 +155,7 @@ export function createAgentgitMcp(deps: McpDeps): McpServer {
     'agentgit_status',
     {
       description:
-        'What the host knows about a repository name: whether anything has been pushed to it, whether it holds a Signer List (claimed, so a stranger cannot push), whether it holds a Reader List (private, so a stranger cannot read), and every ref with its sha. Reads only; creates nothing. A free name answers exists: false rather than an error, so this is how you check before claiming one.',
+        "What the host knows about a repository name: whether anything has been pushed to it, whether it holds a Signer List (claimed, so a stranger cannot push), whether it holds a Reader List (private, so a stranger cannot read), and every ref with its sha. Reads only; creates nothing. A free name answers exists: false rather than an error, so this is how you check before claiming one. signedPushes is the deployment's, not this name's: it says whether a push to anything here can be signed at all.",
       inputSchema: { name },
     },
     async (input): Promise<ToolResult> => {
@@ -179,6 +190,12 @@ export function createAgentgitMcp(deps: McpDeps): McpServer {
           .describe('A full ref name, e.g. refs/heads/main. Omit to watch every ref.'),
         timeoutMs: z
           .number()
+          .int()
+          // Positive, so a `0` or a negative does not become a watch that
+          // answers `{ timedOut: true }` before the socket is even open —
+          // which reads as "nothing moved" and is a claim about the repository
+          // rather than about the argument.
+          .positive()
           .optional()
           .describe(`How long to wait, capped at ${MAX_WATCH_MS}ms by the host.`),
       },
@@ -188,7 +205,7 @@ export function createAgentgitMcp(deps: McpDeps): McpServer {
       if (bad) return refuse(bad)
       const ref = input.ref ?? null
       if (ref !== null && !REF_NAME.test(ref)) {
-        return refuse(`agentgit: "${ref}" is not a full ref name — refs/heads/main, not main.`)
+        return refuse(`walgit: "${ref}" is not a full ref name — refs/heads/main, not main.`)
       }
       // The host's cap, not the caller's (see `MAX_WATCH_MS`).
       const timeoutMs = Math.min(input.timeoutMs ?? MAX_WATCH_MS, MAX_WATCH_MS)
@@ -200,7 +217,7 @@ export function createAgentgitMcp(deps: McpDeps): McpServer {
         // reach the event stream is a fact about this deployment, and a client
         // told only "failed" has nothing to retry against.
         return refuse(
-          `agentgit: could not watch ${input.name} on ${deps.host}: ${
+          `walgit: could not watch ${input.name} on ${deps.host}: ${
             error instanceof Error ? error.message : String(error)
           }`,
         )

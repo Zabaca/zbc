@@ -1,7 +1,7 @@
 {
   "name": "@zabaca/agentgit",
   "version": "0.3.0",
-  "description": "Watch a walgit repository and keep a clone current \u2014 one socket, no cursor, no config",
+  "description": "Watch a walgit repository and keep a clone current — one socket, no cursor, no config",
   "keywords": [
     "agentgit",
     "agents",

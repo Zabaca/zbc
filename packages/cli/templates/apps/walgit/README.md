@@ -465,6 +465,16 @@ as a WebSocket client does, so the Reader List is judged by the same code that
 judges a subscription — and it needs the event stream configured, saying so
 where it is not.
 
+Which means `status` and `provenance` **do** wake the container, and `status`
+twice (the gated provenance read, then `REFS_PATH`). Refs are authoritative in
+the Index, the Index is reachable only with the container's object-store
+credentials, and the gate is the container's — an edge answer would need a
+second verifier and a second reader, which is what
+[ADR-0013](../../../../../docs/adr/0013-a-name-can-refuse-a-stranger-reading.md)
+and [ADR-0007](../../../../../docs/adr/0007-walgit-object-storage-holds-the-log.md)
+each refuse. The protocol itself, `agentgit_watch` and the manual are answered
+at the edge and touch it not at all.
+
 ## Deployment
 
 Through the `cloudflare` module, never by hand — `zbc apply <env>`. The Worker

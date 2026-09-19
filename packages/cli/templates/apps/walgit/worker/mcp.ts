@@ -17,10 +17,22 @@
  *     `REFS_PATH` read that fills in the refs happens ONLY after that refusal
  *     did not come, because it is `INTERNAL_HEADER`-gated and gates nothing
  *     itself.
- *   - **The request is served at the edge.** `watch` subscribes to the Durable
- *     Object the way a WebSocket client does — the container is never woken for
- *     it, and the manual is rendered from the same capabilities the `/llms.txt`
- *     route uses.
+ *   - **The request is served at the edge**, in the sense that matters: the MCP
+ *     protocol itself is answered here and the container never routes
+ *     `/_walgit/mcp`. `watch` subscribes to the Durable Object the way a
+ *     WebSocket client does, and the manual is rendered from the same
+ *     capabilities the `/llms.txt` route uses, so neither touches the container
+ *     at all.
+ *
+ * `status` and `provenance` DO wake it, and `status` twice — once for the gated
+ * provenance read and once for `REFS_PATH`. That is the price of the first
+ * property rather than an oversight: refs are authoritative in the Index
+ * (docs/adr/0007), the Index is reachable only with the container's object-store
+ * credentials (`shared/container-env.ts`), and the gate that decides whether
+ * this caller may see them is the container's too. An edge answer would need
+ * both a second verifier and a second reader — the two things ADR-0013 and
+ * ADR-0007 each refuse. Folding the refs into the provenance response would
+ * save the second trip and is a container-route change this one did not make.
  */
 
 import { StreamableHTTPTransport } from '@hono/mcp'
