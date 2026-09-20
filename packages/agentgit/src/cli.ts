@@ -214,6 +214,7 @@ function resolve(options: WatchOptions): Parameters<typeof watch>[0] {
     fetch: options.fetch,
     once: options.once,
     onChange: options.onChange,
+    ffOnClean: options.ffOnClean,
     json: options.json,
     proposals: options.proposals,
     // A refusal is the host naming what it refused, and a watcher that stopped

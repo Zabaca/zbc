@@ -7,6 +7,12 @@
  * writes to the stash list. `fetch` advances `origin/<ref>` and stops. Merging
  * or rebasing stays a decision its owner makes, after being told there is one
  * to make.
+ *
+ * `--ff-on-clean` is that decision, made once on the command line instead of
+ * once per event, and `src/ff.ts` is the only place it is acted on. It holds
+ * the invariant where it matters: the branch moves only when the tree is clean,
+ * so there is nothing uncommitted for a checkout to disturb, and the merge
+ * itself is made in the object database rather than over anybody's files.
  */
 
 import { spawnSync } from 'node:child_process'

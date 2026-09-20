@@ -11,6 +11,7 @@
 
 import { spawnSync } from 'node:child_process'
 
+import { type FfOutcome, fastForwardOnClean } from './ff'
 import { git, shortRef } from './git'
 import { conflictPaths } from './remote'
 
@@ -48,6 +49,8 @@ export interface WatchConfig {
   fetch: boolean
   once: boolean
   onChange: string | null
+  /** Move the branch onto the fetched work when the tree is clean. Off by default. */
+  ffOnClean: boolean
   json: boolean
   /** Also report the Proposals aimed at the watched branch (docs/adr/0018). */
   proposals: boolean
@@ -129,6 +132,52 @@ function conflicts(dir: string, remoteRef: string): string[] {
   const wip = git(dir, ['stash', 'create']).stdout.trim()
   const merge = git(dir, ['merge-tree', '--write-tree', '--name-only', wip || 'HEAD', remoteRef])
   return merge.code === 1 ? conflictPaths(merge.stdout) : []
+}
+
+/**
+ * What `--ff-on-clean` did, said once per fetch.
+ *
+ * Every outcome is reported, including the ones where nothing happened. A flag
+ * that moves a branch has to account for itself on the turn it declines as much
+ * as on the turn it acts — an owner who cannot see why their clone stayed put
+ * has been given a mystery, not a feature.
+ */
+function reportFf(emit: Emit, key: string, repo: string, ref: string, ff: FfOutcome): void {
+  switch (ff.kind) {
+    case 'moved':
+      return emit(
+        'fast-forwarded',
+        { repo, ref, commit: ff.commit, synthesized: ff.synthesized },
+        `${key}: fast-forwarded onto ${ff.commit.slice(0, 8)}` +
+          (ff.synthesized ? ' (merge made for it; your branch had diverged)' : ''),
+      )
+    case 'elsewhere':
+      return emit(
+        'held',
+        { repo, ref, reason: 'elsewhere', head: ff.head },
+        `${key}: not fast-forwarded; this checkout is on ${ff.head}, not ${ref}`,
+      )
+    case 'dirty':
+      return emit(
+        'held',
+        { repo, ref, reason: 'dirty', paths: ff.paths },
+        `${key}: not fast-forwarded; you have uncommitted changes in ${ff.paths.join(', ')}`,
+      )
+    case 'conflicts':
+      return emit(
+        'held',
+        { repo, ref, reason: 'conflicts' },
+        `${key}: not fast-forwarded; it conflicts with your branch`,
+      )
+    case 'refused':
+      return emit(
+        'held',
+        { repo, ref, reason: 'refused', detail: ff.reason },
+        `${key}: not fast-forwarded; git refused: ${ff.reason}`,
+      )
+    case 'current':
+      return
+  }
 }
 
 /** Where a Proposal lives, spelled the one way ADR-0018 spells it. */
@@ -310,6 +359,12 @@ export function watch(config: WatchConfig): Watcher {
           `${key}: COLLIDES with your work in ${clash}`,
         )
       else if (before) emit('clear', { repo, ref }, `${key}: no longer collides with your work`)
+    }
+
+    // Before --on, so a command that inspects the tree sees the merged state
+    // rather than racing it.
+    if (config.ffOnClean) {
+      reportFf(emit, key, repo, ref, fastForwardOnClean(dir, ref, remoteRef))
     }
 
     if (config.onChange && !catchUp) {

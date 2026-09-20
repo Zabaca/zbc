@@ -22,6 +22,15 @@ export interface WatchOptions {
   /** Run after a fetch that changed something. */
   onChange: string | null
   /**
+   * Fast-forward the branch onto the fetched work when the tree is clean.
+   *
+   * The one mode in which this client moves a branch, and off by default: a
+   * watcher that moved a branch nobody asked it to move would be a menace. The
+   * flag is the owner's decision, made once instead of per event, and it acts
+   * only where there is nothing in the tree to lose and nothing to decide.
+   */
+  ffOnClean: boolean
+  /**
    * Also report the Proposals aimed at the branch being watched (docs/adr/0018).
    *
    * Opt-in, and it stays opt-in: the default watch exists to keep a branch
@@ -122,6 +131,7 @@ export function parseArgs(argv: readonly string[]): Parsed {
     once: false,
     fetch: true,
     onChange: null,
+    ffOnClean: false,
     proposals: false,
     json: false,
   }
@@ -155,6 +165,9 @@ export function parseArgs(argv: readonly string[]): Parsed {
       case '--no-fetch':
         options.fetch = false
         continue
+      case '--ff-on-clean':
+        options.ffOnClean = true
+        continue
       case '--json':
         options.json = true
         continue
@@ -183,6 +196,15 @@ export function parseArgs(argv: readonly string[]): Parsed {
   }
   if (options.allRefs && options.refs.length > 0) {
     return { kind: 'error', message: '--all-refs and --ref are mutually exclusive' }
+  }
+  // Nothing was fetched, so there is nothing to fast-forward onto. Refused
+  // rather than silently doing nothing, because the two flags together read as
+  // a request the client cannot honour.
+  if (options.ffOnClean && !options.fetch) {
+    return {
+      kind: 'error',
+      message: '--ff-on-clean needs a fetch; it cannot be used with --no-fetch',
+    }
   }
   if (options.targets.size > 1 && [...options.targets.values()].some((dir) => dir === '')) {
     return {

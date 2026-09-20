@@ -64,6 +64,18 @@ describe('parseArgs', () => {
     expect(options.onChange).toBe('bun test')
   })
 
+  test('--ff-on-clean is off unless it is asked for', () => {
+    expect(watch(['watch']).ffOnClean).toBe(false)
+    expect(watch(['watch', '--ff-on-clean']).ffOnClean).toBe(true)
+  })
+
+  test('--ff-on-clean with --no-fetch is refused, not quietly ignored', () => {
+    // Nothing was fetched, so there is nothing to fast-forward onto. The two
+    // together read as a request that cannot be honoured.
+    expect(parseArgs(['watch', '--ff-on-clean', '--no-fetch'])).toMatchObject({ kind: 'error' })
+    expect(parseArgs(['watch', '--no-fetch', '--ff-on-clean'])).toMatchObject({ kind: 'error' })
+  })
+
   test('an unknown flag or command is named rather than ignored', () => {
     expect(parseArgs(['watch', '--follow'])).toMatchObject({ kind: 'error' })
     expect(parseArgs(['pull'])).toMatchObject({ kind: 'error' })
