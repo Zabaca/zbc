@@ -47,6 +47,44 @@ Reported when it **changes**, not on every event: a collision that is still
 there is still true, but a channel that repeats itself is a channel that stops
 being read.
 
+## Take it, but only when there is nothing to lose
+
+`--ff-on-clean` is the exception to everything above, and it is off unless you
+ask for it.
+
+```sh
+bunx @zabaca/agentgit watch --ff-on-clean
+```
+
+The problem it solves is not speed. A branch with a commit of its own **cannot**
+be fast-forwarded onto the ref that moved — `git merge --ff-only origin/main`
+fails by definition the moment you have diverged, which is every branch anybody
+is working on. So the merge is made first, in the object database: `merge-tree`
+writes the merged tree and `commit-tree` wraps it with your HEAD and the remote
+ref as its parents. Your HEAD is then an ancestor of that commit, which makes
+taking it a fast-forward — a ref update and a checkout, with no merge algorithm
+running over your files and no conflict possible half way through. It is the
+same technique `agentgit accept` uses on the Signer List, for the same reason.
+
+Four things stop it, and it says which:
+
+| | |
+| --------------- | ------------------------------------------------------------------------------------- |
+| already merged  | nothing is done, so an unrelated push does not leave an empty merge commit behind.      |
+| **uncommitted work** | held. A fast-forward still checks files out, and work in progress is yours to keep. |
+| conflicts       | held. Whose change survives is a decision about intent, and `collides` already said so. |
+| git refused     | held, with git's reason — an untracked file the merge would have overwritten, usually.  |
+
+Untracked files do not count as uncommitted work. An agent's scratch output
+would otherwise hold this off for a whole session, and the risk is already
+covered: git refuses a checkout that would overwrite an untracked file, so that
+case arrives as `held` rather than as lost work.
+
+```
+{"event":"fast-forwarded","ref":"refs/heads/main","commit":"a1b2c3d4…"}
+{"event":"held","ref":"refs/heads/main","reason":"dirty","paths":["src/index.ts"]}
+```
+
 ## Options
 
 | flag                |                                                                                                             |
@@ -57,6 +95,7 @@ being read.
 | `--ref <ref>`       | a full ref name, repeatable. Default: the branch you are on.                                                |
 | `--all-refs`        | every ref in the repository.                                                                                |
 | `--no-fetch`        | report what moved; do not fetch.                                                                            |
+| `--ff-on-clean`     | take the new commits when the tree is clean. The one mode that moves your branch; off by default.           |
 | `<repo>=<dir>`      | several checkouts on one socket.                                                                            |
 | `--host`, `--token` | a deployment the remote does not name, or one that needs a credential.                                      |
 
