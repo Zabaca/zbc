@@ -95,6 +95,12 @@ case arrives as `held` rather than as lost work.
 `synthesized` says whether a merge commit had to be made: `false` is an ordinary
 fast-forward onto the ref itself, `true` means your branch had diverged.
 
+The merge commit it makes is yours, authored with the identity git already has
+for you. On a machine that was never `git config`ured — a container an agent
+runs in, typically — git would refuse to write a commit at all, so that one
+falls back to `agentgit <agentgit@localhost>` rather than declining to take the
+work.
+
 ## Options
 
 | flag                |                                                                                                             |

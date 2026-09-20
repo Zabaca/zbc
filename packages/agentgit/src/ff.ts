@@ -91,6 +91,26 @@ export function isDirty(dir: string): string[] | null {
   return paths
 }
 
+/**
+ * An author for the synthesized commit, where git cannot find one of its own.
+ *
+ * `commit-tree` refuses to write a commit it cannot sign a name to, and a
+ * container that was never `git config`ured has no name to give — which is the
+ * normal state of the machine an agent runs on. It left the one path that
+ * builds a commit `refused` there, while the ordinary fast-forward, which
+ * authors nothing, carried on working.
+ *
+ * `git var GIT_COMMITTER_IDENT` is git's own answer to the question, so the
+ * owner's identity is used whenever they have one and this falls back only
+ * where git itself would have failed. The fallback is passed as config rather
+ * than as `GIT_AUTHOR_*`, which would take precedence over an identity the
+ * owner had set.
+ */
+function identity(dir: string): string[] {
+  if (git(dir, ['var', 'GIT_COMMITTER_IDENT']).code === 0) return []
+  return ['-c', 'user.name=agentgit', '-c', 'user.email=agentgit@localhost']
+}
+
 export function fastForwardOnClean(dir: string, ref: string, remoteRef: string): FfOutcome {
   // The watched ref and the checked-out branch are not the same question. This
   // acts on HEAD, so acting while HEAD is on something else would merge the
@@ -148,6 +168,7 @@ export function fastForwardOnClean(dir: string, ref: string, remoteRef: string):
 
   const head = git(dir, ['rev-parse', 'HEAD']).stdout.trim()
   const made = git(dir, [
+    ...identity(dir),
     'commit-tree',
     tree,
     '-p',

@@ -177,6 +177,46 @@ describe('fastForwardOnClean', () => {
     expect(head(clone)).toBe(before)
   })
 
+  test("the synthesized commit is the owner's, where the owner has an identity", () => {
+    run(clone, 'config', 'user.name', 'Owner')
+    run(clone, 'config', 'user.email', 'owner@example.com')
+    commit(clone, 'b.txt', 'mine\n', 'local work')
+    upstreamMoves('base\nupstream\n')
+
+    expect(fastForwardOnClean(clone, 'refs/heads/main', 'origin/main')).toMatchObject({
+      kind: 'moved',
+      synthesized: true,
+    })
+    expect(run(clone, 'log', '-1', '--format=%cn <%ce>').stdout.trim()).toBe(
+      'Owner <owner@example.com>',
+    )
+  })
+
+  test('it is still written where git has no identity of its own', () => {
+    // `commit-tree` refuses a commit it cannot sign a name to, which left this
+    // path refused on any machine that was never `git config`ured — the normal
+    // state of a container an agent runs in, and how CI found it. Config is
+    // isolated here rather than faked through GIT_COMMITTER_NAME, because an
+    // env identity would take precedence over the fallback and prove nothing.
+    const empty = path.join(scratch, 'empty-gitconfig')
+    fs.writeFileSync(empty, '')
+    const saved = { ...process.env }
+    process.env.GIT_CONFIG_GLOBAL = empty
+    process.env.GIT_CONFIG_SYSTEM = empty
+    process.env.GIT_CONFIG_NOSYSTEM = '1'
+    try {
+      commit(clone, 'b.txt', 'mine\n', 'local work')
+      upstreamMoves('base\nupstream\n')
+
+      const outcome = fastForwardOnClean(clone, 'refs/heads/main', 'origin/main')
+      expect(outcome).toMatchObject({ kind: 'moved', synthesized: true })
+      // Whoever it ends up attributed to, it has a committer and it exists.
+      expect(run(clone, 'log', '-1', '--format=%cn').stdout.trim()).not.toBe('')
+    } finally {
+      process.env = saved
+    }
+  })
+
   test('it is repeatable: a second call on an unmoved remote is a no-op', () => {
     commit(clone, 'b.txt', 'mine\n', 'local work')
     upstreamMoves('base\nupstream\n')
