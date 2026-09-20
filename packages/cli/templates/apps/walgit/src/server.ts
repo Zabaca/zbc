@@ -13,6 +13,7 @@
 
 import { capabilitiesFrom } from '../shared/capabilities'
 import { parseTokens } from '../shared/credentials'
+import { listTree } from './browse'
 import { ensureBareRepo } from './cache'
 import { configuredExpiryMs, expireRepos } from './expire'
 import { createHttpHandler } from './http'
@@ -24,6 +25,7 @@ import { runGitHttpBackend } from './git-backend'
 import type { ObjectStore } from '../shared/store'
 import { storeFromEnv } from './store-env'
 import { syncRepo } from './sync'
+import { lastPushOf } from '../shared/repo-list'
 import { loadIndex } from '../shared/wal-index'
 
 const reposDir = process.env.WALGIT_REPOS_DIR ?? '/srv/walgit/repos'
@@ -239,6 +241,28 @@ try {
           const repo = ensureBareRepo(resolveRepo(reposDir, repoId))
           await syncRepo(store, repo)
           return listProposals(index.refs, index.provenance ?? {}, gitAncestry(repo.dir))
+        }
+      : undefined,
+    // What a browse of one repository reads (`shared/browse.ts`): the refs and
+    // the last push from the INDEX, because that is the source of truth and a
+    // node's disk is a cache, and one level of a tree from the CACHE, because
+    // the Index holds no objects. `null` from the Index reader is the name
+    // nobody has pushed to — `loadIndex` reports that as a missing etag, which
+    // is the one distinction an empty ref map cannot make and the one this
+    // endpoint must not get wrong: a browse must not bring a name into
+    // existence.
+    //
+    // Absent without a store for the reason `readProvenance` is: there is
+    // nothing authoritative behind the endpoint, and it should not exist.
+    // Whether the deployment OFFERS the web view at all is the handler's check,
+    // against the capability this same process advertises.
+    browse: store
+      ? {
+          readIndex: async (repoId) => {
+            const { index, etag } = await loadIndex(store, repoId)
+            return etag === null ? null : { refs: index.refs, lastPush: lastPushOf(index) }
+          },
+          listTree: (repo, rev, path) => listTree(repo.dir, rev, path),
         }
       : undefined,
     // Read gating, and only where all three halves exist (docs/adr/0013): the

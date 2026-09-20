@@ -71,7 +71,7 @@ export function wantsLanding(method: string, pathname: string, accept: string): 
   return accept.toLowerCase().includes('text/html')
 }
 
-function describeHours(hours: number): string {
+export function describeHours(hours: number): string {
   if (hours === 1) return '1 hour'
   return `${hours} hours`
 }

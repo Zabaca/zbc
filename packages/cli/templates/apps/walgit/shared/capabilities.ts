@@ -182,13 +182,15 @@ export type Capabilities = {
    */
   proposals: boolean
   /**
-   * This deployment serves a browse of the repositories it holds
-   * (`shared/repo-list.ts`) — the list at `/repos`, and the repository pages
-   * under it.
+   * This deployment serves a browse of the repositories it holds — the list at
+   * `/repos` (`shared/repo-list.ts`), and the repository pages under it
+   * (`shared/browse.ts`).
    *
-   * A plain flag, and the one capability here that nothing in the container
-   * enforces: the list is read off the log at the edge, so a browse never
-   * wakes it. Default off, because a deployment's repository names are the one
+   * A plain flag, read on BOTH sides: at the edge to claim the routes, and in
+   * the container to decide whether `/_walgit/browse` exists — the list is
+   * answered off the log and never wakes the container, but a tree is git
+   * objects and only the Cache holds those. Default off, because a
+   * deployment's repository names are the one
    * thing a credentialed instance has not already been asked to publish — the
    * credential still gates the route, but enumerating names is a surface an
    * operator opts into rather than acquires on upgrade.

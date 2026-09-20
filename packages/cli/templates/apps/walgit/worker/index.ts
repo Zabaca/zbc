@@ -53,18 +53,23 @@ import {
   BASIC_CHALLENGE,
   COLD_HEADER,
   EVENTS_PATH,
+  BROWSE_PATH,
   EXPIRE_PATH,
   INTERNAL_HEADER,
   INTERNAL_HEADERS,
   MCP_PATH,
+  REJECT_HEADER,
   SERVED_HEADER,
+  wantsBrowse,
 } from '../shared/protocol'
 import {
   classifyOutcome,
   classifyRequest,
+  outcomeOf,
   toDataPoint,
   type RequestMetric,
 } from '../shared/telemetry'
+import { browseResponse } from '../shared/browse'
 import { BROADCAST_PATH, EVENTS_OBJECT_NAME, WalgitEvents } from './events-do'
 import { handleMcp } from './mcp'
 // The card's picture, as bytes in the bundle (wrangler.jsonc's `Data` rule).
@@ -588,6 +593,89 @@ export default {
       })
     }
 
+    // `/<name>` and `/<name>/tree/…` — the two repository pages
+    // (`shared/browse.ts`). Placed after the list and before anything that
+    // could be a repository, for the same reason the list is: the icon and
+    // document routes above keep answering their own paths rather than being
+    // claimed as a repository called `robots.txt`.
+    //
+    // Unlike the list this cannot be answered off the log: a tree is git
+    // objects, and only the Cache holds those. So the edge asks the container's
+    // `/_walgit/browse` and renders the answer — one round trip, because
+    // `op=tree` carries the ref list with it — and a refusal is passed through
+    // verbatim, which is what keeps the browse gate the clone gate and not a
+    // second one (docs/adr/0013).
+    //
+    // Claimed from `caps.web`, the same field the list and the two documents
+    // read, so with `WALGIT_WEB` off the path falls through to the container
+    // exactly as it did before this route existed.
+    const browseRoute = caps.web ? wantsBrowse(request.method, url.pathname) : null
+    if (browseRoute) {
+      const answer = await browseResponse(
+        browseRoute,
+        { accept },
+        {
+          caps,
+          ask: async (query) => {
+            const asked = new Request(`https://walgit.internal${BROWSE_PATH}${query}`, {
+              // The client's own credential, and nothing else: the container
+              // answers this behind the deployment token and then the Read
+              // Challenge, and the edge must not be able to open a door the
+              // client could not.
+              headers: authorizationOf(request),
+            })
+            const res = await getContainer(env.WALGIT_CONTAINER).fetch(asked)
+            return {
+              status: res.status,
+              text: await res.text(),
+              contentType: res.headers.get('content-type') ?? '',
+              served: res.headers.get(SERVED_HEADER) !== null,
+              reject: res.headers.get(REJECT_HEADER) ?? '',
+              // One value, already comma-joined by the runtime: a Private
+              // repository is refused with two `WWW-Authenticate` lines, and
+              // what arrives here is the joined header. Passed on as it came
+              // rather than re-split, because the split is what a parser gets
+              // wrong on a nonce containing `=`.
+              challenges: [res.headers.get('www-authenticate')].filter(
+                (value): value is string => value !== null,
+              ),
+            }
+          },
+        },
+      )
+      const bytes = new TextEncoder().encode(answer.body)
+      record(env, ctx, {
+        kind: 'browse',
+        repo: browseRoute.repo,
+        outcome: answer.status < 400 ? 'ok' : 'reject',
+        // The container's own words for the refusal, so a browse refused by
+        // the Private gate is counted as the `unauthorized` it is rather than
+        // re-derived from a status several refusals share — and so a refusal
+        // the container never made still reads as `edge`.
+        reject:
+          answer.status < 400
+            ? ''
+            : outcomeOf({
+                status: answer.upstream.status,
+                declared: answer.upstream.reject,
+                served: answer.upstream.served,
+              }).reject || 'other',
+        status: answer.status,
+        // The CONTAINER answered the question this page was rendered from, and
+        // saying otherwise would make the `edge` refusal signal unreadable.
+        served: answer.upstream.served,
+        cold: false,
+        ttfbMs: Date.now() - startedAt,
+        totalMs: Date.now() - startedAt,
+        bytesServed: request.method === 'HEAD' ? 0 : bytes.byteLength,
+        bytesReceived: 0,
+      })
+      return new Response(request.method === 'HEAD' ? null : bytes, {
+        status: answer.status,
+        headers: answer.headers,
+      })
+    }
+
     // The ref-event stream, answered at the edge for the same reason the
     // landing page is: a subscription is a socket the container has no reason
     // to hold, and holding one would keep the single container awake for as
@@ -761,6 +849,19 @@ export default {
   async scheduled(event: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
     ctx.waitUntil(sweep(event, env))
   },
+}
+
+/**
+ * The credential the CLIENT presented, and nothing else.
+ *
+ * The container answers the browse behind the deployment token and then the
+ * Read Challenge, so the edge must forward what the reader sent rather than
+ * anything of its own: a browse that opened a door the client could not open
+ * for itself would be the second authorization model ADR-0013 refuses.
+ */
+function authorizationOf(request: Request): HeadersInit {
+  const authorization = request.headers.get('authorization')
+  return authorization ? { authorization } : {}
 }
 
 /**

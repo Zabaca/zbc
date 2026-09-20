@@ -33,6 +33,7 @@ import {
   SERVED_HEADER,
   SMART_HTTP,
   normalizeReject,
+  wantsBrowse,
   type RejectKind,
 } from './protocol'
 
@@ -77,6 +78,13 @@ export type RequestKind =
   // route it: the row is then a 404, which is the honest reading and a useful
   // one (it is demand for a switch nobody has flipped).
   | 'list'
+  // One of the two repository pages (`shared/browse.ts`). Its own kind for the
+  // reason `list` is — `other` is the unroutable bucket and this is a request
+  // walgit answers — and, unlike the list, it NAMES a repository, because it is
+  // about exactly one. It is recorded even on a deployment with the capability
+  // off, where the path falls through to a container that does not route it:
+  // the row is then a 404, which is the honest reading and a useful one.
+  | 'browse'
   | 'health'
   // Someone asking who pushed (docs/adr/0011). Its own kind rather than
   // `other`, because `other` is the unroutable bucket and a provenance read is
@@ -183,7 +191,25 @@ export function classifyRequest(method: string, pathname: string, search: string
   }
 
   const route = SMART_HTTP.exec(pathname)
-  if (!route) return { kind: 'other', repo: '', bucket: otherBucket(pathname) }
+  if (!route) {
+    // `/<name>` and `/<name>/tree/…` — read through the same `wantsBrowse` the
+    // edge routes on (`shared/protocol.ts`), so a path one claimed and the
+    // other did not cannot become a metric describing traffic that never
+    // happened. Below `SMART_HTTP` because a clone URL is not a browse URL and
+    // the git grammar is the one that must win.
+    //
+    // A path whose SHAPE already has a name keeps it. `/wp-login.php` and
+    // `/.env` are repository-shaped — a repository may be called `wp-login.php`
+    // — but they are the scanner baseline those buckets exist to measure, and
+    // counting them as people reading a repository page would put the noise
+    // into the one number a launch is read by. The edge still routes them: a
+    // browse of a name the log has no Index for is a 404 either way.
+    const bucket = otherBucket(pathname)
+    const browse =
+      bucket === 'bare-name' || bucket === 'else' ? wantsBrowse(method, pathname) : null
+    if (browse) return { kind: 'browse', repo: browse.repo }
+    return { kind: 'other', repo: '', bucket }
+  }
   const repo = route[1]!
 
   if (route[2] === 'git-upload-pack') return { kind: 'clone', repo }
@@ -214,11 +240,33 @@ export function classifyOutcome(
   status: number,
   headers: { get(name: string): string | null },
 ): { outcome: Outcome; reject: RejectKind | '' } {
-  const declared = headers.get(REJECT_HEADER)
-  if (declared) return { outcome: 'reject', reject: normalizeReject(declared) }
-  if (status < 400) return { outcome: 'ok', reject: '' }
-  if (headers.get(SERVED_HEADER) === null) return { outcome: 'reject', reject: 'edge' }
-  return { outcome: 'reject', reject: fromStatus(status) }
+  return outcomeOf({
+    status,
+    declared: headers.get(REJECT_HEADER),
+    served: headers.get(SERVED_HEADER) !== null,
+  })
+}
+
+/**
+ * The same judgement, from the two facts rather than from a `Headers`.
+ *
+ * Some callers have already read the stamps into values — the browse page
+ * carries them back from the container as `{ served, reject }`
+ * (`shared/browse.ts`), because `shared/` has no `Headers` to hand around. They
+ * ask this directly rather than building a stand-in object for the reader
+ * above to take apart again.
+ */
+export function outcomeOf(answer: {
+  status: number
+  /** `REJECT_HEADER`'s value, or `null`/`''` where the layer named no kind. */
+  declared: string | null
+  /** The container stamped it (`SERVED_HEADER`). */
+  served: boolean
+}): { outcome: Outcome; reject: RejectKind | '' } {
+  if (answer.declared) return { outcome: 'reject', reject: normalizeReject(answer.declared) }
+  if (answer.status < 400) return { outcome: 'ok', reject: '' }
+  if (!answer.served) return { outcome: 'reject', reject: 'edge' }
+  return { outcome: 'reject', reject: fromStatus(answer.status) }
 }
 
 function fromStatus(status: number): RejectKind {

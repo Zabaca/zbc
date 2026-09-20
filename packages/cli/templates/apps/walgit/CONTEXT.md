@@ -64,6 +64,18 @@ against a ref-less repository with a `packfile` section where the client demands
 first push to a name printed `fatal:` before succeeding — which an agent reads as a refusal. Pushing
 (`git-receive-pack`) is untouched, and the moment a repository holds one ref this path is never taken again.
 
+## The web view
+
+**Browse**:
+Reading a repository in a browser: the list at `/repos`, and `/<name>` and `/<name>/tree/<ref>/<path>` under it. One Advertised capability (`WALGIT_WEB`, `caps.web`), default off like every other. The list is a fold over Indexes and is answered at the **edge**, off the log, so it never wakes the container; a repository page needs git objects, which only the **Cache** holds, so it is answered by the container at `/_walgit/browse` and rendered at the edge. A Browse is a **read**: it never creates a name, and it is behind exactly the gate a clone is behind — the deployment credential, then the **Read Challenge** on a **Private** name.
+_Avoid_: the UI, the website, the dashboard (it shows what the log holds; it operates nothing)
+
+**Browse Ref**:
+What a browse URL is allowed to name: an entry in `index.refs` — with `refs/heads/` or `refs/tags/` allowed to be left off — or a full forty-character oid. Never a `HEAD`, an abbreviation or a rev-parse expression: whatever is accepted reaches `git ls-tree` as an operand, and the **Index** rather than the **Cache** is what decides, because the disk is a cache. A branch name may contain slashes, so the URL remainder after `/tree/` is split by **longest ref prefix** — `feature/x/src` is the branch `feature/x` and the directory `src`.
+
+**Default Branch** (walgit sense):
+`main`, else `master`, else the first branch by name — computed from the **Index** and never from the Cache's `HEAD`, which on a node that has just **Materialized** is whatever `git init` left behind. A repository holding only tags has none, and that is `null` rather than a tag standing in for one.
+
 ## Ref events (ADR-0009)
 
 **Ref Event**:
