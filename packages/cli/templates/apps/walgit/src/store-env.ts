@@ -14,33 +14,19 @@
 
 import { AwsClient } from 'aws4fetch'
 
-import { S3Store, type ObjectStore } from '../shared/store'
+import { s3StoreFrom, type ObjectStore } from '../shared/store'
 import { FileStore } from './store'
 
 export type Env = Record<string, string | undefined>
 
 export function storeFromEnv(env: Env = process.env): ObjectStore | null {
+  // The one branch only this half can serve: a local directory instead of a
+  // bucket, for development and tests.
   if (env.WALGIT_STORE_DIR) return new FileStore(env.WALGIT_STORE_DIR)
-
-  const endpoint = env.WALGIT_S3_ENDPOINT
-  const bucket = env.WALGIT_S3_BUCKET
-  const accessKeyId = env.WALGIT_S3_ACCESS_KEY_ID
-  const secretAccessKey = env.WALGIT_S3_SECRET_ACCESS_KEY
-  if (!endpoint || !bucket || !accessKeyId || !secretAccessKey) return null
-
-  const client = new AwsClient({
-    accessKeyId,
-    secretAccessKey,
-    service: 's3',
-    // R2 ignores the region but the SigV4 signature does not: an absent region
-    // signs differently and every request 403s with nothing useful in the body.
-    region: env.WALGIT_S3_REGION ?? 'auto',
-  })
-  return new S3Store({
-    endpoint: endpoint.replace(/\/$/, ''),
-    bucket,
-    fetch: (input, init) => client.fetch(input, init),
-  })
+  // Everything else is the shared reading (`shared/store.ts`), which the edge
+  // makes too — including the region rule, which is the part that used to be
+  // commented identically in both copies.
+  return s3StoreFrom(env, (credentials) => new AwsClient(credentials))
 }
 
 /** The store, or a thrown explanation. For paths that must not proceed without one. */

@@ -248,3 +248,60 @@ export class S3Store implements ObjectStore {
     return prefixes.sort()
   }
 }
+
+/**
+ * The S3 half of "build the store from the environment".
+ *
+ * Both halves need it and neither may own it: the container reads it out of
+ * `process.env` (`src/store-env.ts`, which also has the `WALGIT_STORE_DIR`
+ * disk branch only it can serve), and the Worker reads it off a binding object
+ * to answer the web view at the edge (`worker/index.ts`). It was written twice,
+ * including the one comment that is genuinely hard-won — R2 ignores the region
+ * but SigV4 does not, and an absent one signs differently and 403s with nothing
+ * useful in the body (docs/adr/0010).
+ *
+ * `null` means "not configured", which the two halves read differently on
+ * purpose: the push path treats it as fatal (there is nowhere to persist to, so
+ * nothing may be acknowledged) while a read path treats it as "there is no log
+ * to read".
+ *
+ * The signer is injected rather than imported so this module keeps importing no
+ * runtime — `aws4fetch`'s `AwsClient` is fetch-based and works in both halves,
+ * but the dependency belongs to the caller that has one.
+ */
+export function s3StoreFrom(
+  env: {
+    WALGIT_S3_ENDPOINT?: string | undefined
+    WALGIT_S3_BUCKET?: string | undefined
+    WALGIT_S3_ACCESS_KEY_ID?: string | undefined
+    WALGIT_S3_SECRET_ACCESS_KEY?: string | undefined
+    WALGIT_S3_REGION?: string | undefined
+  },
+  /** Builds a request signer for these credentials — `new AwsClient({…})`. */
+  signer: (credentials: {
+    accessKeyId: string
+    secretAccessKey: string
+    service: 's3'
+    region: string
+  }) => { fetch: (input: string, init?: RequestInit) => Promise<Response> },
+): ObjectStore | null {
+  const endpoint = env.WALGIT_S3_ENDPOINT
+  const bucket = env.WALGIT_S3_BUCKET
+  const accessKeyId = env.WALGIT_S3_ACCESS_KEY_ID
+  const secretAccessKey = env.WALGIT_S3_SECRET_ACCESS_KEY
+  if (!endpoint || !bucket || !accessKeyId || !secretAccessKey) return null
+
+  const client = signer({
+    accessKeyId,
+    secretAccessKey,
+    service: 's3',
+    // R2 ignores the region but the SigV4 signature does not: an absent region
+    // signs differently and every request 403s with nothing useful in the body.
+    region: env.WALGIT_S3_REGION ?? 'auto',
+  })
+  return new S3Store({
+    endpoint: endpoint.replace(/\/$/, ''),
+    bucket,
+    fetch: (input, init) => client.fetch(input, init),
+  })
+}

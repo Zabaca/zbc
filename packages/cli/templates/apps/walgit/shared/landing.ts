@@ -53,7 +53,7 @@ import type { Capabilities } from './capabilities'
 import { analyticsScript, type Analytics } from './analytics'
 import { contactHref, type Operator } from './operator'
 import { OG_IMAGE_HEIGHT, OG_IMAGE_PATH, OG_IMAGE_WIDTH } from './og-image'
-import { describeBytes, describeWindow } from './policy'
+import { describeWindow, shortBytes } from './policy'
 import { EVENTS_PATH, SIGNERS_REF } from './protocol'
 import { CONTENT_SIGNAL } from './robots'
 
@@ -74,28 +74,6 @@ export function wantsLanding(method: string, pathname: string, accept: string): 
 function describeHours(hours: number): string {
   if (hours === 1) return '1 hour'
   return `${hours} hours`
-}
-
-/**
- * A cap without its exact byte count.
- *
- * `describeBytes` renders `99 MiB (103809024 bytes)` because the refusal it was
- * written for is read by a client comparing a number to its own, and a
- * parenthetical there is the difference between a machine acting on the message
- * and a machine guessing at a rounded figure. On a page somebody is deciding
- * whether to use this host at all, the same nine digits are noise in the middle
- * of a sentence — and `The rules.` is where every term is being cut to what
- * scans.
- *
- * DERIVED from `describeBytes` rather than formatted again, which is the whole
- * care here: the invariant this file keeps is that the cap the page prints and
- * the cap `pre-receive` refuses on cannot look like two different numbers, and
- * a second formatter is exactly how they would. Stripping a suffix off the one
- * rendering cannot change the figure in front of it, so the page still cannot
- * disagree with the hook — it only says less.
- */
-function shortBytes(bytes: number): string {
-  return describeBytes(bytes).replace(/ \(\d+ bytes\)$/, '')
 }
 
 const claim = (key: string, value: string) =>
@@ -930,7 +908,7 @@ function wireScript(): string {
  * put in a deployment variable and which land in markup. So they are escaped
  * here, once, at the only place they enter the document.
  */
-function escapeHtml(raw: string): string {
+export function escapeHtml(raw: string): string {
   return raw
     .replaceAll('&', '&amp;')
     .replaceAll('<', '&lt;')
@@ -1049,12 +1027,15 @@ function closeSection(host: string, caps: Capabilities): string {
  * one of them an in-page skip link, so anybody who wanted the repository, the
  * client or the manual had to retype a path from memory.
  *
- * The client's entry is gated like every other mention of it. The source and
- * the manual are not: walgit is open source wherever it is deployed, and
+ * The client's entry is gated like every other mention of it, and so is the
+ * repository list: `/repos` exists only where `WALGIT_WEB` is set, and a footer
+ * link is the easiest place on a page to promise a route the Worker does not
+ * claim. The source and the manual are not: walgit is open source wherever it is deployed, and
  * `/llms.txt` is served by every deployment.
  */
 function footerLinks(caps: Capabilities): string {
   const rows = [
+    caps.web ? '    <a href="/repos">Repositories</a>' : '',
     '    <a href="https://github.com/Zabaca/zbc">Open source</a>',
     caps.events
       ? '    <a href="https://www.npmjs.com/package/@zabaca/agentgit">@zabaca/agentgit</a>'

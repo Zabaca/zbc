@@ -13,6 +13,7 @@
 import { capabilitiesFrom, type Capabilities } from '../shared/capabilities'
 import { authorizedBy, presentedSignature } from '../shared/credentials'
 import {
+  BASIC_CHALLENGE,
   CHALLENGE_PATH,
   EXPIRE_PATH,
   HEALTH_PATH,
@@ -229,7 +230,7 @@ const UNAUTHORIZED = () =>
   // git prompts for a credential only when challenged in this scheme, so the
   // header is what makes `git clone https://…` work interactively at all.
   reject(401, 'unauthorized', 'unauthorized\n', {
-    'www-authenticate': 'Basic realm="walgit"',
+    'www-authenticate': BASIC_CHALLENGE,
   })
 
 const NOT_FOUND = () => reject(404, 'not-found', 'not found\n')
@@ -351,7 +352,7 @@ function createRouter(deps: HttpHandlerDeps): (req: Request) => Promise<Response
     // answer. Two header lines rather than one comma-joined value, because
     // the nonce's `=` inside a comma-separated list is where parsers differ.
     return reject(401, 'unauthorized', renderReadChallenge(publicOrigin(request, url)), [
-      ['www-authenticate', 'Basic realm="walgit"'],
+      ['www-authenticate', BASIC_CHALLENGE],
       ['www-authenticate', `${READ_CHALLENGE_SCHEME} nonce=${nonce}`],
     ])
   }

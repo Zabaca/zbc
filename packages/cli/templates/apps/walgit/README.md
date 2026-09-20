@@ -95,7 +95,7 @@ a write fails between them.
 
 Each datapoint carries, as blobs: `kind` (`clone-advertise`, `clone`,
 `push-advertise`, `push`, `instructions`, `landing`, `og-image`, `favicon`,
-`provenance`, `health`, `other`), `outcome`
+`list`, `provenance`, `health`, `other`), `outcome`
 (`ok`/`reject`), `reject`, `repo`, `temperature` (`cold`/`warm`), `answered`
 (`container`/`edge`), `bucket`; and as doubles: `status`, `ttfb_ms`, `total_ms`,
 `bytes_served`, `bytes_received`, `cold`. The index is `kind`, so refusals — the
@@ -476,6 +476,64 @@ and [ADR-0007](../../../../../docs/adr/0007-walgit-object-storage-holds-the-log.
 each refuse. The protocol itself, `agentgit_watch` and the manual are answered
 at the edge and touch it not at all.
 
+## The web view
+
+`WALGIT_WEB=1` turns on a browse of what this deployment holds, and nothing is
+served under it while the variable is unset — the path falls through to the
+container, which does not route it, exactly as before the route existed. It is
+an [Advertised capability](./CONTEXT.md) like every other: one field
+(`caps.web`, `shared/capabilities.ts`), read once, and the route, the landing
+page's footer link and `/llms.txt`'s section all come from it, so they cannot
+describe three different deployments. The plain-text `GET /` says nothing about
+it — that document is read by a model mid-task and is three bytes from its byte
+budget.
+
+`GET /repos` (`shared/repo-list.ts`) is answered **at the edge**, off the log:
+one delimited LIST names every repository, then `index.json` is read per
+repository with sixteen in flight, so a browse never wakes the container. A
+browser (`Accept: text/html`) gets a page — one inline stylesheet, one inline
+script whose whole job is a client-side name filter, a CSP that permits nothing
+else, and `noindex` in both a header and the document — and anything else gets
+JSON. Rows are last push descending, a hundred per page (`?page=2`), and carry
+the name, last push, ref count, live bytes, whether the name is claimed, whether
+it is Private and whether it is being removed. Past a thousand names the view
+stops claiming recency: the order stays the store's (name order), only the
+requested page's Indexes are read, and the page says so. An `index.json` that
+cannot be read renders as the bare name with no facts — **no name the log holds
+is ever omitted**, because a missing row is the one failure a reader cannot
+detect.
+
+With the capability on and no object store configured there is no log to list,
+so the route answers `503` at the edge rather than proxying: falling through
+would wake the container for a path it does not route, and a 404 would say the
+view does not exist when what is missing is the bucket.
+
+The gate is the host's own and never a second copy: `authorizedBy`
+(`shared/credentials.ts`), the same function the event socket uses and the same
+credential a clone presents, answered before the bucket is touched. On a
+credentialed deployment a request with no credential is `401` with
+`www-authenticate: Basic realm="walgit"`, so a browser prompts. `cache-control`
+is `public, max-age=60` only where reads take no credential, `private, no-store`
+otherwise, and `no-store` on every 401. A per-repository Reader List is *not*
+this route's gate — read gating requires `WALGIT_PUBLIC`
+([ADR-0013](../../../../../docs/adr/0013-a-name-can-refuse-a-stranger-reading.md)),
+so on a public deployment a Private name is listed and marked Private while its
+contents stay refused where they always were.
+
+`WALGIT_WEB` is on `CONTAINER_ENV` even though nothing inside the container
+reads it, because `CapabilityVar` narrows through that list — a capability the
+container is never told about would be one no half could enforce. The cost is
+the one that list buys everywhere else: **the deploy that first sets it changes
+the environment fingerprint, so the Durable Object replaces the running
+container once** on the next request (`reconcileEnv`, above).
+
+`/robots.txt`, `/favicon.ico`, `/llms.txt` and `/agentgit-og.png` are
+short-circuited at the edge ahead of this route and of the repository pages that
+will sit under it. The collision argument the other edge paths carry holds here
+too and is worth stating in the other direction: a repository named `repos`,
+`robots.txt` or `favicon.ico` keeps its clone URL — `/<name>.git/…` — and loses
+only its bare browse URL.
+
 ## Deployment
 
 Through the `cloudflare` module, never by hand — `zbc apply <env>`. The Worker
@@ -518,7 +576,8 @@ Optional instance configuration (plain env, not secrets): `WALGIT_APPEND_ONLY`,
 `WALGIT_MAX_NEW_REPOS_PER_SOURCE`, `WALGIT_MAX_PUSHES_PER_SOURCE`,
 `WALGIT_MAX_PUSH_BYTES_PER_SOURCE`, `WALGIT_RATE_WINDOW_SECONDS`,
 `WALGIT_RETENTION_HOURS`,
-`WALGIT_PUBLIC`, `WALGIT_SIGNER_LISTS` — each unset means the behaviour is off
+`WALGIT_PUBLIC`, `WALGIT_SIGNER_LISTS`, `WALGIT_WEB` (the web view above) —
+each unset means the behaviour is off
 and `GET /` does not claim it. `WALGIT_EVENTS_URL` and `WALGIT_EVENTS_TOKEN` (a
 secret) turn on the ref-event stream below, `WALGIT_PUSH_CERT_SEED` (a secret)
 turns on signed pushes, and `WALGIT_PRIVATE_REPOS` (a secret) turns on read

@@ -82,6 +82,15 @@ export const CONTAINER_ENV = [
   // nonce and mints nothing — it only widens what `pre-receive` accepts on a
   // claimed name, and the hook that widens runs in the container.
   'WALGIT_PROPOSALS',
+  // The web view (`shared/repo-list.ts`). The only variable on this list that
+  // nothing inside the container reads: the list is answered at the edge, off
+  // the log, precisely so a browse does not wake the container. It is here
+  // because it is an Advertised capability, and `CapabilityVar` narrows through
+  // this list — a capability the container is never told about would be one the
+  // edge advertises and no half could ever enforce. The cost is the one this
+  // list buys everywhere else: the deploy that first sets it changes the
+  // fingerprint and replaces the running container once.
+  'WALGIT_WEB',
   // Per-source rate limits (src/rate-limit.ts). The verdict is reached in the
   // container's own HTTP handler — the only place that sees both the source the
   // edge attributed the request to and the repository it names — so the numbers
