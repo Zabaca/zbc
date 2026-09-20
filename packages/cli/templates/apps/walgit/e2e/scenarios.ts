@@ -1461,9 +1461,9 @@ const webBrowse: Scenario = {
     )
     assert(second.next === null, 'the end of a 60-commit history named a next page')
     // The cursor is exclusive to a reader: no commit appears on both pages.
-    const firstOids = new Set(first.commits.map((commit) => commit.oid))
+    const firstOids = new Set(first.commits.map((entry) => entry.oid))
     assert(
-      second.commits.every((commit) => !firstOids.has(commit.oid)),
+      second.commits.every((entry) => !firstOids.has(entry.oid)),
       'a commit appeared on both pages of the history',
     )
 
@@ -1482,7 +1482,7 @@ const webBrowse: Scenario = {
     assert(
       coldRoot.entries
         .map((entry) => entry.name)
-        .sort()
+        .toSorted()
         .join(' ') === 'README.md index.html log.txt logo.png src',
       `the cold node listed ${coldRoot.entries.map((entry) => entry.name).join(' ')}`,
     )
