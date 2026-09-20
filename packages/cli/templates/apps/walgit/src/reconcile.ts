@@ -19,7 +19,7 @@ import * as fs from 'node:fs'
 import * as path from 'node:path'
 
 import { git } from './git'
-import type { WalIndex } from './wal-index'
+import type { WalIndex } from '../shared/wal-index'
 
 export interface ReconcileResult {
   changed: boolean
@@ -37,7 +37,7 @@ export interface ReconcileResult {
 }
 
 export function localRefs(gitDir: string): Record<string, string> {
-  const res = git(['--git-dir', gitDir, 'for-each-ref', '--format=%(objectname) %(refname)'])
+  const res = git(['for-each-ref', '--format=%(objectname) %(refname)'], { gitDir })
   if (res.status !== 0) throw new Error(`for-each-ref failed: ${res.stderr.trim()}`)
   const refs: Record<string, string> = {}
   for (const line of res.stdout.split('\n')) {
@@ -50,7 +50,8 @@ export function localRefs(gitDir: string): Record<string, string> {
 /** Which of these oids the local object store actually has. One process. */
 export function presentObjects(gitDir: string, oids: readonly string[]): Set<string> {
   if (oids.length === 0) return new Set()
-  const res = git(['--git-dir', gitDir, 'cat-file', '--batch-check'], {
+  const res = git(['cat-file', '--batch-check'], {
+    gitDir,
     input: `${oids.join('\n')}\n`,
   })
   const present = new Set<string>()

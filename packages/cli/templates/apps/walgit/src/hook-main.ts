@@ -48,7 +48,7 @@ import {
   signerListsEnabled,
 } from './signers'
 import { requireStore, storeFromEnv } from './store-env'
-import { loadIndex, type LoadedIndex, type RefChange } from './wal-index'
+import { loadIndex, type LoadedIndex, type RefChange } from '../shared/wal-index'
 
 const hook = process.argv[2]
 const phase = process.argv[3]

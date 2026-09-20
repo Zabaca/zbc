@@ -24,7 +24,7 @@ import { findOrphans } from './orphans'
 import { localRefs } from './reconcile'
 import { syncRepo } from './sync'
 import { materialize } from './materialize'
-import { loadIndex } from './wal-index'
+import { loadIndex } from '../shared/wal-index'
 
 const TOKEN = 's3cret'
 let server: ReturnType<typeof Bun.serve>

@@ -36,8 +36,9 @@ by layer:
 | `worker/index.ts`, `wrangler.jsonc`                  | the Cloudflare Worker that proxies to the container, and forwards its environment                                                                |
 | `shared/ref-cache.ts`                                | the fan-out's derived, in-memory copy of ref state — bounded, never authoritative                                                                |
 | `worker/events-do.ts`                                | the Durable Object that holds the ref-event sockets — a shell over `shared/events.ts`                                                            |
-| `src/store.ts`, `src/wal-index.ts`                   | the object-store adapter and the `index.json` compare-and-swap                                                                                   |
-| `src/keys.ts`                                        | the object-store key namespace: every prefix, every key builder, and the parse back out of one                                                   |
+| `shared/store.ts`, `shared/wal-index.ts`             | the object-store adapter (`MemoryStore`, `S3Store`) and the `index.json` types and reader — both halves read the log                             |
+| `shared/keys.ts`, `shared/ulid.ts`                   | the object-store key namespace: every prefix, every key builder, the parse back out of one, and the ULID a WAL key carries                       |
+| `src/store.ts`, `src/wal-index.ts`                   | the container's half: `FileStore` on local disk, and the `index.json` compare-and-swap that publishes a push                                     |
 | `src/repo.ts`                                        | repo addressing — the one place a client-supplied name becomes a path. Pure: string in, path out                                                 |
 | `src/cache.ts`                                       | provisioning the bare repo that path names: `git init`, the config walgit needs, the hooks                                                       |
 | `src/http.ts`, `src/git-backend.ts`, `src/server.ts` | smart-HTTP, with `git http-backend` as a CGI child                                                                                               |

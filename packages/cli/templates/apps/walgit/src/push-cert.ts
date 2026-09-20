@@ -123,9 +123,18 @@ export type BlobReader = (oid: string) => string | null
  * no special handling, and returns `null` rather than throwing once the
  * quarantine is gone (which is what makes calling this from a later hook a
  * no-op rather than a crash).
+ *
+ * The repository and the quarantine are both named rather than inherited: the
+ * wrapper hands git no ambient `GIT_*` (see `git.ts`), so `$GIT_DIR` — which
+ * git sets for the hook, and which is the repository this certificate belongs
+ * to — is read here and passed on.
  */
 function catBlob(oid: string): string | null {
-  const res = git(['cat-file', 'blob', oid])
+  const res = git(['cat-file', 'blob'], {
+    gitDir: process.env.GIT_DIR ?? '.',
+    operands: [oid],
+    inheritObjects: true,
+  })
   return res.status === 0 ? res.stdout : null
 }
 

@@ -18,9 +18,9 @@ import * as net from 'node:net'
 import * as os from 'node:os'
 import * as path from 'node:path'
 
-import type { ObjectStore } from '../src/store'
+import type { ObjectStore } from '../shared/store'
 import { storeFromEnv } from '../src/store-env'
-import { ulid } from '../src/ulid'
+import { ulid } from '../shared/ulid'
 import {
   type Handshake,
   type RefEvent,

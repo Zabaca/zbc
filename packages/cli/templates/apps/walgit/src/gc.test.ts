@@ -8,10 +8,11 @@
 import { describe, expect, test } from 'bun:test'
 
 import { collectGarbage, keyAgeMs } from './gc'
-import { MemoryStore } from './store'
-import { ulid } from './ulid'
-import { walKey } from './keys'
-import { commitIndex, emptyIndex, loadIndex, type WalIndex } from './wal-index'
+import { MemoryStore } from '../shared/store'
+import { ulid } from '../shared/ulid'
+import { walKey } from '../shared/keys'
+import { emptyIndex, loadIndex, type WalIndex } from '../shared/wal-index'
+import { commitIndex } from './wal-index'
 
 const GRACE = 60 * 60 * 1000
 const NOW = new Date('2026-08-21T12:00:00.000Z')

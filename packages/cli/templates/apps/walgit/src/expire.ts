@@ -26,9 +26,9 @@
  */
 
 import { deleteRepo, type DeleteResult } from './delete-repo'
-import type { ObjectStore } from './store'
-import { listRepoIds } from './keys'
-import { loadIndex, type WalIndex } from './wal-index'
+import type { ObjectStore } from '../shared/store'
+import { listRepoIds } from '../shared/keys'
+import { loadIndex, type WalIndex } from '../shared/wal-index'
 
 /**
  * Expiry is off unless a window is configured. Absent means "this instance

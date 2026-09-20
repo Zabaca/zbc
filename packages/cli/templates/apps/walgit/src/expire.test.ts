@@ -1,8 +1,9 @@
 import { describe, expect, test } from 'bun:test'
 
 import { configuredExpiryMs, decideExpiry, expireRepos, lastWriteAt } from './expire'
-import { MemoryStore } from './store'
-import { commitIndex, emptyIndex, type WalEntry, type WalIndex } from './wal-index'
+import { MemoryStore } from '../shared/store'
+import { emptyIndex, type WalEntry, type WalIndex } from '../shared/wal-index'
+import { commitIndex } from './wal-index'
 
 const HOUR = 3_600_000
 const WINDOW = 24 * HOUR

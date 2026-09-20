@@ -39,7 +39,7 @@
 import { flagEnabled } from '../shared/policy'
 import { SIGNERS_REF, ZERO_OID } from '../shared/protocol'
 import { git } from './git'
-import type { Provenance, RefChange } from './wal-index'
+import type { Provenance, RefChange } from '../shared/wal-index'
 
 /** The env flag an instance sets to take Proposals. */
 export function proposalsEnabled(env: Record<string, string | undefined> = process.env): boolean {
@@ -140,7 +140,7 @@ export interface ProposalSource {
 /** The real object reader: the pushed objects are in the hook's object path. */
 export function gitObjectType(gitDir: string): (oid: string) => string | null {
   return (oid) => {
-    const res = git(['--git-dir', gitDir, 'cat-file', '-t', oid])
+    const res = git(['cat-file', '-t'], { gitDir, operands: [oid], inheritObjects: true })
     if (res.status !== 0) return null
     const type = res.stdout.trim()
     return type === '' ? null : type
@@ -308,7 +308,7 @@ export type Ancestry = (tip: string, ancestorOf: string) => boolean
  */
 export function gitAncestry(gitDir: string): Ancestry {
   return (tip, ancestorOf) =>
-    git(['--git-dir', gitDir, 'merge-base', '--is-ancestor', tip, ancestorOf]).status === 0
+    git(['merge-base', '--is-ancestor'], { gitDir, operands: [tip, ancestorOf] }).status === 0
 }
 
 /**

@@ -19,9 +19,9 @@
  * garbage.
  */
 
-import { siblingIdx, walPrefix } from './keys'
-import type { ObjectStore } from './store'
-import { loadIndex } from './wal-index'
+import { siblingIdx, walPrefix } from '../shared/keys'
+import type { ObjectStore } from '../shared/store'
+import { loadIndex } from '../shared/wal-index'
 
 export interface Orphan {
   key: string

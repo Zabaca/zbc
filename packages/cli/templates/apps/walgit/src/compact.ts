@@ -31,19 +31,13 @@ import * as fs from 'node:fs'
 import * as path from 'node:path'
 
 import { gitOrThrow } from './git'
-import { leaseKey, walKey } from './keys'
+import { leaseKey, walKey } from '../shared/keys'
 import { materialize, packBasename, packDirOf } from './materialize'
 import type { ResolvedRepo } from './repo'
-import type { ObjectStore } from './store'
-import { ulid } from './ulid'
-import {
-  loadIndex,
-  sha256,
-  updateIndex,
-  type Tombstone,
-  type WalEntry,
-  type WalIndex,
-} from './wal-index'
+import type { ObjectStore } from '../shared/store'
+import { ulid } from '../shared/ulid'
+import { loadIndex, type Tombstone, type WalEntry, type WalIndex } from '../shared/wal-index'
+import { sha256, updateIndex } from './wal-index'
 
 /**
  * How many un-superseded entries a repository may accumulate before it is
@@ -236,7 +230,7 @@ export async function compact(
     const supersedesThrough = index.seq
 
     const packDir = packDirOf(repo.dir)
-    gitOrThrow(['--git-dir', repo.dir, 'repack', '-adfq'])
+    gitOrThrow(['repack', '-adfq'], { gitDir: repo.dir })
 
     const onDisk = fs.readdirSync(packDir)
     // A cruft pack is not a second copy of the repository — it is git's

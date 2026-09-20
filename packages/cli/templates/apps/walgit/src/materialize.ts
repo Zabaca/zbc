@@ -38,12 +38,13 @@ import * as path from 'node:path'
 
 import { ensureBareRepo } from './cache'
 import { git } from './git'
-import { siblingIdx } from './keys'
+import { siblingIdx } from '../shared/keys'
 import { acquireLock, type LockRelease } from './mkdir-lock'
 import { reconcile, type ReconcileResult } from './reconcile'
 import type { ResolvedRepo } from './repo'
-import type { ObjectStore } from './store'
-import { loadIndex, sha256, type WalEntry, type WalIndex } from './wal-index'
+import type { ObjectStore } from '../shared/store'
+import { loadIndex, type WalEntry, type WalIndex } from '../shared/wal-index'
+import { sha256 } from './wal-index'
 
 /**
  * Removed only when a materialize completes. Its presence means a previous
@@ -233,7 +234,13 @@ async function placeEntry(store: ObjectStore, packDir: string, entry: WalEntry):
   } else {
     // Only when the log predates uploading the index, or the sibling was lost.
     // It is the expensive path the `.idx` upload exists to avoid, so it says so.
-    const built = git(['index-pack', `${base}.pack`])
+    // `index-pack` is one of the few git commands that parses its own
+    // arguments rather than going through parse-options: it accepts neither
+    // `--end-of-options` nor `--`, so the pack path goes in the argument
+    // vector directly. It is safe there because it is not user input — it is
+    // an absolute path this function just built under the repository's own
+    // pack directory.
+    const built = git([`index-pack`, `${base}.pack`])
     if (built.status !== 0) {
       throw new Error(`walgit: could not index ${entry.key}: ${built.stderr.trim()}`)
     }

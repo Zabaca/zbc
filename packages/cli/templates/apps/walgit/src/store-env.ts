@@ -14,7 +14,8 @@
 
 import { AwsClient } from 'aws4fetch'
 
-import { FileStore, S3Store, type ObjectStore } from './store'
+import { S3Store, type ObjectStore } from '../shared/store'
+import { FileStore } from './store'
 
 export type Env = Record<string, string | undefined>
 

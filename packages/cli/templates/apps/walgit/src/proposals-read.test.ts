@@ -22,7 +22,7 @@ import * as path from 'node:path'
 import { capabilitiesFrom, type CapabilityEnv } from '../shared/capabilities'
 import { createHttpHandler, type HttpHandlerDeps } from './http'
 import { gitAncestry, listProposals } from './proposals'
-import type { Claim, Provenance } from './wal-index'
+import type { Claim, Provenance } from '../shared/wal-index'
 
 const SEED = 'read-seed'
 const NOW = 1_757_000_000_000

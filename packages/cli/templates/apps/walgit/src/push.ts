@@ -21,7 +21,7 @@ import * as fs from 'node:fs'
 import * as path from 'node:path'
 
 import { ZERO_OID } from '../shared/protocol'
-import { walKey } from './keys'
+import { walKey } from '../shared/keys'
 import { writePending, type PendingPush } from './pending'
 import { certSigner } from './push-cert'
 import {
@@ -31,22 +31,24 @@ import {
   type ProposalGate,
   type PushSigner,
 } from './signers'
-import type { ObjectStore } from './store'
-import { ulid } from './ulid'
+import type { ObjectStore } from '../shared/store'
+import { ulid } from '../shared/ulid'
 import {
-  applyClaim,
-  applyProvenance,
-  applyRefChanges,
-  commitIndex,
   loadIndex,
-  nextIndex,
-  sha256,
   type Claim,
   type Provenance,
   type PushRecord,
   type RefChange,
   type WalEntry,
   type WalIndex,
+} from '../shared/wal-index'
+import {
+  applyClaim,
+  applyProvenance,
+  applyRefChanges,
+  commitIndex,
+  nextIndex,
+  sha256,
 } from './wal-index'
 
 /**

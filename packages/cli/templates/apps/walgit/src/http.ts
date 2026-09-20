@@ -35,7 +35,7 @@ import type { ProposalListing } from './proposals'
 import { countsNewRepos, createSourceLimiter, rateLimitsEnforced, rateLimitsOf } from './rate-limit'
 import type { ResolvedRepo } from './repo'
 import { resolveRepo } from './repo'
-import type { Claim, Provenance } from './wal-index'
+import type { Claim, Provenance } from '../shared/wal-index'
 
 export type BackendRequest = {
   repo: ResolvedRepo

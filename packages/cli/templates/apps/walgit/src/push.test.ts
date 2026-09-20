@@ -3,7 +3,7 @@ import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
 
-import { MemoryStore } from './store'
+import { MemoryStore } from '../shared/store'
 import {
   PENDING_MAX_AGE_MS,
   readPending,
@@ -14,7 +14,7 @@ import {
 import { establishSigner, parseRefChanges, preReceive, publishPush } from './push'
 import { describeSigner, type PushSigner } from './signers'
 import { SIGNERS_REF, ZERO_OID } from '../shared/protocol'
-import { loadIndex, type RefChange } from './wal-index'
+import { loadIndex, type RefChange } from '../shared/wal-index'
 
 /**
  * The two answers `pre-receive` reaches in this file, spelled once. The third —

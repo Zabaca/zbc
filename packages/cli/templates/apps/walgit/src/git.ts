@@ -13,14 +13,31 @@
  * with inherited stdio, and `git-backend.ts` streams `git http-backend` as CGI.
  * Both speak the pack protocol on their own stdio and must never be buffered.
  *
- * One thing belongs here and is deliberately NOT done yet, because this module
- * arrived as a pure extraction: **ambient configuration is still inherited.** A
- * global or system git config that sets `core.hooksPath` redirects
- * `git-receive-pack` away from `$GIT_DIR/hooks`, so walgit's `pre-receive` and
- * `reference-transaction` never run and a push is acknowledged with nothing
- * written to the log — the one outcome docs/adr/0007 exists to prevent.
- * `e2e/harness.ts` already strips it (`GIT_CONFIG_GLOBAL=/dev/null`) for
- * exactly this class of reason. This module is where that fix becomes one line.
+ * **Hygiene is this module's job, not the caller's.** Two kinds of input reach
+ * git here, and neither is safe left as it arrives:
+ *
+ *   - **Arguments.** A ref, an oid or a path is DATA, and git reads an argument
+ *     beginning with `-` as an option wherever one is allowed. So a caller
+ *     never concatenates them into `args`: revisions go in `operands` (placed
+ *     after git's own `--end-of-options` fence) and paths go in `paths` (after
+ *     `--`). `args` is the subcommand and its flags, which this repository
+ *     writes and nobody else supplies.
+ *   - **The environment.** Every inherited `GIT_*` variable is dropped at
+ *     spawn. A global or system git config that sets `core.hooksPath`
+ *     redirects `git-receive-pack` away from `$GIT_DIR/hooks`, so walgit's
+ *     `pre-receive` and `reference-transaction` never run and a push is
+ *     acknowledged with nothing written to the log — the one outcome
+ *     docs/adr/0007 exists to prevent. Dropping `GIT_CONFIG_GLOBAL` would
+ *     RE-OPEN that door (`e2e/harness.ts` sets it to `/dev/null` precisely to
+ *     close it), so the strip is paired with pinning both config paths at
+ *     `/dev/null` here. A caller that needs a variable says so in `env`.
+ *
+ * It covers the commands walgit runs and READS. It deliberately does not cover
+ * the two places git is not a subprocess to be read but a transport to be
+ * handed the socket: `git-backend.ts` runs `git http-backend` with inherited
+ * stdio, and streams it as CGI. Both speak the pack protocol on their own
+ * stdio and must never be buffered — and both are given an explicit
+ * environment of their own for the same reason this one is.
  */
 
 import { spawnSync } from 'node:child_process'
@@ -35,6 +52,81 @@ export interface GitResult {
 export interface GitOptions {
   /** Fed to the command on stdin, e.g. the oid list `cat-file` batches over. */
   input?: string
+  /**
+   * The repository, named rather than discovered. git's own discovery walks up
+   * from the working directory and would find whichever repository the process
+   * happens to sit in — which for a hook or a CLI command is not necessarily
+   * the one being operated on.
+   */
+  gitDir?: string
+  /**
+   * Revisions, oids and other non-path operands. Placed after
+   * `--end-of-options`, so `-p` or `--output=x` arriving as a ref name is read
+   * as the ref it is.
+   */
+  operands?: readonly string[]
+  /** Pathspecs. Placed after `--`, which is git's fence for exactly this. */
+  paths?: readonly string[]
+  /**
+   * Variables to set on the child on top of the stripped environment. An
+   * `undefined` value removes one. This is the only way a `GIT_*` variable
+   * reaches git from here.
+   */
+  env?: Record<string, string | undefined>
+  /**
+   * Keep the three variables git itself sets so a hook can see the objects a
+   * push is offering (`GIT_OBJECT_DIRECTORY`, `GIT_ALTERNATE_OBJECT_DIRECTORIES`,
+   * `GIT_QUARANTINE_PATH`).
+   *
+   * Only `pre-receive`'s verdicts need it — they ask git about commits that are
+   * still in the quarantine and not yet in the repository — and it is opt-in
+   * rather than inherited because for every other caller the variable points at
+   * an object store that has nothing to do with the command being run.
+   */
+  inheritObjects?: boolean
+}
+
+/** What git sets for a hook so the pushed objects are readable. */
+const QUARANTINE_VARS = [
+  'GIT_OBJECT_DIRECTORY',
+  'GIT_ALTERNATE_OBJECT_DIRECTORIES',
+  'GIT_QUARANTINE_PATH',
+] as const
+
+/**
+ * The child's environment: the parent's, minus every `GIT_*`, with ambient
+ * config pinned out of the way and the caller's additions last.
+ */
+function childEnv(opts: GitOptions): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = {}
+  for (const [key, value] of Object.entries(process.env)) {
+    if (!key.startsWith('GIT_')) env[key] = value
+  }
+  env.GIT_CONFIG_GLOBAL = '/dev/null'
+  env.GIT_CONFIG_SYSTEM = '/dev/null'
+  if (opts.inheritObjects) {
+    for (const name of QUARANTINE_VARS) {
+      const value = process.env[name]
+      if (value !== undefined) env[name] = value
+    }
+  }
+  for (const [key, value] of Object.entries(opts.env ?? {})) {
+    if (value === undefined) delete env[key]
+    else env[key] = value
+  }
+  return env
+}
+
+/** The full argument vector, with git's two fences where they belong. */
+function argv(args: readonly string[], opts: GitOptions): string[] {
+  const operands = opts.operands ?? []
+  const paths = opts.paths ?? []
+  return [
+    ...(opts.gitDir ? ['--git-dir', opts.gitDir] : []),
+    ...args,
+    ...(operands.length > 0 ? ['--end-of-options', ...operands] : []),
+    ...(paths.length > 0 ? ['--', ...paths] : []),
+  ]
 }
 
 /**
@@ -56,10 +148,11 @@ export interface GitOptions {
 const MAX_BUFFER = 64 * 1024 * 1024
 
 export function git(args: readonly string[], opts: GitOptions = {}): GitResult {
-  const res = spawnSync('git', [...args], {
+  const res = spawnSync('git', argv(args, opts), {
     encoding: 'utf8',
     input: opts.input,
     maxBuffer: MAX_BUFFER,
+    env: childEnv(opts),
   })
   return {
     status: res.status ?? 1,
@@ -72,7 +165,7 @@ export function git(args: readonly string[], opts: GitOptions = {}): GitResult {
 export function gitOrThrow(args: readonly string[], opts: GitOptions = {}): GitResult {
   const res = git(args, opts)
   if (res.status !== 0) {
-    throw new Error(`git ${args.join(' ')} failed: ${res.stderr.trim()}`)
+    throw new Error(`git ${argv(args, opts).join(' ')} failed: ${res.stderr.trim()}`)
   }
   return res
 }

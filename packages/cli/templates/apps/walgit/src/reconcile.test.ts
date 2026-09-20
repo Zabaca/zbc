@@ -10,7 +10,7 @@ import * as os from 'node:os'
 import * as path from 'node:path'
 
 import { localRefs, reconcile } from './reconcile'
-import { emptyIndex, type WalIndex } from './wal-index'
+import { emptyIndex, type WalIndex } from '../shared/wal-index'
 
 const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'walgit-reconcile-'))
 let bare: string
@@ -50,7 +50,10 @@ afterAll(() => fs.rmSync(scratch, { recursive: true, force: true }))
 
 describe('reconcile', () => {
   test('an agreeing repo is left alone', () => {
-    const result = reconcile(bare, indexWith({ 'refs/heads/main': mainOid, 'refs/heads/topic': topicOid }))
+    const result = reconcile(
+      bare,
+      indexWith({ 'refs/heads/main': mainOid, 'refs/heads/topic': topicOid }),
+    )
     expect(result.changed).toBe(false)
   })
 
@@ -58,7 +61,10 @@ describe('reconcile', () => {
     fs.rmSync(path.join(bare, 'refs', 'heads', 'main'), { force: true })
     expect(localRefs(bare)['refs/heads/main']).toBeUndefined()
 
-    const result = reconcile(bare, indexWith({ 'refs/heads/main': mainOid, 'refs/heads/topic': topicOid }))
+    const result = reconcile(
+      bare,
+      indexWith({ 'refs/heads/main': mainOid, 'refs/heads/topic': topicOid }),
+    )
 
     expect(result.updated).toEqual(['refs/heads/main'])
     expect(localRefs(bare)).toEqual({ 'refs/heads/main': mainOid, 'refs/heads/topic': topicOid })

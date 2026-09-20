@@ -21,10 +21,11 @@
  */
 
 import { configuredGraceMs } from './compact'
-import { siblingIdx, walKeyUploadedAt } from './keys'
+import { siblingIdx, walKeyUploadedAt } from '../shared/keys'
 import { findOrphans } from './orphans'
-import type { ObjectStore } from './store'
-import { loadIndex, updateIndex, type WalIndex } from './wal-index'
+import type { ObjectStore } from '../shared/store'
+import { loadIndex, type WalIndex } from '../shared/wal-index'
+import { updateIndex } from './wal-index'
 
 export interface GcResult {
   /** Superseded keys whose grace period elapsed, now deleted. */

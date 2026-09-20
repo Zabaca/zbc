@@ -22,7 +22,7 @@ import { ensureBareRepo } from './cache'
 import { resolveRepo } from './repo'
 import { FileStore } from './store'
 import { syncRepo } from './sync'
-import { loadIndex } from './wal-index'
+import { loadIndex } from '../shared/wal-index'
 
 const TOKEN = 's3cret'
 const BRANCHES = ['main', 'alpha', 'beta', 'gamma', 'delta']

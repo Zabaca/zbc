@@ -25,19 +25,13 @@ import * as os from 'node:os'
 import * as path from 'node:path'
 
 import { compact } from './compact'
-import { indexKey, siblingIdx, walKey } from './keys'
+import { indexKey, siblingIdx, walKey } from '../shared/keys'
 import { materialize } from './materialize'
 import { resolveRepo } from './repo'
 import { FileStore } from './store'
-import { ulid } from './ulid'
-import {
-  commitIndex,
-  emptyIndex,
-  loadIndex,
-  sha256,
-  type WalEntry,
-  type WalIndex,
-} from './wal-index'
+import { ulid } from '../shared/ulid'
+import { emptyIndex, loadIndex, type WalEntry, type WalIndex } from '../shared/wal-index'
+import { commitIndex, sha256 } from './wal-index'
 
 interface Sample {
   entries: number

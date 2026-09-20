@@ -14,7 +14,7 @@ import { describe, expect, test } from 'bun:test'
 import { CHALLENGE_PATH, PROVENANCE_PATH, READ_VERDICT_PATH } from '../shared/protocol'
 import { createHttpHandler, type HttpHandlerDeps } from './http'
 import { acceptedNonces, readChallengeNonce } from './private'
-import type { Claim } from './wal-index'
+import type { Claim } from '../shared/wal-index'
 
 const SEED = 'read-seed'
 const NOW = 1_757_000_000_000
