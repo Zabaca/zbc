@@ -13,7 +13,7 @@
 
 import { capabilitiesFrom } from '../shared/capabilities'
 import { parseTokens } from '../shared/credentials'
-import { listTree } from './browse'
+import { listCommits, listTree, readBlob, statBlob } from './browse'
 import { ensureBareRepo } from './cache'
 import { configuredExpiryMs, expireRepos } from './expire'
 import { createHttpHandler } from './http'
@@ -263,6 +263,9 @@ try {
             return etag === null ? null : { refs: index.refs, lastPush: lastPushOf(index) }
           },
           listTree: (repo, rev, path) => listTree(repo.dir, rev, path),
+          statBlob: (repo, rev, path) => statBlob(repo.dir, rev, path),
+          readBlob: (repo, rev, path) => readBlob(repo.dir, rev, path),
+          listCommits: (repo, rev, before, limit) => listCommits(repo.dir, rev, before, limit),
         }
       : undefined,
     // Read gating, and only where all three halves exist (docs/adr/0013): the

@@ -1246,9 +1246,21 @@ const webBrowse: Scenario = {
     fs.writeFileSync(path.join(work, 'src/index.ts'), 'export {}\n')
     fs.writeFileSync(path.join(work, 'src/deep/leaf.txt'), 'leaf\n')
     fs.writeFileSync(path.join(work, 'README.md'), 'fixture\n')
+    // A file whose bytes are not text, and whose NAME says otherwise: the raw
+    // read must choose its type from the content, never from the extension.
+    fs.writeFileSync(path.join(work, 'logo.png'), Buffer.from([0x89, 0x50, 0x00, 0x4e, 0x47]))
+    fs.writeFileSync(path.join(work, 'index.html'), '<h1>pushed markup</h1>\n')
     await gitOk(work, 'add', '-A')
     await gitOk(work, 'commit', '--quiet', '-m', 'fixture')
     const tip = (await gitOk(work, 'rev-parse', 'HEAD')).trim()
+
+    // Sixty commits, so one page of fifty is a page and a bit — the only way
+    // to prove the cursor actually moves.
+    for (let i = 0; i < 59; i++) {
+      fs.writeFileSync(path.join(work, 'log.txt'), `${i}\n`)
+      await gitOk(work, 'add', '-A')
+      await gitOk(work, 'commit', '--quiet', '-m', `change ${i}`)
+    }
 
     // A branch whose name contains a slash: the case a URL cannot resolve on
     // its own, and the whole reason the ref/path split is the Index's job.
@@ -1274,8 +1286,8 @@ const webBrowse: Scenario = {
     assert(root.ref === 'refs/heads/main', `root read at ${root.ref}`)
     const rootNames = root.entries.map((entry) => entry.name).toSorted()
     assert(
-      rootNames.join(' ') === 'README.md src',
-      `the root lists ${rootNames.join(' ')}, expected README.md src`,
+      rootNames.join(' ') === 'README.md index.html log.txt logo.png src',
+      `the root lists ${rootNames.join(' ')}`,
     )
     const src = root.entries.find((entry) => entry.name === 'src')
     assert(src?.kind === 'tree', `src is ${src?.kind}, expected tree`)
@@ -1330,7 +1342,7 @@ const webBrowse: Scenario = {
     assert(route !== null, `/${repoId} is not a browse URL`)
     const page = await browseResponse(
       route,
-      { accept: 'text/html' },
+      { accept: 'text/html', before: null },
       {
         caps: capabilitiesFrom({ WALGIT_WEB: '1', WALGIT_PUBLIC: '1' }),
         ask: async (query) => {
@@ -1362,6 +1374,103 @@ const webBrowse: Scenario = {
     // refusal as the container's rather than as its own.
     assert(page.upstream.served, 'the browse answer carried no served stamp')
 
+    // ── The file, its bytes, the README and the history ─────────────────
+    //
+    // Everything below is the same container endpoint, over real git.
+
+    /** One browse answer, whatever op it is. */
+    const ask = async (query: string) => {
+      const res = await fetch(`http://127.0.0.1:${node.port}${BROWSE_PATH}${query}`, {
+        headers: { authorization: `Bearer ${TOKEN}` },
+      })
+      return res
+    }
+
+    const blobRes = await ask(`?repo=${repoId}&op=blob&ref=main&path=src%2Findex.ts`)
+    assert(blobRes.status === 200, `op=blob answered ${blobRes.status}`)
+    const blob = (await blobRes.json()) as {
+      text: string | null
+      size: number
+      binary: boolean
+      oversize: boolean
+    }
+    assert(blob.text === 'export {}\n', `the file read as ${JSON.stringify(blob.text)}`)
+    assert(blob.size === 10, `the file weighed ${blob.size}, expected 10`)
+    assert(!blob.binary && !blob.oversize, 'a ten-byte source file was not plain text')
+
+    const binaryBlob = (await (
+      await ask(`?repo=${repoId}&op=blob&ref=main&path=logo.png`)
+    ).json()) as {
+      binary: boolean
+      text: string | null
+    }
+    assert(binaryBlob.binary, 'a NUL-bearing file was not detected as binary')
+    assert(binaryBlob.text === null, 'a binary file carried text')
+
+    // Raw: the type comes from the content. A pushed `index.html` is still
+    // plain text, which is what keeps walgit's origin walgit's.
+    const rawHtml = await ask(`?repo=${repoId}&op=raw&ref=main&path=index.html`)
+    assert(
+      rawHtml.headers.get('content-type') === 'text/plain; charset=utf-8',
+      `a pushed index.html was served as ${rawHtml.headers.get('content-type')}`,
+    )
+    assert(
+      rawHtml.headers.get('x-content-type-options') === 'nosniff',
+      'a raw text file was not marked nosniff',
+    )
+    const rawBinary = await ask(`?repo=${repoId}&op=raw&ref=main&path=logo.png`)
+    assert(
+      rawBinary.headers.get('content-type') === 'application/octet-stream',
+      `a binary file was served as ${rawBinary.headers.get('content-type')}`,
+    )
+    assert(
+      (rawBinary.headers.get('content-disposition') ?? '').startsWith('attachment'),
+      'a binary file was not an attachment',
+    )
+    const downloaded = new Uint8Array(await rawBinary.arrayBuffer())
+    assert(
+      downloaded.length === 5 && downloaded[0] === 0x89 && downloaded[2] === 0x00,
+      `the downloaded bytes were ${Array.from(downloaded).join(',')}`,
+    )
+
+    // The README rides with the root listing.
+    const withReadme = await browse(node, `?repo=${repoId}&op=tree`)
+    const readme = (withReadme as { readme?: { name: string; text: string } }).readme
+    assert(readme?.name === 'README.md', `the root carried README ${readme?.name}`)
+    assert(readme?.text === 'fixture\n', `the README read as ${JSON.stringify(readme?.text)}`)
+
+    // History, two pages of it. Sixty commits: fifty, then ten.
+    const logPage = async (before?: string) => {
+      const res = await ask(
+        `?repo=${repoId}&op=log&ref=main${before === undefined ? '' : `&before=${before}`}`,
+      )
+      assert(res.status === 200, `op=log answered ${res.status}`)
+      return (await res.json()) as { commits: { oid: string }[]; next: string | null }
+    }
+    const first = await logPage()
+    assert(first.commits.length === 50, `the first page held ${first.commits.length}, expected 50`)
+    assert(first.next !== null, 'a full first page named no next cursor')
+    assert(
+      first.commits[0]!.oid === (await gitOk(work, 'rev-parse', 'main')).trim(),
+      'the history did not start at the tip',
+    )
+    const second = await logPage(first.next!)
+    assert(
+      second.commits.length === 10,
+      `the second page held ${second.commits.length}, expected 10`,
+    )
+    assert(second.next === null, 'the end of a 60-commit history named a next page')
+    // The cursor is exclusive to a reader: no commit appears on both pages.
+    const firstOids = new Set(first.commits.map((entry) => entry.oid))
+    assert(
+      second.commits.every((entry) => !firstOids.has(entry.oid)),
+      'a commit appeared on both pages of the history',
+    )
+
+    // A cursor git would happily resolve but walgit will not read.
+    const badCursor = await ask(`?repo=${repoId}&op=log&ref=main&before=HEAD`)
+    assert(badCursor.status === 400, `a malformed cursor answered ${badCursor.status}`)
+
     // A cold node: its own empty repos directory, the same log. Everything
     // above has to be true again, which it can only be by Materializing.
     const cold = await run.node('browse-cold', { WALGIT_WEB: '1' })
@@ -1373,8 +1482,8 @@ const webBrowse: Scenario = {
     assert(
       coldRoot.entries
         .map((entry) => entry.name)
-        .sort()
-        .join(' ') === 'README.md src',
+        .toSorted()
+        .join(' ') === 'README.md index.html log.txt logo.png src',
       `the cold node listed ${coldRoot.entries.map((entry) => entry.name).join(' ')}`,
     )
     assert(
@@ -1388,6 +1497,9 @@ const webBrowse: Scenario = {
       'the slashed branch and a nested directory resolved from one run-together URL remainder',
       `a browse of the free name ${free} answered 404 and created nothing on disk`,
       'a node with an empty repos directory served the same tree after materializing',
+      'op=blob read a source file and detected a NUL-bearing one as binary',
+      'raw chose text/plain for a pushed index.html and an octet-stream attachment for a PNG',
+      'the root listing carried its README, and 60 commits paged 50 then 10 with no overlap',
     ]
   },
 }

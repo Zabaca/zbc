@@ -161,6 +161,30 @@ export function git(args: readonly string[], opts: GitOptions = {}): GitResult {
   }
 }
 
+/**
+ * git, where the output is BYTES rather than text.
+ *
+ * One caller: reading a blob (`src/browse.ts`). A repository holds whatever was
+ * pushed to it, and decoding a PNG as UTF-8 replaces every byte git actually
+ * stored with U+FFFD — which is both the wrong file to hand back and a NUL
+ * sniff that says "text". `stderr` stays a string, because a diagnostic is one.
+ */
+export function gitBytes(
+  args: readonly string[],
+  opts: GitOptions = {},
+): { status: number; stdout: Uint8Array; stderr: string } {
+  const res = spawnSync('git', argv(args, opts), {
+    input: opts.input,
+    maxBuffer: MAX_BUFFER,
+    env: childEnv(opts),
+  })
+  return {
+    status: res.status ?? 1,
+    stdout: res.stdout ?? new Uint8Array(),
+    stderr: res.stderr?.toString('utf8') ?? '',
+  }
+}
+
 /** git, where a non-zero exit is a bug rather than an answer. */
 export function gitOrThrow(args: readonly string[], opts: GitOptions = {}): GitResult {
   const res = git(args, opts)

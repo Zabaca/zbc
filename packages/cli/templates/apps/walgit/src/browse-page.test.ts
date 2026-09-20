@@ -17,6 +17,8 @@ import { describe, expect, test } from 'bun:test'
 import {
   browseResponse,
   expiresIn,
+  type BrowseBlobAnswer,
+  type BrowseLogAnswer,
   type BrowseTreeAnswer,
   type ContainerAnswer,
 } from '../shared/browse'
@@ -58,6 +60,8 @@ interface PageOptions {
   accept?: string
   answer?: ContainerAnswer
   env?: CapabilityEnv
+  /** The `before` cursor a history page is read with. */
+  before?: string
 }
 
 async function page(pathname: string, options: PageOptions = {}) {
@@ -66,7 +70,7 @@ async function page(pathname: string, options: PageOptions = {}) {
   const asked: string[] = []
   const res = await browseResponse(
     route,
-    { accept: options.accept ?? HTML },
+    { accept: options.accept ?? HTML, before: options.before ?? null },
     {
       ask: async (query) => {
         asked.push(query)
@@ -83,11 +87,33 @@ async function page(pathname: string, options: PageOptions = {}) {
 
 describe('wantsBrowse', () => {
   test('claims the two page URLs, and nothing that is not a repository', () => {
-    expect(wantsBrowse('GET', '/alpha')).toEqual({ repo: 'alpha', rest: '' })
+    expect(wantsBrowse('GET', '/alpha')).toEqual({ repo: 'alpha', kind: 'tree', rest: '' })
     expect(wantsBrowse('GET', '/alpha/tree/feature/x/src')).toEqual({
       repo: 'alpha',
+      kind: 'tree',
       rest: 'feature/x/src',
     })
+    // The three page kinds this ticket adds, each carrying the same
+    // run-together remainder: only the Index knows where the ref ends.
+    expect(wantsBrowse('GET', '/alpha/blob/main/src/index.ts')).toEqual({
+      repo: 'alpha',
+      kind: 'blob',
+      rest: 'main/src/index.ts',
+    })
+    expect(wantsBrowse('GET', '/alpha/raw/main/logo.png')).toEqual({
+      repo: 'alpha',
+      kind: 'raw',
+      rest: 'main/logo.png',
+    })
+    expect(wantsBrowse('GET', '/alpha/commits/main')).toEqual({
+      repo: 'alpha',
+      kind: 'commits',
+      rest: 'main',
+    })
+    // A blob with nothing after it is not a file, and a kind walgit does not
+    // serve is not a page — both fall through rather than becoming a tree.
+    expect(wantsBrowse('GET', '/alpha/blob')).toBe(null)
+    expect(wantsBrowse('GET', '/alpha/blame/main/x')).toBe(null)
     // A clone URL is not a browse URL: `/alpha.git/…` is git's, and the two
     // must not be able to claim each other.
     expect(wantsBrowse('GET', '/alpha.git/info/refs')).toBe(null)
@@ -117,9 +143,9 @@ describe('the repository page', () => {
     expect(res.headers['content-type']).toBe('text/html; charset=utf-8')
     // A directory is a link to the page below it.
     expect(res.body).toContain('<a href="/alpha/tree/main/src">src/</a>')
-    // A file is not: there is no file page yet, and a link to one would be a
-    // 404 a reader has to discover by clicking.
-    expect(res.body).toContain('README.md')
+    // A file links to its own page rather than to a directory that is not
+    // there: a blob is never a `tree` URL.
+    expect(res.body).toContain('<a href="/alpha/blob/main/README.md">README.md</a>')
     expect(res.body).not.toContain('href="/alpha/tree/main/README.md"')
     // A symlink shows its target and a gitlink says what it is.
     expect(res.body).toContain('→ src/index.ts')
@@ -198,6 +224,150 @@ describe('the repository page', () => {
       env: { WALGIT_PUBLIC: '1', WALGIT_RETENTION_HOURS: '24' },
     })
     expect(res.body).toContain('expires in 18 hours')
+  })
+})
+
+const BLOB: BrowseBlobAnswer = {
+  repo: 'alpha',
+  defaultBranch: 'refs/heads/main',
+  ref: 'refs/heads/main',
+  path: 'src/index.ts',
+  lastPush: '2026-09-19T12:00:00.000Z',
+  refs: [{ name: 'refs/heads/main', oid: OID }],
+  size: 12,
+  text: 'hello\nworld\n',
+  binary: false,
+  oversize: false,
+}
+
+const LOG: BrowseLogAnswer = {
+  repo: 'alpha',
+  defaultBranch: 'refs/heads/main',
+  ref: 'refs/heads/main',
+  lastPush: '2026-09-19T12:00:00.000Z',
+  refs: [{ name: 'refs/heads/main', oid: OID }],
+  commits: [
+    {
+      oid: '1'.repeat(40),
+      author: 'Ada <ada@example.test>',
+      date: '2026-09-19T12:00:00Z',
+      subject: 'first',
+    },
+    {
+      oid: '2'.repeat(40),
+      author: 'Bo <bo@example.test>',
+      date: '2026-09-18T09:00:00Z',
+      subject: 'second',
+    },
+  ],
+  next: '2'.repeat(40),
+}
+
+describe('the file page', () => {
+  test('asks the container for the blob, carrying ref and path run together', async () => {
+    const { asked } = await page('/alpha/blob/main/src/index.ts', { answer: served(BLOB) })
+    expect(asked).toEqual(['?repo=alpha&op=blob&ref=main%2Fsrc%2Findex.ts'])
+  })
+
+  test('shows the file with a line number per line, escaped', async () => {
+    const { res } = await page('/alpha/blob/main/src/index.ts', {
+      answer: served({ ...BLOB, text: '<b>one</b>\ntwo\n' }),
+    })
+    expect(res.status).toBe(200)
+    expect(res.headers['content-type']).toBe('text/html; charset=utf-8')
+    expect(res.body).toContain('&lt;b&gt;one&lt;/b&gt;')
+    expect(res.body).not.toContain('<b>one</b>')
+    // Two lines, numbered from one — a trailing newline does not make a third.
+    expect(res.body).toContain('>1</td>')
+    expect(res.body).toContain('>2</td>')
+    expect(res.body).not.toContain('>3</td>')
+    // And the raw link, which is how a reader gets the bytes themselves.
+    expect(res.body).toContain('href="/alpha/raw/main/src/index.ts"')
+  })
+
+  test('a binary file offers the download instead of pretending to show it', async () => {
+    const { res } = await page('/alpha/blob/main/logo.png', {
+      answer: served({ ...BLOB, path: 'logo.png', binary: true, text: null, size: 2048 }),
+    })
+    expect(res.body).toContain('href="/alpha/raw/main/logo.png"')
+    expect(res.body).toContain('binary')
+    expect(res.body).toContain('2048')
+  })
+
+  test('a file over the cap says so, and offers only the download', async () => {
+    const { res } = await page('/alpha/blob/main/big.txt', {
+      answer: served({
+        ...BLOB,
+        path: 'big.txt',
+        oversize: true,
+        text: null,
+        size: 1024 * 1024 + 1,
+      }),
+    })
+    expect(res.body).toContain('too large to show')
+    expect(res.body).toContain('href="/alpha/raw/main/big.txt"')
+  })
+
+  test('walks back up to the directory the file is in', async () => {
+    const { res } = await page('/alpha/blob/main/src/index.ts', { answer: served(BLOB) })
+    expect(res.body).toContain('<a href="/alpha/tree/main/src">src</a>')
+  })
+})
+
+describe('the README under a tree', () => {
+  test('is shown as text under the listing, and never as markup', async () => {
+    const { res } = await page('/alpha', {
+      answer: served({
+        ...ANSWER,
+        readme: { name: 'README.md', text: '# walgit\n<img src=x onerror=alert(1)>' },
+      }),
+    })
+    expect(res.body).toContain('README.md')
+    // As written, escaped: there is no markdown renderer here, and pushed
+    // markup must not become markup.
+    expect(res.body).toContain('# walgit')
+    expect(res.body).toContain('&lt;img src=x onerror=alert(1)&gt;')
+    expect(res.body).not.toContain('<img src=x')
+  })
+
+  test('is absent when the tree holds none', async () => {
+    const { res } = await page('/alpha')
+    expect(res.body).not.toContain('class="readme"')
+  })
+})
+
+describe('the history page', () => {
+  test('asks the container for the log, and carries a cursor when paging', async () => {
+    const plain = await page('/alpha/commits/main', { answer: served(LOG) })
+    expect(plain.asked).toEqual(['?repo=alpha&op=log&ref=main'])
+
+    const paged = await page('/alpha/commits/main', {
+      answer: served(LOG),
+      before: '2'.repeat(40),
+    })
+    expect(paged.asked).toEqual([`?repo=alpha&op=log&ref=main&before=${'2'.repeat(40)}`])
+  })
+
+  test('shows author, date and subject, and links the next page', async () => {
+    const { res } = await page('/alpha/commits/main', { answer: served(LOG) })
+    expect(res.status).toBe(200)
+    expect(res.body).toContain('Ada &lt;ada@example.test&gt;')
+    expect(res.body).toContain('first')
+    // The date a reader reads, not the instant git stored.
+    expect(res.body).toContain('2026-09-19')
+    expect(res.body).toContain(`href="/alpha/commits/main?before=${'2'.repeat(40)}"`)
+  })
+
+  test('the end of the history has no next page', async () => {
+    const { res } = await page('/alpha/commits/main', {
+      answer: served({ ...LOG, next: null }),
+    })
+    expect(res.body).not.toContain('?before=')
+  })
+
+  test('is reachable from the repository page', async () => {
+    const { res } = await page('/alpha')
+    expect(res.body).toContain('href="/alpha/commits/main"')
   })
 })
 

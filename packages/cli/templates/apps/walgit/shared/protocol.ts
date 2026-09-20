@@ -212,25 +212,43 @@ export const REPOS_PATH = '/repos'
 export const BROWSE_PATH = '/_walgit/browse'
 
 /**
- * The browse URLs a person types: `/<name>` and `/<name>/tree/<rest>`.
+ * The browse URLs a person types: `/<name>`, and `/<name>/<kind>/<rest>` for
+ * each of the four GitHub-shaped reads.
  *
- * Group 1 is the repository; group 2 is everything after `/tree/`, which is a
- * ref and a path RUN TOGETHER — a branch name may contain slashes, so where one
- * ends is a question only the Index can answer (`shared/browse.ts` splits it by
- * longest ref prefix). The regex therefore takes the remainder whole rather
- * than pretending the URL says where the boundary is.
+ * Group 1 is the repository; group 2 is the kind; group 3 is everything after
+ * it, which is a ref and a path RUN TOGETHER — a branch name may contain
+ * slashes, so where one ends is a question only the Index can answer
+ * (`shared/browse.ts` splits it by longest ref prefix). The regex therefore
+ * takes the remainder whole rather than pretending the URL says where the
+ * boundary is.
+ *
+ * The kinds are spelled out rather than matched as `[^/]+` so a URL naming one
+ * walgit does not serve — `/<name>/blame/…` — is not a page at all rather than
+ * a browse that 404s from deeper in; and so a repository page cannot be
+ * confused with a directory inside one.
  *
  * Not under `/_walgit/`, like `REPOS_PATH` and for the same reason: these are
  * pages someone reads rather than endpoints a client speaks. Same collision
  * argument too — a repository is cloned at `/<name>.git/…`, so a repository
  * called `repos` keeps its clone URL and only loses its bare browse URL.
  */
-export const BROWSE_HTTP = /^\/([^/]+)(?:\/tree\/(.+))?$/
+export const BROWSE_HTTP = /^\/([^/]+)(?:\/(tree|blob|raw|commits)\/(.+))?$/
 
-/** A browse URL, as the two page routes spell one. */
+/**
+ * Which of the four reads a browse URL names.
+ *
+ * `tree` is a directory (and the bare `/<name>`), `blob` a file's page, `raw`
+ * its bytes, `commits` the history. One vocabulary for the URL, the container's
+ * `op` and the page renderer, so a route the edge claims and the container does
+ * not answer is a type error rather than a 404 someone finds later.
+ */
+export type BrowseKind = 'tree' | 'blob' | 'raw' | 'commits'
+
+/** A browse URL, as the page routes spell one. */
 export interface BrowseRoute {
   repo: string
-  /** Everything after `/tree/`: a ref and a path run together, or `''`. */
+  kind: BrowseKind
+  /** Everything after the kind: a ref and a path run together, or `''`. */
   rest: string
 }
 
@@ -255,7 +273,9 @@ export function wantsBrowse(method: string, pathname: string): BrowseRoute | nul
   if (!route) return null
   const repo = route[1]!
   if (!REPO_ID.test(repo)) return null
-  return { repo, rest: route[2] ?? '' }
+  // A bare `/<name>` is the tree at the default branch: the kind is absent
+  // from the URL because there is nothing yet to disambiguate.
+  return { repo, kind: (route[2] as BrowseKind | undefined) ?? 'tree', rest: route[3] ?? '' }
 }
 
 /**
@@ -353,6 +373,9 @@ export const SIGNERS_REF = 'refs/walgit/signers'
  *                    a misconfigured client
  *   - `collision`    a name already taken — a product signal about naming
  *   - `unauthorized` a bad or missing credential
+ *   - `invalid`      a request walgit could not read at all — a malformed
+ *                    history cursor, say. Not a thing that might have existed,
+ *                    which is what separates it from `not-found`
  *   - `edge`         walgit did not refuse; something in front of it did. This
  *                    one is a BUG SIGNAL: every refusal walgit means to make it
  *                    should make itself, with an explanation. Absorbing it into
@@ -362,6 +385,7 @@ export type RejectKind =
   | 'size-cap'
   | 'collision'
   | 'unauthorized'
+  | 'invalid'
   | 'not-found'
   | 'unavailable'
   | 'edge'
@@ -384,6 +408,7 @@ const KINDS = new Set<RejectKind>([
   'size-cap',
   'collision',
   'unauthorized',
+  'invalid',
   'not-found',
   'unavailable',
   'edge',

@@ -387,6 +387,45 @@ export default cloudflareModule.instance({
       // needs the container restart described above to hold across a deploy;
       // it was written before the restart existed, and did not.
       { name: 'WALGIT_RETENTION_HOURS', value: '24' },
+      // ── the web view ─────────────────────────────────────────────────────
+      //
+      // The browser half: `/repos` lists what this deployment holds, and
+      // `/<name>` browses one — refs, a tree, a file, its raw bytes, the README
+      // and the commit log. Everything it shows is behind the credential and
+      // the Private gate a clone is behind (docs/adr/0013), so turning it on
+      // publishes nothing that `git clone` did not already hand out.
+      //
+      // ON HERE because agentgit is a host on the open internet, and the URL an
+      // agent pastes into a message should be one a person can open. It ships
+      // OFF in packages/walgit and stays off for every other deployment, for
+      // the reason `WALGIT_SIGNER_LISTS` above is here: whether a host has a
+      // web face is an opinion about what it is for.
+      //
+      // WHAT IT COSTS. The list at `/repos` is served at the edge from the
+      // Index and wakes nothing. A BROWSE does not: a tree, a file and a log
+      // are git objects, only the Cache holds those, so every repository page
+      // wakes the container exactly as a clone does — and a cold one
+      // Materializes the repository first. One container serves everything
+      // here (`max_instances: 1`), so a crawler walking a large repository is
+      // queue time a pusher waits behind. Every browse page says `noindex` in
+      // its header AND its markup — `/robots.txt` deliberately does not refuse
+      // them, because it is the landing page's file and silence there is read
+      // as a refusal by some crawlers — so the header is what keeps somebody's
+      // pushed source out of a search index.
+      //
+      // ONE CONTAINER REPLACEMENT to turn it on. `WALGIT_WEB` is on
+      // `CONTAINER_ENV` (packages/walgit/shared/container-env.ts) because the
+      // container answers `/_walgit/browse`, so adding it changes the
+      // environment the Durable Object fingerprints and the instance is
+      // replaced once — the rollout described above `workerSecrets`, paid at
+      // this deploy and not again.
+      //
+      // IT SHADOWS TWO NAMES. A browse URL is `/<name>`, so a repository
+      // actually called `robots` or `favicon` keeps its clone URL
+      // (`/<name>.git/…`) and loses only its bare browse page to the document
+      // and icon routes the edge answers first. Nothing is lost that a client
+      // speaks.
+      { name: 'WALGIT_WEB', value: '1' },
       // ── who runs it ──────────────────────────────────────────────────────
       //
       // The one thing on the launch page that is not a capability: a capability
