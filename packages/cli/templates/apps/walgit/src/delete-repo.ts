@@ -27,9 +27,10 @@
 
 import * as fs from 'node:fs'
 
-import type { ObjectStore } from './store'
-import { indexKey, repoPrefix } from './keys'
-import { loadIndex, updateIndex, type WalIndex } from './wal-index'
+import type { ObjectStore } from '../shared/store'
+import { indexKey, repoPrefix } from '../shared/keys'
+import { loadIndex, type WalIndex } from '../shared/wal-index'
+import { updateIndex } from './wal-index'
 
 /**
  * How long a repository sits tombstoned before its objects may be deleted.

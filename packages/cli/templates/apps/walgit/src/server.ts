@@ -21,10 +21,10 @@ import { gitAncestry, isProposalRef, listProposals } from './proposals'
 import { resolveRepo } from './repo'
 import { sshReadVerifier } from './ssh-signature'
 import { runGitHttpBackend } from './git-backend'
-import type { ObjectStore } from './store'
+import type { ObjectStore } from '../shared/store'
 import { storeFromEnv } from './store-env'
 import { syncRepo } from './sync'
-import { loadIndex } from './wal-index'
+import { loadIndex } from '../shared/wal-index'
 
 const reposDir = process.env.WALGIT_REPOS_DIR ?? '/srv/walgit/repos'
 const port = Number(process.env.PORT ?? 8080)

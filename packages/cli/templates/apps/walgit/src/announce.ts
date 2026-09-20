@@ -23,7 +23,7 @@
 
 import { eventsFromChanges } from '../shared/events'
 import { ANNOUNCE_PATH, SIGNERS_REF } from '../shared/protocol'
-import type { RefChange } from './wal-index'
+import type { RefChange } from '../shared/wal-index'
 
 export interface AnnounceConfig {
   /** The deployment's own public origin — the Worker in front of this container. */

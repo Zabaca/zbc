@@ -36,7 +36,9 @@ describe('FileStore', () => {
     const seed = await store.put('race/match', bytes('0'))
     const etag = seed.ok ? seed.etag : ''
     const results = await Promise.all(
-      Array.from({ length: 8 }, (_, i) => store.put('race/match', bytes(String(i)), { ifMatch: etag })),
+      Array.from({ length: 8 }, (_, i) =>
+        store.put('race/match', bytes(String(i)), { ifMatch: etag }),
+      ),
     )
     expect(results.filter((r) => r.ok)).toHaveLength(1)
   })

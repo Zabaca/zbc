@@ -19,7 +19,7 @@ import { createHmac } from 'node:crypto'
 
 import { flagEnabled, seedValue } from '../shared/policy'
 import { CHALLENGE_PATH, READ_CHALLENGE_NAMESPACE } from '../shared/protocol'
-import type { Claim } from './wal-index'
+import type { Claim } from '../shared/wal-index'
 
 /**
  * The variables this module reads, named so a literal fixture is checked: a

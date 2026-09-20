@@ -49,7 +49,7 @@ import type { ResolvedRepo } from './repo'
  */
 function ensureConfig(gitDir: string, key: string, value: string): void {
   if (readConfig(gitDir, key) === value) return
-  const res = git(['--git-dir', gitDir, 'config', key, value])
+  const res = git(['config'], { gitDir, operands: [key, value] })
   if (res.status === 0) return
   if (readConfig(gitDir, key) === value) return
   throw new Error(`git config ${key} ${value} failed: ${res.stderr.trim()}`)
@@ -58,12 +58,12 @@ function ensureConfig(gitDir: string, key: string, value: string): void {
 /** Remove a config key, if it is set. Losing the lock race is not fatal here. */
 function clearConfig(gitDir: string, key: string): void {
   if (readConfig(gitDir, key) === undefined) return
-  git(['--git-dir', gitDir, 'config', '--unset', key])
+  git(['config', '--unset'], { gitDir, operands: [key] })
 }
 
 /** The configured value, or undefined when the key is unset. */
 function readConfig(gitDir: string, key: string): string | undefined {
-  const res = git(['--git-dir', gitDir, 'config', '--get', key])
+  const res = git(['config', '--get'], { gitDir, operands: [key] })
   return res.status === 0 ? res.stdout.trim() : undefined
 }
 
@@ -85,7 +85,7 @@ export function ensureBareRepo(repo: ResolvedRepo): ResolvedRepo {
     // `main` as the default HEAD, because HEAD on a bare repo is what a clone
     // checks out: created as `master` and pushed to as `main`, a clone succeeds
     // and leaves an empty working tree, which reads as data loss.
-    gitOrThrow(['init', '--bare', '--quiet', '--initial-branch=main', repo.dir])
+    gitOrThrow(['init', '--bare', '--quiet', '--initial-branch=main'], { operands: [repo.dir] })
   }
   // Re-applied on every call, not just at creation: `receive.unpackLimit=0`
   // is what makes a small push arrive as a packfile rather than exploding into

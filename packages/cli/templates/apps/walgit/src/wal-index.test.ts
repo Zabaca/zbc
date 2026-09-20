@@ -1,18 +1,15 @@
 import { describe, expect, test } from 'bun:test'
-import { MemoryStore } from './store'
+import { MemoryStore } from '../shared/store'
 import { ZERO_OID } from '../shared/protocol'
-import { indexKey } from './keys'
+import { indexKey } from '../shared/keys'
 import {
-  applyRefChanges,
-  commitIndex,
   emptyIndex,
   loadIndex,
   loadIndexIfChanged,
-  nextIndex,
-  updateIndex,
   type RefChange,
   type WalIndex,
-} from './wal-index'
+} from '../shared/wal-index'
+import { applyRefChanges, commitIndex, nextIndex, updateIndex } from './wal-index'
 
 const entry = (n: number) => ({
   key: `wal/${n}.pack`,

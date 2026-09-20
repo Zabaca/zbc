@@ -32,7 +32,8 @@ import {
   type ListSource,
 } from './signers'
 import { FileStore } from './store'
-import { commitIndex, emptyIndex, type RefChange } from './wal-index'
+import { emptyIndex, type RefChange } from '../shared/wal-index'
+import { commitIndex } from './wal-index'
 
 const KEY_A = 'SHA256:BMBEMXbMBsnjXwgNs+86IiJrPgYlZEsWxaKZW/2/1dw'
 const KEY_B = 'SHA256:0000MXbMBsnjXwgNs+86IiJrPgYlZEsWxaKZW/2/1dw'

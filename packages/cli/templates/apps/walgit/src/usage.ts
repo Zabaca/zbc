@@ -21,9 +21,9 @@
  * request path, not here.
  */
 
-import { indexKey, listRepoIds } from './keys'
-import type { ObjectStore } from './store'
-import type { WalEntry, WalIndex } from './wal-index'
+import { indexKey, listRepoIds } from '../shared/keys'
+import type { ObjectStore } from '../shared/store'
+import type { WalEntry, WalIndex } from '../shared/wal-index'
 
 export interface RepoUsage {
   repoId: string

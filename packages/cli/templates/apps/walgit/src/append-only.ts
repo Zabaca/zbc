@@ -24,7 +24,7 @@ import * as crypto from 'node:crypto'
 import { git } from './git'
 import { flagEnabled } from '../shared/policy'
 import { ZERO_OID } from '../shared/protocol'
-import type { RefChange } from './wal-index'
+import type { RefChange } from '../shared/wal-index'
 
 /** The env flag an instance sets to make its repositories append-only. */
 export function appendOnlyEnabled(env: Record<string, string | undefined> = process.env): boolean {
@@ -56,14 +56,11 @@ export type RefVerdict =
 export function judgeRefChange(gitDir: string, change: RefChange): RefVerdict {
   if (change.oldOid === ZERO_OID) return { allowed: true }
   if (change.newOid === ZERO_OID) return { allowed: false, kind: 'delete', ref: change.ref }
-  const res = git([
-    '--git-dir',
+  const res = git(['merge-base', '--is-ancestor'], {
     gitDir,
-    'merge-base',
-    '--is-ancestor',
-    change.oldOid,
-    change.newOid,
-  ])
+    inheritObjects: true,
+    operands: [change.oldOid, change.newOid],
+  })
   if (res.status === 0) return { allowed: true }
   return { allowed: false, kind: 'rewrite', ref: change.ref }
 }

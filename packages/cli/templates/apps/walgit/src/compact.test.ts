@@ -10,10 +10,10 @@ import {
   isCompactionDue,
   pendingEntries,
 } from './compact'
-import { leaseKey, walKey } from './keys'
-import { MemoryStore } from './store'
-import { ulid, ulidTime } from './ulid'
-import { emptyIndex, type WalEntry, type WalIndex } from './wal-index'
+import { leaseKey, walKey } from '../shared/keys'
+import { MemoryStore } from '../shared/store'
+import { ulid, ulidTime } from '../shared/ulid'
+import { emptyIndex, type WalEntry, type WalIndex } from '../shared/wal-index'
 
 function entry(seq: number): WalEntry {
   return {

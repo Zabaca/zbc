@@ -34,8 +34,8 @@ import * as path from 'node:path'
 import { absentEntries, isPartial } from './materialize'
 import { localRefs, presentObjects } from './reconcile'
 import type { ResolvedRepo } from './repo'
-import type { ObjectStore } from './store'
-import { loadIndex, type WalIndex } from './wal-index'
+import type { ObjectStore } from '../shared/store'
+import { loadIndex, type WalIndex } from '../shared/wal-index'
 
 export interface RefDivergence {
   ref: string

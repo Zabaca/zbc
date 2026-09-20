@@ -11,7 +11,7 @@ import { describe, expect, test } from 'bun:test'
 
 import { capabilitiesFrom } from '../shared/capabilities'
 import { checkSize, limitsEnforced, limitsOf, liveBytes, NO_LIMITS, type Limits } from './limits'
-import type { WalEntry, WalIndex } from './wal-index'
+import type { WalEntry, WalIndex } from '../shared/wal-index'
 
 const MIB = 1024 ** 2
 

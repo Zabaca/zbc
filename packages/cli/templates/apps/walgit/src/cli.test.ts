@@ -13,18 +13,12 @@ import * as os from 'node:os'
 import * as path from 'node:path'
 
 import { main, parseArgs } from './cli'
-import { walKey } from './keys'
+import { walKey } from '../shared/keys'
 import { FileStore } from './store'
-import { ulid } from './ulid'
+import { ulid } from '../shared/ulid'
 import { verifyRepo } from './verify'
-import {
-  commitIndex,
-  emptyIndex,
-  loadIndex,
-  sha256,
-  type WalEntry,
-  type WalIndex,
-} from './wal-index'
+import { emptyIndex, loadIndex, type WalEntry, type WalIndex } from '../shared/wal-index'
+import { commitIndex, sha256 } from './wal-index'
 
 let scratch: string
 let storeDir: string
@@ -190,7 +184,7 @@ describe('walgit verify', () => {
 
     // Publish a branch the disk has never heard of, pointing at an object the
     // disk does have — so the disagreement is purely about refs.
-    const { index } = await import('./wal-index').then((m) => m.loadIndex(store, repoId))
+    const { index } = await loadIndex(store, repoId)
     await publish({ ...index, refs: { ...index.refs, 'refs/heads/release': head } })
 
     out = []
@@ -247,8 +241,7 @@ describe('walgit gc', () => {
   test('--yes deletes the orphan and leaves the live entry alone', async () => {
     const { repoId } = await published()
     const key = await orphan(repoId, 99, 120)
-    const live = (await import('./wal-index').then((m) => m.loadIndex(store, repoId))).index
-      .entries[0]!.key
+    const live = (await loadIndex(store, repoId)).index.entries[0]!.key
 
     expect(await main(['gc', repoId, '--yes'], env)).toBe(0)
     expect(await store.get(key)).toBeNull()

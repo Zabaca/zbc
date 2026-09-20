@@ -1,9 +1,10 @@
 import { describe, expect, test } from 'bun:test'
 
-import { MemoryStore } from './store'
+import { MemoryStore } from '../shared/store'
 import { findOrphans } from './orphans'
-import { walKey } from './keys'
-import { commitIndex, emptyIndex } from './wal-index'
+import { walKey } from '../shared/keys'
+import { emptyIndex } from '../shared/wal-index'
+import { commitIndex } from './wal-index'
 
 describe('findOrphans', () => {
   test('an uploaded pack no index entry names is an orphan, and its idx with it', async () => {

@@ -12,13 +12,14 @@ import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
 
-import { walKey } from './keys'
+import { walKey } from '../shared/keys'
 import { isPartial, markerPath, materialize, neededEntries, packBasename } from './materialize'
 import { localRefs } from './reconcile'
 import { resolveRepo } from './repo'
 import { FileStore } from './store'
-import { commitIndex, emptyIndex, sha256, type WalEntry, type WalIndex } from './wal-index'
-import { ulid } from './ulid'
+import { emptyIndex, type WalEntry, type WalIndex } from '../shared/wal-index'
+import { commitIndex, sha256 } from './wal-index'
+import { ulid } from '../shared/ulid'
 
 let scratch: string
 let storeDir: string

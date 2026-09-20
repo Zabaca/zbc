@@ -19,7 +19,7 @@ import {
   type ProposalSource,
 } from './proposals'
 import { ZERO_OID } from '../shared/protocol'
-import type { RefChange } from './wal-index'
+import type { RefChange } from '../shared/wal-index'
 
 const COMMIT = 'a'.repeat(40)
 const TREE = 'b'.repeat(40)

@@ -28,7 +28,7 @@
 
 import type { Capabilities } from '../shared/capabilities'
 import { describeBytes } from '../shared/policy'
-import type { WalIndex } from './wal-index'
+import type { WalIndex } from '../shared/wal-index'
 
 export interface Limits {
   /** Largest single push, in bytes. `null` means unlimited. */

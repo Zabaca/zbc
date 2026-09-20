@@ -30,9 +30,9 @@ import { ensureBareRepo } from './cache'
 import { resolveRepo } from './repo'
 import { FileStore } from './store'
 import { syncRepo } from './sync'
-import { ulid } from './ulid'
-import { walKey } from './keys'
-import { loadIndex, type WalIndex } from './wal-index'
+import { ulid } from '../shared/ulid'
+import { walKey } from '../shared/keys'
+import { loadIndex, type WalIndex } from '../shared/wal-index'
 
 const TOKEN = 's3cret'
 const BRANCHES = ['main', 'alpha', 'beta']

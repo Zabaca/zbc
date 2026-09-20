@@ -53,7 +53,7 @@ import { git } from './git'
 import { readAllowed } from './private'
 import { PROPOSALS_PREFIX, SIGNERS_TARGET, isProposalRef } from './proposals'
 import { certificatePresented, signedPushEnabled, type PushCertEnv } from './push-cert'
-import type { RefChange } from './wal-index'
+import type { RefChange } from '../shared/wal-index'
 
 /**
  * The env flag an instance sets to give its repositories Signer Lists.
@@ -204,7 +204,9 @@ export const MAX_KEY_LIST_BYTES = 64 * 1024
  */
 export function gitListSource(gitDir: string): ListSource {
   return (oid, file) => {
-    const checked = git(['--git-dir', gitDir, 'cat-file', '--batch-check'], {
+    const checked = git(['cat-file', '--batch-check'], {
+      gitDir,
+      inheritObjects: true,
       input: `${oid}\n${oid}:${file}\n`,
     })
     const [tip, found] = checked.stdout.split('\n')
@@ -250,7 +252,11 @@ export function gitListSource(gitDir: string): ListSource {
       }
     }
 
-    const blob = git(['--git-dir', gitDir, 'cat-file', 'blob', `${oid}:${file}`])
+    const blob = git(['cat-file', 'blob'], {
+      gitDir,
+      inheritObjects: true,
+      operands: [`${oid}:${file}`],
+    })
     // It was there a moment ago and a git object is immutable, so this is a
     // read that failed rather than a file that is absent — and saying "add a
     // `signers` file" to someone who just pushed one is worse than saying

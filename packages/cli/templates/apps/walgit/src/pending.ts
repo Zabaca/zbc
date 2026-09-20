@@ -17,7 +17,7 @@ import * as fs from 'node:fs'
 import * as path from 'node:path'
 
 import type { PushSigner } from './signers'
-import type { Claim, Provenance, WalEntry } from './wal-index'
+import type { Claim, Provenance, WalEntry } from '../shared/wal-index'
 
 /**
  * What `pre-receive` hands to `reference-transaction`.

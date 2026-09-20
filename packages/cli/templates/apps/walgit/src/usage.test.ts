@@ -9,10 +9,11 @@
  */
 import { describe, expect, test } from 'bun:test'
 
-import { walKey } from './keys'
-import { MemoryStore, type ObjectStore, type PutResult } from './store'
+import { walKey } from '../shared/keys'
+import { MemoryStore, type ObjectStore, type PutResult } from '../shared/store'
 import { collectUsage, formatBytes, formatUsage, parseDuration, usageOfIndex } from './usage'
-import { commitIndex, emptyIndex, type WalEntry, type WalIndex } from './wal-index'
+import { emptyIndex, type WalEntry, type WalIndex } from '../shared/wal-index'
+import { commitIndex } from './wal-index'
 
 const NOW = new Date('2026-08-28T12:00:00.000Z')
 const hoursAgo = (h: number) => new Date(NOW.getTime() - h * 3_600_000).toISOString()

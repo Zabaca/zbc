@@ -21,11 +21,11 @@
  * request rather than behind a flag.
  */
 
-import type { ObjectStore } from './store'
+import type { ObjectStore } from '../shared/store'
 import type { ResolvedRepo } from './repo'
 import { isPartial, materialize, type MaterializeStats } from './materialize'
 import { reconcile, type ReconcileResult } from './reconcile'
-import { loadIndex } from './wal-index'
+import { loadIndex } from '../shared/wal-index'
 
 export type SyncResult = ReconcileResult & {
   /** Present only when the WAL was actually replayed onto this disk. */

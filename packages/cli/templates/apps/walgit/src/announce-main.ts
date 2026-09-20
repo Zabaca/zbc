@@ -18,7 +18,7 @@
  */
 
 import { announce, announceConfigFromEnv } from './announce'
-import type { RefChange } from './wal-index'
+import type { RefChange } from '../shared/wal-index'
 
 const repoId = process.argv[2]
 const payload = process.argv[3]

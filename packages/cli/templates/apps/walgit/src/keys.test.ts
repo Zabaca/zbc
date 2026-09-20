@@ -24,9 +24,9 @@ import {
   walKeyUlid,
   walKeyUploadedAt,
   walPrefix,
-} from './keys'
-import { MemoryStore, type ObjectStore } from './store'
-import { ulid } from './ulid'
+} from '../shared/keys'
+import { MemoryStore, type ObjectStore } from '../shared/store'
+import { ulid } from '../shared/ulid'
 
 describe('the layout', () => {
   test('everything for one repository is under one prefix', () => {

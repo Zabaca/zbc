@@ -8,12 +8,13 @@
 import { describe, expect, test } from 'bun:test'
 
 import { deleteRepo } from './delete-repo'
-import { repoPrefix, walKey } from './keys'
+import { repoPrefix, walKey } from '../shared/keys'
 import { findOrphans } from './orphans'
 import { collectGarbage } from './gc'
-import { MemoryStore } from './store'
-import { ulid } from './ulid'
-import { commitIndex, emptyIndex, loadIndex, type WalIndex } from './wal-index'
+import { MemoryStore } from '../shared/store'
+import { ulid } from '../shared/ulid'
+import { emptyIndex, loadIndex, type WalIndex } from '../shared/wal-index'
+import { commitIndex } from './wal-index'
 
 const GRACE = 60 * 60 * 1000
 const NOW = new Date('2026-08-28T12:00:00.000Z')
