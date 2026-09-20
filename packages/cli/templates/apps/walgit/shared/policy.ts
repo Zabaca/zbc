@@ -46,6 +46,27 @@ export function describeBytes(bytes: number): string {
 const round = (n: number) => String(Math.round(n * 100) / 100)
 
 /**
+ * A cap without its exact byte count.
+ *
+ * `describeBytes` renders `99 MiB (103809024 bytes)` because the refusal it was
+ * written for is read by a client comparing a number to its own, and a
+ * parenthetical there is the difference between a machine acting on the message
+ * and a machine guessing at a rounded figure. On a page somebody is reading —
+ * the landing page's fine print, a row in the repository list — the same nine
+ * digits are noise in the middle of a sentence.
+ *
+ * DERIVED from `describeBytes` rather than formatted again, which is the whole
+ * care here: the invariant is that the cap a document prints and the cap
+ * `pre-receive` refuses on cannot look like two different numbers, and a second
+ * formatter is exactly how they would. Stripping a suffix off the one rendering
+ * cannot change the figure in front of it, so a document still cannot disagree
+ * with the hook — it only says less.
+ */
+export function shortBytes(bytes: number): string {
+  return describeBytes(bytes).replace(/ \(\d+ bytes\)$/, '')
+}
+
+/**
  * Is a boolean-ish walgit variable on?
  *
  * `1` or `true`, and nothing else. It lives here because BOTH halves have to

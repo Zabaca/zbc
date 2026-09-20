@@ -44,7 +44,10 @@
 import type { Capabilities } from './capabilities'
 import { authorizedBy } from './credentials'
 import { indexKey, listRepoIds } from './keys'
-import { REPOS_PATH } from './protocol'
+import { escapeHtml } from './landing'
+import { pooled } from './pooled'
+import { shortBytes } from './policy'
+import { BASIC_CHALLENGE, REPOS_PATH } from './protocol'
 import type { ObjectStore } from './store'
 import type { WalIndex } from './wal-index'
 
@@ -66,9 +69,6 @@ export const REPO_LIST_MAX_FACTS = 1000
 
 /** Indexes read at once. Enough to hide latency, few enough to not be a burst. */
 export const REPO_LIST_CONCURRENCY = 16
-
-/** The realm a browser prompts for — git's, so one credential answers both. */
-export const WALGIT_REALM = 'Basic realm="walgit"'
 
 /** What the Worker knows about the request, and nothing about its runtime. */
 export interface RepoListRequest {
@@ -139,7 +139,9 @@ export async function repoListResponse(
       status: 401,
       headers: {
         'content-type': 'text/plain; charset=utf-8',
-        'www-authenticate': WALGIT_REALM,
+        // The challenge git is refused with, so one credential answers the
+        // clone and the browse (`shared/protocol.ts`).
+        'www-authenticate': BASIC_CHALLENGE,
         'cache-control': 'no-store',
       },
       body: 'unauthorized\n',
@@ -212,6 +214,16 @@ export interface RepoListing {
  * up to `REPO_LIST_MAX_FACTS` every Index is read, so the page can be sorted by
  * recency; past it only the page being rendered is read and the order stays the
  * store's.
+ *
+ * What is NOT bounded is the name listing itself: `listRepoIds` pages through
+ * the store until it has every name, which on a bucket holding fifty thousand
+ * repositories is fifty delimited LISTs rather than one. That is deliberate,
+ * and it is the cheaper half by a wide margin — a listing page names a thousand
+ * repositories, where the Index reads it feeds cost one GET each. Capping it
+ * would mean either paginating no further than the cap (so a name the log holds
+ * would have no page it appears on) or renumbering pages per request; the rule
+ * this view is held to is that no name is ever omitted, so the listing runs to
+ * the end.
  */
 export async function collectRepoList(store: ObjectStore, page: number): Promise<RepoListing> {
   // One delimited LIST where the store can roll up prefixes, and a derived
@@ -324,46 +336,19 @@ function requestedPage(search: string | undefined): number {
   return Number.isInteger(page) && page > 0 ? page : 1
 }
 
-/** Run `task` over `items` with a bounded number in flight. */
-async function pooled<T, R>(
-  items: readonly T[],
-  limit: number,
-  task: (item: T) => Promise<R>,
-): Promise<R[]> {
-  const results: R[] = Array.from({ length: items.length })
-  let next = 0
-  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
-    for (let i = next++; i < items.length; i = next++) results[i] = await task(items[i]!)
-  })
-  await Promise.all(workers)
-  return results
-}
-
 // ── The page ────────────────────────────────────────────────────────────────
 
 /**
  * A name arrives here as bytes from a bucket rather than as a path the
- * smart-HTTP grammar checked, so it is escaped rather than trusted — and the
- * page carries a CSP that would refuse a script even if this were wrong.
+ * smart-HTTP grammar checked, so it is escaped rather than trusted — with the
+ * landing page's own escaper (`shared/landing.ts`), because two of those is two
+ * chances for one of them to miss a character. The page also carries a CSP that
+ * would refuse a script even if this were wrong.
+ *
+ * Bytes are `shortBytes` (`shared/policy.ts`), derived from the one
+ * `describeBytes` a refusal prints: a size in this table and the cap
+ * `pre-receive` refuses on must not look like two different numbers.
  */
-function escapeHtml(raw: string): string {
-  return raw
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;')
-    .replaceAll("'", '&#39;')
-}
-
-/** Bytes, as a person reads them. */
-function shortBytes(bytes: number): string {
-  if (bytes >= 1024 ** 3) return `${round(bytes / 1024 ** 3)} GiB`
-  if (bytes >= 1024 ** 2) return `${round(bytes / 1024 ** 2)} MiB`
-  if (bytes >= 1024) return `${round(bytes / 1024)} KiB`
-  return `${bytes} B`
-}
-
-const round = (n: number) => String(Math.round(n * 10) / 10)
 
 /** An instant, as a date. The page is a directory, not a clock. */
 function shortDate(iso: string): string {
@@ -377,7 +362,10 @@ function shortDate(iso: string): string {
 function row(repo: RepoRow): string {
   const tags = [
     repo.private ? '<span class="tag">Private</span>' : '',
-    repo.claimed && !repo.private ? '<span class="tag">claimed</span>' : '',
+    // Both, where both hold: a Reader List lives INSIDE the Claim
+    // (`shared/wal-index.ts`), so a Private name is a claimed name, and a row
+    // that showed only the second fact would be dropping the first.
+    repo.claimed ? '<span class="tag">claimed</span>' : '',
     repo.deletionPending ? '<span class="tag leaving">being removed</span>' : '',
   ]
     .filter((tag) => tag !== '')

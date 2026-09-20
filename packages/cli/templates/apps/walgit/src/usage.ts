@@ -22,6 +22,7 @@
  */
 
 import { indexKey, listRepoIds } from '../shared/keys'
+import { pooled } from '../shared/pooled'
 import type { ObjectStore } from '../shared/store'
 import type { WalEntry, WalIndex } from '../shared/wal-index'
 
@@ -190,21 +191,6 @@ function bucketHoursFor(windowHours: number): number {
   if (windowHours <= 48) return 1
   if (windowHours <= 24 * 14) return 24
   return 24 * 7
-}
-
-/** Run `task` over `items` with a bounded number in flight. */
-async function pooled<T, R>(
-  items: readonly T[],
-  limit: number,
-  task: (item: T) => Promise<R>,
-): Promise<R[]> {
-  const results: R[] = Array.from({ length: items.length })
-  let next = 0
-  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
-    for (let i = next++; i < items.length; i = next++) results[i] = await task(items[i]!)
-  })
-  await Promise.all(workers)
-  return results
 }
 
 export async function collectUsage(

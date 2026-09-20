@@ -191,6 +191,18 @@ export const ANNOUNCE_PATH = '/_walgit/announce'
  */
 export const REPOS_PATH = '/repos'
 
+/**
+ * The challenge every walgit refusal of a read carries.
+ *
+ * One string, because it is answered by two very different clients and refused
+ * in four places: git prompts for a credential only when challenged in this
+ * scheme (which is what makes `git clone https://…` work interactively at all),
+ * and a browser prompts for the same reason on the web view. The realm is what
+ * ties them together — one credential answers both — so it is stated here with
+ * the rest of the wire vocabulary rather than typed out at each refusal.
+ */
+export const BASIC_CHALLENGE = 'Basic realm="walgit"'
+
 // ── Grammar ─────────────────────────────────────────────────────────────────
 
 /**

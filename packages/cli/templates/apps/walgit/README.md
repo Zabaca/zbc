@@ -503,6 +503,11 @@ cannot be read renders as the bare name with no facts — **no name the log hold
 is ever omitted**, because a missing row is the one failure a reader cannot
 detect.
 
+With the capability on and no object store configured there is no log to list,
+so the route answers `503` at the edge rather than proxying: falling through
+would wake the container for a path it does not route, and a 404 would say the
+view does not exist when what is missing is the bucket.
+
 The gate is the host's own and never a second copy: `authorizedBy`
 (`shared/credentials.ts`), the same function the event socket uses and the same
 credential a clone presents, answered before the bucket is touched. On a

@@ -47,9 +47,10 @@ import { analyticsFrom } from '../shared/analytics'
 import { operatorFrom } from '../shared/operator'
 import { renderRobots, wantsRobots } from '../shared/robots'
 import { repoListResponse, wantsRepoList } from '../shared/repo-list'
-import { S3Store, type ObjectStore } from '../shared/store'
+import { s3StoreFrom, type ObjectStore } from '../shared/store'
 import {
   ANNOUNCE_PATH,
+  BASIC_CHALLENGE,
   COLD_HEADER,
   EVENTS_PATH,
   EXPIRE_PATH,
@@ -539,44 +540,52 @@ export default {
     // container, which does not route it, and the client gets the 404 it got
     // before this route existed.
     //
-    // The store is built here rather than in `shared/`: the Worker is the half
-    // that holds the bindings, and `src/store-env.ts` is the container's copy
-    // of this (it reaches for `FileStore`, which needs a disk). A deployment
-    // with no object store configured has no log to list, so the route is not
-    // claimed at all and the request falls through with it.
+    // The store is built here rather than in `shared/`: the reading is shared
+    // (`s3StoreFrom`), but the signer belongs to whichever half has
+    // `aws4fetch` to hand. A deployment with the view on and no object store
+    // configured is answered 503 below rather than proxied.
     if (caps.web && wantsRepoList(request.method, url.pathname)) {
       const store = edgeStore(env)
-      if (store) {
-        const answer = await repoListResponse(
-          {
-            method: request.method,
-            accept,
-            authorization: request.headers.get('authorization'),
-            search: url.search,
-          },
-          { store, caps, tokens: parseTokens(env.WALGIT_HTTP_TOKENS) },
-        )
-        const bytes = new TextEncoder().encode(answer.body)
-        record(env, ctx, {
-          kind: 'list',
-          repo: '',
-          outcome: answer.status < 400 ? 'ok' : 'reject',
-          reject: answer.status < 400 ? '' : 'unauthorized',
-          status: answer.status,
-          // The container was not involved at all, which is the property this
-          // branch exists to create — the same claim the landing page makes.
-          served: false,
-          cold: false,
-          ttfbMs: Date.now() - startedAt,
-          totalMs: Date.now() - startedAt,
-          bytesServed: request.method === 'HEAD' ? 0 : bytes.byteLength,
-          bytesReceived: 0,
-        })
-        return new Response(request.method === 'HEAD' ? null : bytes, {
-          status: answer.status,
-          headers: answer.headers,
-        })
-      }
+      // A deployment that turned the view on without configuring an object
+      // store has no log to list. Answered here rather than proxied: falling
+      // through would wake the container for a path it does not route, which
+      // is the one thing this route exists not to do, and a 404 would say the
+      // view does not exist when what is missing is the bucket.
+      const answer = !store
+        ? {
+            status: 503,
+            headers: { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' },
+            body: 'walgit: no object store configured, so there is no log to list\n',
+          }
+        : await repoListResponse(
+            {
+              method: request.method,
+              accept,
+              authorization: request.headers.get('authorization'),
+              search: url.search,
+            },
+            { store, caps, tokens: parseTokens(env.WALGIT_HTTP_TOKENS) },
+          )
+      const bytes = new TextEncoder().encode(answer.body)
+      record(env, ctx, {
+        kind: 'list',
+        repo: '',
+        outcome: answer.status < 400 ? 'ok' : 'reject',
+        reject: answer.status < 400 ? '' : answer.status === 401 ? 'unauthorized' : 'unavailable',
+        status: answer.status,
+        // The container was not involved at all, which is the property this
+        // branch exists to create — the same claim the landing page makes.
+        served: false,
+        cold: false,
+        ttfbMs: Date.now() - startedAt,
+        totalMs: Date.now() - startedAt,
+        bytesServed: request.method === 'HEAD' ? 0 : bytes.byteLength,
+        bytesReceived: 0,
+      })
+      return new Response(request.method === 'HEAD' ? null : bytes, {
+        status: answer.status,
+        headers: answer.headers,
+      })
     }
 
     // The ref-event stream, answered at the edge for the same reason the
@@ -805,7 +814,7 @@ async function events(request: Request, url: URL, env: Env, caps: Capabilities):
   if (!allowed) {
     return new Response('unauthorized\n', {
       status: 401,
-      headers: { 'www-authenticate': 'Basic realm="walgit"' },
+      headers: { 'www-authenticate': BASIC_CHALLENGE },
     })
   }
   return stub.fetch(request)
@@ -832,30 +841,12 @@ async function sweep(event: ScheduledController, env: Env): Promise<void> {
  * The object store, as the edge reads it — or `null` when this deployment has
  * not configured one.
  *
- * The container's reader is `src/store-env.ts` and cannot be shared: it prefers
- * `FileStore`, which is a disk. What IS shared is the client it builds
- * (`shared/store.ts`) and the one detail that is easy to get wrong with it — R2
- * ignores the region but SigV4 does not, and an absent one signs differently
- * and 403s with nothing useful in the body.
+ * The reading itself is the shared one (`s3StoreFrom`, `shared/store.ts`), the
+ * same the container makes; what is here is only the dependency it takes, since
+ * the signer belongs to whichever half has `aws4fetch` to hand.
  */
 function edgeStore(env: Env): ObjectStore | null {
-  const endpoint = env.WALGIT_S3_ENDPOINT
-  const bucket = env.WALGIT_S3_BUCKET
-  const accessKeyId = env.WALGIT_S3_ACCESS_KEY_ID
-  const secretAccessKey = env.WALGIT_S3_SECRET_ACCESS_KEY
-  if (!endpoint || !bucket || !accessKeyId || !secretAccessKey) return null
-
-  const client = new AwsClient({
-    accessKeyId,
-    secretAccessKey,
-    service: 's3',
-    region: env.WALGIT_S3_REGION ?? 'auto',
-  })
-  return new S3Store({
-    endpoint: endpoint.replace(/\/$/, ''),
-    bucket,
-    fetch: (input, init) => client.fetch(input, init),
-  })
+  return s3StoreFrom(env, (credentials) => new AwsClient(credentials))
 }
 
 /**
