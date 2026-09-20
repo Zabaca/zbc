@@ -25,6 +25,7 @@
  * deliberately not in this milestone.
  */
 
+import { AwsClient } from 'aws4fetch'
 import { Container, getContainer } from '@cloudflare/containers'
 
 import { capabilitiesFrom, type Capabilities } from '../shared/capabilities'
@@ -45,6 +46,8 @@ import { OG_IMAGE_CACHE_CONTROL, OG_IMAGE_CONTENT_TYPE, wantsOgImage } from '../
 import { analyticsFrom } from '../shared/analytics'
 import { operatorFrom } from '../shared/operator'
 import { renderRobots, wantsRobots } from '../shared/robots'
+import { repoListResponse, wantsRepoList } from '../shared/repo-list'
+import { S3Store, type ObjectStore } from '../shared/store'
 import {
   ANNOUNCE_PATH,
   COLD_HEADER,
@@ -98,6 +101,12 @@ export interface Env {
    */
   WALGIT_PUBLIC?: string
   WALGIT_APPEND_ONLY?: string
+  /**
+   * The web view (`shared/repo-list.ts`). Read ONLY through `capabilitiesFrom`,
+   * like the policy above it — the route below and the two documents that
+   * advertise it must not be able to disagree about whether it exists.
+   */
+  WALGIT_WEB?: string
   WALGIT_RETENTION_HOURS?: string
   WALGIT_MAX_PUSH_BYTES?: string
   WALGIT_MAX_REPO_BYTES?: string
@@ -520,6 +529,56 @@ export default {
       })
     }
 
+    // `/repos` — the repository list (`shared/repo-list.ts`), answered at the
+    // edge off the log. Placed after the icon routes and before anything that
+    // could be a repository, so `/robots.txt` and `/favicon.ico` keep being
+    // answered by the branches above rather than by a browse route.
+    //
+    // Claimed from `caps.web` — the same field the two documents advertise it
+    // from — so with the capability off the path falls through to the
+    // container, which does not route it, and the client gets the 404 it got
+    // before this route existed.
+    //
+    // The store is built here rather than in `shared/`: the Worker is the half
+    // that holds the bindings, and `src/store-env.ts` is the container's copy
+    // of this (it reaches for `FileStore`, which needs a disk). A deployment
+    // with no object store configured has no log to list, so the route is not
+    // claimed at all and the request falls through with it.
+    if (caps.web && wantsRepoList(request.method, url.pathname)) {
+      const store = edgeStore(env)
+      if (store) {
+        const answer = await repoListResponse(
+          {
+            method: request.method,
+            accept,
+            authorization: request.headers.get('authorization'),
+            search: url.search,
+          },
+          { store, caps, tokens: parseTokens(env.WALGIT_HTTP_TOKENS) },
+        )
+        const bytes = new TextEncoder().encode(answer.body)
+        record(env, ctx, {
+          kind: 'list',
+          repo: '',
+          outcome: answer.status < 400 ? 'ok' : 'reject',
+          reject: answer.status < 400 ? '' : 'unauthorized',
+          status: answer.status,
+          // The container was not involved at all, which is the property this
+          // branch exists to create — the same claim the landing page makes.
+          served: false,
+          cold: false,
+          ttfbMs: Date.now() - startedAt,
+          totalMs: Date.now() - startedAt,
+          bytesServed: request.method === 'HEAD' ? 0 : bytes.byteLength,
+          bytesReceived: 0,
+        })
+        return new Response(request.method === 'HEAD' ? null : bytes, {
+          status: answer.status,
+          headers: answer.headers,
+        })
+      }
+    }
+
     // The ref-event stream, answered at the edge for the same reason the
     // landing page is: a subscription is a socket the container has no reason
     // to hold, and holding one would keep the single container awake for as
@@ -767,6 +826,36 @@ async function sweep(event: ScheduledController, env: Env): Promise<void> {
     // turn it into an unhandled rejection nobody reads.
     console.error(`walgit expire [cron ${event.cron}] failed: ${(error as Error).message}`)
   }
+}
+
+/**
+ * The object store, as the edge reads it — or `null` when this deployment has
+ * not configured one.
+ *
+ * The container's reader is `src/store-env.ts` and cannot be shared: it prefers
+ * `FileStore`, which is a disk. What IS shared is the client it builds
+ * (`shared/store.ts`) and the one detail that is easy to get wrong with it — R2
+ * ignores the region but SigV4 does not, and an absent one signs differently
+ * and 403s with nothing useful in the body.
+ */
+function edgeStore(env: Env): ObjectStore | null {
+  const endpoint = env.WALGIT_S3_ENDPOINT
+  const bucket = env.WALGIT_S3_BUCKET
+  const accessKeyId = env.WALGIT_S3_ACCESS_KEY_ID
+  const secretAccessKey = env.WALGIT_S3_SECRET_ACCESS_KEY
+  if (!endpoint || !bucket || !accessKeyId || !secretAccessKey) return null
+
+  const client = new AwsClient({
+    accessKeyId,
+    secretAccessKey,
+    service: 's3',
+    region: env.WALGIT_S3_REGION ?? 'auto',
+  })
+  return new S3Store({
+    endpoint: endpoint.replace(/\/$/, ''),
+    bucket,
+    fetch: (input, init) => client.fetch(input, init),
+  })
 }
 
 /**

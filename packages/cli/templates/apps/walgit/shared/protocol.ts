@@ -175,6 +175,22 @@ export const MCP_PATH = '/_walgit/mcp'
  */
 export const ANNOUNCE_PATH = '/_walgit/announce'
 
+/**
+ * The repository list — the web view's one page that is about the deployment
+ * rather than about a name (`shared/repo-list.ts`).
+ *
+ * Not under `/_walgit/`, unlike every path above it: this one is TYPED by a
+ * person into a browser, and the reserved prefix exists for endpoints a client
+ * speaks rather than for pages someone reads. It lives here rather than in
+ * `shared/repo-list.ts` so `classifyRequest` can name the route without
+ * importing the renderer.
+ *
+ * Same collision argument as `/llms.txt` and its neighbours: a repository is
+ * reached at `/<name>.git/…`, so a repository actually called `repos` keeps its
+ * clone URL and only loses its bare browse URL (README).
+ */
+export const REPOS_PATH = '/repos'
+
 // ── Grammar ─────────────────────────────────────────────────────────────────
 
 /**

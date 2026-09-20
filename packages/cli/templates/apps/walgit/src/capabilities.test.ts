@@ -218,6 +218,20 @@ describe('the flags take 1 and true, and nothing else', () => {
       expect(caps({ WALGIT_APPEND_ONLY: raw }).appendOnly).toBe(false)
     }
   })
+
+  /**
+   * The web view is a plain flag and nothing else — no seed, no second
+   * variable. It reaches the container's forward list like every capability
+   * here, which is what makes the deploy that first sets it replace the running
+   * container once (`fingerprintEnv`); nothing inside the container branches on
+   * it, because the list is answered at the edge.
+   */
+  test('the web view is on for either spelling of its flag, and off otherwise', () => {
+    for (const raw of ['1', 'true']) expect(caps({ WALGIT_WEB: raw }).web).toBe(true)
+    for (const raw of [undefined, '', '0', 'yes', 'TRUE', 'on']) {
+      expect(caps({ WALGIT_WEB: raw }).web).toBe(false)
+    }
+  })
 })
 
 /**
@@ -276,6 +290,7 @@ test('an unconfigured deployment advertises nothing, and says so in every field'
     namesCanBeClaimed: false,
     namesCanBePrivate: false,
     proposals: false,
+    web: false,
     retentionHours: null,
     maxPushBytes: null,
     maxRepoBytes: null,

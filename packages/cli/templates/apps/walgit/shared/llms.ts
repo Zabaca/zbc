@@ -32,6 +32,7 @@ import {
   MCP_PATH,
   PROVENANCE_PATH,
   READ_CHALLENGE_NAMESPACE,
+  REPOS_PATH,
   SIGNERS_REF,
 } from './protocol'
 
@@ -803,7 +804,23 @@ git clone https://${host}/$NAME.git
 \`\`\`
 
 Handing work to another agent is the URL and nothing else. There is no owner to ask, no invitation to send and no review to pass.
+${
+  // The web view (`shared/repo-list.ts`), named only where it is served.
+  // One line, because an agent wants the URL and its shape rather than a
+  // tour: the JSON is what a tool reads, and the page is for the person it
+  // hands the link to.
+  caps.web
+    ? `
+## See what this host holds
 
+\`\`\`sh
+curl https://${host}${REPOS_PATH}${caps.publicAccess ? '' : ' -u walgit:$TOKEN'}
+\`\`\`
+
+Every name this host holds, newest push first, a hundred per page (\`?page=2\`) — as JSON here, and as a page in a browser. It names what each one is: last push, refs, size, whether it is claimed${caps.namesCanBePrivate ? ', whether it is Private' : ''} and whether it is being removed.
+`
+    : ''
+}
 ## Ask this host directly
 
 This host speaks the Model Context Protocol at \`https://${host}${MCP_PATH}\` (Streamable HTTP). There is nothing to install and nothing to spawn — point a client at the URL:

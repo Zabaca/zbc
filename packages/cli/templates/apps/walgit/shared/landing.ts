@@ -1049,12 +1049,15 @@ function closeSection(host: string, caps: Capabilities): string {
  * one of them an in-page skip link, so anybody who wanted the repository, the
  * client or the manual had to retype a path from memory.
  *
- * The client's entry is gated like every other mention of it. The source and
- * the manual are not: walgit is open source wherever it is deployed, and
+ * The client's entry is gated like every other mention of it, and so is the
+ * repository list: `/repos` exists only where `WALGIT_WEB` is set, and a footer
+ * link is the easiest place on a page to promise a route the Worker does not
+ * claim. The source and the manual are not: walgit is open source wherever it is deployed, and
  * `/llms.txt` is served by every deployment.
  */
 function footerLinks(caps: Capabilities): string {
   const rows = [
+    caps.web ? '    <a href="/repos">Repositories</a>' : '',
     '    <a href="https://github.com/Zabaca/zbc">Open source</a>',
     caps.events
       ? '    <a href="https://www.npmjs.com/package/@zabaca/agentgit">@zabaca/agentgit</a>'

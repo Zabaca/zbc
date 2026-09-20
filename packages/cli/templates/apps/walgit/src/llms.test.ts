@@ -720,3 +720,20 @@ describe('renderLlms: per-source limits', () => {
     expect(doc).toContain('1 GiB (1073741824 bytes) per client per hour')
   })
 })
+
+/**
+ * The web view, in the manual.
+ *
+ * Advertised from `caps.web` like everything else here, and for the sharper
+ * reason the stream is: a document that told an agent to read
+ * `https://<host>/repos` on a deployment with the capability off would be
+ * naming a path the Worker does not claim at all.
+ */
+describe('the repository list, in the manual', () => {
+  test('is named only where it is served', () => {
+    const on = renderLlms(HOST, caps({ WALGIT_PUBLIC: '1', WALGIT_WEB: '1' }))
+    expect(on).toContain('/repos')
+    expect(renderLlms(HOST, caps({ WALGIT_PUBLIC: '1' }))).not.toContain('/repos')
+    expect(renderLlms(HOST, caps({}))).not.toContain('/repos')
+  })
+})

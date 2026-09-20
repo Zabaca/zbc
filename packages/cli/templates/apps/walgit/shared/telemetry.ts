@@ -29,6 +29,7 @@ import {
   PROVENANCE_PATH,
   REJECT_HEADER,
   REPO_ID,
+  REPOS_PATH,
   SERVED_HEADER,
   SMART_HTTP,
   normalizeReject,
@@ -66,6 +67,16 @@ export type RequestKind =
   // bucket and these are requests walgit now answers — and because the count
   // is the measure of what the route absorbed.
   | 'favicon'
+  // The repository list (`shared/repo-list.ts`), answered at the edge off the
+  // log. Its own kind for the reason `mcp` and `provenance` are — `other` is
+  // the unroutable bucket and this is a request walgit answers — and counted
+  // separately from `landing` because the two measure different things: the
+  // page is what a stranger reads, the list is what somebody who has decided
+  // to look around reads. It is recorded even on a deployment with the
+  // capability off, where the path falls through to a container that does not
+  // route it: the row is then a 404, which is the honest reading and a useful
+  // one (it is demand for a switch nobody has flipped).
+  | 'list'
   | 'health'
   // Someone asking who pushed (docs/adr/0011). Its own kind rather than
   // `other`, because `other` is the unroutable bucket and a provenance read is
@@ -154,6 +165,8 @@ export function classifyRequest(method: string, pathname: string, search: string
   // No repository: the name a tool acts on travels in the JSON-RPC body, and
   // the body is not something this function reads (see `RequestKind`).
   if (pathname === MCP_PATH) return { kind: 'mcp', repo: '' }
+  // No repository: the list is about all of them.
+  if (pathname === REPOS_PATH) return { kind: 'list', repo: '' }
   if (pathname === '/' && (method === 'GET' || method === 'HEAD')) {
     return { kind: 'instructions', repo: '' }
   }

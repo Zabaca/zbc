@@ -87,6 +87,26 @@ describe('classifyRequest', () => {
     })
   })
 
+  test('the repository list is its own kind, and names no repository', () => {
+    // Its own kind for the reason `mcp` and `provenance` are: `other` is the
+    // unroutable bucket, and the list is a request walgit answers — at the
+    // edge, off the log. It names no repository because it is about all of
+    // them.
+    expect(classifyRequest('GET', '/repos', '')).toEqual({ kind: 'list', repo: '' })
+    expect(classifyRequest('GET', '/repos', '?page=3').kind).toBe('list')
+    expect(classifyRequest('HEAD', '/repos', '').kind).toBe('list')
+  })
+
+  test('a repository named repos is still reached at its clone URL', () => {
+    // The same collision argument every edge-answered path carries: a
+    // repository is reached at `/<name>.git/…`, so the route above cannot
+    // shadow one.
+    expect(classifyRequest('GET', '/repos.git/info/refs', '?service=git-upload-pack')).toEqual({
+      kind: 'clone-advertise',
+      repo: 'repos',
+    })
+  })
+
   test('dumb-HTTP and unknown paths are other, and name no repository', () => {
     expect(classifyRequest('GET', '/alpha.git/info/refs', '')).toEqual({
       kind: 'other',

@@ -63,6 +63,7 @@ type CapabilityVar = Extract<
   | 'WALGIT_SIGNER_LISTS'
   | 'WALGIT_PRIVATE_REPOS'
   | 'WALGIT_PROPOSALS'
+  | 'WALGIT_WEB'
   | 'WALGIT_RATE_WINDOW_SECONDS'
   | 'WALGIT_MAX_NEW_REPOS_PER_SOURCE'
   | 'WALGIT_MAX_PUSHES_PER_SOURCE'
@@ -180,6 +181,19 @@ export type Capabilities = {
    * gave a token to.
    */
   proposals: boolean
+  /**
+   * This deployment serves a browse of the repositories it holds
+   * (`shared/repo-list.ts`) — the list at `/repos`, and the repository pages
+   * under it.
+   *
+   * A plain flag, and the one capability here that nothing in the container
+   * enforces: the list is read off the log at the edge, so a browse never
+   * wakes it. Default off, because a deployment's repository names are the one
+   * thing a credentialed instance has not already been asked to publish — the
+   * credential still gates the route, but enumerating names is a surface an
+   * operator opts into rather than acquires on upgrade.
+   */
+  web: boolean
   /** A repository is collected this many hours after its last push. */
   retentionHours: number | null
   /** Largest single push, in bytes. */
@@ -275,6 +289,7 @@ export function capabilitiesFrom(
       publicAccess &&
       seedValue(env.WALGIT_PRIVATE_REPOS) !== null,
     proposals: namesCanRefuse && signedPushes && flagEnabled(env.WALGIT_PROPOSALS),
+    web: flagEnabled(env.WALGIT_WEB),
     retentionHours: positiveNumber(env.WALGIT_RETENTION_HOURS),
     maxPushBytes: positiveNumber(env.WALGIT_MAX_PUSH_BYTES),
     maxRepoBytes: positiveNumber(env.WALGIT_MAX_REPO_BYTES),

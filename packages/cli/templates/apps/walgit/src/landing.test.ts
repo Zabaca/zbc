@@ -276,6 +276,21 @@ describe('the events section carries a runnable client', () => {
   })
 
   /**
+   * The web view is an Advertised capability, so the link to it exists exactly
+   * where the route does.
+   *
+   * A footer link to `/repos` on a deployment with `WALGIT_WEB` unset would
+   * send a reader to a path the Worker does not claim and the container
+   * answers 404 for — the same lie the client link is gated against one test
+   * below.
+   */
+  test('the repository list is linked only where it is served', () => {
+    expect(renderLanding(HOST, caps({ ...OPEN, WALGIT_WEB: '1' }))).toContain('<a href="/repos">')
+    expect(renderLanding(HOST, caps(OPEN))).not.toContain('/repos')
+    expect(renderLanding(HOST, NOTHING)).not.toContain('/repos')
+  })
+
+  /**
    * The client link is gated like every other mention of the client.
    *
    * A footer is the easiest place on a page to put an unconditional link, and
