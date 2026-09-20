@@ -10,10 +10,18 @@
  * a container hold a token long before they hold an identity of any other kind.
  */
 
+import {
+  cleanPath,
+  defaultBranch,
+  resolveRef,
+  splitRefPath,
+  type TreeEntry,
+} from '../shared/browse'
 import { capabilitiesFrom, type Capabilities } from '../shared/capabilities'
 import { authorizedBy, presentedSignature } from '../shared/credentials'
 import {
   BASIC_CHALLENGE,
+  BROWSE_PATH,
   CHALLENGE_PATH,
   EXPIRE_PATH,
   HEALTH_PATH,
@@ -143,6 +151,22 @@ export type HttpHandlerDeps = {
    */
   readProposals?: (repoId: string) => Promise<ProposalListing[]>
   /**
+   * What a browse of one repository reads (`shared/browse.ts`): the Index, for
+   * the refs the pages are built from, and the Cache, for one level of a tree.
+   *
+   * One group rather than two sibling options, like `privateReads` below and
+   * for the same reason: the two are worthless apart. The Index read alone
+   * could name refs and never open a directory; the tree read alone would have
+   * to ask the Cache which refs exist, which is exactly the answer a disposable
+   * cache may not give (docs/adr/0007).
+   *
+   * Optional, and absent means the endpoint does not exist rather than
+   * answering emptily — a deployment with no store has no Index to read, and
+   * "this repository holds no refs" invented out of a missing log is a page
+   * that says a repository is empty when the log says otherwise.
+   */
+  browse?: BrowseReads
+  /**
    * Read gating for Private repositories (docs/adr/0013), or `undefined` for a
    * deployment that does none — which is every deployment until an operator
    * sets `WALGIT_PRIVATE_REPOS`.
@@ -196,6 +220,35 @@ export type PrivateReads = {
   now?: () => number
 }
 
+/** Everything a browse reads, present or absent as a whole. */
+export type BrowseReads = {
+  /**
+   * The Index facts a browse needs — the full ref state and when the last push
+   * landed — or `null` when the log holds no Index for this name.
+   *
+   * `null` is the whole reason this is not `readRefs`: a repository with no
+   * Index and one whose Index holds no refs are different answers here. The
+   * first is a name nobody has pushed to, which is a 404 and must create
+   * nothing; the second is a repository, and gets a page.
+   */
+  readIndex: (repoId: string) => Promise<BrowseIndex | null>
+  /**
+   * One level of the tree at `rev`:`path` on the Cache, or `null` when that
+   * path is not a directory there.
+   *
+   * Takes the already-ensured, already-synced repository rather than a name,
+   * because the ordering is the handler's: nothing may reach the Cache until
+   * the Index has said the repository exists.
+   */
+  listTree: (repo: ResolvedRepo, rev: string, path: string) => Promise<TreeEntry[] | null>
+}
+
+/** What a browse reads out of one Index. */
+export type BrowseIndex = {
+  refs: Record<string, string>
+  lastPush: string | null
+}
+
 /** Verify a `walgit-read` signature over a message; name the key, or `null`. */
 export type ReadVerifier = (message: string, signature: string) => string | null
 
@@ -234,6 +287,24 @@ const UNAUTHORIZED = () =>
   })
 
 const NOT_FOUND = () => reject(404, 'not-found', 'not found\n')
+
+/**
+ * A JSON answer, with the newline every other body here ends in.
+ *
+ * `no-store` because every browse answer is derived from where refs point
+ * RIGHT NOW: a cached copy is a directory listing for a branch that has since
+ * moved, and on a Private name it is a page served after a revocation. The edge
+ * puts its own cache header on the page it renders from this
+ * (`shared/browse.ts`), where the rule is about a document a browser holds
+ * rather than about the log.
+ */
+const json = (body: unknown): Response =>
+  new Response(`${JSON.stringify(body)}\n`, {
+    headers: {
+      'content-type': 'application/json; charset=utf-8',
+      'cache-control': 'no-store',
+    },
+  })
 
 /**
  * The Claim a repository is treated as holding when its real one cannot be
@@ -355,6 +426,108 @@ function createRouter(deps: HttpHandlerDeps): (req: Request) => Promise<Response
       ['www-authenticate', BASIC_CHALLENGE],
       ['www-authenticate', `${READ_CHALLENGE_SCHEME} nonce=${nonce}`],
     ])
+  }
+
+  /**
+   * One browse, in the order the rules demand (`shared/browse.ts`).
+   *
+   * The ORDER is the whole of it, and it is why this lives at the handler
+   * rather than behind one reader: the Index says whether the name exists, the
+   * Claim says whether this reader may see it, and only then may the Cache be
+   * touched at all. `ensureRepo` CREATES a directory, so a browse that reached
+   * it before the Index had answered would bring a name into existence by
+   * reading it — the defect `src/empty-read.ts` exists to prevent on the git
+   * path, arriving by a different door.
+   */
+  async function browse(reads: BrowseReads, request: Request, url: URL): Promise<Response> {
+    let resolved: ResolvedRepo
+    try {
+      resolved = resolveRepo(deps.reposDir, url.searchParams.get('repo') ?? '')
+    } catch {
+      // A name walgit would not serve is a 404, exactly as it is on the git
+      // path — indistinguishable from a missing one, deliberately.
+      return NOT_FOUND()
+    }
+
+    // The Private gate FIRST, before the Index this endpoint reads: a refusal
+    // must not depend on whether the name exists, or the challenge itself
+    // becomes an oracle for which Private names a deployment holds.
+    if (priv) {
+      let claim: Claim | undefined
+      try {
+        claim = await priv.readClaim(resolved.repoId)
+      } catch {
+        claim = LOCKED
+      }
+      const refused = await refuseRead(request, url, claim)
+      if (refused) return refused
+    }
+
+    let index: BrowseIndex | null
+    try {
+      index = await reads.readIndex(resolved.repoId)
+    } catch (err) {
+      // Refused rather than answered empty, for the reason the Proposal read
+      // is: a repository reported as holding no refs, read out of an Index we
+      // could not reach, is a wrong answer a reader cannot tell from a right
+      // one.
+      return reject(503, 'unavailable', `walgit: ${(err as Error).message}\n`)
+    }
+    // No Index is a name nobody has pushed to. 404, and nothing created.
+    if (!index) return NOT_FOUND()
+
+    const refs = Object.keys(index.refs)
+      .toSorted()
+      .map((name) => ({ name, oid: index.refs[name]! }))
+    const head = defaultBranch(index.refs)
+    const common = { repo: resolved.repoId, defaultBranch: head, refs, lastPush: index.lastPush }
+
+    if (url.searchParams.get('op') === 'refs') return json(common)
+    if (url.searchParams.get('op') !== 'tree') return NOT_FOUND()
+
+    // A ref and a path, from the one run-together remainder the browse URL
+    // carries — or from the two parameters an API caller may send instead,
+    // which resolve exactly the same way.
+    const requested = url.searchParams.get('ref') ?? ''
+    const rawPath = url.searchParams.get('path')
+    let at: { ref: string; path: string } | null
+    if (requested === '') {
+      // No ref named: the default branch, and a repository with no branch is a
+      // page with no tree rather than a refusal — it exists, it is just empty.
+      if (head === null) return json({ ...common, ref: '', path: '', entries: [] })
+      at = { ref: head, path: rawPath ?? '' }
+    } else if (rawPath === null) {
+      at = splitRefPath(index.refs, requested)
+    } else {
+      const ref = resolveRef(index.refs, requested)
+      at = ref === null ? null : { ref, path: rawPath }
+    }
+    // A ref that is neither an Index key nor a full oid. Not resolved against
+    // the Cache and not passed to git: 404.
+    if (!at) return NOT_FOUND()
+
+    const path = cleanPath(at.path)
+    if (path === null) {
+      return reject(400, 'not-found', 'walgit: that path is not one this browse will carry\n')
+    }
+
+    const repo = deps.ensureRepo(resolved)
+    if (deps.syncRepo) {
+      try {
+        await deps.syncRepo(repo)
+      } catch (err) {
+        // Serving a tree from a Cache we could not verify against the log would
+        // show a directory that may already have been superseded. Refuse, as
+        // the git path does.
+        return reject(503, 'unavailable', `walgit: ${(err as Error).message}\n`)
+      }
+    }
+
+    const entries = await reads.listTree(repo, index.refs[at.ref] ?? at.ref, path)
+    // git has no empty tree, so "no entries" is the absence rather than an
+    // empty directory: the path is not a directory at this ref.
+    if (entries === null) return NOT_FOUND()
+    return json({ ...common, ref: at.ref, path, entries })
   }
 
   return async (request) => {
@@ -508,6 +681,22 @@ function createRouter(deps: HttpHandlerDeps): (req: Request) => Promise<Response
       return new Response(`${JSON.stringify(body)}\n`, {
         headers: { 'content-type': 'application/json; charset=utf-8' },
       })
+    }
+
+    // One repository's refs and one level of its tree — what the two web pages
+    // are rendered from (`shared/browse.ts`). Beside the provenance read and
+    // gated identically: the deployment credential above, then the Read
+    // Challenge below, because a browse is a read of the same repository a
+    // clone reads and must not be a second authorization model.
+    //
+    // It exists only where the deployment offers the web view — `caps.web`, the
+    // same field the list at the edge is claimed from — so with `WALGIT_WEB`
+    // off this path is a 404, which is what "with the flag off it does not
+    // exist" means.
+    if (url.pathname === BROWSE_PATH) {
+      const offered = (deps.capabilities ?? ADVERTISES_NOTHING).web
+      if (!offered || !deps.browse || request.method !== 'GET') return NOT_FOUND()
+      return browse(deps.browse, request, url)
     }
 
     // What Proposals a repository holds (docs/adr/0018). Beside the provenance

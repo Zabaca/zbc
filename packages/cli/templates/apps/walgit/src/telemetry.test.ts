@@ -97,6 +97,27 @@ describe('classifyRequest', () => {
     expect(classifyRequest('HEAD', '/repos', '').kind).toBe('list')
   })
 
+  test('a browse page is its own kind, and names the repository it is about', () => {
+    // The two web pages (`shared/browse.ts`). Its own kind for the reason
+    // `list` is — `other` is the unroutable bucket and this is a request
+    // walgit answers — and unlike the list it NAMES a repository, because it
+    // is about exactly one. Recorded even on a deployment with the capability
+    // off, where the path falls through to a container that does not route it:
+    // the row is then a 404, which is the honest reading and a useful one.
+    expect(classifyRequest('GET', '/alpha', '')).toEqual({ kind: 'browse', repo: 'alpha' })
+    expect(classifyRequest('GET', '/alpha/tree/feature/x/src', '')).toEqual({
+      kind: 'browse',
+      repo: 'alpha',
+    })
+    expect(classifyRequest('HEAD', '/alpha', '').kind).toBe('browse')
+    // A name walgit would not serve is not a page about one: the path is
+    // attacker-controlled and the dataset takes no unbounded string.
+    expect(classifyRequest('GET', '/.env', '').kind).toBe('other')
+    expect(classifyRequest('GET', '/alpha/blob/main/x', '').kind).toBe('other')
+    // A browse is a read.
+    expect(classifyRequest('POST', '/alpha', '').kind).toBe('other')
+  })
+
   test('a repository named repos is still reached at its clone URL', () => {
     // The same collision argument every edge-answered path carries: a
     // repository is reached at `/<name>.git/…`, so the route above cannot

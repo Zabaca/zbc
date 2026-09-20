@@ -32,6 +32,8 @@ by layer:
 | `shared/events.ts`, `shared/outbox.ts`               | the ref-event protocol and the per-ref coalesce window that bounds a subscriber's message rate — every decision, pure                            |
 | `shared/telemetry.ts`                                | classifying a request and a refusal into the datapoint the Worker writes                                                                         |
 | `shared/landing.ts`                                  | the HTML page a browser gets at `/`, rendered from the limits actually configured                                                                |
+| `shared/repo-list.ts`, `shared/browse.ts`            | the web view: the list at `/repos` off the log, and the repository pages over the container's browse endpoint                                    |
+| `src/browse.ts`                                      | one level of a tree, read off the Cache with `ls-tree` — the one browse answer the log cannot give                                               |
 | `shared/container-env.ts`                            | which of the Worker's variables the container is told about, and a fingerprint of them                                                           |
 | `worker/index.ts`, `wrangler.jsonc`                  | the Cloudflare Worker that proxies to the container, and forwards its environment                                                                |
 | `shared/ref-cache.ts`                                | the fan-out's derived, in-memory copy of ref state — bounded, never authoritative                                                                |
@@ -520,9 +522,55 @@ this route's gate — read gating requires `WALGIT_PUBLIC`
 so on a public deployment a Private name is listed and marked Private while its
 contents stay refused where they always were.
 
-`WALGIT_WEB` is on `CONTAINER_ENV` even though nothing inside the container
-reads it, because `CapabilityVar` narrows through that list — a capability the
-container is never told about would be one no half could enforce. The cost is
+### A repository page
+
+`/<name>` is the default branch's tree with the repository's refs, and
+`/<name>/tree/<ref>/<path>` is any directory at any ref. Unlike the list these
+cannot be answered off the log — a tree is git objects and the Index holds none
+— so the edge asks the container's `GET /_walgit/browse?repo=&op=refs|tree&ref=`
+and renders what comes back (`shared/browse.ts`). One round trip per page:
+`op=tree` carries the ref list with it.
+
+The container answers it **beside the Provenance Read and gated identically**:
+the deployment credential, then the Read Challenge on a Private name
+([ADR-0013](../../../../../docs/adr/0013-a-name-can-refuse-a-stranger-reading.md)),
+so a browse gate is never a second authorization model. The Private gate is
+asked *before* the Index, or the 404 a missing name produces would be an oracle
+for which Private names a deployment holds; an Index that cannot be read is
+treated as locked, exactly as a clone's is.
+
+Four rules make the read safe and the answer honest:
+
+- **A browse never creates a repository.** The Index is loaded first and a name
+  the log has no Index for is `404` — only then `ensureRepo` and `syncRepo`, so
+  the Cache is reconciled against the Index exactly as a clone's is and a cold
+  repository Materializes while the request waits.
+- **A ref is an Index key or a full oid, and nothing else.** `refs/heads/` and
+  `refs/tags/` may be left off; `HEAD`, an abbreviated oid and `main^{}` are
+  not refs. A branch name may contain slashes, so the URL remainder after
+  `/tree/` is split by **longest ref prefix** against the Index — `feature/x`
+  resolves, and the segments after it are the path.
+- **A path rejects `..` and a leading `-`.** Defence in depth beside
+  `src/git.ts`'s own fences, which is what actually keeps an untrusted segment
+  from becoming a git option.
+- **The default branch is `main`, else `master`, else the first branch by
+  name** — computed from the Index and never from the Cache's `HEAD`, which is
+  whatever `init` left on a node that has just Materialized.
+
+`ls-tree` is one level and never recursive: clicking into a directory is another
+request, which is what pagination looks like when the tree is the index.
+Symlinks render their target, gitlinks as `submodule @ <sha>`, and
+`refs/walgit/*` is listed and browsable. The page carries the same `noindex` and
+cache-control rules as the list and a CSP that permits no script at all — there
+is none on it — and states `expires in N hours` from the Index where the
+deployment sets a retention window. Blobs, raw content, README rendering and
+history are not here yet; a file is shown and not linked, so no link is a 404.
+
+`WALGIT_WEB` is on `CONTAINER_ENV`, which is what makes the browse endpoint
+above possible at all: `caps.web` is read on both sides — at the edge to claim
+the routes, in the container to decide whether `/_walgit/browse` exists — and a
+capability the container was never told about would be one only the edge could
+enforce. The cost is
 the one that list buys everywhere else: **the deploy that first sets it changes
 the environment fingerprint, so the Durable Object replaces the running
 container once** on the next request (`reconcileEnv`, above).

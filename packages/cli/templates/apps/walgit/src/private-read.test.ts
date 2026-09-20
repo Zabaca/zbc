@@ -11,7 +11,8 @@
  */
 import { describe, expect, test } from 'bun:test'
 
-import { CHALLENGE_PATH, PROVENANCE_PATH, READ_VERDICT_PATH } from '../shared/protocol'
+import { BROWSE_PATH, CHALLENGE_PATH, PROVENANCE_PATH, READ_VERDICT_PATH } from '../shared/protocol'
+import { capabilitiesFrom } from '../shared/capabilities'
 import { createHttpHandler, type HttpHandlerDeps } from './http'
 import { acceptedNonces, readChallengeNonce } from './private'
 import type { Claim } from '../shared/wal-index'
@@ -62,6 +63,13 @@ function deployment(
     ensureRepo: (repo) => repo,
     runBackend: async () => new Response('backend ran', { status: 200 }),
     readProvenance: async () => ({ provenance: {}, ...(claim ? { claim } : {}) }),
+    // The web view on, so the browse endpoint below is one of the reads this
+    // gate is asked about rather than a 404 the capability made.
+    capabilities: capabilitiesFrom({ WALGIT_WEB: '1' }),
+    browse: {
+      readIndex: async () => ({ refs: { 'refs/heads/main': 'a'.repeat(40) }, lastPush: null }),
+      listTree: async () => [],
+    },
     privateReads: {
       seed: SEED,
       readClaim: async () => claim,
@@ -79,11 +87,14 @@ function deployment(
     )
 }
 
-/** The three reads, and the one write that is NOT one. */
+/** The four reads, and the one write that is NOT one. */
 const READS = [
   ['info/refs', '/alpha.git/info/refs?service=git-upload-pack', 'GET'],
   ['upload-pack', '/alpha.git/git-upload-pack', 'POST'],
   ['provenance', `${PROVENANCE_PATH}?repo=alpha`, 'GET'],
+  // A browse is a read of the same repository a clone reads, so it is behind
+  // the same gate and not a second one (`shared/browse.ts`).
+  ['browse', `${BROWSE_PATH}?repo=alpha&op=refs`, 'GET'],
 ] as const
 
 describe('the challenge', () => {
@@ -204,7 +215,40 @@ describe('a Private repository', () => {
         now: () => NOW,
       },
     })
-    expect((await broken(READS[0][1])).status).toBe(401)
+    // Every read, and with the SAME challenge: an Index that cannot be read is
+    // treated as locked, because the failure direction is handing out a
+    // Private repository and that one is unrecoverable.
+    for (const [, path, method] of READS) {
+      const res = await broken(path, null, method)
+      expect(res.status).toBe(401)
+      expect(res.headers.get('www-authenticate')).toContain('walgit-ssh nonce=')
+    }
+  })
+
+  /**
+   * The browse reads the Index through its own reader too, so its outage is a
+   * third path to the same question. It must refuse rather than throw past the
+   * router — and, on an unproven reader, it must refuse with the CHALLENGE
+   * before the Index is consulted at all, or the 404 a missing Index produces
+   * becomes an oracle for which Private names this deployment holds.
+   */
+  test('is refused when the browse itself cannot reach the Index', async () => {
+    const broken = deployment(PRIVATE_CLAIM, {
+      browse: {
+        readIndex: async () => {
+          throw new Error('index unreachable')
+        },
+        listTree: async () => [],
+      },
+    })
+    const res = await broken(`${BROWSE_PATH}?repo=alpha&op=refs`)
+    expect(res.status).toBe(401)
+    // A listed reader gets the outage itself, rather than a page claiming the
+    // repository holds no refs.
+    const nonce = readChallengeNonce(SEED, NOW)
+    expect(
+      (await broken(`${BROWSE_PATH}?repo=alpha&op=refs`, credentialFor(READER, nonce))).status,
+    ).toBe(503)
   })
 
   /**

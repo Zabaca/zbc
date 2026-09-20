@@ -192,6 +192,70 @@ export const ANNOUNCE_PATH = '/_walgit/announce'
 export const REPOS_PATH = '/repos'
 
 /**
+ * One repository's refs and one level of its tree, read on the Cache.
+ *
+ * `?repo=&op=refs|tree&ref=&path=`, and under `/_walgit/` for the reason every
+ * endpoint above is: the prefix is reserved and a repository is reached at
+ * `/<name>.git/…`, so it cannot shadow one.
+ *
+ * It is for the EDGE rather than for a client — the two browse pages are
+ * rendered from its answer (`shared/browse.ts`) — but it is gated as the
+ * Provenance Read beside it is, by the deployment credential and then the Read
+ * Challenge, rather than by `INTERNAL_HEADER`: it answers a question about one
+ * repository, and the credential a clone of that repository needs is exactly
+ * the credential a browse of it needs.
+ *
+ * Unlike every other read here it has to touch the Cache, because the Index
+ * holds refs and no objects — which is why it is the container that answers it
+ * at all, where the repository list is answered at the edge off the log.
+ */
+export const BROWSE_PATH = '/_walgit/browse'
+
+/**
+ * The browse URLs a person types: `/<name>` and `/<name>/tree/<rest>`.
+ *
+ * Group 1 is the repository; group 2 is everything after `/tree/`, which is a
+ * ref and a path RUN TOGETHER — a branch name may contain slashes, so where one
+ * ends is a question only the Index can answer (`shared/browse.ts` splits it by
+ * longest ref prefix). The regex therefore takes the remainder whole rather
+ * than pretending the URL says where the boundary is.
+ *
+ * Not under `/_walgit/`, like `REPOS_PATH` and for the same reason: these are
+ * pages someone reads rather than endpoints a client speaks. Same collision
+ * argument too — a repository is cloned at `/<name>.git/…`, so a repository
+ * called `repos` keeps its clone URL and only loses its bare browse URL.
+ */
+export const BROWSE_HTTP = /^\/([^/]+)(?:\/tree\/(.+))?$/
+
+/** A browse URL, as the two page routes spell one. */
+export interface BrowseRoute {
+  repo: string
+  /** Everything after `/tree/`: a ref and a path run together, or `''`. */
+  rest: string
+}
+
+/**
+ * Is this one of the two browse pages, and which repository?
+ *
+ * Only GET and HEAD, and only a name walgit would actually serve — the path is
+ * attacker-controlled, and a name this accepted and `resolveRepo` refused would
+ * be a page about a repository half the service can see.
+ *
+ * Here beside the grammar rather than in `shared/browse.ts` for the reason
+ * `SMART_HTTP` is here: the edge ROUTES on it and `classifyRequest` COUNTS on
+ * it, and a path one claimed and the other did not would be a metric describing
+ * traffic that never happened.
+ */
+export function wantsBrowse(method: string, pathname: string): BrowseRoute | null {
+  if (method !== 'GET' && method !== 'HEAD') return null
+  const route = BROWSE_HTTP.exec(pathname)
+  if (!route) return null
+  const repo = route[1]!
+  if (!REPO_ID.test(repo)) return null
+  return { repo, rest: route[2] ?? '' }
+}
+
+/**
  * The challenge every walgit refusal of a read carries.
  *
  * One string, because it is answered by two very different clients and refused

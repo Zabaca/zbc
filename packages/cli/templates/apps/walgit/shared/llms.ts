@@ -818,6 +818,12 @@ curl https://${host}${REPOS_PATH}${caps.publicAccess ? '' : ' -u walgit:$TOKEN'}
 \`\`\`
 
 Every name this host holds, newest push first, a hundred per page (\`?page=2\`) — as JSON here, and as a page in a browser. It names what each one is: last push, refs, size, whether it is claimed${caps.namesCanBePrivate ? ', whether it is Private' : ''} and whether it is being removed.
+
+\`\`\`sh
+curl -H 'accept: application/json' https://${host}/$NAME${caps.publicAccess ? '' : ' -u walgit:$TOKEN'}
+\`\`\`
+
+One repository: its refs, its default branch and one level of the default branch's tree. \`/$NAME/tree/<ref>/<path>\` is any directory at any ref — a branch name containing slashes resolves, because the host splits the ref from the path against its own Index. Same gate as a clone${caps.namesCanBePrivate ? ', so a Private name is refused here exactly as `info/refs` is' : ''}.
 `
     : ''
 }

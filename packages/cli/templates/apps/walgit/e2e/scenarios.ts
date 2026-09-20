@@ -22,7 +22,17 @@ import { materialize } from '../src/materialize'
 import { resolveRepo } from '../src/repo'
 import { loadIndex, type Provenance, type WalIndex } from '../shared/wal-index'
 import { fingerprintIn } from '../shared/provenance'
-import { CHALLENGE_PATH, PROVENANCE_PATH, SIGNERS_REF } from '../shared/protocol'
+import {
+  BROWSE_PATH,
+  CHALLENGE_PATH,
+  PROVENANCE_PATH,
+  REJECT_HEADER,
+  SERVED_HEADER,
+  SIGNERS_REF,
+  wantsBrowse,
+} from '../shared/protocol'
+import { browseResponse, type BrowseTreeAnswer } from '../shared/browse'
+import { capabilitiesFrom } from '../shared/capabilities'
 import { LATENCY_BASELINE, type LatencyCeiling } from './latency-baseline'
 import {
   EventsEndpoint,
@@ -1205,6 +1215,170 @@ const firstPushToAFreeName: Scenario = {
   },
 }
 
+/**
+ * Scenario 12 — the web view: a real push, then the repository page.
+ *
+ * The browse endpoint is the one read that goes through git plumbing on the
+ * Cache, so it is the one the unit tests cannot finish the argument about: they
+ * stub `ls-tree`, and what a tree actually contains is a question only real git
+ * answers. This pushes a fixture with nested directories on a branch whose name
+ * contains a slash, then browses it over HTTP against the running node — and
+ * then again from a node with an empty repos directory, which is the cold path
+ * where the Cache has to be Materialized from the log before there is a tree to
+ * read at all.
+ *
+ * The page is rendered by the very function the Worker renders it with
+ * (`browseResponse`, `shared/browse.ts`), over the real container answer, so
+ * the edge half is proved here and not only against a stub.
+ */
+const webBrowse: Scenario = {
+  n: 12,
+  name: 'Web browse — refs and a tree, over HTTP, warm and from a cold node',
+  async run(run) {
+    const node = await run.node('browse', { WALGIT_WEB: '1' })
+    const repoId = run.repoId('browse')
+
+    const work = run.dir('browse-work')
+    await gitOk(work, 'init', '--quiet', '--initial-branch=main', '.')
+    await gitOk(work, 'config', 'user.email', 'e2e@walgit.test')
+    await gitOk(work, 'config', 'user.name', 'walgit e2e')
+    fs.mkdirSync(path.join(work, 'src/deep'), { recursive: true })
+    fs.writeFileSync(path.join(work, 'src/index.ts'), 'export {}\n')
+    fs.writeFileSync(path.join(work, 'src/deep/leaf.txt'), 'leaf\n')
+    fs.writeFileSync(path.join(work, 'README.md'), 'fixture\n')
+    await gitOk(work, 'add', '-A')
+    await gitOk(work, 'commit', '--quiet', '-m', 'fixture')
+    const tip = (await gitOk(work, 'rev-parse', 'HEAD')).trim()
+
+    // A branch whose name contains a slash: the case a URL cannot resolve on
+    // its own, and the whole reason the ref/path split is the Index's job.
+    await gitOk(work, 'branch', 'feature/x')
+    const pushed = await git(work, 'push', node.origin(repoId), 'main', 'feature/x')
+    assert(pushed.status === 0, `push failed:\n${pushed.out}`)
+
+    /** One browse, as the edge makes it: the container's own endpoint. */
+    const browse = async (where: WalgitNode, query: string) => {
+      const res = await fetch(`http://127.0.0.1:${where.port}${BROWSE_PATH}${query}`, {
+        headers: { authorization: `Bearer ${TOKEN}` },
+      })
+      const text = await res.text()
+      assert(res.status === 200, `browse ${query} answered ${res.status}: ${text}`)
+      return JSON.parse(text) as BrowseTreeAnswer
+    }
+
+    const root = await browse(node, `?repo=${repoId}&op=tree`)
+    assert(
+      root.defaultBranch === 'refs/heads/main',
+      `default branch is ${root.defaultBranch}, expected refs/heads/main`,
+    )
+    assert(root.ref === 'refs/heads/main', `root read at ${root.ref}`)
+    const rootNames = root.entries.map((entry) => entry.name).toSorted()
+    assert(
+      rootNames.join(' ') === 'README.md src',
+      `the root lists ${rootNames.join(' ')}, expected README.md src`,
+    )
+    const src = root.entries.find((entry) => entry.name === 'src')
+    assert(src?.kind === 'tree', `src is ${src?.kind}, expected tree`)
+    // One level, never recursive: `src/index.ts` is inside `src`.
+    assert(
+      !rootNames.includes('index.ts'),
+      `the root listed a file from inside src: ${rootNames.join(' ')}`,
+    )
+
+    // The branch with a slash in its name, and a directory under it, in the
+    // one run-together remainder a browse URL carries.
+    const deep = await browse(
+      node,
+      `?repo=${repoId}&op=tree&ref=${encodeURIComponent('feature/x/src/deep')}`,
+    )
+    assert(
+      deep.ref === 'refs/heads/feature/x' && deep.path === 'src/deep',
+      `split gave ${deep.ref} + ${deep.path}, expected refs/heads/feature/x + src/deep`,
+    )
+    assert(
+      deep.entries.map((entry) => entry.name).join(' ') === 'leaf.txt',
+      `src/deep lists ${deep.entries.map((entry) => entry.name).join(' ')}, expected leaf.txt`,
+    )
+
+    // A name nobody has pushed to is 404, and browsing it creates nothing.
+    const free = run.repoId('browse-free')
+    const missing = await fetch(
+      `http://127.0.0.1:${node.port}${BROWSE_PATH}?repo=${free}&op=tree`,
+      { headers: { authorization: `Bearer ${TOKEN}` } },
+    )
+    assert(missing.status === 404, `browsing a free name answered ${missing.status}`)
+    assert(
+      !fs.existsSync(path.join(node.reposDir, `${free}.git`)),
+      `browsing the free name ${free} left a repository on disk`,
+    )
+
+    // The page itself, rendered by the function the Worker renders it with,
+    // over the answer the container just gave.
+    const route = wantsBrowse('GET', `/${repoId}`)
+    assert(route !== null, `/${repoId} is not a browse URL`)
+    const page = await browseResponse(
+      route,
+      { method: 'GET', accept: 'text/html' },
+      {
+        caps: capabilitiesFrom({ WALGIT_WEB: '1', WALGIT_PUBLIC: '1' }),
+        ask: async (query) => {
+          const res = await fetch(`http://127.0.0.1:${node.port}${BROWSE_PATH}${query}`, {
+            headers: { authorization: `Bearer ${TOKEN}` },
+          })
+          return {
+            status: res.status,
+            text: await res.text(),
+            contentType: res.headers.get('content-type') ?? '',
+            served: res.headers.get(SERVED_HEADER) !== null,
+            reject: res.headers.get(REJECT_HEADER) ?? '',
+            challenges: [],
+          }
+        },
+      },
+    )
+    assert(page.status === 200, `the page answered ${page.status}`)
+    assert(
+      page.body.includes(`<a href="/${repoId}/tree/main/src">src/</a>`),
+      `the page has no link into src:\n${page.body}`,
+    )
+    assert(page.headers['x-robots-tag'] === 'noindex', 'the page is missing its noindex header')
+    assert(
+      (page.headers['content-security-policy'] ?? '').includes("default-src 'none'"),
+      'the page is missing its CSP',
+    )
+    // The container answered it, which is what lets the edge classify a
+    // refusal as the container's rather than as its own.
+    assert(page.upstream.served, 'the browse answer carried no served stamp')
+
+    // A cold node: its own empty repos directory, the same log. Everything
+    // above has to be true again, which it can only be by Materializing.
+    const cold = await run.node('browse-cold', { WALGIT_WEB: '1' })
+    assert(
+      !fs.existsSync(path.join(cold.reposDir, `${repoId}.git`)),
+      'the cold node started with the repository already on disk',
+    )
+    const coldRoot = await browse(cold, `?repo=${repoId}&op=tree`)
+    assert(
+      coldRoot.entries
+        .map((entry) => entry.name)
+        .sort()
+        .join(' ') === 'README.md src',
+      `the cold node listed ${coldRoot.entries.map((entry) => entry.name).join(' ')}`,
+    )
+    assert(
+      coldRoot.refs.some((ref) => ref.name === 'refs/heads/feature/x'),
+      'the cold node did not name the slashed branch',
+    )
+
+    return [
+      `pushed ${tip.slice(0, 8)} on main and feature/x, then browsed /${repoId} over HTTP: ${rootNames.join(', ')}`,
+      'the slashed branch and a nested directory resolved from one run-together URL remainder',
+      `a browse of the free name ${free} answered 404 and created nothing on disk`,
+      'a node with an empty repos directory served the same tree after materializing',
+    ]
+  },
+}
+
 export const SCENARIOS: Scenario[] = [
   durability,
   noPhantomAcks,
@@ -1217,4 +1391,5 @@ export const SCENARIOS: Scenario[] = [
   pushProvenance,
   privateReads,
   firstPushToAFreeName,
+  webBrowse,
 ]

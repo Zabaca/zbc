@@ -304,20 +304,14 @@ const bare = (name: string): RepoRow => ({
  */
 function foldIndex(name: string, index: WalIndex): RepoRow {
   let liveBytes = 0
-  let lastPush: string | null = null
   for (const entry of index.entries) {
     // What a restore actually downloads. Entries at or below the frontier have
     // been superseded by a compaction and are storage waiting on `walgit gc`.
     if (entry.seq > index.compaction_frontier) liveBytes += entry.size
-    // Compaction entries are storage, not traffic: a repack is not a push, and
-    // counting one would make a quiet repository look busy on the day it was
-    // compacted.
-    if (entry.kind !== 'push') continue
-    if (lastPush === null || entry.ts > lastPush) lastPush = entry.ts
   }
   return {
     name,
-    lastPush,
+    lastPush: lastPushOf(index),
     refs: Object.keys(index.refs ?? {}).length,
     liveBytes,
     // A Claim IS the Signer List, so its presence is what makes the name
@@ -327,6 +321,27 @@ function foldIndex(name: string, index: WalIndex): RepoRow {
     private: index.claim?.readers !== undefined,
     deletionPending: index.deletion !== undefined,
   }
+}
+
+/**
+ * When this repository last took a push, or `null` when it has taken none.
+ *
+ * A COMPACTION entry is not a push: a repack is storage, not traffic, and
+ * counting one would make a quiet repository look busy on the day it was
+ * compacted — and, where a retention window is set, would silently extend its
+ * life on the page that states it (`shared/browse.ts` renders the same fact as
+ * "expires in N hours", and the sweeper measures the same one).
+ *
+ * Exported because the browse reads it too, and two folds of one field are how
+ * a page and a sweeper come to disagree about when a repository dies.
+ */
+export function lastPushOf(index: WalIndex): string | null {
+  let lastPush: string | null = null
+  for (const entry of index.entries) {
+    if (entry.kind !== 'push') continue
+    if (lastPush === null || entry.ts > lastPush) lastPush = entry.ts
+  }
+  return lastPush
 }
 
 /** The page number the query string asked for. Anything else is the first. */
