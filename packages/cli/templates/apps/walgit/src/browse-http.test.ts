@@ -221,7 +221,9 @@ describe('GET /_walgit/browse', () => {
     // A path: the ref resolves, so this is the refusal the path rule makes.
     for (const path of ['..', 'src/../../etc', '-p', 'src/-p']) {
       const res = await ask(`?repo=alpha&op=tree&ref=main&path=${encodeURIComponent(path)}`)
-      expect(res.status).toBe(400)
+      // A 404 like every other refusal here: a rejected shape must not be
+      // distinguishable from an absent directory.
+      expect(res.status).toBe(404)
     }
     expect(asked.trees).toEqual([])
   })

@@ -1285,6 +1285,18 @@ const webBrowse: Scenario = {
       `the root listed a file from inside src: ${rootNames.join(' ')}`,
     )
 
+    // `op=refs` answers the same repository without touching the Cache at all,
+    // which is the half a page that only needs a ref list asks for.
+    const refsOnly = await browse(node, `?repo=${repoId}&op=refs`)
+    assert(
+      refsOnly.refs.map((ref) => ref.name).join(' ') === 'refs/heads/feature/x refs/heads/main',
+      `op=refs named ${refsOnly.refs.map((ref) => ref.name).join(' ')}`,
+    )
+    assert(
+      (refsOnly as { entries?: unknown }).entries === undefined,
+      'op=refs answered with a tree, which is the read it exists to avoid',
+    )
+
     // The branch with a slash in its name, and a directory under it, in the
     // one run-together remainder a browse URL carries.
     const deep = await browse(
@@ -1318,7 +1330,7 @@ const webBrowse: Scenario = {
     assert(route !== null, `/${repoId} is not a browse URL`)
     const page = await browseResponse(
       route,
-      { method: 'GET', accept: 'text/html' },
+      { accept: 'text/html' },
       {
         caps: capabilitiesFrom({ WALGIT_WEB: '1', WALGIT_PUBLIC: '1' }),
         ask: async (query) => {
@@ -1372,6 +1384,7 @@ const webBrowse: Scenario = {
 
     return [
       `pushed ${tip.slice(0, 8)} on main and feature/x, then browsed /${repoId} over HTTP: ${rootNames.join(', ')}`,
+      'op=refs named both branches without reading a tree',
       'the slashed branch and a nested directory resolved from one run-together URL remainder',
       `a browse of the free name ${free} answered 404 and created nothing on disk`,
       'a node with an empty repos directory served the same tree after materializing',

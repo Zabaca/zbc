@@ -38,6 +38,7 @@ import type { Capabilities } from './capabilities'
 import { escapeHtml, describeHours } from './landing'
 import { REPOS_PATH, type BrowseRoute } from './protocol'
 import type { EdgeResponse } from './repo-list'
+import { WEB_STYLE, webCacheControl } from './web'
 
 /** A full object id, as git writes one. The one ref spelling that is not a ref. */
 export const OID = /^[0-9a-f]{40}$/
@@ -189,9 +190,14 @@ export interface BrowseDeps {
   now?: () => number
 }
 
-/** What the Worker knows about the request, and nothing about its runtime. */
+/**
+ * What the Worker knows about the request, and nothing about its runtime.
+ *
+ * The verb is deliberately absent: `wantsBrowse` has already settled that this
+ * is a GET or a HEAD, and the difference between them is dropping the body,
+ * which is the Worker's job because a body is a runtime thing.
+ */
 export interface BrowseRequest {
-  method: string
   /** The `Accept` header, verbatim. HTML for a browser, anything else is JSON. */
   accept: string
 }
@@ -240,7 +246,7 @@ export async function browseResponse(
       status: answer.status,
       headers: {
         'content-type': 'application/json; charset=utf-8',
-        'cache-control': cacheControl(deps.caps),
+        'cache-control': webCacheControl(deps.caps),
         'x-robots-tag': 'noindex',
       },
       body: answer.text,
@@ -266,7 +272,7 @@ export async function browseResponse(
     status: 200,
     headers: {
       'content-type': 'text/html; charset=utf-8',
-      'cache-control': cacheControl(deps.caps),
+      'cache-control': webCacheControl(deps.caps),
       // A repository page is not one anyone should reach from a search engine,
       // and on a credentialed deployment it is not one a crawler can read at
       // all. Stated in the header as well as the document, exactly as the list
@@ -279,18 +285,10 @@ export async function browseResponse(
         "default-src 'none'; style-src 'unsafe-inline'; img-src data:; " +
         "base-uri 'none'; form-action 'none'",
     },
-    body: renderBrowse(tree, deps.caps, deps.now?.() ?? Date.now()),
+    body: renderBrowse(tree, deps.caps, deps.now?.()),
     upstream,
   }
 }
-
-/**
- * A minute where a read takes no credential, nothing otherwise — the list's
- * rule, unchanged: a shared cache must not hold a document that exists because
- * THIS request presented a token.
- */
-const cacheControl = (caps: Capabilities): string =>
-  caps.publicAccess ? 'public, max-age=60' : 'private, no-store'
 
 // ── The page ────────────────────────────────────────────────────────────────
 
@@ -317,10 +315,25 @@ function parentOf(path: string): string | null {
   return cut === -1 ? '' : path.slice(0, cut)
 }
 
-/** `/<name>/tree/<ref>/<path>`, escaped for an attribute. */
+/**
+ * `/<name>/tree/<ref>/<path>`, encoded for a URL and then escaped for an
+ * attribute.
+ *
+ * BOTH, and in that order. Escaping alone is the bug this had: a branch or a
+ * file may legally contain `#`, `?` or `%`, and each of those ends or rewrites
+ * a URL rather than a markup attribute — a link to a file called `a#b` would
+ * quietly resolve to a different path. Each SEGMENT is encoded separately so
+ * the slashes that make the path a path survive, which is also why a ref and a
+ * path arrive here already split.
+ */
 function treeHref(repo: string, ref: string, path: string): string {
-  const segments = [repo, 'tree', ref, ...(path === '' ? [] : [path])]
-  return escapeHtml(`/${segments.join('/')}`)
+  const parts = [repo, 'tree', ...ref.split('/'), ...path.split('/').filter((p) => p !== '')]
+  return escapeHtml(`/${parts.map((part) => encodeURIComponent(part)).join('/')}`)
+}
+
+/** `/<name>`, encoded and escaped for the same reason `treeHref` is. */
+function repoHref(repo: string): string {
+  return escapeHtml(`/${encodeURIComponent(repo)}`)
 }
 
 /** How a ref is SHOWN: `refs/heads/` dropped, everything else kept whole. */
@@ -360,7 +373,7 @@ function refList(answer: BrowseTreeAnswer): string {
 function breadcrumb(answer: BrowseTreeAnswer): string {
   const ref = shortRef(answer.ref)
   const crumbs = [
-    `<a href="/${escapeHtml(answer.repo)}">${escapeHtml(answer.repo)}</a>`,
+    `<a href="${repoHref(answer.repo)}">${escapeHtml(answer.repo)}</a>`,
     `<span class="at">at ${escapeHtml(ref)}</span>`,
   ]
   let walked = ''
@@ -425,21 +438,11 @@ ${answer.entries.map((entry) => entryRow(answer.repo, shortRef(answer.ref), answ
 <meta name="robots" content="noindex">
 <title>${escapeHtml(answer.repo)}</title>
 <style>
-  :root { color-scheme: light dark; --ink: #14100e; --ground: #ede6de; --muted: #6b635c; --accent: #c56a3e; }
-  @media (prefers-color-scheme: dark) { :root { --ink: #ede6de; --ground: #14100e; --muted: #9a9088; } }
-  body { margin: 0; padding: 2rem 1.25rem 4rem; background: var(--ground); color: var(--ink);
-    font: 15px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; }
-  main { max-width: 52rem; margin: 0 auto; }
-  h1 { font-size: 1rem; font-weight: 600; margin: 0 0 1rem; }
-  table { width: 100%; border-collapse: collapse; }
-  th, td { text-align: left; padding: .35rem .5rem; border-bottom: 1px solid color-mix(in srgb, var(--muted) 30%, transparent); }
-  th { font-weight: 600; color: var(--muted); }
-  td.f, th.f { text-align: right; white-space: nowrap; color: var(--muted); }
-  a { color: var(--accent); }
+${WEB_STYLE}
   .refs { display: flex; flex-wrap: wrap; gap: .75rem; margin-bottom: 1rem; }
   .refs .here { text-decoration: underline; }
-  .note, .sep, .at { color: var(--muted); }
-  .tag { font-size: .8em; color: var(--muted); }
+  .sep, .at { color: var(--muted); }
+  .tag { border: 0; padding: 0; }
 </style>
 </head>
 <body>

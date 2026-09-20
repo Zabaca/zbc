@@ -61,11 +61,11 @@ import {
   REJECT_HEADER,
   SERVED_HEADER,
   wantsBrowse,
-  type RejectKind,
 } from '../shared/protocol'
 import {
   classifyOutcome,
   classifyRequest,
+  outcomeOf,
   toDataPoint,
   type RequestMetric,
 } from '../shared/telemetry'
@@ -613,7 +613,7 @@ export default {
     if (browseRoute) {
       const answer = await browseResponse(
         browseRoute,
-        { method: request.method, accept },
+        { accept },
         {
           caps,
           ask: async (query) => {
@@ -652,7 +652,14 @@ export default {
         // the Private gate is counted as the `unauthorized` it is rather than
         // re-derived from a status several refusals share — and so a refusal
         // the container never made still reads as `edge`.
-        reject: answer.status < 400 ? '' : upstreamReject(answer.upstream),
+        reject:
+          answer.status < 400
+            ? ''
+            : outcomeOf({
+                status: answer.upstream.status,
+                declared: answer.upstream.reject,
+                served: answer.upstream.served,
+              }).reject || 'other',
         status: answer.status,
         // The CONTAINER answered the question this page was rendered from, and
         // saying otherwise would make the `edge` refusal signal unreadable.
@@ -842,24 +849,6 @@ export default {
   async scheduled(event: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
     ctx.waitUntil(sweep(event, env))
   },
-}
-
-/**
- * What kind of refusal a browse was, in the container's own vocabulary.
- *
- * `classifyOutcome` (`shared/telemetry.ts`) rather than a second reading of the
- * same two headers — the page module carries them back as values because
- * `shared/` holds no `Headers`, and this is where they become one again.
- */
-function upstreamReject(upstream: { status: number; served: boolean; reject: string }): RejectKind {
-  const headers = {
-    get: (name: string): string | null => {
-      if (name === REJECT_HEADER) return upstream.reject === '' ? null : upstream.reject
-      if (name === SERVED_HEADER) return upstream.served ? '1' : null
-      return null
-    },
-  }
-  return classifyOutcome(upstream.status, headers).reject || 'other'
 }
 
 /**

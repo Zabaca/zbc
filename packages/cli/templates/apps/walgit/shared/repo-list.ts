@@ -49,6 +49,7 @@ import { pooled } from './pooled'
 import { shortBytes } from './policy'
 import { BASIC_CHALLENGE, REPOS_PATH } from './protocol'
 import type { ObjectStore } from './store'
+import { WEB_STYLE, webCacheControl } from './web'
 import type { WalIndex } from './wal-index'
 
 /** Rows on one page. A hundred names is a screenful to scroll, not to load. */
@@ -154,8 +155,8 @@ export async function repoListResponse(
   // A minute, and only where a read takes no credential — the same reasoning
   // the landing page's header carries, plus the one this page adds: a shared
   // cache must not hold a document that exists because THIS request presented
-  // a token.
-  const cacheControl = caps.publicAccess ? 'public, max-age=60' : 'private, no-store'
+  // a token. One function for both web-view pages (`shared/web.ts`).
+  const cacheControl = webCacheControl(caps)
 
   const wantsHtml = request.accept.toLowerCase().includes('text/html')
   if (!wantsHtml) {
@@ -440,24 +441,12 @@ ${listing.repos.map(row).join('\n')}
 <meta name="robots" content="noindex">
 <title>repositories</title>
 <style>
-  :root { color-scheme: light dark; --ink: #14100e; --ground: #ede6de; --muted: #6b635c; --accent: #c56a3e; }
-  @media (prefers-color-scheme: dark) { :root { --ink: #ede6de; --ground: #14100e; --muted: #9a9088; } }
-  body { margin: 0; padding: 2rem 1.25rem 4rem; background: var(--ground); color: var(--ink);
-    font: 15px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; }
-  main { max-width: 52rem; margin: 0 auto; }
-  h1 { font-size: 1rem; font-weight: 600; margin: 0 0 1rem; }
+${WEB_STYLE}
   input { width: 100%; box-sizing: border-box; padding: .5rem .6rem; margin-bottom: 1rem;
     color: inherit; background: transparent; border: 1px solid var(--muted); border-radius: 4px; font: inherit; }
-  table { width: 100%; border-collapse: collapse; }
-  th, td { text-align: left; padding: .35rem .5rem; border-bottom: 1px solid color-mix(in srgb, var(--muted) 30%, transparent); }
-  th { font-weight: 600; color: var(--muted); }
-  td.f, th.f { text-align: right; white-space: nowrap; color: var(--muted); }
-  a { color: var(--accent); }
   tr.leaving { opacity: .5; }
-  .tag { font-size: .8em; color: var(--muted); border: 1px solid var(--muted); border-radius: 3px; padding: 0 .3em; }
   .tag.leaving { color: var(--accent); border-color: var(--accent); }
-  .note, .pager { color: var(--muted); }
-  .pager { margin-top: 1rem; display: flex; gap: 1rem; }
+  .pager { margin-top: 1rem; display: flex; gap: 1rem; color: var(--muted); }
 </style>
 </head>
 <body>

@@ -66,7 +66,7 @@ async function page(pathname: string, options: PageOptions = {}) {
   const asked: string[] = []
   const res = await browseResponse(
     route,
-    { method: 'GET', accept: options.accept ?? HTML },
+    { accept: options.accept ?? HTML },
     {
       ask: async (query) => {
         asked.push(query)
@@ -141,6 +141,26 @@ describe('the repository page', () => {
     })
     expect(res.body).toContain('<a href="/alpha/tree/main/src">..</a>')
     expect(res.body).toContain('Nothing here.')
+  })
+
+  test('encodes a link for a URL as well as escaping it for the markup', async () => {
+    // A directory may legally be called `a#b`, and `#` ends a URL: escaping
+    // alone would produce a link that resolves somewhere else entirely. The
+    // slashes that make the path a path have to survive it.
+    const { res } = await page('/alpha/tree/main/a%23b', {
+      answer: served({
+        ...ANSWER,
+        path: 'a#b',
+        entries: [{ name: 'c d', kind: 'tree', oid: OID, size: null }],
+      }),
+    })
+    expect(res.body).toContain('<a href="/alpha/tree/main/a%23b/c%20d">c d/</a>')
+    // …and the ref keeps its own slashes, which are path separators and not
+    // part of any one segment.
+    const slashed = await page('/alpha/tree/feature/x', {
+      answer: served({ ...ANSWER, ref: 'refs/heads/feature/x' }),
+    })
+    expect(slashed.res.body).toContain('href="/alpha/tree/feature/x/src"')
   })
 
   test('escapes what came out of the log rather than trusting it', async () => {

@@ -240,11 +240,33 @@ export function classifyOutcome(
   status: number,
   headers: { get(name: string): string | null },
 ): { outcome: Outcome; reject: RejectKind | '' } {
-  const declared = headers.get(REJECT_HEADER)
-  if (declared) return { outcome: 'reject', reject: normalizeReject(declared) }
-  if (status < 400) return { outcome: 'ok', reject: '' }
-  if (headers.get(SERVED_HEADER) === null) return { outcome: 'reject', reject: 'edge' }
-  return { outcome: 'reject', reject: fromStatus(status) }
+  return outcomeOf({
+    status,
+    declared: headers.get(REJECT_HEADER),
+    served: headers.get(SERVED_HEADER) !== null,
+  })
+}
+
+/**
+ * The same judgement, from the two facts rather than from a `Headers`.
+ *
+ * Some callers have already read the stamps into values — the browse page
+ * carries them back from the container as `{ served, reject }`
+ * (`shared/browse.ts`), because `shared/` has no `Headers` to hand around. They
+ * ask this directly rather than building a stand-in object for the reader
+ * above to take apart again.
+ */
+export function outcomeOf(answer: {
+  status: number
+  /** `REJECT_HEADER`'s value, or `null`/`''` where the layer named no kind. */
+  declared: string | null
+  /** The container stamped it (`SERVED_HEADER`). */
+  served: boolean
+}): { outcome: Outcome; reject: RejectKind | '' } {
+  if (answer.declared) return { outcome: 'reject', reject: normalizeReject(answer.declared) }
+  if (answer.status < 400) return { outcome: 'ok', reject: '' }
+  if (!answer.served) return { outcome: 'reject', reject: 'edge' }
+  return { outcome: 'reject', reject: fromStatus(answer.status) }
 }
 
 function fromStatus(status: number): RejectKind {

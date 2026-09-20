@@ -506,10 +506,12 @@ function createRouter(deps: HttpHandlerDeps): (req: Request) => Promise<Response
     // the Cache and not passed to git: 404.
     if (!at) return NOT_FOUND()
 
+    // A path walgit will not carry is a 404, exactly as an unknown ref and an
+    // unroutable name are: "there is no such directory here" is the honest
+    // answer, and a refusal kind of its own would be a distinction a reader
+    // could use to tell a rejected shape from an absent one.
     const path = cleanPath(at.path)
-    if (path === null) {
-      return reject(400, 'not-found', 'walgit: that path is not one this browse will carry\n')
-    }
+    if (path === null) return NOT_FOUND()
 
     const repo = deps.ensureRepo(resolved)
     if (deps.syncRepo) {

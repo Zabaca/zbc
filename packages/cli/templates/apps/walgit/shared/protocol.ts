@@ -243,8 +243,11 @@ export interface BrowseRoute {
  *
  * Here beside the grammar rather than in `shared/browse.ts` for the reason
  * `SMART_HTTP` is here: the edge ROUTES on it and `classifyRequest` COUNTS on
- * it, and a path one claimed and the other did not would be a metric describing
- * traffic that never happened.
+ * it, and two readings of the grammar would be a metric describing traffic
+ * that never happened. The classifier makes one deliberate narrowing on top of
+ * it — a path whose SHAPE already has a bucket (`/wp-login.php`, `/.env`) keeps
+ * that bucket rather than becoming a repository page, so the scanner baseline
+ * those buckets exist to measure stays measurable. It is stated there, once.
  */
 export function wantsBrowse(method: string, pathname: string): BrowseRoute | null {
   if (method !== 'GET' && method !== 'HEAD') return null
