@@ -610,10 +610,60 @@ export default {
     // read, so with `WALGIT_WEB` off the path falls through to the container
     // exactly as it did before this route existed.
     const browseRoute = caps.web ? wantsBrowse(request.method, url.pathname) : null
+
+    // `/<name>/raw/…` — the bytes themselves, rather than a page about them.
+    //
+    // Proxied rather than rendered, and that is the whole difference: a
+    // repository holds whatever was pushed to it, and a renderer that turned
+    // those bytes into a string would corrupt every file that is not UTF-8. The
+    // container has already chosen the `content-type` from the CONTENT — plain
+    // text with `nosniff`, or an octet-stream attachment — because it is the
+    // half holding the bytes, and nothing here second-guesses that.
+    if (browseRoute && browseRoute.kind === 'raw') {
+      const query =
+        `?repo=${encodeURIComponent(browseRoute.repo)}&op=raw` +
+        (browseRoute.rest === '' ? '' : `&ref=${encodeURIComponent(browseRoute.rest)}`)
+      const asked = new Request(`https://walgit.internal${BROWSE_PATH}${query}`, {
+        // The client's own credential and nothing else, exactly as the page
+        // route below: the edge must not open a door the client could not.
+        headers: authorizationOf(request),
+      })
+      const res = await getContainer(env.WALGIT_CONTAINER).fetch(asked)
+      const outcome = outcomeOf({
+        status: res.status,
+        declared: res.headers.get(REJECT_HEADER) ?? '',
+        served: res.headers.get(SERVED_HEADER) !== null,
+      })
+      record(env, ctx, {
+        kind: 'browse',
+        repo: browseRoute.repo,
+        outcome: outcome.outcome,
+        reject: outcome.reject,
+        status: res.status,
+        served: res.headers.get(SERVED_HEADER) !== null,
+        cold: res.headers.get(COLD_HEADER) !== null,
+        ttfbMs: Date.now() - startedAt,
+        totalMs: Date.now() - startedAt,
+        // The body is a stream on its way to the client and must not be read
+        // to be weighed: `content-length` is what the container already said.
+        bytesServed: request.method === 'HEAD' ? 0 : Number(res.headers.get('content-length') ?? 0),
+        bytesReceived: 0,
+      })
+      // The container's own headers, minus the ones that are walgit's internal
+      // bookkeeping rather than protocol.
+      const headers = new Headers(res.headers)
+      for (const name of INTERNAL_HEADERS) headers.delete(name)
+      return new Response(request.method === 'HEAD' ? null : res.body, {
+        status: res.status,
+        statusText: res.statusText,
+        headers,
+      })
+    }
+
     if (browseRoute) {
       const answer = await browseResponse(
         browseRoute,
-        { accept },
+        { accept, before: url.searchParams.get('before') },
         {
           caps,
           ask: async (query) => {

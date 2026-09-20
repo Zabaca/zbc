@@ -69,6 +69,9 @@ function deployment(
     browse: {
       readIndex: async () => ({ refs: { 'refs/heads/main': 'a'.repeat(40) }, lastPush: null }),
       listTree: async () => [],
+      statBlob: async () => null,
+      readBlob: async () => null,
+      listCommits: async () => [],
     },
     privateReads: {
       seed: SEED,
@@ -239,6 +242,9 @@ describe('a Private repository', () => {
           throw new Error('index unreachable')
         },
         listTree: async () => [],
+        statBlob: async () => null,
+        readBlob: async () => null,
+        listCommits: async () => [],
       },
     })
     const res = await broken(`${BROWSE_PATH}?repo=alpha&op=refs`)

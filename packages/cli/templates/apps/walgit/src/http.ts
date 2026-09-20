@@ -11,10 +11,14 @@
  */
 
 import {
+  BLOB_MAX_BYTES,
   cleanPath,
   defaultBranch,
+  OID,
+  readmeEntry,
   resolveRef,
   splitRefPath,
+  type Commit,
   type TreeEntry,
 } from '../shared/browse'
 import { capabilitiesFrom, type Capabilities } from '../shared/capabilities'
@@ -241,6 +245,42 @@ export type BrowseReads = {
    * the Index has said the repository exists.
    */
   listTree: (repo: ResolvedRepo, rev: string, path: string) => Promise<TreeEntry[] | null>
+  /**
+   * What git knows about one path at one ref WITHOUT reading it: its object id
+   * and its size, or `null` when that path is not a blob there.
+   *
+   * Separate from `readBlob` deliberately, and the separation is the cap: the
+   * handler asks the size first and only then decides whether the bytes may be
+   * read at all (`BLOB_MAX_BYTES`). One reader that did both would have the
+   * file in memory before anyone could refuse it.
+   */
+  statBlob: (
+    repo: ResolvedRepo,
+    rev: string,
+    path: string,
+  ) => Promise<{ oid: string; size: number } | null>
+  /**
+   * The bytes of one blob, as bytes.
+   *
+   * Not a string: a repository holds whatever was pushed to it, and decoding
+   * before the NUL sniff would turn a PNG into replacement characters that
+   * sniff as text. The handler decides what, if anything, to decode.
+   */
+  readBlob: (repo: ResolvedRepo, rev: string, path: string) => Promise<Uint8Array | null>
+  /**
+   * One page of history walking back from `rev`, or from `before` when the
+   * reader is paging. `null` when the Cache cannot walk it.
+   *
+   * The limit is the caller's rather than the reader's for the same reason the
+   * blob cap is: it is a bound on work this request may do, and the handler is
+   * where a request's bounds are stated.
+   */
+  listCommits: (
+    repo: ResolvedRepo,
+    rev: string,
+    before: string | null,
+    limit: number,
+  ) => Promise<Commit[] | null>
 }
 
 /** What a browse reads out of one Index. */
@@ -305,6 +345,59 @@ const json = (body: unknown): Response =>
       'cache-control': 'no-store',
     },
   })
+
+/**
+ * How many commits one history page holds.
+ *
+ * Fifty, like the tree's one level: a bound on work done on the request path in
+ * the one container that is also serving pushes. A reader who wants the whole
+ * history clones it — that is what walgit is.
+ */
+const LOG_PAGE = 50
+
+/**
+ * One blob, as bytes, with the type its CONTENT earns and never its name.
+ *
+ * This is the security property of the whole web view, stated in one place. A
+ * repository holds whatever was pushed to it, and walgit serves it from the
+ * same origin as every other walgit page — so a pushed `index.html` returned as
+ * `text/html` is stored XSS against the deployment, and a pushed `.js` served
+ * as a script is worse. Nothing here looks at the extension:
+ *
+ *   - text (no NUL byte) → `text/plain; charset=utf-8`, with `nosniff` so a
+ *     browser that would have guessed HTML from the bytes does not;
+ *   - anything else → `application/octet-stream` as an attachment, which a
+ *     browser saves rather than opens.
+ *
+ * `no-store` for the reason every other browse answer has it: the bytes are
+ * whatever the ref points at right now, and on a Private name a cached copy is
+ * a file served after a revocation.
+ */
+function rawBlob(bytes: Uint8Array, path: string, binary: boolean): Response {
+  const name = path.slice(path.lastIndexOf('/') + 1)
+  const headers: Record<string, string> = {
+    'cache-control': 'no-store',
+    'x-content-type-options': 'nosniff',
+    // A raw file is somebody's source, not a document to index — and on a
+    // credentialed deployment not one a crawler can read at all.
+    'x-robots-tag': 'noindex',
+  }
+  if (binary) {
+    headers['content-type'] = 'application/octet-stream'
+    // The quotes are the whole grammar here, and `cleanPath` has already
+    // refused every segment walgit will not carry — but a name may still hold a
+    // quote or a newline, and either would end the header early. Both are
+    // stripped rather than escaped: this is a suggested filename, and a browser
+    // falling back to the URL's last segment is a fine outcome.
+    const safe = name.replace(/["\\\r\n]/g, '')
+    headers['content-disposition'] = `attachment; filename="${safe}"`
+  } else {
+    headers['content-type'] = 'text/plain; charset=utf-8'
+  }
+  // A fresh buffer view rather than the array itself: `BodyInit` takes a
+  // `BufferSource`, which is what a `Uint8Array`'s underlying buffer is.
+  return new Response(bytes.buffer as ArrayBuffer, { headers })
+}
 
 /**
  * The Claim a repository is treated as holding when its real one cannot be
@@ -482,8 +575,21 @@ function createRouter(deps: HttpHandlerDeps): (req: Request) => Promise<Response
     const head = defaultBranch(index.refs)
     const common = { repo: resolved.repoId, defaultBranch: head, refs, lastPush: index.lastPush }
 
-    if (url.searchParams.get('op') === 'refs') return json(common)
-    if (url.searchParams.get('op') !== 'tree') return NOT_FOUND()
+    const op = url.searchParams.get('op')
+    if (op === 'refs') return json(common)
+    if (op !== 'tree' && op !== 'blob' && op !== 'raw' && op !== 'log') return NOT_FOUND()
+
+    // The history cursor, checked before anything else this request would do.
+    // A full oid or nothing: an abbreviation, a rev-parse expression and an
+    // option-shaped string are all refused here rather than resolved on the
+    // Cache, for the reason a ref is (`shared/browse.ts`). 400 rather than the
+    // 404 every other refusal here gets, because unlike a ref or a path this
+    // is not a thing that might have existed — a malformed cursor is a
+    // malformed request, and a reader paging by hand should be told so.
+    const before = url.searchParams.get('before')
+    if (before !== null && !OID.test(before)) {
+      return reject(400, 'invalid', 'walgit: a history cursor is a full object id\n')
+    }
 
     // A ref and a path, from the one run-together remainder the browse URL
     // carries — or from the two parameters an API caller may send instead,
@@ -494,7 +600,13 @@ function createRouter(deps: HttpHandlerDeps): (req: Request) => Promise<Response
     if (requested === '') {
       // No ref named: the default branch, and a repository with no branch is a
       // page with no tree rather than a refusal — it exists, it is just empty.
-      if (head === null) return json({ ...common, ref: '', path: '', entries: [] })
+      // A file and a download have nothing to be empty ABOUT, so those are the
+      // 404 a missing path always is.
+      if (head === null) {
+        if (op === 'tree') return json({ ...common, ref: '', path: '', entries: [] })
+        if (op === 'log') return json({ ...common, ref: '', commits: [], next: null })
+        return NOT_FOUND()
+      }
       at = { ref: head, path: rawPath ?? '' }
     } else if (rawPath === null) {
       at = splitRefPath(index.refs, requested)
@@ -525,11 +637,86 @@ function createRouter(deps: HttpHandlerDeps): (req: Request) => Promise<Response
       }
     }
 
-    const entries = await reads.listTree(repo, index.refs[at.ref] ?? at.ref, path)
+    // The oid the ref stands at, or the oid the reader named. Everything below
+    // reads the Cache AT that revision rather than at a name, so a ref moving
+    // between two reads of one page cannot show half of each.
+    const rev = index.refs[at.ref] ?? at.ref
+
+    if (op === 'log') {
+      const commits = await reads.listCommits(repo, rev, before, LOG_PAGE)
+      // A ref the Cache cannot walk — a cursor naming an object it does not
+      // hold, most often. 404, as an absent ref is.
+      if (commits === null) return NOT_FOUND()
+      return json({
+        ...common,
+        ref: at.ref,
+        commits,
+        // A full page is the only thing that implies another one. The cursor is
+        // the last commit SHOWN, which the next page re-reads and drops — one
+        // duplicate row's worth of work to avoid naming an object the reader
+        // has not been shown.
+        next: commits.length < LOG_PAGE ? null : (commits[commits.length - 1]?.oid ?? null),
+      })
+    }
+
+    if (op === 'blob' || op === 'raw') {
+      // The size FIRST, from git's object header and not from the content: a
+      // file over the cap must never reach this process's memory.
+      const stat = await reads.statBlob(repo, rev, path)
+      // Not a blob at this ref — a directory, or nothing. 404, as everything
+      // absent here is.
+      if (stat === null) return NOT_FOUND()
+
+      // Raw has no cap. It is the answer FOR a file too big to render, and it
+      // is the same read a clone of the same repository would do anyway.
+      if (op === 'blob' && stat.size > BLOB_MAX_BYTES) {
+        return json({
+          ...common,
+          ref: at.ref,
+          path,
+          size: stat.size,
+          text: null,
+          binary: false,
+          oversize: true,
+        })
+      }
+
+      const bytes = await reads.readBlob(repo, rev, path)
+      if (bytes === null) return NOT_FOUND()
+      const binary = bytes.includes(0)
+
+      if (op === 'raw') return rawBlob(bytes, path, binary)
+      return json({
+        ...common,
+        ref: at.ref,
+        path,
+        size: stat.size,
+        // A binary file has no text to show, and decoding it would invent one.
+        text: binary ? null : new TextDecoder().decode(bytes),
+        binary,
+        oversize: false,
+      })
+    }
+
+    const entries = await reads.listTree(repo, rev, path)
     // git has no empty tree, so "no entries" is the absence rather than an
     // empty directory: the path is not a directory at this ref.
     if (entries === null) return NOT_FOUND()
-    return json({ ...common, ref: at.ref, path, entries })
+
+    // The README, at the ROOT only — a README is what a repository says about
+    // itself, and one in `src/` is a note about that directory rather than a
+    // second front page. It is read under the same cap as any other file, and
+    // a binary or oversized one is simply not shown.
+    let readme: { name: string; text: string } | undefined
+    const wanted = path === '' ? readmeEntry(entries) : null
+    if (wanted && (wanted.size ?? 0) <= BLOB_MAX_BYTES) {
+      const bytes = await reads.readBlob(repo, rev, wanted.name)
+      if (bytes && !bytes.includes(0)) {
+        readme = { name: wanted.name, text: new TextDecoder().decode(bytes) }
+      }
+    }
+
+    return json({ ...common, ref: at.ref, path, entries, ...(readme ? { readme } : {}) })
   }
 
   return async (request) => {

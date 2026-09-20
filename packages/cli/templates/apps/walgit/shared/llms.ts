@@ -824,6 +824,8 @@ curl -H 'accept: application/json' https://${host}/$NAME${caps.publicAccess ? ''
 \`\`\`
 
 One repository: its refs, its default branch and one level of the default branch's tree. \`/$NAME/tree/<ref>/<path>\` is any directory at any ref — a branch name containing slashes resolves, because the host splits the ref from the path against its own Index. Same gate as a clone${caps.namesCanBePrivate ? ', so a Private name is refused here exactly as `info/refs` is' : ''}.
+
+Three more reads on the same split: \`/$NAME/blob/<ref>/<path>\` is one file (up to 1 MiB, otherwise its size alone), \`/$NAME/raw/<ref>/<path>\` is its bytes — always \`text/plain\` or an \`application/octet-stream\` attachment, chosen by content and never by extension — and \`/$NAME/commits/<ref>\` is fifty commits per page with \`?before=<full oid>\` as the cursor.
 `
     : ''
 }

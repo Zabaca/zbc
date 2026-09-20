@@ -110,10 +110,16 @@ describe('classifyRequest', () => {
       repo: 'alpha',
     })
     expect(classifyRequest('HEAD', '/alpha', '').kind).toBe('browse')
+    // A file, its bytes and the history are browse pages too — one kind for
+    // the whole web view, so a chart of it is a chart of what readers do.
+    expect(classifyRequest('GET', '/alpha/blob/main/x', '').kind).toBe('browse')
+    expect(classifyRequest('GET', '/alpha/raw/main/x', '').kind).toBe('browse')
+    expect(classifyRequest('GET', '/alpha/commits/main', '').kind).toBe('browse')
     // A name walgit would not serve is not a page about one: the path is
     // attacker-controlled and the dataset takes no unbounded string.
     expect(classifyRequest('GET', '/.env', '').kind).toBe('other')
-    expect(classifyRequest('GET', '/alpha/blob/main/x', '').kind).toBe('other')
+    // Nor is a page kind walgit does not have.
+    expect(classifyRequest('GET', '/alpha/blame/main/x', '').kind).toBe('other')
     // A browse is a read.
     expect(classifyRequest('POST', '/alpha', '').kind).toBe('other')
   })

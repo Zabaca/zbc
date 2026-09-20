@@ -270,6 +270,7 @@ export function outcomeOf(answer: {
 }
 
 function fromStatus(status: number): RejectKind {
+  if (status === 400) return 'invalid'
   if (status === 401 || status === 403) return 'unauthorized'
   if (status === 404) return 'not-found'
   if (status === 409) return 'collision'

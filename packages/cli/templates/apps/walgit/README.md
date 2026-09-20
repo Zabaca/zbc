@@ -563,8 +563,42 @@ Symlinks render their target, gitlinks as `submodule @ <sha>`, and
 `refs/walgit/*` is listed and browsable. The page carries the same `noindex` and
 cache-control rules as the list and a CSP that permits no script at all — there
 is none on it — and states `expires in N hours` from the Index where the
-deployment sets a retention window. Blobs, raw content, README rendering and
-history are not here yet; a file is shown and not linked, so no link is a 404.
+deployment sets a retention window. A **README** at the tree root rides with the
+listing: the first of `README`, `README.md`, `README.txt` (case-insensitive, in
+that order), shown as escaped text under the tree. There is no markdown renderer
+and no sanitiser walgit owns, and pushed markup becoming markup on walgit's own
+origin is precisely what this view must never do.
+
+### A file, its bytes, and the history
+
+`/<name>/blob/<ref>/<path>` is one file, `/<name>/raw/<ref>/<path>` is its bytes
+and `/<name>/commits/<ref>` is the history — the same run-together remainder, the
+same longest-prefix split, the same gate.
+
+- **Blob** (`op=blob`). The size is asked of git's object header **before** the
+  content is read, so a file over **1 MiB** never reaches the container's
+  memory; the page then offers only the raw link. Under the cap the bytes are
+  read and sniffed: a **NUL byte** anywhere in them means binary, which shows a
+  size and a raw link rather than a guess at text. Otherwise the file is one
+  escaped, line-numbered row per line.
+- **Raw** (`op=raw`). No cap — a download is what a file too big to render is
+  for — and **the type comes from the content, never from the extension**. Text
+  is `text/plain; charset=utf-8` with `X-Content-Type-Options: nosniff`;
+  anything else is `application/octet-stream` as an `attachment`. This is the
+  one rule the whole web view rests on: a repository holds whatever was pushed
+  to it, walgit serves it from the same origin as every other walgit page, and a
+  pushed `index.html` returned as HTML would be stored XSS against the
+  deployment. It is `text/plain`.
+- **Commit log** (`op=log`). `git log -n 50` per page, with `?before=<full oid>`
+  as the cursor — the last commit the previous page *showed*, so a page is built
+  only from commits a reader has been given, and the container drops it from the
+  next page rather than repeating a row. A cursor that is not a full oid is
+  `400` (`invalid`), before git is asked anything: unlike a ref or a path it is
+  not a thing that might have existed.
+
+Both bounds — one tree level, fifty commits — are bounds on work done on the
+request path in the one container that is also serving pushes. A reader who
+wants the whole history clones it, which is what walgit is.
 
 `WALGIT_WEB` is on `CONTAINER_ENV`, which is what makes the browse endpoint
 above possible at all: `caps.web` is read on both sides — at the edge to claim
@@ -574,6 +608,12 @@ enforce. The cost is
 the one that list buys everywhere else: **the deploy that first sets it changes
 the environment fingerprint, so the Durable Object replaces the running
 container once** on the next request (`reconcileEnv`, above).
+
+What a browse COSTS, stated plainly: the list at `/repos` wakes nothing, and
+every other page wakes the container exactly as a clone does — a tree, a file
+and a log are git objects, only the Cache holds those, and a cold repository
+Materializes first. A deployment running one always-warm instance serves browses
+out of the same queue as pushes.
 
 `/robots.txt`, `/favicon.ico`, `/llms.txt` and `/agentgit-og.png` are
 short-circuited at the edge ahead of this route and of the repository pages that

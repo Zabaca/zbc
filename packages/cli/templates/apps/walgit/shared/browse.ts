@@ -36,7 +36,7 @@
 
 import type { Capabilities } from './capabilities'
 import { escapeHtml, describeHours } from './landing'
-import { REPOS_PATH, type BrowseRoute } from './protocol'
+import { REPOS_PATH, type BrowseKind, type BrowseRoute } from './protocol'
 import type { EdgeResponse } from './repo-list'
 import { WEB_STYLE, webCacheControl } from './web'
 
@@ -83,6 +83,84 @@ export interface BrowseTreeAnswer extends BrowseRefsAnswer {
   /** The directory, with no leading or trailing slash. `''` is the root. */
   path: string
   entries: TreeEntry[]
+  /** The README this directory holds, at the root only. */
+  readme?: Readme
+}
+
+/**
+ * How much of a file walgit will put on a page: 1 MiB.
+ *
+ * The cap is asked of `cat-file -s` BEFORE the content is read, so a file above
+ * it never reaches the container's memory — this is a bound on work done in the
+ * one process that is also serving pushes, not just on bytes shipped. Above it
+ * the page offers the raw link and nothing else, and raw has no cap of its own:
+ * a download is what a file too big to render is for.
+ */
+export const BLOB_MAX_BYTES = 1024 * 1024
+
+/** What `op=blob` answers: the repository, and one file at one ref. */
+export interface BrowseBlobAnswer extends BrowseRefsAnswer {
+  ref: string
+  /** The file, with no leading slash. Never `''` — a blob has a name. */
+  path: string
+  /** Bytes, as git weighs the object. Always known, even when the text is not. */
+  size: number
+  /**
+   * The content, or `null` when there is deliberately none: a file over
+   * `BLOB_MAX_BYTES` (never read) or one holding a NUL byte (read, and not
+   * something a page can show). Both offer the raw link instead.
+   */
+  text: string | null
+  binary: boolean
+  oversize: boolean
+}
+
+/** A README under a tree, shown as text and never rendered as markup. */
+export interface Readme {
+  name: string
+  text: string
+}
+
+/** One commit, as the history page shows one. */
+export interface Commit {
+  oid: string
+  /** `Name <email>`, as git records it. */
+  author: string
+  /** ISO 8601, from git's `%aI`. */
+  date: string
+  subject: string
+}
+
+/** What `op=log` answers: one page of history, and where the next begins. */
+export interface BrowseLogAnswer extends BrowseRefsAnswer {
+  ref: string
+  commits: Commit[]
+  /**
+   * The oid the next page starts at, or `null` at the end of the history.
+   *
+   * The LAST commit on this page rather than the one after it: the cursor is a
+   * commit walgit has named, so a next page is built from what the reader was
+   * shown rather than from an object nobody has seen.
+   */
+  next: string | null
+}
+
+/**
+ * The README a directory listing holds, by the fixed preference order.
+ *
+ * `README`, then `README.md`, then `README.txt`, case-insensitively — the names
+ * GitHub made a convention, and only those three. A repository holding two of
+ * them gets the first by THIS order rather than by tree order, so the same
+ * repository shows the same file wherever it is read.
+ */
+export function readmeEntry(entries: TreeEntry[]): TreeEntry | null {
+  for (const wanted of ['readme', 'readme.md', 'readme.txt']) {
+    const found = entries.find(
+      (entry) => entry.kind === 'blob' && entry.name.toLowerCase() === wanted,
+    )
+    if (found) return found
+  }
+  return null
 }
 
 /**
@@ -200,6 +278,14 @@ export interface BrowseDeps {
 export interface BrowseRequest {
   /** The `Accept` header, verbatim. HTML for a browser, anything else is JSON. */
   accept: string
+  /**
+   * The history cursor from the URL's query, or `null`.
+   *
+   * The one thing a browse URL carries outside its path. Passed through rather
+   * than validated here: a cursor is a fact about git's history, so the
+   * container is where it is judged (and refused).
+   */
+  before: string | null
 }
 
 /** A browse answered, plus what the container said about answering it. */
@@ -220,9 +306,14 @@ export async function browseResponse(
   request: BrowseRequest,
   deps: BrowseDeps,
 ): Promise<BrowseEdgeResponse> {
-  const query = `?repo=${encodeURIComponent(route.repo)}&op=tree${
-    route.rest === '' ? '' : `&ref=${encodeURIComponent(route.rest)}`
-  }`
+  // One `op` per page kind, and the remainder passed whole — only the Index
+  // knows where the ref ends. `raw` never arrives here: it is bytes rather than
+  // a page, so the Worker streams it from the container instead (`worker/`).
+  const op = route.kind === 'commits' ? 'log' : route.kind
+  const query =
+    `?repo=${encodeURIComponent(route.repo)}&op=${op}` +
+    (route.rest === '' ? '' : `&ref=${encodeURIComponent(route.rest)}`) +
+    (request.before === null ? '' : `&before=${encodeURIComponent(request.before)}`)
   const answer = await deps.ask(query)
   const upstream = { status: answer.status, served: answer.served, reject: answer.reject }
 
@@ -254,9 +345,9 @@ export async function browseResponse(
     }
   }
 
-  let tree: BrowseTreeAnswer
+  let parsed: unknown
   try {
-    tree = JSON.parse(answer.text) as BrowseTreeAnswer
+    parsed = JSON.parse(answer.text)
   } catch {
     // The container answered 200 with something this page cannot render. A 502
     // rather than a broken page, and counted as the edge refusal it is.
@@ -285,7 +376,12 @@ export async function browseResponse(
         "default-src 'none'; style-src 'unsafe-inline'; img-src data:; " +
         "base-uri 'none'; form-action 'none'",
     },
-    body: renderBrowse(tree, deps.caps, deps.now?.()),
+    body:
+      route.kind === 'blob'
+        ? renderBlob(parsed as BrowseBlobAnswer, deps.caps, deps.now?.())
+        : route.kind === 'commits'
+          ? renderLog(parsed as BrowseLogAnswer, deps.caps, deps.now?.())
+          : renderBrowse(parsed as BrowseTreeAnswer, deps.caps, deps.now?.()),
     upstream,
   }
 }
@@ -326,9 +422,14 @@ function parentOf(path: string): string | null {
  * the slashes that make the path a path survive, which is also why a ref and a
  * path arrive here already split.
  */
-function treeHref(repo: string, ref: string, path: string): string {
-  const parts = [repo, 'tree', ...ref.split('/'), ...path.split('/').filter((p) => p !== '')]
+function browseHref(repo: string, kind: BrowseKind, ref: string, path: string): string {
+  const parts = [repo, kind, ...ref.split('/'), ...path.split('/').filter((p) => p !== '')]
   return escapeHtml(`/${parts.map((part) => encodeURIComponent(part)).join('/')}`)
+}
+
+/** `/<name>/tree/<ref>/<path>` — the shape every directory link takes. */
+function treeHref(repo: string, ref: string, path: string): string {
+  return browseHref(repo, 'tree', ref, path)
 }
 
 /** `/<name>`, encoded and escaped for the same reason `treeHref` is. */
@@ -344,9 +445,15 @@ export function shortRef(ref: string): string {
 function entryRow(repo: string, ref: string, path: string, entry: TreeEntry): string {
   const name = escapeHtml(entry.name)
   const here = path === '' ? entry.name : `${path}/${entry.name}`
-  // Only a directory is a link. Files, symlinks and submodules have no page
-  // yet, and a link to one would be a 404 a reader has to discover by clicking.
-  const shown = entry.kind === 'tree' ? `<a href="${treeHref(repo, ref, here)}">${name}/</a>` : name
+  // A directory and a file each link to their own page; a symlink and a
+  // submodule do not, because neither names something this repository holds at
+  // that path — a link to one would be a 404 found by clicking.
+  const shown =
+    entry.kind === 'tree'
+      ? `<a href="${treeHref(repo, ref, here)}">${name}/</a>`
+      : entry.kind === 'blob'
+        ? `<a href="${browseHref(repo, 'blob', ref, here)}">${name}</a>`
+        : name
   const note =
     entry.kind === 'symlink'
       ? `<span class="tag">→ ${escapeHtml(entry.target ?? '')}</span>`
@@ -359,7 +466,10 @@ function entryRow(repo: string, ref: string, path: string, entry: TreeEntry): st
       </tr>`
 }
 
-function refList(answer: BrowseTreeAnswer): string {
+/** What every page's chrome needs: the repository, the ref and the ref list. */
+type PageCommon = Pick<BrowseRefsAnswer, 'repo' | 'refs' | 'lastPush'> & { ref?: string }
+
+function refList(answer: PageCommon): string {
   if (answer.refs.length === 0) return ''
   const links = answer.refs.map((ref) => {
     const current = ref.name === answer.ref ? ' class="here"' : ''
@@ -370,14 +480,15 @@ function refList(answer: BrowseTreeAnswer): string {
   return `    <nav class="refs">${links.join(' ')}</nav>\n`
 }
 
-function breadcrumb(answer: BrowseTreeAnswer): string {
-  const ref = shortRef(answer.ref)
+function breadcrumb(answer: PageCommon & { path?: string }): string {
+  const ref = shortRef(answer.ref ?? '')
   const crumbs = [
     `<a href="${repoHref(answer.repo)}">${escapeHtml(answer.repo)}</a>`,
     `<span class="at">at ${escapeHtml(ref)}</span>`,
   ]
   let walked = ''
-  for (const segment of answer.path.split('/').filter((s) => s !== '')) {
+  const segments = (answer.path ?? '').split('/').filter((s) => s !== '')
+  for (const segment of segments) {
     walked = walked === '' ? segment : `${walked}/${segment}`
     crumbs.push(`<a href="${treeHref(answer.repo, ref, walked)}">${escapeHtml(segment)}</a>`)
   }
@@ -385,13 +496,72 @@ function breadcrumb(answer: BrowseTreeAnswer): string {
 }
 
 /**
- * The page, as a string.
+ * The retention line every page carries, in the landing page's own words.
+ */
+function fineprint(answer: PageCommon, caps: Capabilities, now: number): string {
+  const expiry = expiresIn(answer.lastPush, caps, now)
+  return [
+    answer.lastPush === null ? '' : `last push ${escapeHtml(answer.lastPush.slice(0, 10))}`,
+    expiry === null ? '' : escapeHtml(expiry),
+  ]
+    .filter((part) => part !== '')
+    .join(' · ')
+}
+
+/**
+ * The document every browse page is, around whatever that page shows.
  *
  * No framework, no build step, no script and no request beyond the document
- * itself — one inline stylesheet, which is all the CSP above permits. The
- * repository page and a directory page are the same document: a directory is
- * the root one with a path, and giving them two renderers would be two places
- * a ref link has to be spelled.
+ * itself — one inline stylesheet, which is all the CSP permits. Four pages
+ * share it because they are one product a reader clicks through, and four
+ * copies of a `<head>` is four places a token rename has to land.
+ */
+function shell(title: string, heading: string, body: string, footer: string): string {
+  return `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>${escapeHtml(title)}</title>
+<style>
+${WEB_STYLE}
+  .refs { display: flex; flex-wrap: wrap; gap: .75rem; margin-bottom: 1rem; }
+  .refs .here { text-decoration: underline; }
+  .sep, .at { color: var(--muted); }
+  .tag { border: 0; padding: 0; }
+  .file, .readme { overflow-x: auto; }
+  .file td.ln { text-align: right; color: var(--muted); user-select: none; width: 1%;
+    white-space: nowrap; }
+  .file td { border: 0; padding: 0 .5rem; }
+  .file pre, .readme pre { margin: 0; white-space: pre; font: inherit; }
+  .readme { border: 1px solid color-mix(in srgb, var(--muted) 30%, transparent);
+    border-radius: 3px; padding: .75rem; margin-top: 1.5rem; }
+  .readme h2 { font-size: .85rem; font-weight: 600; color: var(--muted); margin: 0 0 .5rem; }
+  .log td.w { white-space: nowrap; color: var(--muted); }
+</style>
+</head>
+<body>
+<main>
+    <h1>${heading}</h1>
+${body}    <p class="note">${footer}</p>
+</main>
+</body>
+</html>
+`
+}
+
+/** Where every page points back to: the deployment, and what walgit is. */
+function footerLinks(fine: string, extra = ''): string {
+  return `${fine}${fine === '' ? '' : ' · '}${extra}<a href="${REPOS_PATH}">all repositories</a> · <a href="/">what this is</a>`
+}
+
+/**
+ * The tree page, as a string.
+ *
+ * The repository page and a directory page are the same document: a directory
+ * is the root one with a path, and giving them two renderers would be two
+ * places a ref link has to be spelled.
  */
 export function renderBrowse(
   answer: BrowseTreeAnswer,
@@ -417,40 +587,151 @@ ${answer.entries.map((entry) => entryRow(answer.repo, shortRef(answer.ref), answ
           shortRef(answer.ref),
           parent,
         )}">..</a></p>\n`
-  const expiry = expiresIn(answer.lastPush, caps, now)
-  const fine = [
-    answer.lastPush === null ? '' : `last push ${escapeHtml(answer.lastPush.slice(0, 10))}`,
-    expiry === null ? '' : escapeHtml(expiry),
-  ]
-    .filter((part) => part !== '')
-    .join(' · ')
 
   const empty =
     answer.refs.length === 0
       ? '    <p class="note">No refs yet. The first push creates one.</p>\n'
       : ''
 
-  return `<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="robots" content="noindex">
-<title>${escapeHtml(answer.repo)}</title>
-<style>
-${WEB_STYLE}
-  .refs { display: flex; flex-wrap: wrap; gap: .75rem; margin-bottom: 1rem; }
-  .refs .here { text-decoration: underline; }
-  .sep, .at { color: var(--muted); }
-  .tag { border: 0; padding: 0; }
-</style>
-</head>
-<body>
-<main>
-    <h1>${breadcrumb(answer)}</h1>
-${refList(answer)}${empty}${up}${rows}    <p class="note">${fine}${fine === '' ? '' : ' · '}<a href="${REPOS_PATH}">all repositories</a> · <a href="/">what this is</a></p>
-</main>
-</body>
-</html>
+  // The README, as TEXT. There is no markdown renderer here and no sanitiser
+  // walgit owns, and the one thing a repository page must never do is turn
+  // bytes somebody pushed into markup on walgit's own origin.
+  const readme =
+    answer.readme === undefined
+      ? ''
+      : `    <section class="readme"><h2>${escapeHtml(
+          answer.readme.name,
+        )}</h2><pre>${escapeHtml(answer.readme.text)}</pre></section>\n`
+
+  // History is reachable from the tree rather than only from a URL someone
+  // knows to type — but only where there IS a ref to walk.
+  const history =
+    answer.ref === ''
+      ? ''
+      : `<a href="${browseHref(answer.repo, 'commits', shortRef(answer.ref), '')}">history</a> · `
+
+  return shell(
+    answer.repo,
+    breadcrumb(answer),
+    `${refList(answer)}${empty}${up}${rows}${readme}`,
+    footerLinks(fineprint(answer, caps, now), history),
+  )
+}
+
+/**
+ * The file page: the bytes, escaped, one numbered row per line.
+ *
+ * A table rather than a `<pre>` with numbers in it, because a line number a
+ * reader can select is a line number they paste into a message by accident.
+ * Three files never show content: one over `BLOB_MAX_BYTES` (never read), one
+ * holding a NUL byte, and — implicitly — one the container refused. Each offers
+ * the raw link instead, which is the same read without a page around it.
+ */
+export function renderBlob(answer: BrowseBlobAnswer, caps: Capabilities, now = Date.now()): string {
+  const ref = shortRef(answer.ref)
+  const raw = browseHref(answer.repo, 'raw', ref, answer.path)
+  const rawLink = `<a href="${raw}">raw</a>`
+
+  let body: string
+  if (answer.oversize) {
+    body = `    <p class="note">${answer.size} bytes — too large to show. ${rawLink}</p>\n`
+  } else if (answer.binary) {
+    body = `    <p class="note">${answer.size} bytes of binary. ${rawLink}</p>\n`
+  } else {
+    // A trailing newline ends the last line rather than starting an empty one,
+    // which is what every editor shows and what `wc -l` counts.
+    const text = answer.text ?? ''
+    const lines = text === '' ? [] : text.replace(/\n$/, '').split('\n')
+    const rows = lines
+      .map(
+        (line, i) =>
+          `        <tr><td class="ln">${i + 1}</td><td><pre>${escapeHtml(line)}</pre></td></tr>`,
+      )
+      .join('\n')
+    body = `    <table class="file">
+      <tbody>
+${rows}
+      </tbody>
+    </table>
 `
+  }
+
+  const fine = fineprint(answer, caps, now)
+  const shown = answer.oversize || answer.binary ? '' : `${answer.size} bytes · ${rawLink} · `
+  return shell(`${answer.path} · ${answer.repo}`, fileCrumb(answer), body, footerLinks(fine, shown))
+}
+
+/**
+ * A file's breadcrumb: the repository, the ref, each directory above it as a
+ * link, and the file itself as plain text — it is the page you are on.
+ */
+function fileCrumb(answer: BrowseBlobAnswer): string {
+  const ref = shortRef(answer.ref)
+  const segments = answer.path.split('/').filter((segment) => segment !== '')
+  const file = segments.pop() ?? ''
+  const crumbs = [
+    `<a href="${repoHref(answer.repo)}">${escapeHtml(answer.repo)}</a>`,
+    `<span class="at">at ${escapeHtml(ref)}</span>`,
+  ]
+  let walked = ''
+  for (const segment of segments) {
+    walked = walked === '' ? segment : `${walked}/${segment}`
+    crumbs.push(`<a href="${treeHref(answer.repo, ref, walked)}">${escapeHtml(segment)}</a>`)
+  }
+  crumbs.push(escapeHtml(file))
+  return crumbs.join(' <span class="sep">/</span> ')
+}
+
+/**
+ * The history page: one page of commits, and a link to the next.
+ *
+ * The date is shown as the day rather than the instant: a history is read for
+ * its order, and a full ISO timestamp per row is noise in a column a reader
+ * scans. The full value stays in the answer for anyone reading the JSON.
+ */
+export function renderLog(answer: BrowseLogAnswer, caps: Capabilities, now = Date.now()): string {
+  const ref = shortRef(answer.ref)
+  const rows = answer.commits
+    .map(
+      (commit) => `      <tr>
+        <td class="w">${escapeHtml(commit.oid.slice(0, 8))}</td>
+        <td>${escapeHtml(commit.subject)}</td>
+        <td class="w">${escapeHtml(commit.author)}</td>
+        <td class="w">${escapeHtml(commit.date.slice(0, 10))}</td>
+      </tr>`,
+    )
+    .join('\n')
+  const table =
+    answer.commits.length === 0
+      ? '    <p class="note">No history here yet.</p>\n'
+      : `    <table class="log">
+      <thead><tr><th>commit</th><th>subject</th><th>author</th><th>date</th></tr></thead>
+      <tbody>
+${rows}
+      </tbody>
+    </table>
+`
+  // The next page, as a link the reader can follow — the cursor is the last
+  // commit THIS page showed, and the container drops it from the next one.
+  const next =
+    answer.next === null
+      ? ''
+      : `    <p class="note"><a href="${browseHref(
+          answer.repo,
+          'commits',
+          ref,
+          '',
+        )}?before=${escapeHtml(encodeURIComponent(answer.next))}">older</a></p>\n`
+
+  const heading = [
+    `<a href="${repoHref(answer.repo)}">${escapeHtml(answer.repo)}</a>`,
+    `<span class="at">history of ${escapeHtml(ref === '' ? 'nothing' : ref)}</span>`,
+  ].join(' <span class="sep">/</span> ')
+
+  return shell(
+    `history · ${answer.repo}`,
+    heading,
+    `${refList(answer)}${table}${next}`,
+    footerLinks(fineprint(answer, caps, now)),
+  )
 }
