@@ -394,9 +394,13 @@ function rawBlob(bytes: Uint8Array, path: string, binary: boolean): Response {
   } else {
     headers['content-type'] = 'text/plain; charset=utf-8'
   }
-  // A fresh buffer view rather than the array itself: `BodyInit` takes a
-  // `BufferSource`, which is what a `Uint8Array`'s underlying buffer is.
-  return new Response(bytes.buffer as ArrayBuffer, { headers })
+  // `slice()` rather than `bytes.buffer`, and the copy is the point: what
+  // `spawnSync` returns is a Node `Buffer`, which for a small payload is a VIEW
+  // into a shared pool — handing over its underlying buffer would ship the rest
+  // of that pool (another repository's bytes among it) at the wrong length.
+  // `slice` is a copy into an exactly-sized buffer, which is the one thing
+  // `BodyInit` can be handed without a claim about the allocator.
+  return new Response(bytes.slice().buffer as ArrayBuffer, { headers })
 }
 
 /**

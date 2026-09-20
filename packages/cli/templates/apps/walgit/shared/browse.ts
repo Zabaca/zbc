@@ -480,18 +480,28 @@ function refList(answer: PageCommon): string {
   return `    <nav class="refs">${links.join(' ')}</nav>\n`
 }
 
-function breadcrumb(answer: PageCommon & { path?: string }): string {
+/**
+ * The heading every path-bearing page wears: the repository, the ref, and each
+ * directory above the thing being shown.
+ *
+ * `leaf` is what separates a file from a directory, and it is the only
+ * difference there ever was between the two: a directory page ends in a link to
+ * itself (the last crumb is a directory like the ones before it), a file page
+ * ends in the file's name as plain text, because a blob has no `tree` URL and a
+ * link to one would be a 404 found by clicking.
+ */
+function breadcrumb(answer: PageCommon & { path?: string }, leaf?: string): string {
   const ref = shortRef(answer.ref ?? '')
   const crumbs = [
     `<a href="${repoHref(answer.repo)}">${escapeHtml(answer.repo)}</a>`,
     `<span class="at">at ${escapeHtml(ref)}</span>`,
   ]
   let walked = ''
-  const segments = (answer.path ?? '').split('/').filter((s) => s !== '')
-  for (const segment of segments) {
+  for (const segment of (answer.path ?? '').split('/').filter((s) => s !== '')) {
     walked = walked === '' ? segment : `${walked}/${segment}`
     crumbs.push(`<a href="${treeHref(answer.repo, ref, walked)}">${escapeHtml(segment)}</a>`)
   }
+  if (leaf !== undefined) crumbs.push(escapeHtml(leaf))
   return crumbs.join(' <span class="sep">/</span> ')
 }
 
@@ -658,28 +668,14 @@ ${rows}
 
   const fine = fineprint(answer, caps, now)
   const shown = answer.oversize || answer.binary ? '' : `${answer.size} bytes · ${rawLink} · `
-  return shell(`${answer.path} · ${answer.repo}`, fileCrumb(answer), body, footerLinks(fine, shown))
-}
-
-/**
- * A file's breadcrumb: the repository, the ref, each directory above it as a
- * link, and the file itself as plain text — it is the page you are on.
- */
-function fileCrumb(answer: BrowseBlobAnswer): string {
-  const ref = shortRef(answer.ref)
-  const segments = answer.path.split('/').filter((segment) => segment !== '')
-  const file = segments.pop() ?? ''
-  const crumbs = [
-    `<a href="${repoHref(answer.repo)}">${escapeHtml(answer.repo)}</a>`,
-    `<span class="at">at ${escapeHtml(ref)}</span>`,
-  ]
-  let walked = ''
-  for (const segment of segments) {
-    walked = walked === '' ? segment : `${walked}/${segment}`
-    crumbs.push(`<a href="${treeHref(answer.repo, ref, walked)}">${escapeHtml(segment)}</a>`)
-  }
-  crumbs.push(escapeHtml(file))
-  return crumbs.join(' <span class="sep">/</span> ')
+  // The directory the file is in, with the file itself as the last crumb.
+  const segments = answer.path.split('/')
+  return shell(
+    `${answer.path} · ${answer.repo}`,
+    breadcrumb({ ...answer, path: segments.slice(0, -1).join('/') }, segments.at(-1) ?? ''),
+    body,
+    footerLinks(fine, shown),
+  )
 }
 
 /**

@@ -151,6 +151,14 @@ export async function statBlob(
  * Bytes, never a string: see `gitBytes`. The caller has already asked
  * `statBlob` what it is and how big, so this does no checking of its own —
  * `cat-file blob` on a tree fails, and a failure is `null`.
+ *
+ * One bound the caller does NOT set: a raw read is uncapped by design, but this
+ * buffers, so a blob over `MAX_BUFFER` (`src/git.ts`, 64 MiB) fails here and is
+ * answered 404. That is above the 250 MiB a deployment lets a whole repository
+ * be and well above anything a page offers a link to; a file past it is one to
+ * clone. Streaming it would mean handing a subprocess's stdout to a response,
+ * which is the shape `git-backend.ts` has and this module deliberately does
+ * not.
  */
 export async function readBlob(
   gitDir: string,

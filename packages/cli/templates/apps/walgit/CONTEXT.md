@@ -67,11 +67,24 @@ first push to a name printed `fatal:` before succeeding — which an agent reads
 ## The web view
 
 **Browse**:
-Reading a repository in a browser: the list at `/repos`, and `/<name>` and `/<name>/tree/<ref>/<path>` under it. One Advertised capability (`WALGIT_WEB`, `caps.web`), default off like every other. The list is a fold over Indexes and is answered at the **edge**, off the log, so it never wakes the container; a repository page needs git objects, which only the **Cache** holds, so it is answered by the container at `/_walgit/browse` and rendered at the edge. A Browse is a **read**: it never creates a name, and it is behind exactly the gate a clone is behind — the deployment credential, then the **Read Challenge** on a **Private** name.
+Reading a repository in a browser: the list at `/repos`, and under it `/<name>` and `/<name>/tree/<ref>/<path>` (a directory), `/<name>/blob/<ref>/<path>` (a file), `/<name>/raw/<ref>/<path>` (its bytes) and `/<name>/commits/<ref>` (the history). One Advertised capability (`WALGIT_WEB`, `caps.web`), default off like every other. The list is a fold over Indexes and is answered at the **edge**, off the log, so it never wakes the container; a repository page needs git objects, which only the **Cache** holds, so it is answered by the container at `/_walgit/browse` and rendered at the edge. A Browse is a **read**: it never creates a name, and it is behind exactly the gate a clone is behind — the deployment credential, then the **Read Challenge** on a **Private** name.
 _Avoid_: the UI, the website, the dashboard (it shows what the log holds; it operates nothing)
 
 **Browse Ref**:
-What a browse URL is allowed to name: an entry in `index.refs` — with `refs/heads/` or `refs/tags/` allowed to be left off — or a full forty-character oid. Never a `HEAD`, an abbreviation or a rev-parse expression: whatever is accepted reaches `git ls-tree` as an operand, and the **Index** rather than the **Cache** is what decides, because the disk is a cache. A branch name may contain slashes, so the URL remainder after `/tree/` is split by **longest ref prefix** — `feature/x/src` is the branch `feature/x` and the directory `src`.
+What a browse URL is allowed to name: an entry in `index.refs` — with `refs/heads/` or `refs/tags/` allowed to be left off — or a full forty-character oid. Never a `HEAD`, an abbreviation or a rev-parse expression: whatever is accepted reaches `git ls-tree`, `cat-file` or `git log` as an operand, and the **Index** rather than the **Cache** is what decides, because the disk is a cache. A branch name may contain slashes, so the URL remainder after the page kind is split by **longest ref prefix** — `feature/x/src` is the branch `feature/x` and the directory `src`. The same split serves all four kinds.
+
+**Blob Cap**:
+How much of a file a **Browse** will put on a page: 1 MiB (`BLOB_MAX_BYTES`, `shared/browse.ts`). Asked of git's object header BEFORE the content is read, so a file above it never reaches the container's memory — a bound on work, not on bytes shipped. Above the cap the page offers only the **Raw** link, and a file holding a NUL byte is reported binary and shown the same way: walgit has no text to show and will not invent one.
+_Avoid_: max file size (it is a rendering rule, not a storage limit — `WALGIT_MAX_REPO_BYTES` is that)
+
+**Raw**:
+A blob's bytes, served as themselves at `/<name>/raw/<ref>/<path>`. Uncapped, because it is the answer FOR a file too large to render, and **typed by its content and never by its name**: text is `text/plain; charset=utf-8` with `nosniff`, anything else is an `application/octet-stream` attachment. That rule is the web view's load-bearing one — a repository holds whatever was pushed to it and walgit serves it from the same origin as every other walgit page, so a pushed `index.html` returned as HTML would be stored XSS against the deployment.
+
+**History Cursor**:
+How a reader pages through `op=log`: `?before=<full oid>`, fifty commits a page. The cursor is the LAST commit the previous page SHOWED rather than the first it did not, so a page is built only out of commits a reader has been handed — inclusive to git, exclusive to the reader, reconciled by dropping it (`src/browse.ts`). Anything but a full oid is `400` and never resolved against the **Cache**: unlike a **Browse Ref** or a path it is not a thing that might have existed.
+
+**README** (walgit sense):
+The first of `README`, `README.md`, `README.txt` at a tree ROOT, case-insensitively and in that order, carried with the listing and shown as escaped text under it. Never rendered: there is no markdown renderer here and no sanitiser walgit owns, and turning bytes somebody pushed into markup on walgit's own origin is the one thing the web view must not do.
 
 **Default Branch** (walgit sense):
 `main`, else `master`, else the first branch by name — computed from the **Index** and never from the Cache's `HEAD`, which on a node that has just **Materialized** is whatever `git init` left behind. A repository holding only tags has none, and that is `null` rather than a tag standing in for one.
