@@ -147,8 +147,15 @@ function reportFf(emit: Emit, key: string, repo: string, ref: string, ff: FfOutc
     case 'moved':
       return emit(
         'fast-forwarded',
-        { repo, ref, commit: ff.commit },
-        `${key}: fast-forwarded onto ${ff.commit.slice(0, 8)}`,
+        { repo, ref, commit: ff.commit, synthesized: ff.synthesized },
+        `${key}: fast-forwarded onto ${ff.commit.slice(0, 8)}` +
+          (ff.synthesized ? ' (merge made for it; your branch had diverged)' : ''),
+      )
+    case 'elsewhere':
+      return emit(
+        'held',
+        { repo, ref, reason: 'elsewhere', head: ff.head },
+        `${key}: not fast-forwarded; this checkout is on ${ff.head}, not ${ref}`,
       )
     case 'dirty':
       return emit(
@@ -356,10 +363,8 @@ export function watch(config: WatchConfig): Watcher {
 
     // Before --on, so a command that inspects the tree sees the merged state
     // rather than racing it.
-    let ff: FfOutcome | null = null
     if (config.ffOnClean) {
-      ff = fastForwardOnClean(dir, remoteRef)
-      reportFf(emit, key, repo, ref, ff)
+      reportFf(emit, key, repo, ref, fastForwardOnClean(dir, ref, remoteRef))
     }
 
     if (config.onChange && !catchUp) {

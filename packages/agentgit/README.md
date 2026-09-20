@@ -66,11 +66,17 @@ taking it a fast-forward — a ref update and a checkout, with no merge algorith
 running over your files and no conflict possible half way through. It is the
 same technique `agentgit accept` uses on the Signer List, for the same reason.
 
+A clone that is merely behind does not get one of those: git fast-forwards that
+by itself, and making a merge commit for it would leave you permanently ahead of
+origin by a commit nobody else holds, once per push. The commit is built only
+when your branch has actually diverged, and the event says which happened.
+
 Four things stop it, and it says which:
 
 | | |
 | --------------- | ------------------------------------------------------------------------------------- |
 | already merged  | nothing is done, so an unrelated push does not leave an empty merge commit behind.      |
+| **another branch** | held. This moves HEAD, so a checkout on `feature` is never moved on `main`'s behalf. |
 | **uncommitted work** | held. A fast-forward still checks files out, and work in progress is yours to keep. |
 | conflicts       | held. Whose change survives is a decision about intent, and `collides` already said so. |
 | git refused     | held, with git's reason — an untracked file the merge would have overwritten, usually.  |
@@ -81,9 +87,13 @@ covered: git refuses a checkout that would overwrite an untracked file, so that
 case arrives as `held` rather than as lost work.
 
 ```
-{"event":"fast-forwarded","ref":"refs/heads/main","commit":"a1b2c3d4…"}
+{"event":"fast-forwarded","ref":"refs/heads/main","commit":"a1b2c3d4…","synthesized":false}
 {"event":"held","ref":"refs/heads/main","reason":"dirty","paths":["src/index.ts"]}
+{"event":"held","ref":"refs/heads/main","reason":"elsewhere","head":"refs/heads/feature"}
 ```
+
+`synthesized` says whether a merge commit had to be made: `false` is an ordinary
+fast-forward onto the ref itself, `true` means your branch had diverged.
 
 ## Options
 

@@ -12,6 +12,12 @@
  * remote ref — `git merge --ff-only origin/main` fails by definition once the
  * clone has a commit of its own. Making the merge commit first is what turns it
  * back into a fast-forward.
+ *
+ * The second is the one an earlier version of these tests missed, and it is the
+ * common one: a clone that is merely behind. Every case here used to start from
+ * a clone that had already diverged, on the branch being watched, which is
+ * exactly the shape in which two bugs could survive ten passing tests. Both are
+ * now cases of their own.
  */
 
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
@@ -82,8 +88,8 @@ describe('fastForwardOnClean', () => {
     // The thing the feature exists for: this is not a fast-forward.
     expect(run(clone, 'merge', '--ff-only', 'origin/main').code).not.toBe(0)
 
-    const outcome = fastForwardOnClean(clone, 'origin/main')
-    expect(outcome.kind).toBe('moved')
+    const outcome = fastForwardOnClean(clone, 'refs/heads/main', 'origin/main')
+    expect(outcome).toMatchObject({ kind: 'moved', synthesized: true })
     expect(head(clone)).toBe(outcome.kind === 'moved' ? outcome.commit : '')
     // Both sides survive, and the result is a real merge commit.
     expect(fs.readFileSync(path.join(clone, 'a.txt'), 'utf8')).toBe('base\nupstream\n')
@@ -93,12 +99,59 @@ describe('fastForwardOnClean', () => {
     )
   })
 
+  test('a clone merely behind is fast-forwarded, with no merge commit made for it', () => {
+    // The ordinary case. git can do this by itself, and building a merge commit
+    // would leave the clone ahead of origin by one commit nobody else holds —
+    // again on the next push, and the one after that.
+    upstreamMoves('base\nupstream\n')
+
+    const outcome = fastForwardOnClean(clone, 'refs/heads/main', 'origin/main')
+    expect(outcome).toMatchObject({ kind: 'moved', synthesized: false })
+    expect(head(clone)).toBe(run(clone, 'rev-parse', 'origin/main').stdout.trim())
+    // One parent, not two, and nothing of our own on top of origin.
+    expect(run(clone, 'rev-list', '--parents', '-1', 'HEAD').stdout.trim().split(' ')).toHaveLength(
+      2,
+    )
+    expect(run(clone, 'rev-list', '--count', 'origin/main..HEAD').stdout.trim()).toBe('0')
+  })
+
+  test('a checkout on another branch is held, and that branch is left alone', () => {
+    // `--all-refs` makes this the normal case rather than the corner one: the
+    // function acts on HEAD, so acting here would merge upstream `main` into
+    // `feature` and then report `refs/heads/main` as the thing that moved.
+    run(clone, 'checkout', '--quiet', '-b', 'feature')
+    commit(clone, 'f.txt', 'mine\n', 'my feature work')
+    upstreamMoves('base\nupstream\n')
+    const before = head(clone)
+
+    expect(fastForwardOnClean(clone, 'refs/heads/main', 'origin/main')).toEqual({
+      kind: 'elsewhere',
+      head: 'refs/heads/feature',
+    })
+    expect(head(clone)).toBe(before)
+    expect(fs.existsSync(path.join(clone, 'f.txt'))).toBe(true)
+  })
+
+  test('a detached HEAD is held', () => {
+    run(clone, 'checkout', '--quiet', '--detach', 'HEAD')
+    upstreamMoves('base\nupstream\n')
+    const before = head(clone)
+
+    expect(fastForwardOnClean(clone, 'refs/heads/main', 'origin/main')).toEqual({
+      kind: 'elsewhere',
+      head: 'a detached HEAD',
+    })
+    expect(head(clone)).toBe(before)
+  })
+
   test('a conflict is left exactly where it was, with no markers written', () => {
     commit(clone, 'a.txt', 'base\nmine\n', 'local edit')
     upstreamMoves('base\ntheirs\n')
     const before = head(clone)
 
-    expect(fastForwardOnClean(clone, 'origin/main')).toEqual({ kind: 'conflicts' })
+    expect(fastForwardOnClean(clone, 'refs/heads/main', 'origin/main')).toEqual({
+      kind: 'conflicts',
+    })
     expect(head(clone)).toBe(before)
     expect(fs.readFileSync(path.join(clone, 'a.txt'), 'utf8')).toBe('base\nmine\n')
   })
@@ -109,7 +162,7 @@ describe('fastForwardOnClean', () => {
     upstreamMoves('base\nupstream\n')
     const before = head(clone)
 
-    const outcome = fastForwardOnClean(clone, 'origin/main')
+    const outcome = fastForwardOnClean(clone, 'refs/heads/main', 'origin/main')
     expect(outcome).toEqual({ kind: 'dirty', paths: ['b.txt'] })
     expect(head(clone)).toBe(before)
     expect(fs.readFileSync(path.join(clone, 'b.txt'), 'utf8')).toBe('work in progress\n')
@@ -120,7 +173,7 @@ describe('fastForwardOnClean', () => {
     run(clone, 'merge', '--ff-only', 'origin/main')
     const before = head(clone)
 
-    expect(fastForwardOnClean(clone, 'origin/main')).toEqual({ kind: 'current' })
+    expect(fastForwardOnClean(clone, 'refs/heads/main', 'origin/main')).toEqual({ kind: 'current' })
     expect(head(clone)).toBe(before)
   })
 
@@ -128,9 +181,9 @@ describe('fastForwardOnClean', () => {
     commit(clone, 'b.txt', 'mine\n', 'local work')
     upstreamMoves('base\nupstream\n')
 
-    expect(fastForwardOnClean(clone, 'origin/main').kind).toBe('moved')
+    expect(fastForwardOnClean(clone, 'refs/heads/main', 'origin/main').kind).toBe('moved')
     const after = head(clone)
-    expect(fastForwardOnClean(clone, 'origin/main')).toEqual({ kind: 'current' })
+    expect(fastForwardOnClean(clone, 'refs/heads/main', 'origin/main')).toEqual({ kind: 'current' })
     expect(head(clone)).toBe(after)
   })
 })
@@ -156,6 +209,22 @@ describe('isDirty', () => {
     run(clone, 'add', 'c.txt')
     expect(isDirty(clone)).toEqual(['c.txt'])
   })
+
+  test('a rename reports the new path, not "old -> new"', () => {
+    run(clone, 'mv', 'a.txt', 'renamed.txt')
+    expect(isDirty(clone)).toEqual(['renamed.txt'])
+  })
+
+  test('a path with a space is not quoted into something else', () => {
+    commit(clone, 'two words.txt', 'one\n', 'add a spaced path')
+    write(clone, 'two words.txt', 'two\n')
+    expect(isDirty(clone)).toEqual(['two words.txt'])
+  })
+
+  test('a tree git cannot read holds, rather than reading as clean', () => {
+    // null, not []. The two are not the same and only one of them is safe.
+    expect(isDirty(path.join(scratch, 'not-a-repo'))).toBeNull()
+  })
 })
 
 describe('an untracked file the merge would overwrite', () => {
@@ -166,7 +235,7 @@ describe('an untracked file the merge would overwrite', () => {
     run(clone, 'fetch', '--quiet', 'origin', 'main')
     write(clone, 'shared.txt', 'my scratch version\n')
 
-    const outcome = fastForwardOnClean(clone, 'origin/main')
+    const outcome = fastForwardOnClean(clone, 'refs/heads/main', 'origin/main')
     expect(outcome.kind).toBe('refused')
     expect(fs.readFileSync(path.join(clone, 'shared.txt'), 'utf8')).toBe('my scratch version\n')
   })
