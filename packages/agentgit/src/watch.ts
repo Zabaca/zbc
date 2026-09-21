@@ -18,17 +18,35 @@ import { conflictPaths } from './remote'
 /** Where a subscriber connects. Frozen by the ADR above; not derived from the server. */
 const EVENTS_PATH = '/_walgit/events'
 
+/**
+ * Where a subscriber connects, derived from the one origin it was given.
+ *
+ * The scheme rides across because a deployment served over plain http — a
+ * self-hosted node, a test — has a plain-ws event stream, and a subscriber
+ * that assumed TLS against it never connects. The hostname comes from the same
+ * string for the reason the separate `host` field is gone: two fields that must
+ * agree are two fields an edit can make disagree, and one of them signing a
+ * Read Challenge for a host nobody was talking to is exactly how that went.
+ */
+export function eventsUrl(origin: string): string {
+  const scheme = origin.startsWith('http://') ? 'ws' : 'wss'
+  return `${scheme}://${originHost(origin)}${EVENTS_PATH}`
+}
+
+/** Host and port out of an origin — the one derivation, so the two agree. */
+function originHost(origin: string): string {
+  return new URL(origin).host
+}
+
 export interface WatchConfig {
-  host: string
   /**
-   * The remote's scheme and host, where the clone named one.
+   * Scheme, host and port — the one answer to which deployment this is.
    *
-   * Read for exactly one thing: a deployment served over plain http — a
-   * self-hosted node, a test — has a plain-ws event stream, and a subscriber
-   * that assumed TLS against it never connects. Absent means `wss`, which is
-   * every hosted deployment.
+   * The socket's URL and the hostname the `watching` event publishes are both
+   * derived from it, so neither can name a host the credential was not built
+   * for.
    */
-  origin?: string | null
+  origin: string
   token: string | null
   /**
    * The `Authorization` a Private repository's event stream needs, built fresh
@@ -389,8 +407,7 @@ export function watch(config: WatchConfig): Watcher {
     // pass through — including the `await` below, which is a second window in
     // which a stop can arrive.
     if (closing) return
-    const scheme = config.origin?.startsWith('http://') ? 'ws' : 'wss'
-    const url = `${scheme}://${config.host}${EVENTS_PATH}`
+    const url = eventsUrl(config.origin)
     const authorization = config.token
       ? `Bearer ${config.token}`
       : ((await config.credential?.().catch(() => null)) ?? null)
@@ -439,10 +456,14 @@ export function watch(config: WatchConfig): Watcher {
         // Current state for everything watched, before any event can fire.
         // Acting on it here is what makes a freshly started watcher correct
         // rather than merely subscribed.
+        // The hostname is derived, not carried: `host` stays in the event
+        // because it is documented output, and it is the host of the origin
+        // the socket was actually opened against.
+        const host = originHost(config.origin)
         emit(
           'watching',
-          { host: config.host, repos: [...config.targets.keys()], refs: config.refs },
-          `${config.host}: watching ${[...config.targets.keys()].join(', ')}${config.refs.length ? ` for ${config.refs.join(', ')}` : ' (all refs)'}`,
+          { host, repos: [...config.targets.keys()], refs: config.refs },
+          `${host}: watching ${[...config.targets.keys()].join(', ')}${config.refs.length ? ` for ${config.refs.join(', ')}` : ' (all refs)'}`,
         )
         // A handshake is state, not a move, so nothing in it merged anything
         // (docs/adr/0009) — a Proposal already standing is still reported, so a

@@ -6,7 +6,7 @@
  * ref defaulted — each is a background watcher that quietly watches the wrong
  * thing. The parser is pure and exhaustively tested for exactly that reason,
  * and this step used to be neither: it read `process.cwd()`, spawned git, and
- * produced each of its six refusals by exiting.
+ * produced each of its refusals by exiting.
  *
  * So a refusal is a VALUE here. The environment, the working directory,
  * discovery and the credential factory are declared dependencies, and the exit
@@ -61,6 +61,7 @@ export type RefusalCode =
   | 'no-host'
   | 'proposals-detached-head'
   | 'no-directory'
+  | 'host-is-url'
 
 export interface WatchRefusal {
   kind: 'refusal'
@@ -78,6 +79,17 @@ const refuse = (code: RefusalCode, message: string): WatchRefusal => ({
 })
 
 /**
+ * Two host-with-port strings naming the same machine.
+ *
+ * Case-insensitive because host names are, and exact about the port because a
+ * port is part of which thing is listening: `node.local` and `node.local:8080`
+ * are two deployments, not one spelled twice.
+ */
+function sameHost(a: string, b: string): boolean {
+  return a.toLowerCase() === b.toLowerCase()
+}
+
+/**
  * Fill in whatever was not said, from the checkout the command was run in.
  *
  * Discovery only ever ADDS: a flag or an argument that was given is never
@@ -90,8 +102,8 @@ export function resolveWatch(options: WatchOptions, deps: ResolveDeps): Resoluti
 
   let host = options.host ?? envHost(deps.env)
   let remoteName = 'origin'
-  /** The remote's scheme and host, for the credential the event socket needs. */
-  let origin: string | null = null
+  /** The clone's own origin, a candidate until the host it names is compared. */
+  let cloneOrigin: { host: string; origin: string } | null = null
   const targets = new Map(options.targets)
   const refs = [...options.refs]
 
@@ -122,7 +134,7 @@ export function resolveWatch(options: WatchOptions, deps: ResolveDeps): Resoluti
       if (found.kind === 'clone') {
         remoteName = found.remoteName
         host ??= found.host
-        origin = found.origin
+        cloneOrigin = { host: found.host, origin: found.origin }
         if (targets.size === 0) targets.set(found.repo, found.root)
       } else if (targets.size === 0) {
         return refuse(
@@ -141,6 +153,12 @@ export function resolveWatch(options: WatchOptions, deps: ResolveDeps): Resoluti
   }
 
   if (host === null) return refuse('no-host', 'no host: pass --host or set $AGENTGIT_HOST')
+  // A host is a name and a port, and the origin below spells the scheme. A URL
+  // given here used to be concatenated — `https://https://walgit.example` — and
+  // reached the socket and the challenge as a hostname nothing resolves.
+  if (host.includes('/')) {
+    return refuse('host-is-url', `host is a URL: pass the host name alone, not ${host}`)
+  }
   // A Proposal's ref names the branch it targets, so with no branch to watch
   // there is no namespace to scope — every Proposal would be ignored, silently.
   // Said here rather than reported as nothing: a detached HEAD is the case,
@@ -156,16 +174,23 @@ export function resolveWatch(options: WatchOptions, deps: ResolveDeps): Resoluti
     if (dir === '') return refuse('no-directory', `no directory for ${repo}: pass ${repo}=<dir>`)
   }
 
+  // The one origin, and it always names the host above. A clone's origin is
+  // adopted only where the clone is a clone of THIS host — the comparison, not
+  // a provenance test: `--host node.local:8080` inside a clone of that node
+  // keeps its plain http, and `--host elsewhere` inside the same clone does
+  // not sign a challenge for a machine nobody is connected to.
+  const origin =
+    cloneOrigin && sameHost(cloneOrigin.host, host) ? cloneOrigin.origin : `https://${host}`
+
   return {
     kind: 'watch',
     config: {
-      host,
       origin,
       token: presented,
       // Only where no token was given: a deployment token and a Read Challenge
       // signature arrive in the same header, and presenting both is not a thing
       // one request can do.
-      credential: presented !== null ? null : deps.credential(origin ?? `https://${host}`),
+      credential: presented !== null ? null : deps.credential(origin),
       targets,
       refs: options.allRefs ? [] : refs,
       remoteName,
