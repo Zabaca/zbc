@@ -33,6 +33,9 @@ import { watch } from './watch'
  * file with nothing beside it to read. `src/node.test.ts` pins it to the
  * manifest, which is the part that had already drifted.
  */
+/** The four variables this client reads, taken once so every path agrees. */
+const ENV = agentgitEnv(process.env)
+
 const VERSION = '0.5.0'
 
 const HELP = `agentgit — watch a walgit repository and keep a clone current
@@ -136,10 +139,9 @@ function fail(message: string): never {
  * same in a clone and out of one.
  */
 function resolve(options: WatchOptions): Parameters<typeof watch>[0] {
-  const env = agentgitEnv(process.env)
-  const presented = envToken(env)
+  const presented = envToken(ENV)
 
-  let host = options.host ?? envHost(env)
+  let host = options.host ?? envHost(ENV)
   let remoteName = 'origin'
   /** The remote's scheme and host, for the credential the event socket needs. */
   let origin: string | null = null
@@ -281,7 +283,7 @@ switch (parsed.kind) {
     // it is the one to present.
     const accepted = await runAccept(
       { id: parsed.id },
-      realAcceptDeps(process.cwd(), envToken(agentgitEnv(process.env))),
+      realAcceptDeps(process.cwd(), envToken(ENV)),
     )
     if (accepted.stdout) process.stdout.write(accepted.stdout)
     if (accepted.stderr) process.stderr.write(accepted.stderr)
