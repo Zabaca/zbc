@@ -9,7 +9,13 @@
 
 import { describe, expect, test } from 'bun:test'
 
-import { type AcceptClone, type AcceptDeps, type ProposalListing, runAccept } from './accept'
+import {
+  type AcceptClone,
+  type AcceptDeps,
+  type ProposalListing,
+  proposalPusher,
+  runAccept,
+} from './accept'
 
 const proposal = (over: Partial<ProposalListing> = {}): ProposalListing => ({
   id: 'fix-auth',
@@ -440,5 +446,65 @@ describe('agentgit accept: the Signer List', () => {
     expect(result.code).toBe(0)
     expect(result.stdout).toContain('already merged')
     expect(ran.some((args) => args[0] === 'push')).toBe(false)
+  })
+})
+
+/**
+ * Who pushed a Proposal — the second read a `watch --proposals` makes, because
+ * a Ref Event carries a ref and a sha and nothing else (docs/adr/0018).
+ *
+ * It lives here rather than in the CLI because it is the Proposals read's
+ * behaviour, and answering `null` rather than throwing is the whole rule: an
+ * event withheld until the host answers is worse than one whose pusher is
+ * unknown.
+ */
+describe('proposalPusher', () => {
+  const listing: ProposalListing[] = [
+    { id: 'fix-auth', target: 'main', tip: 'abc123', pusher: 'SHA256:aaa', merged: false },
+    { id: 'fix-auth', target: 'review', tip: 'def456', pusher: 'SHA256:bbb', merged: false },
+  ]
+
+  const scope = {
+    targets: new Map([['study-42', '/work/study']]),
+    origin: 'https://walgit.example',
+    token: null,
+  }
+
+  test('names the pusher of the Proposal with that id AND that target', async () => {
+    const pusher = proposalPusher(scope, async () => listing)
+    expect(await pusher({ repo: 'study-42', id: 'fix-auth', target: 'review' })).toBe('SHA256:bbb')
+  })
+
+  test('reads the clone the repository was fetched into, at its own origin', async () => {
+    const asked: unknown[] = []
+    const pusher = proposalPusher({ ...scope, token: 'deploy-token' }, async (read, token) => {
+      asked.push({ clone: read, token })
+      return listing
+    })
+    await pusher({ repo: 'study-42', id: 'fix-auth', target: 'main' })
+    expect(asked).toEqual([
+      {
+        clone: { root: '/work/study', origin: 'https://walgit.example', repo: 'study-42' },
+        token: 'deploy-token',
+      },
+    ])
+  })
+
+  test('a Proposal the listing does not hold is unknown, not an error', async () => {
+    const pusher = proposalPusher(scope, async () => listing)
+    expect(await pusher({ repo: 'study-42', id: 'nope', target: 'main' })).toBeNull()
+  })
+
+  test('a repository with no directory, or a clone with no origin, is not read at all', async () => {
+    let reads = 0
+    const counting = async () => {
+      reads += 1
+      return listing
+    }
+    const stranger = proposalPusher(scope, counting)
+    expect(await stranger({ repo: 'other', id: 'fix-auth', target: 'main' })).toBeNull()
+    const originless = proposalPusher({ ...scope, origin: null }, counting)
+    expect(await originless({ repo: 'study-42', id: 'fix-auth', target: 'main' })).toBeNull()
+    expect(reads).toBe(0)
   })
 })
