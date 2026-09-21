@@ -128,7 +128,7 @@ const clone: AcceptClone = {
 
 const deps = (): AcceptDeps => ({
   discover: () => ({ ...clone, root: accepter }),
-  proposals: async () => listing(),
+  proposals: async () => ({ kind: 'proposals', proposals: listing() }),
   // The real thing: every fetch, merge and push below is a git subprocess.
   git: (args) => run(accepter, ...args),
 })

@@ -143,7 +143,7 @@ const clone: AcceptClone = {
 
 const deps = (): AcceptDeps => ({
   discover: () => ({ ...clone, root: watcher }),
-  proposals: async () => listing(),
+  proposals: async () => ({ kind: 'proposals', proposals: listing() }),
   git: (args) => run(watcher, ...args),
 })
 

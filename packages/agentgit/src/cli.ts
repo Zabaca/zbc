@@ -20,7 +20,7 @@
 import { realAcceptDeps, runAccept } from './accept'
 import { parseArgs } from './args'
 import { discoverClone } from './clone'
-import { readAuthorization, realCredentialDeps, runCredential } from './credential'
+import { realAuthorize, realCredentialDeps, runCredential } from './credential'
 import { agentgitEnv, envToken } from './env'
 import { resolveWatch } from './resolve'
 import { realSetupDeps, runSetup } from './setup'
@@ -148,7 +148,7 @@ switch (parsed.kind) {
       env: ENV,
       cwd: process.cwd(),
       discover: discoverClone,
-      credential: (origin) => () => readAuthorization(origin, realCredentialDeps()),
+      authorize: realAuthorize,
     })
     if (resolution.kind === 'refusal') {
       process.stderr.write(`agentgit: ${resolution.message}\n`)

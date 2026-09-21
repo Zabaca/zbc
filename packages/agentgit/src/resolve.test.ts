@@ -11,6 +11,7 @@ import { describe, expect, test } from 'bun:test'
 
 import { parseArgs } from './args'
 import type { CloneDiscovery } from './clone'
+import type { Authorize } from './credential'
 import { type ResolveDeps, resolveWatch } from './resolve'
 
 const options = (argv: string[]) => {
@@ -34,7 +35,7 @@ const deps = (over: Partial<ResolveDeps> = {}): ResolveDeps => ({
   env: {},
   cwd: '/work/study',
   discover: () => aClone,
-  credential: () => async () => null,
+  authorize: () => async () => ({ kind: 'none' }),
   ...over,
 })
 
@@ -93,10 +94,18 @@ describe('resolveWatch, filling in what was not said', () => {
     expect(resolved(['watch', '--all-refs']).refs).toEqual([])
   })
 
-  test('a token given anywhere means no Read Challenge credential to present', () => {
-    expect(resolved(['watch', '--token', 'deploy-token']).credential).toBeNull()
-    expect(resolved(['watch'], { env: { AGENTGIT_TOKEN: 'from-env' } }).token).toBe('from-env')
-    expect(resolved(['watch'], { env: { AGENTGIT_TOKEN: 'from-env' } }).credential).toBeNull()
+  test('a token given anywhere is handed to the one authorization, not to a field beside it', () => {
+    // Which of a token and a Read Challenge signature is presented is the
+    // authorization's decision now; this step only says what was given.
+    const asked: (string | null)[] = []
+    const authorize = (_origin: string, token: string | null) => {
+      asked.push(token)
+      return async () => ({ kind: 'none' }) as const
+    }
+    resolved(['watch', '--token', 'deploy-token'], { authorize })
+    resolved(['watch'], { env: { AGENTGIT_TOKEN: 'from-env' }, authorize })
+    resolved(['watch'], { authorize })
+    expect(asked).toEqual(['deploy-token', 'from-env', null])
   })
 
   test('discovery is conditional: an invocation that names everything asks git nothing', () => {
@@ -118,16 +127,29 @@ describe('resolveWatch, filling in what was not said', () => {
     expect(typeof resolved(['watch', '--proposals']).pusher).toBe('function')
   })
 
-  test('with no token the credential is built for the clone’s own origin', () => {
+  test('with no token the authorization is built for the clone’s own origin', () => {
     const asked: string[] = []
     const config = resolved(['watch'], {
-      credential: (origin) => {
+      authorize: (origin) => {
         asked.push(origin)
-        return async () => `signature for ${origin}`
+        return async () => ({ kind: 'none' })
       },
     })
-    expect(config.credential).not.toBeNull()
+    expect(config.authorize).not.toBeNull()
     expect(asked).toEqual(['https://walgit.example'])
+  })
+
+  test('the socket and the Proposals read share one authorization, never two', async () => {
+    const built: Authorize[] = []
+    const config = resolved(['watch', '--proposals'], {
+      authorize: () => {
+        const one = async () => ({ kind: 'none' }) as const
+        built.push(one)
+        return one
+      },
+    })
+    expect(built).toHaveLength(1)
+    expect(config.authorize).toBe(built[0]!)
   })
 })
 
@@ -193,13 +215,13 @@ describe('resolveWatch, deciding the origin', () => {
     expect(config.origin).toBe('https://walgit.example')
   })
 
-  test('the credential is built for the origin the socket will use', () => {
+  test('the authorization is built for the origin the socket will use', () => {
     const asked: string[] = []
     resolved(['watch', '--host', 'walgit.internal'], {
       discover: () => localClone,
-      credential: (origin) => {
+      authorize: (origin) => {
         asked.push(origin)
-        return async () => null
+        return async () => ({ kind: 'none' })
       },
     })
     expect(asked).toEqual(['https://walgit.internal'])

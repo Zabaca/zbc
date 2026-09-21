@@ -91,13 +91,99 @@ export function formatCredentialOutput(fields: Record<string, string>): string {
     .join('')
 }
 
+/** Why this machine has nothing to present, when the reason is actionable. */
+export type AuthorizationProblemCode =
+  | 'no-signing-key'
+  | 'no-fingerprint'
+  | 'no-signature'
+  | 'unaddressable-origin'
+
+/**
+ * What this machine can present to one origin, and nothing else.
+ *
+ * `none` is the ordinary public case and is not a failure. A `problem` is
+ * misconfiguration an agent has to act on, carried as a VALUE so that whoever
+ * asked can say it — the whole defect this replaces is a caller that read the
+ * answer and dropped the sentence.
+ */
+export type Authorization =
+  | { kind: 'header'; header: string }
+  | { kind: 'none' }
+  | { kind: 'problem'; code: AuthorizationProblemCode; message: string }
+
+/**
+ * The credential this machine would sign an origin's challenge with.
+ *
+ * The one place the three misconfiguration messages are composed. Both the
+ * helper git calls and the header the watcher presents are formats of this
+ * answer, which is what keeps them from drifting into two opinions about
+ * whether a missing key is an error.
+ */
+type SignedCredential =
+  | { kind: 'credential'; username: string; password: string }
+  | { kind: 'none' }
+  | { kind: 'problem'; code: AuthorizationProblemCode; message: string }
+
+async function signChallenge(origin: string, deps: CredentialDeps): Promise<SignedCredential> {
+  let nonce: string | null
+  try {
+    nonce = await deps.challenge(origin)
+  } catch {
+    // A host that could not be reached for a nonce is a host this helper has
+    // nothing to say about. git's own request is about to fail with a network
+    // error of its own, which is the better message.
+    nonce = null
+  }
+  if (nonce === null) return { kind: 'none' }
+
+  const key = deps.signingKey()
+  if (key === null) {
+    return {
+      kind: 'problem',
+      code: 'no-signing-key',
+      message:
+        `${origin} is walgit with Private repositories, and this machine has no ` +
+        'key to prove.\n' +
+        'Set the key git signs pushes with, and this helper signs reads with the same one:\n\n' +
+        '  git config --global gpg.format ssh\n' +
+        '  git config --global user.signingkey ~/.ssh/id_ed25519',
+    }
+  }
+
+  const fingerprint = deps.fingerprint(key)
+  if (fingerprint === null) {
+    return {
+      kind: 'problem',
+      code: 'no-fingerprint',
+      message: `could not read a fingerprint for ${key} (ssh-keygen -lf)`,
+    }
+  }
+
+  const armour = deps.sign(key, nonce)
+  if (armour === null) {
+    return {
+      kind: 'problem',
+      code: 'no-signature',
+      message: `${key} could not sign the challenge from ${origin} (ssh-keygen -Y sign)`,
+    }
+  }
+
+  return {
+    kind: 'credential',
+    username: fingerprint,
+    // Not the armour itself: git's protocol ends a value at a newline, so the
+    // wire form is the armour base64-encoded once more.
+    password: Buffer.from(armour, 'utf8').toString('base64'),
+  }
+}
+
 /**
  * Answer one invocation of the helper.
  *
  * Answering NOTHING is a first-class outcome and not a failure: git treats
  * empty output as "this helper knows nothing" and moves on to the next one, so
  * a host that is not walgit, or a request that is not over HTTP, costs a
- * process and no behaviour. The only exits that are non-zero are the two an
+ * process and no behaviour. The only exits that are non-zero are the ones an
  * agent has to act on — no key, and a key that will not sign — because they
  * are misconfiguration, and failing them silently would surface as a password
  * prompt on a machine with no human at it.
@@ -118,58 +204,57 @@ export async function runCredential(
     return { stdout: '', stderr: '', code: 0 }
   }
 
-  const origin = `${protocol}://${host}`
-  let nonce: string | null
-  try {
-    nonce = await deps.challenge(origin)
-  } catch {
-    // A host that could not be reached for a nonce is a host this helper has
-    // nothing to say about. git's own request is about to fail with a network
-    // error of its own, which is the better message.
-    nonce = null
+  const signed = await signChallenge(`${protocol}://${host}`, deps)
+  if (signed.kind === 'none') return { stdout: '', stderr: '', code: 0 }
+  if (signed.kind === 'problem') {
+    return { stdout: '', stderr: `agentgit: ${signed.message}\n`, code: 1 }
   }
-  if (nonce === null) return { stdout: '', stderr: '', code: 0 }
-
-  const key = deps.signingKey()
-  if (key === null) {
-    return {
-      stdout: '',
-      stderr:
-        `agentgit: ${origin} is walgit with Private repositories, and this machine has no ` +
-        'key to prove.\n' +
-        'Set the key git signs pushes with, and this helper signs reads with the same one:\n\n' +
-        '  git config --global gpg.format ssh\n' +
-        '  git config --global user.signingkey ~/.ssh/id_ed25519\n',
-      code: 1,
-    }
-  }
-
-  const fingerprint = deps.fingerprint(key)
-  if (fingerprint === null) {
-    return {
-      stdout: '',
-      stderr: `agentgit: could not read a fingerprint for ${key} (ssh-keygen -lf)\n`,
-      code: 1,
-    }
-  }
-
-  const armour = deps.sign(key, nonce)
-  if (armour === null) {
-    return {
-      stdout: '',
-      stderr: `agentgit: ${key} could not sign the challenge from ${origin} (ssh-keygen -Y sign)\n`,
-      code: 1,
-    }
-  }
-
   return {
     stdout: formatCredentialOutput({
-      username: fingerprint,
-      password: Buffer.from(armour, 'utf8').toString('base64'),
+      username: signed.username,
+      password: signed.password,
     }),
     stderr: '',
     code: 0,
   }
+}
+
+/**
+ * What this machine presents to `origin`, as one decision.
+ *
+ * A deployment token and a Read Challenge signature arrive in the SAME header,
+ * so exactly one of them is ever presented and the token wins — which is why
+ * a token holder needs no ssh key and the challenge is not even fetched. The
+ * rule used to be restated at three call sites; it is here now, and nowhere
+ * else.
+ *
+ * It never throws. An origin nothing can be addressed at is a `problem` like
+ * any other: it used to escape `new URL` into an unhandled rejection that the
+ * watcher covered with a blanket catch, which is how it also swallowed the
+ * three sentences worth reading.
+ */
+export async function authorize(
+  origin: string,
+  token: string | null,
+  deps: CredentialDeps,
+): Promise<Authorization> {
+  if (token !== null) return { kind: 'header', header: `Bearer ${token}` }
+  let url: URL
+  try {
+    url = new URL(origin)
+  } catch {
+    return {
+      kind: 'problem',
+      code: 'unaddressable-origin',
+      message: `${origin} is not an origin this client can address`,
+    }
+  }
+  const signed = await signChallenge(`${url.protocol.replace(':', '')}://${url.host}`, deps)
+  if (signed.kind !== 'credential') return signed
+  // walgit splits the Basic userid at the LAST colon, which works precisely
+  // because a fingerprint has one and the encoded signature has none.
+  const basic = Buffer.from(`${signed.username}:${signed.password}`, 'utf8').toString('base64')
+  return { kind: 'header', header: `Basic ${basic}` }
 }
 
 // ── The real world ──────────────────────────────────────────────────────────
@@ -228,24 +313,25 @@ export function realCredentialDeps(cwd: string = process.cwd()): CredentialDeps 
 }
 
 /**
- * The `Authorization` header value this machine would present to `origin`, or
- * `null` when it has nothing to present.
+ * Ask for an authorization, in the directory whose git config decides it.
+ *
+ * A thunk and not a resolved header, because a challenge stands for five
+ * minutes and a watcher runs for hours: a cached header comes back after a
+ * long disconnect as a socket the host refuses. The DIRECTORY is the argument
+ * because `user.signingkey` is git config, and a repository-local one must
+ * keep winning for a read exactly as it does for a push.
+ */
+export type Authorize = (dir: string) => Promise<Authorization>
+
+/**
+ * The one authorization this process makes, bound to an origin and whatever
+ * token was given, waiting only on which clone is asking.
  *
  * Used by `agentgit watch`, which subscribes to an event stream rather than
- * fetching over git — the same credential, because an event is a strict subset
- * of what a fetch hands over and walgit gates both on one verdict.
+ * fetching over git, and by the Proposals read — the same credential in both,
+ * because an event and a listing are each a strict subset of what a fetch
+ * hands over and walgit gates all three on one verdict.
  */
-export async function readAuthorization(
-  origin: string,
-  deps: CredentialDeps,
-): Promise<string | null> {
-  const url = new URL(origin)
-  const answered = await runCredential(
-    'get',
-    `protocol=${url.protocol.replace(':', '')}\nhost=${url.host}\n\n`,
-    deps,
-  )
-  const { username, password } = parseCredentialInput(answered.stdout)
-  if (!username || !password) return null
-  return `Basic ${Buffer.from(`${username}:${password}`, 'utf8').toString('base64')}`
+export function realAuthorize(origin: string, token: string | null): Authorize {
+  return (dir) => authorize(origin, token, realCredentialDeps(dir))
 }
