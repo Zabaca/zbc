@@ -121,6 +121,13 @@ credential, and `env -u AGENTGIT_TOKEN agentgit watch` is how you present no
 header — and an empty flag value (`--host ''`) is refused rather than
 carried along as a host nobody can reach.
 
+`--host` takes a host name and an optional port, never a URL: the scheme is
+the clone's to say. Watching a host the clone is not a clone of addresses it
+over https, and `--host https://…` is refused by name rather than concatenated
+into a host nothing resolves. So a plain-http deployment is reachable where a
+clone's remote names it — `agentgit watch` inside that clone keeps its scheme,
+by flag or not — and not otherwise.
+
 ## Examples
 
 ```sh

@@ -6,7 +6,7 @@
  * ref defaulted — each is a background watcher that quietly watches the wrong
  * thing. The parser is pure and exhaustively tested for exactly that reason,
  * and this step used to be neither: it read `process.cwd()`, spawned git, and
- * produced each of its six refusals by exiting.
+ * produced each of its refusals by exiting.
  *
  * So a refusal is a VALUE here. The environment, the working directory,
  * discovery and the credential factory are declared dependencies, and the exit

@@ -30,7 +30,12 @@ const EVENTS_PATH = '/_walgit/events'
  */
 export function eventsUrl(origin: string): string {
   const scheme = origin.startsWith('http://') ? 'ws' : 'wss'
-  return `${scheme}://${new URL(origin).host}${EVENTS_PATH}`
+  return `${scheme}://${originHost(origin)}${EVENTS_PATH}`
+}
+
+/** Host and port out of an origin — the one derivation, so the two agree. */
+function originHost(origin: string): string {
+  return new URL(origin).host
 }
 
 export interface WatchConfig {
@@ -454,7 +459,7 @@ export function watch(config: WatchConfig): Watcher {
         // The hostname is derived, not carried: `host` stays in the event
         // because it is documented output, and it is the host of the origin
         // the socket was actually opened against.
-        const host = new URL(config.origin).host
+        const host = originHost(config.origin)
         emit(
           'watching',
           { host, repos: [...config.targets.keys()], refs: config.refs },

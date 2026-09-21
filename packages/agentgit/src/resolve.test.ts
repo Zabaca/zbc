@@ -1,6 +1,6 @@
 /**
  * The step between the command line and the watcher: what it fills in, and the
- * six ways it refuses.
+ * seven ways it refuses.
  *
  * Every assertion here used to need a subprocess, because each refusal was an
  * exit. None of them do now — discovery, the environment and the working
@@ -207,7 +207,7 @@ describe('resolveWatch, deciding the origin', () => {
 })
 
 /**
- * The six. Each is a returned value now, so each is asserted on its code —
+ * The seven. Each is a returned value now, so each is asserted on its code —
  * which is what a later exit-code split would read — and on the sentence the
  * agent is shown.
  */
