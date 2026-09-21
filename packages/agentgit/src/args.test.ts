@@ -56,6 +56,18 @@ describe('parseArgs', () => {
     expect(parseArgs(['watch', '--ref', '--json'])).toMatchObject({ kind: 'error' })
   })
 
+  // An empty string is the third spelling of "no value", and the one that used
+  // to get through: `--host ''` survived every null check downstream and became
+  // a socket URL with no host in it.
+  test('an empty value is refused for every flag that takes one', () => {
+    for (const flag of ['--ref', '--host', '--token', '--on']) {
+      expect(parseArgs(['watch', flag, ''])).toMatchObject({
+        kind: 'error',
+        message: `${flag} needs a value`,
+      })
+    }
+  })
+
   test('the modes that change what happens on an event', () => {
     const options = watch(['watch', '--once', '--no-fetch', '--json', '--on', 'bun test'])
     expect(options.once).toBe(true)

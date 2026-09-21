@@ -141,7 +141,11 @@ export function parseArgs(argv: readonly string[]): Parsed {
 
     if (FLAGS_WITH_VALUES.has(arg)) {
       const value = rest[i + 1]
-      if (value === undefined || value.startsWith('-')) {
+      // Three spellings of "nothing": the flag was last, the next word is
+      // another flag, or the value is an empty string. The third is the one
+      // that used to get through — `--host ''` is not a host, and a null check
+      // downstream cannot tell it from one.
+      if (value === undefined || value === '' || value.startsWith('-')) {
         return { kind: 'error', message: `${arg} needs a value` }
       }
       i += 1

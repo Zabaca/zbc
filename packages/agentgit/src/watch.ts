@@ -484,17 +484,6 @@ export function watch(config: WatchConfig): Watcher {
   return { close: () => stop(null) }
 }
 
-/**
- * The token a deployment gate takes, from the environment.
- *
- * One reading, in one place: `watch`, `accept` and every MCP tool present the
- * same header, and two spellings of "which variable wins" would be two
- * deployments' worth of confusion.
- */
-export function envToken(): string | null {
-  return process.env.AGENTGIT_TOKEN ?? process.env.WALGIT_TOKEN ?? null
-}
-
 /** What one event was, to a caller holding the events rather than printing them. */
 export interface WatchEvent {
   event: string

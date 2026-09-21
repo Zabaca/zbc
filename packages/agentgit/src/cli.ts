@@ -19,10 +19,11 @@
 
 import { fetchProposals, realAcceptDeps, runAccept } from './accept'
 import { parseArgs, type WatchOptions } from './args'
-import { readAuthorization, realCredentialDeps, runCredential } from './credential'
 import { discoverClone } from './clone'
+import { readAuthorization, realCredentialDeps, runCredential } from './credential'
+import { agentgitEnv, envHost, envToken } from './env'
 import { realSetupDeps, runSetup } from './setup'
-import { envToken, watch } from './watch'
+import { watch } from './watch'
 
 /**
  * What `--version` prints.
@@ -31,6 +32,9 @@ import { envToken, watch } from './watch'
  * file with nothing beside it to read. `src/node.test.ts` pins it to the
  * manifest, which is the part that had already drifted.
  */
+/** The four variables this client reads, taken once so every path agrees. */
+const ENV = agentgitEnv(process.env)
+
 const VERSION = '0.5.0'
 
 const HELP = `agentgit — watch a walgit repository and keep a clone current
@@ -134,10 +138,9 @@ function fail(message: string): never {
  * same in a clone and out of one.
  */
 function resolve(options: WatchOptions): Parameters<typeof watch>[0] {
-  const envHost = process.env.AGENTGIT_HOST ?? process.env.WALGIT_HOST ?? null
-  const presented = envToken()
+  const presented = envToken(ENV)
 
-  let host = options.host ?? envHost
+  let host = options.host ?? envHost(ENV)
   let remoteName = 'origin'
   /** The remote's scheme and host, for the credential the event socket needs. */
   let origin: string | null = null
@@ -272,7 +275,10 @@ switch (parsed.kind) {
     // The same token `watch` takes from the environment: a deployment gate and
     // a Read Challenge signature arrive in one header, and where a token is set
     // it is the one to present.
-    const accepted = await runAccept({ id: parsed.id }, realAcceptDeps(process.cwd(), envToken()))
+    const accepted = await runAccept(
+      { id: parsed.id },
+      realAcceptDeps(process.cwd(), envToken(ENV)),
+    )
     if (accepted.stdout) process.stdout.write(accepted.stdout)
     if (accepted.stderr) process.stderr.write(accepted.stderr)
     process.exitCode = accepted.code
