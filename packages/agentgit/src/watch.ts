@@ -64,7 +64,7 @@ export interface WatchConfig {
    * cached header would come back after a long disconnect as a socket the host
    * refuses.
    */
-  authorize?: Authorize | null
+  authorize: Authorize
   /** `repo` → the checkout to fetch into. */
   targets: Map<string, string>
   /** Empty watches every ref in each repository. */
@@ -257,6 +257,21 @@ export function route(
   return { kind: 'ref', merged: interest.proposals ? [...(event.merged ?? [])] : [] }
 }
 
+/**
+ * Which directory's git config decides this watcher's authorization.
+ *
+ * The single target's, where there is exactly one — so a repository-local
+ * `user.signingkey` decides a read of that clone exactly as it decides that
+ * clone's pushes. Where several checkouts are followed no one of them is the
+ * answer, so the directory the command was run in is, which is where a global
+ * key is read from anyway.
+ */
+export function credentialDir(targets: ReadonlyMap<string, string>, cwd: string): string {
+  if (targets.size !== 1) return cwd
+  for (const dir of targets.values()) return dir
+  return cwd
+}
+
 export function watch(config: WatchConfig): Watcher {
   const emit = config.emit ?? makeEmit(config.json)
   /** The collision each watched ref last reported, so repeats stay quiet. */
@@ -414,15 +429,10 @@ export function watch(config: WatchConfig): Watcher {
     // which a stop can arrive.
     if (closing) return
     const url = eventsUrl(config.origin)
-    // The single target's directory where there is exactly one, so a
-    // repository-local `user.signingkey` decides this read as it decides that
-    // clone's pushes; the invocation directory where several checkouts are
-    // followed and no one of them is the answer.
-    const dir = config.targets.size === 1 ? [...config.targets.values()][0]! : config.cwd
     // Nothing here can throw, so nothing here catches. A `problem` is a value
     // this watcher does not yet say out loud (ZBC-QEN6MD is where it will).
-    const answered = await config.authorize?.(dir)
-    const authorization = answered?.kind === 'header' ? answered.header : null
+    const answered = await config.authorize(credentialDir(config.targets, config.cwd))
+    const authorization = answered.kind === 'header' ? answered.header : null
     if (closing) return
     socket = authorization
       ? new WebSocket(url, { headers: { authorization } } as never)

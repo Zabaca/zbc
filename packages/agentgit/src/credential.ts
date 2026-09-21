@@ -99,17 +99,29 @@ export type AuthorizationProblemCode =
   | 'unaddressable-origin'
 
 /**
+ * Misconfiguration an agent has to act on, carried as a VALUE so that whoever
+ * asked can say it.
+ *
+ * The whole defect this replaces is a caller that read the answer and dropped
+ * the sentence, so the sentence travels with the name of what went wrong: the
+ * code is the distinction a caller branches on, and the message is what it
+ * shows.
+ */
+export interface AuthorizationProblem {
+  kind: 'problem'
+  code: AuthorizationProblemCode
+  message: string
+}
+
+/**
  * What this machine can present to one origin, and nothing else.
  *
- * `none` is the ordinary public case and is not a failure. A `problem` is
- * misconfiguration an agent has to act on, carried as a VALUE so that whoever
- * asked can say it — the whole defect this replaces is a caller that read the
- * answer and dropped the sentence.
+ * `none` is the ordinary public case and is not a failure.
  */
 export type Authorization =
   | { kind: 'header'; header: string }
   | { kind: 'none' }
-  | { kind: 'problem'; code: AuthorizationProblemCode; message: string }
+  | AuthorizationProblem
 
 /**
  * The credential this machine would sign an origin's challenge with.
@@ -122,7 +134,7 @@ export type Authorization =
 type SignedCredential =
   | { kind: 'credential'; username: string; password: string }
   | { kind: 'none' }
-  | { kind: 'problem'; code: AuthorizationProblemCode; message: string }
+  | AuthorizationProblem
 
 async function signChallenge(origin: string, deps: CredentialDeps): Promise<SignedCredential> {
   let nonce: string | null
