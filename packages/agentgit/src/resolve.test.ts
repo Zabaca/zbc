@@ -53,7 +53,6 @@ const refused = (argv: string[], over: Partial<ResolveDeps> = {}) => {
 describe('resolveWatch, filling in what was not said', () => {
   test('bare `watch` in a clone takes the host, the repository, the directory and the ref', () => {
     const config = resolved(['watch'])
-    expect(config.host).toBe('walgit.example')
     expect(config.origin).toBe('https://walgit.example')
     expect(config.remoteName).toBe('origin')
     expect([...config.targets]).toEqual([['study-42', '/work/study']])
@@ -69,7 +68,7 @@ describe('resolveWatch, filling in what was not said', () => {
       '--ref',
       'refs/heads/review',
     ])
-    expect(config.host).toBe('walgit.internal')
+    expect(config.origin).toBe('https://walgit.internal')
     expect([...config.targets]).toEqual([['other', '/elsewhere']])
     expect(config.refs).toEqual(['refs/heads/review'])
   })
@@ -83,7 +82,7 @@ describe('resolveWatch, filling in what was not said', () => {
       env: { AGENTGIT_HOST: 'walgit.example' },
       discover: () => ({ kind: 'no-repository' }),
     })
-    expect(config.host).toBe('walgit.example')
+    expect(config.origin).toBe('https://walgit.example')
   })
 
   test('a detached HEAD watches the repository rather than a branch nobody is on', () => {
@@ -129,6 +128,81 @@ describe('resolveWatch, filling in what was not said', () => {
     })
     expect(config.credential).not.toBeNull()
     expect(asked).toEqual(['https://walgit.example'])
+  })
+})
+
+/**
+ * The origin is the host, spelled with a scheme — never a second opinion about
+ * which machine is being talked to.
+ *
+ * The defect this pins: an explicit `--host` won over the clone for the socket
+ * while the clone's origin was adopted unconditionally, so the Read Challenge
+ * was signed against a host nobody was connected to. The rule is a comparison,
+ * not a provenance test — naming a local plain-http node by flag from inside a
+ * clone of that node still keeps its scheme.
+ */
+describe('resolveWatch, deciding the origin', () => {
+  /** A clone of a self-hosted node served over plain http, on a port. */
+  const localClone: CloneDiscovery = {
+    ...aClone,
+    host: 'node.local:8080',
+    origin: 'http://node.local:8080',
+  }
+
+  test('a host that is the clone’s own keeps the clone’s scheme', () => {
+    const config = resolved(['watch', '--host', 'node.local:8080'], {
+      discover: () => localClone,
+    })
+    expect(config.origin).toBe('http://node.local:8080')
+  })
+
+  test('the comparison ignores case, as host names do', () => {
+    const config = resolved(['watch', '--host', 'Node.Local:8080'], {
+      discover: () => localClone,
+    })
+    expect(config.origin).toBe('http://node.local:8080')
+  })
+
+  test('a host that is not the clone’s gets an https origin of its own', () => {
+    const config = resolved(['watch', '--host', 'walgit.internal'], {
+      discover: () => localClone,
+    })
+    expect(config.origin).toBe('https://walgit.internal')
+  })
+
+  test('a port is part of the host: the same name on another port is another host', () => {
+    const config = resolved(['watch', '--host', 'node.local'], { discover: () => localClone })
+    expect(config.origin).toBe('https://node.local')
+  })
+
+  test('$AGENTGIT_HOST is an effective host too, and takes part in the comparison', () => {
+    expect(
+      resolved(['watch'], { env: { AGENTGIT_HOST: 'node.local:8080' }, discover: () => localClone })
+        .origin,
+    ).toBe('http://node.local:8080')
+    expect(
+      resolved(['watch'], { env: { AGENTGIT_HOST: 'walgit.internal' }, discover: () => localClone })
+        .origin,
+    ).toBe('https://walgit.internal')
+  })
+
+  test('outside a clone there is no origin to adopt, so https is derived', () => {
+    const config = resolved(['watch', 'study-42=/work/study', '--host', 'walgit.example'], {
+      discover: () => ({ kind: 'no-repository' }),
+    })
+    expect(config.origin).toBe('https://walgit.example')
+  })
+
+  test('the credential is built for the origin the socket will use', () => {
+    const asked: string[] = []
+    resolved(['watch', '--host', 'walgit.internal'], {
+      discover: () => localClone,
+      credential: (origin) => {
+        asked.push(origin)
+        return async () => null
+      },
+    })
+    expect(asked).toEqual(['https://walgit.internal'])
   })
 })
 
@@ -190,6 +264,21 @@ describe('resolveWatch, refusing', () => {
     })
     expect(answer.code).toBe('no-directory')
     expect(answer.message).toBe('no directory for study-42: pass study-42=<dir>')
+  })
+
+  test('a host that is a URL is named rather than concatenated into nonsense', () => {
+    const answer = refused(['watch', '--host', 'https://walgit.example'])
+    expect(answer.code).toBe('host-is-url')
+    expect(answer.message).toBe(
+      'host is a URL: pass the host name alone, not https://walgit.example',
+    )
+  })
+
+  test('the same is true of a host with a path, and of one out of the environment', () => {
+    expect(refused(['watch', '--host', 'walgit.example/study-42']).code).toBe('host-is-url')
+    expect(refused(['watch'], { env: { AGENTGIT_HOST: 'https://walgit.example' } }).code).toBe(
+      'host-is-url',
+    )
   })
 
   test('first one wins: no repository outranks the missing host', () => {

@@ -10,7 +10,7 @@
 
 import { describe, expect, test } from 'bun:test'
 
-import { route } from './watch'
+import { eventsUrl, route } from './watch'
 
 const BRANCH = ['refs/heads/main']
 
@@ -83,5 +83,23 @@ describe('route: with --proposals', () => {
     expect(
       route({ refs: [], proposals: true }, { ref: 'refs/walgit/proposals/main/fix-auth' }),
     ).toEqual({ kind: 'ignore' })
+  })
+})
+
+/**
+ * Where the socket goes, which is the origin and nothing else.
+ *
+ * The scheme rides across: a deployment served over plain http has a plain-ws
+ * event stream, and a subscriber that assumed TLS against it never connects.
+ * The hostname is derived here rather than carried alongside, because two
+ * fields that must agree are two fields an edit can make disagree.
+ */
+describe('eventsUrl', () => {
+  test('an https origin is a wss socket', () => {
+    expect(eventsUrl('https://agentgit.co')).toBe('wss://agentgit.co/_walgit/events')
+  })
+
+  test('a plain-http origin is a plain-ws socket, port and all', () => {
+    expect(eventsUrl('http://node.local:8080')).toBe('ws://node.local:8080/_walgit/events')
   })
 })
