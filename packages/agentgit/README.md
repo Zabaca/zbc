@@ -107,7 +107,7 @@ work.
 | ------------------- | ----------------------------------------------------------------------------------------------------------- |
 | `--once`            | exit 0 after the first ref moves. The handoff primitive: block until the other agent pushes.                |
 | `--on '<cmd>'`      | run a shell command in the clone after a fetch. `$AGENTGIT_REPO`, `$AGENTGIT_REF`, `$AGENTGIT_SHA` are set. |
-| `--json`            | one JSON object per line. Parse this, not the prose.                                                        |
+| `--json`            | one JSON object per line. Parse this, not the prose. `credential-problem` is one of them — see below.       |
 | `--ref <ref>`       | a full ref name, repeatable. Default: the branch you are on.                                                |
 | `--all-refs`        | every ref in the repository.                                                                                |
 | `--no-fetch`        | report what moved; do not fetch.                                                                            |
@@ -191,6 +191,10 @@ Two lines beyond the ordinary ones:
   `pusher` (its fingerprint, read from `GET /<name>.git/proposals`, `null`
   where that read cannot be made).
 - `merged` — the branch's own ref event named it: `id`, `target`, `sha`.
+
+Where `pusher` is `null` because the host refused the read, the reason arrives
+as a `credential-problem` of its own — see [When there is no credential to
+present](#when-there-is-no-credential-to-present).
 
 Neither ever fetches: a Proposal reaches your tree through `agentgit accept`
 and no other way. `--proposals` cannot be combined with `--all-refs`, which has

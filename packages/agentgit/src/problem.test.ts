@@ -115,6 +115,30 @@ describe('credentialProblems', () => {
     expect(events.map((seen) => seen.fields.origin)).toEqual([ORIGIN, 'http://node.local:8080'])
   })
 
+  // The latch is built before the watcher that owns the emitter, so a report
+  // can arrive before there is anywhere to put it. Dropping it would be the
+  // swallowing this module exists to remove.
+  test('a report made before a sink is attached is held, not lost', () => {
+    const problems = credentialProblems()
+    problems.report(ORIGIN, NO_KEY)
+
+    const { emit, events } = sink()
+    problems.sendTo(emit)
+
+    expect(events.map((seen) => seen.fields.code)).toEqual(['no-signing-key'])
+  })
+
+  test('a held report is still latched, so attaching does not double it', () => {
+    const problems = credentialProblems()
+    problems.report(ORIGIN, NO_KEY)
+
+    const { emit, events } = sink()
+    problems.sendTo(emit)
+    problems.report(ORIGIN, NO_KEY)
+
+    expect(events).toHaveLength(1)
+  })
+
   test('a header at one origin does not clear another origin’s problem', () => {
     const { emit, events } = sink()
     const problems = credentialProblems(emit)

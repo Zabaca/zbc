@@ -79,6 +79,14 @@ What this machine presents to one host, as a single decision (`src/credential.ts
 Its three callers — the Credential Helper above, the Watcher's socket and the Proposals read — share it as a thunk taking a DIRECTORY, because `user.signingkey` is git config and a repository-local one must win for a read as it does for a push, and because a challenge stands five minutes while a watcher runs for hours.
 _Avoid_: "credential" for this — that is the helper, which is one of its callers.
 
+**Credential Problem**:
+An **Authorization**'s problem, said out loud — the `credential-problem` event (`src/problem.ts`), carrying the origin, the code and the sentence to act on. It goes through the Watcher's emitter and never to stderr, because a `--json` consumer that cannot see the diagnosis is a consumer that does not get it.
+
+It is a **latch**, not a line: a watcher reconnects with a backoff, so the same misconfiguration is decided again every few seconds. Reported on first occurrence, silent thereafter, and cleared by the first authorization that returns a header — so a key rotated away two hours into a run is news when it happens, and a machine fixed and then broken again is reported twice. The same discipline the collision report uses, and for the same reason: a channel that repeats itself is a channel that stops being read.
+
+One latch per invocation, shared by the socket and the Proposals read, because a machine with no signing key fails both for a single reason and whichever notices first is the one that should explain it. `accept` has no emitter and no run to latch across, so it appends the same sentence to its refusal instead — on a 401 or 403 only, never a 500 or the 404 that means the deployment offers no Proposals.
+_Avoid_: "the credential error" — it is not fatal, and the socket still opens: a public repository on a host that publishes a challenge needs no credential at all.
+
 **Daemon** (considered, not built — [ADR-0009](../../docs/adr/0009-walgit-ref-events-are-latest-state.md)):
 The host-side version of a Watcher: one socket per machine, fetching into a store every worktree shares. It was the original endgame and is now the fallback plan, because the spike showed the protocol needs no client machinery worth installing — and the Client has since taken the convenience half of the job without taking the sharing half. What would justify it is sharing rather than capability — ten agents on one machine hold ten sockets and fetch the same objects ten times — and nobody has yet been hurt by that. If it is ever built it lives here, never in the walgit app template.
 _Avoid_: agent (means something else entirely in this repository — see `packages/agent/CONTEXT.md`)

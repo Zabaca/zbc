@@ -288,7 +288,7 @@ export function watch(config: WatchConfig): Watcher {
   // builds it early so the Proposals lookup can share it, and the emitter is
   // this function's to choose.
   const problems = config.problems ?? credentialProblems()
-  problems.through(emit)
+  problems.sendTo(emit)
   /** The collision each watched ref last reported, so repeats stay quiet. */
   const standing = new Map<string, string>()
   let attempt = 0

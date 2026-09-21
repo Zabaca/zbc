@@ -22,7 +22,7 @@ import type { Authorization } from './credential'
 import type { Emit } from './watch'
 
 /** The event name, which is documented output (packages/agentgit/README.md). */
-export const CREDENTIAL_PROBLEM = 'credential-problem'
+const CREDENTIAL_PROBLEM = 'credential-problem'
 
 /**
  * The problems one process has already said out loud, per origin.
@@ -39,6 +39,11 @@ export interface CredentialProblems {
    * A `problem` is emitted the first time and latched; a `header` clears the
    * latch; `none` — the ordinary public case — is neither, because a host that
    * publishes no challenge has told us nothing about this machine's keys.
+   *
+   * A header clears every code for that origin and not only the one that was
+   * fixed: a credential that was accepted is the whole path working, and the
+   * codes are four ways of failing to produce it rather than four independent
+   * faults.
    */
   report(origin: string, answer: Authorization): void
   /**
@@ -46,24 +51,26 @@ export interface CredentialProblems {
    *
    * The watcher owns the emitter and is constructed after this object is —
    * `src/resolve.ts` builds the latch so the Proposals lookup can hold it — so
-   * the sink is attached rather than passed in. Before it is attached nothing
-   * is emitted AND nothing is latched, so the first real report is never the
-   * one that was swallowed.
+   * the sink is attached rather than passed in. A report made before then is
+   * HELD and emitted when it is: swallowing it would be the very defect this
+   * module exists to remove.
    */
-  through(emit: Emit): void
+  sendTo(emit: Emit): void
 }
 
 export function credentialProblems(emit: Emit | null = null): CredentialProblems {
   /** `origin` → the problem codes already reported for it. */
   const said = new Map<string, Set<string>>()
+  /** Reports made before a sink was attached, in order. */
+  const held: Parameters<Emit>[] = []
   let sink = emit
 
   return {
-    through(next) {
+    sendTo(next) {
       sink = next
+      for (const event of held.splice(0)) next(...event)
     },
     report(origin, answer) {
-      if (sink === null) return
       if (answer.kind === 'none') return
       if (answer.kind === 'header') {
         said.delete(origin)
@@ -73,11 +80,13 @@ export function credentialProblems(emit: Emit | null = null): CredentialProblems
       if (seen.has(answer.code)) return
       seen.add(answer.code)
       said.set(origin, seen)
-      sink(
+      const event: Parameters<Emit> = [
         CREDENTIAL_PROBLEM,
         { origin, code: answer.code, problem: answer.message },
         `${origin}: ${answer.message}`,
-      )
+      ]
+      if (sink === null) held.push(event)
+      else sink(...event)
     },
   }
 }
