@@ -107,7 +107,7 @@ work.
 | ------------------- | ----------------------------------------------------------------------------------------------------------- |
 | `--once`            | exit 0 after the first ref moves. The handoff primitive: block until the other agent pushes.                |
 | `--on '<cmd>'`      | run a shell command in the clone after a fetch. `$AGENTGIT_REPO`, `$AGENTGIT_REF`, `$AGENTGIT_SHA` are set. |
-| `--json`            | one JSON object per line. Parse this, not the prose.                                                        |
+| `--json`            | one JSON object per line. Parse this, not the prose. `credential-problem` is one of them — see below.       |
 | `--ref <ref>`       | a full ref name, repeatable. Default: the branch you are on.                                                |
 | `--all-refs`        | every ref in the repository.                                                                                |
 | `--no-fetch`        | report what moved; do not fetch.                                                                            |
@@ -192,6 +192,10 @@ Two lines beyond the ordinary ones:
   where that read cannot be made).
 - `merged` — the branch's own ref event named it: `id`, `target`, `sha`.
 
+Where `pusher` is `null` because the host refused the read, the reason arrives
+as a `credential-problem` of its own — see [When there is no credential to
+present](#when-there-is-no-credential-to-present).
+
 Neither ever fetches: a Proposal reaches your tree through `agentgit accept`
 and no other way. `--proposals` cannot be combined with `--all-refs`, which has
 no branch for a Proposal to target.
@@ -248,6 +252,30 @@ stands for five minutes and the previous one is still accepted, so a signature
 that went stale mid-operation costs one extra 401 and a re-sign. Removing the
 `readers` file makes the repository world-readable again; nothing is
 retroactive in either direction.
+
+### When there is no credential to present
+
+A machine that cannot sign — no `user.signingkey`, no fingerprint for the one
+it has, a key that will not sign, a host nothing can be addressed at — used to
+watch a Private repository by reconnecting forever, reporting only that the
+socket dropped. It says why now, through the same stream as everything else:
+
+```
+{"event":"credential-problem","origin":"https://agentgit.co","code":"no-signing-key","problem":"…"}
+```
+
+`code` is one of `no-signing-key`, `no-fingerprint`, `no-signature` and
+`unaddressable-origin`, and `problem` is the sentence to act on. Reported on
+the **first** occurrence and then latched, so a reconnect backoff does not
+repeat it, and cleared by the first authorization that does present a
+credential — so a key rotated away two hours into a run is reported when it
+happens, and a machine that was fixed and then broke again is reported twice.
+
+It does not stop the watcher: a public repository on a host that publishes a
+challenge needs no credential at all, and the socket is still worth opening.
+`agentgit accept` says the same sentence under its "could not read the
+Proposals" refusal, on a 401 or a 403 only — a 500 is the host's fault and a
+404 is a deployment that offers no Proposals, and neither is about your keys.
 
 ## Use from an agent
 

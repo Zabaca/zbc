@@ -10,7 +10,9 @@
 
 import { describe, expect, test } from 'bun:test'
 
-import { credentialDir, eventsUrl, route } from './watch'
+import type { Authorization } from './credential'
+import { credentialProblems } from './problem'
+import { type Emit, credentialDir, eventsUrl, route, watch } from './watch'
 
 const BRANCH = ['refs/heads/main']
 
@@ -127,5 +129,57 @@ describe('credentialDir', () => {
 
   test('no targets at all is the invocation directory too', () => {
     expect(credentialDir(new Map(), '/elsewhere')).toBe('/elsewhere')
+  })
+})
+
+describe('watch: the authorization it got', () => {
+  /**
+   * A watcher that cannot present a credential says why, through the emitter
+   * every other line goes through — the whole point of reporting it as an event
+   * rather than on stderr. Closed immediately, so the socket is never opened:
+   * the report is made before that decision, which is what makes the diagnosis
+   * survive a host that is not there.
+   */
+  const said = async (answer: Authorization): Promise<Record<string, unknown>[]> => {
+    const events: Record<string, unknown>[] = []
+    const emit: Emit = (event, fields) => void events.push({ event, ...fields })
+    const problems = credentialProblems()
+    const watcher = watch({
+      origin: 'https://walgit.example',
+      cwd: '/work/study',
+      authorize: async () => answer,
+      targets: new Map([['study-42', '/work/study']]),
+      refs: ['refs/heads/main'],
+      remoteName: 'origin',
+      fetch: false,
+      once: false,
+      onChange: null,
+      ffOnClean: false,
+      json: false,
+      proposals: false,
+      emit,
+      problems,
+    })
+    watcher.close()
+    await Promise.resolve()
+    await Promise.resolve()
+    return events
+  }
+
+  test('a credential problem reaches the emitter, with the origin it is about', async () => {
+    expect(
+      await said({ kind: 'problem', code: 'no-signing-key', message: 'no key to prove' }),
+    ).toEqual([
+      {
+        event: 'credential-problem',
+        origin: 'https://walgit.example',
+        code: 'no-signing-key',
+        problem: 'no key to prove',
+      },
+    ])
+  })
+
+  test('an ordinary public watch says nothing about credentials', async () => {
+    expect(await said({ kind: 'none' })).toEqual([])
   })
 })

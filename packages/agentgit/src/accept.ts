@@ -25,8 +25,9 @@
  */
 
 import { type Clone, type CloneDiscovery, discoverClone } from './clone'
-import { type Authorize, realAuthorize } from './credential'
+import { type AuthorizationProblem, type Authorize, realAuthorize } from './credential'
 import { type GitResult, git, shortRef } from './git'
+import type { CredentialProblems } from './problem'
 
 /**
  * The clone `accept` was run in — one module's answer, not a fourth derivation
@@ -59,7 +60,22 @@ export interface ProposalListing {
  */
 export type ProposalsRead =
   | { kind: 'proposals'; proposals: ProposalListing[] }
-  | { kind: 'failed'; message: string }
+  | {
+      kind: 'failed'
+      message: string
+      /** What the host answered, where it answered at all. Absent for a network failure. */
+      status?: number
+      /**
+       * What this machine had to present, when it had nothing (`src/credential.ts`).
+       *
+       * Carried alongside the status rather than folded into the message,
+       * because whether it EXPLAINS the failure is the reader's call: a 401 has
+       * this as its cause and a 500 does not, and a client that blamed the
+       * machine's keys for the host's outage would send an agent to fix the
+       * wrong thing.
+       */
+      problem?: AuthorizationProblem
+    }
 
 export interface AcceptDeps {
   /** Where this was run, named: a clone, a root with no walgit remote, or neither. */
@@ -97,6 +113,28 @@ export function proposalRef(target: string, id: string): string {
 export const SIGNERS_REF = 'refs/walgit/signers'
 export const SIGNERS_TARGET = 'walgit/signers'
 
+/**
+ * Whether this machine's credential is what the host actually refused over.
+ *
+ * Only a 401 and a 403. A 500 is the host's fault, a 404 is a deployment that
+ * offers no Proposals at all, and a read that never reached the host proves
+ * nothing about its gate — a signing key would have changed none of the three,
+ * and blaming this machine's keys for any of them sends an agent to fix
+ * something that is not broken.
+ */
+export function credentialCause(
+  read: Extract<ProposalsRead, { kind: 'failed' }>,
+): AuthorizationProblem | null {
+  if (read.problem === undefined) return null
+  return read.status === 401 || read.status === 403 ? read.problem : null
+}
+
+/** The same cause, as the line `accept` appends to its refusal. */
+function explain(read: Extract<ProposalsRead, { kind: 'failed' }>): string {
+  const cause = credentialCause(read)
+  return cause === null ? '' : `\n${cause.message.replace(/^/gm, '  ')}`
+}
+
 const refuse = (message: string, code = 2): AcceptResult => ({
   stdout: '',
   stderr: `agentgit: ${message}\n`,
@@ -129,7 +167,10 @@ export async function runAccept(request: AcceptRequest, deps: AcceptDeps): Promi
     // Refused rather than treated as "no such Proposal". A host we could not
     // read is a repository whose Proposals we do not know, and an agent told
     // its id does not exist would go and push a duplicate.
-    return refuse(`could not read the Proposals of ${clone.repo}: ${read.message}`, 1)
+    return refuse(
+      `could not read the Proposals of ${clone.repo}: ${read.message}` + explain(read),
+      1,
+    )
   }
   const listing = read.proposals
 
@@ -416,6 +457,12 @@ export async function fetchProposals(
   // The clone's own directory, so a repository-local signing key decides this
   // read exactly as it decides a push from the same checkout.
   const answer = await authorize(clone.root)
+  // The read is attempted even when this machine has nothing to present: a
+  // public repository on a host that publishes a challenge answers it fine, and
+  // refusing to ask would be wrong about the common case. The problem rides on
+  // the failure instead, for a caller that can tell a 401 from a 500.
+  const problem: { problem?: AuthorizationProblem } =
+    answer.kind === 'problem' ? { problem: answer } : {}
   try {
     const response = await fetch(url, {
       headers: answer.kind === 'header' ? { authorization: answer.header } : {},
@@ -428,6 +475,8 @@ export async function fetchProposals(
       // empty list.
       return {
         kind: 'failed',
+        status: response.status,
+        ...problem,
         message:
           response.status === 404
             ? `${url} answered 404 — this deployment does not offer Proposals`
@@ -437,7 +486,11 @@ export async function fetchProposals(
     const body = (await response.json()) as { proposals?: ProposalListing[] }
     return { kind: 'proposals', proposals: body.proposals ?? [] }
   } catch (err) {
-    return { kind: 'failed', message: `${url} could not be read: ${(err as Error).message}` }
+    return {
+      kind: 'failed',
+      ...problem,
+      message: `${url} could not be read: ${(err as Error).message}`,
+    }
   }
 }
 
@@ -458,6 +511,16 @@ export function proposalPusher(
     origin: string
     /** The one authorization decision (`src/credential.ts`). */
     authorize: Authorize
+    /**
+     * Where a credential problem this read runs into is said out loud
+     * (`src/problem.ts`), latched with the watcher's own.
+     *
+     * The pusher is optional and answers `null` on any failure, which used to
+     * swallow the one failure worth reading: a 401 because this machine has no
+     * signing key. The event still says `pusher: null`; the REASON now goes
+     * somewhere, once, whichever call noticed it first.
+     */
+    problems?: CredentialProblems | null
   },
   read: (
     clone: Pick<AcceptClone, 'root' | 'origin' | 'repo'>,
@@ -468,7 +531,11 @@ export function proposalPusher(
     const root = scope.targets.get(repo)
     if (root === undefined) return null
     const listing = await read({ root, origin: scope.origin, repo }, scope.authorize)
-    if (listing.kind === 'failed') return null
+    if (listing.kind === 'failed') {
+      const cause = credentialCause(listing)
+      if (cause) scope.problems?.report(scope.origin, cause)
+      return null
+    }
     // Matched on the pair, not the id: a Proposal id is the pusher's word and
     // the same word can aim at two branches.
     return (
