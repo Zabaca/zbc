@@ -117,11 +117,13 @@ const listing = (): ProposalListing[] => {
 }
 
 const clone: AcceptClone = {
+  kind: 'clone',
   root: '',
   remoteName: 'origin',
   origin: 'https://walgit.example',
   repo: 'demo',
-  branch: 'main',
+  host: 'walgit.example',
+  ref: 'refs/heads/main',
 }
 
 const deps = (): AcceptDeps => ({
