@@ -68,12 +68,12 @@ jobs:
       # way: an install step is exactly the friction `npx` removes.
       #
       # The rule is about what a consumer INSTALLS, not about what the source
-      # imports. `agentgit mcp` really does import `@modelcontextprotocol/sdk`
-      # and `zod`, and they are devDependencies on purpose: `bun build` puts
-      # them inside the one file, so `npx @zabaca/agentgit` still resolves
-      # nothing at run time. The check below is therefore the whole rule — a
-      # runtime `dependencies` entry is what would turn one command into an
-      # install — and `files` ships `dist/` alone, so nothing else can creep in.
+      # imports. A library the source pulls in may be a devDependency, because
+      # `bun build` puts it inside the one file and `npx @zabaca/agentgit` still
+      # resolves nothing at run time. The check below is therefore the whole
+      # rule — a runtime `dependencies` entry is what would turn one command
+      # into an install — and `files` ships `dist/` alone, so nothing else can
+      # creep in.
       - name: The published package is one file and no dependencies
         run: |
           bun run build

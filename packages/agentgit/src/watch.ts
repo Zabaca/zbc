@@ -69,9 +69,10 @@ export interface WatchConfig {
    * Where the events go, instead of this process's stdout.
    *
    * Everything a watcher reports already funnels through one `Emit`, so a
-   * caller that is not a terminal — the MCP server, whose stdout belongs to the
-   * transport — substitutes a sink here rather than parsing lines back out of a
-   * pipe. Absent means the CLI's own printer, and `--json` picks its format.
+   * caller whose stdout is not its to write on — a test observing what the
+   * watcher said, above all — substitutes a sink here rather than parsing lines
+   * back out of a pipe. Absent means the CLI's own printer, and `--json` picks
+   * its format.
    */
   emit?: Emit | null
   /**
@@ -382,11 +383,11 @@ export function watch(config: WatchConfig): Watcher {
   const connect = async (): Promise<void> => {
     // A stop that lands inside a backoff window has a reconnect already
     // scheduled, and nothing cancels a timer that has not fired. As a command
-    // that is a process about to exit; as a library call inside a long-lived
-    // MCP server it is a socket that opens after the caller was answered and
-    // then reconnects forever. Checked here because this is the one place both
-    // paths pass through — including the `await` below, which is a second
-    // window in which a stop can arrive.
+    // that is a process about to exit; inside a host that outlives the watch it
+    // is a socket that opens after the caller stopped listening and then
+    // reconnects forever. Checked here because this is the one place both paths
+    // pass through — including the `await` below, which is a second window in
+    // which a stop can arrive.
     if (closing) return
     const scheme = config.origin?.startsWith('http://') ? 'ws' : 'wss'
     const url = `${scheme}://${config.host}${EVENTS_PATH}`
@@ -487,66 +488,12 @@ export function watch(config: WatchConfig): Watcher {
 /**
  * The token a deployment gate takes, from the environment.
  *
- * One reading, in one place: `watch`, `accept` and every MCP tool present the
- * same header, and two spellings of "which variable wins" would be two
- * deployments' worth of confusion.
+ * One reading, in one place: `watch` and `accept` present the same header, and
+ * two spellings of "which variable wins" would be two deployments' worth of
+ * confusion.
  */
 export function envToken(): string | null {
   return process.env.AGENTGIT_TOKEN ?? process.env.WALGIT_TOKEN ?? null
-}
-
-/** What one event was, to a caller holding the events rather than printing them. */
-export interface WatchEvent {
-  event: string
-  fields: Record<string, unknown>
-}
-
-/** How a `watchOnce` ended, and everything it heard on the way. */
-export interface WatchOnceOutcome {
-  /** The watcher gave up on the clock rather than on a ref moving. */
-  timedOut: boolean
-  /** `'refused'` where the host named a refusal; `null` where nothing stopped it. */
-  stopped: WatchStop | null
-  events: WatchEvent[]
-}
-
-/**
- * `--once`, for a caller that wants the answer rather than the output.
- *
- * The deadline is the only thing here that `watch` does not already do, and it
- * exists because the caller is an agent's tool call: a socket that never moves
- * is a watcher waiting forever, which as a CLI is a deliberate block and as a
- * tool call is a hung session. Timing out is reported, never thrown — nothing
- * moved is an answer.
- */
-/** What `watchOnce` is handed: a watch, minus the parts it decides itself. */
-export type WatchOnceConfig = Omit<WatchConfig, 'once' | 'emit' | 'onDone'>
-
-export function watchOnce(config: WatchOnceConfig, timeoutMs: number): Promise<WatchOnceOutcome> {
-  return new Promise((resolve) => {
-    const events: WatchEvent[] = []
-    let settled = false
-    let timer: ReturnType<typeof setTimeout> | null = null
-    /** Null only for the window in which `watch` has not returned yet. */
-    let watcher: Watcher | null = null
-
-    const finish = (timedOut: boolean, stopped: WatchStop | null): void => {
-      if (settled) return
-      settled = true
-      if (timer !== null) clearTimeout(timer)
-      watcher?.close()
-      resolve({ timedOut, stopped, events })
-    }
-
-    watcher = watch({
-      ...config,
-      once: true,
-      emit: (event, fields) => events.push({ event, fields }),
-      onDone: (reason) => finish(false, reason),
-    })
-
-    timer = setTimeout(() => finish(true, null), timeoutMs)
-  })
 }
 
 /**
