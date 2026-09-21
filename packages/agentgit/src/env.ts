@@ -1,9 +1,9 @@
 /**
  * The two settings this client reads from the environment, and nothing else.
  *
- * One reading, in one place: `watch`, `accept` and every MCP tool present the
- * same header and talk to the same host, and two spellings of "which variable
- * wins" would be two deployments' worth of confusion. The precedence is
+ * One reading, in one place: `watch` and `accept` present the same header and
+ * talk to the same host, and two spellings of "which variable wins" would be
+ * two deployments' worth of confusion. The precedence is
  * `AGENTGIT_* ?? WALGIT_*` — the tool's own name first, the service it came
  * from as the compatibility fallback.
  *
