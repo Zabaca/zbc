@@ -20,6 +20,7 @@ import type { CloneDiscovery } from './clone'
 import type { WatchOptions } from './args'
 import type { Authorize } from './credential'
 import { type AgentgitEnv, envHost, envToken } from './env'
+import { credentialProblems } from './problem'
 import type { WatchConfig } from './watch'
 
 /** Everything this step reaches for that is not the command line. */
@@ -190,6 +191,12 @@ export function resolveWatch(options: WatchOptions, deps: ResolveDeps): Resoluti
   // same header, and presenting both is not a thing one request can do.
   const authorize = deps.authorize(origin, presented)
 
+  // One latch for this invocation, shared by the socket and the Proposals read
+  // below: a machine with no signing key fails both for a single reason, and
+  // whichever notices it first is the one that says it. Its sink is attached by
+  // `watch`, which owns the emitter.
+  const problems = credentialProblems()
+
   return {
     kind: 'watch',
     config: {
@@ -208,7 +215,8 @@ export function resolveWatch(options: WatchOptions, deps: ResolveDeps): Resoluti
       // The fingerprint behind a Proposal is the Proposals read's business
       // (`src/accept.ts`), which is where the lookup lives; this only decides
       // that it is wanted, and with which targets and credential.
-      pusher: options.proposals ? proposalPusher({ targets, origin, authorize }) : null,
+      problems,
+      pusher: options.proposals ? proposalPusher({ targets, origin, authorize, problems }) : null,
     },
   }
 }

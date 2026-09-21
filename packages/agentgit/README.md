@@ -249,6 +249,30 @@ that went stale mid-operation costs one extra 401 and a re-sign. Removing the
 `readers` file makes the repository world-readable again; nothing is
 retroactive in either direction.
 
+### When there is no credential to present
+
+A machine that cannot sign — no `user.signingkey`, no fingerprint for the one
+it has, a key that will not sign, a host nothing can be addressed at — used to
+watch a Private repository by reconnecting forever, reporting only that the
+socket dropped. It says why now, through the same stream as everything else:
+
+```
+{"event":"credential-problem","origin":"https://agentgit.co","code":"no-signing-key","problem":"…"}
+```
+
+`code` is one of `no-signing-key`, `no-fingerprint`, `no-signature` and
+`unaddressable-origin`, and `problem` is the sentence to act on. Reported on
+the **first** occurrence and then latched, so a reconnect backoff does not
+repeat it, and cleared by the first authorization that does present a
+credential — so a key rotated away two hours into a run is reported when it
+happens, and a machine that was fixed and then broke again is reported twice.
+
+It does not stop the watcher: a public repository on a host that publishes a
+challenge needs no credential at all, and the socket is still worth opening.
+`agentgit accept` says the same sentence under its "could not read the
+Proposals" refusal, on a 401 or a 403 only — a 500 is the host's fault and a
+404 is a deployment that offers no Proposals, and neither is about your keys.
+
 ## Use from an agent
 
 An agent finds a tool through the registry its harness already reads, not by

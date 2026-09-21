@@ -14,6 +14,7 @@ import { spawnSync } from 'node:child_process'
 import type { Authorize } from './credential'
 import { type FfOutcome, fastForwardOnClean } from './ff'
 import { git, shortRef } from './git'
+import { type CredentialProblems, credentialProblems } from './problem'
 import { conflictPaths } from './remote'
 
 /** Where a subscriber connects. Frozen by the ADR above; not derived from the server. */
@@ -99,6 +100,15 @@ export interface WatchConfig {
    * its format.
    */
   emit?: Emit | null
+  /**
+   * Where a credential problem is said out loud, once (`src/problem.ts`).
+   *
+   * Passed in rather than made here because the Proposals lookup holds the same
+   * one: a machine with no signing key fails the socket's authorization and the
+   * Proposals read for a single reason, and whichever notices first is the one
+   * that explains it. Absent means a latch of this watcher's own.
+   */
+  problems?: CredentialProblems | null
   /**
    * The watcher stopped, and why.
    *
@@ -274,6 +284,11 @@ export function credentialDir(targets: ReadonlyMap<string, string>, cwd: string)
 
 export function watch(config: WatchConfig): Watcher {
   const emit = config.emit ?? makeEmit(config.json)
+  // The latch gets its sink here and not at construction: `src/resolve.ts`
+  // builds it early so the Proposals lookup can share it, and the emitter is
+  // this function's to choose.
+  const problems = config.problems ?? credentialProblems()
+  problems.through(emit)
   /** The collision each watched ref last reported, so repeats stay quiet. */
   const standing = new Map<string, string>()
   let attempt = 0
@@ -429,9 +444,12 @@ export function watch(config: WatchConfig): Watcher {
     // which a stop can arrive.
     if (closing) return
     const url = eventsUrl(config.origin)
-    // Nothing here can throw, so nothing here catches. A `problem` is a value
-    // this watcher does not yet say out loud (ZBC-QEN6MD is where it will).
+    // Nothing here can throw, so nothing here catches. A `problem` is reported
+    // and not acted on: the socket still opens, because a repository that is
+    // public needs no credential and a watcher that refused to try would be
+    // wrong about the common case.
     const answered = await config.authorize(credentialDir(config.targets, config.cwd))
+    problems.report(config.origin, answered)
     const authorization = answered.kind === 'header' ? answered.header : null
     if (closing) return
     socket = authorization

@@ -18,6 +18,7 @@ import {
   fetchProposals,
   runAccept,
 } from './accept'
+import { credentialProblems } from './problem'
 
 const proposal = (over: Partial<ProposalListing> = {}): ProposalListing => ({
   id: 'fix-auth',
@@ -159,6 +160,73 @@ describe('agentgit accept: finding the Proposal', () => {
     expect(result.code).toBe(0)
     expect(result.stdout).toContain('already merged')
     expect(ran.some((args) => args[0] === 'push')).toBe(false)
+  })
+
+  // A 401 on this read has a cause the client already composed a sentence for
+  // (`src/credential.ts`), and dropping it is how an agent got "answered 401"
+  // and nothing to do about it.
+  test('an unauthorized read carries why this machine had no credential', async () => {
+    const { deps } = harness({
+      proposals: async () => ({
+        kind: 'failed',
+        message: 'answered 401',
+        status: 401,
+        problem: {
+          kind: 'problem',
+          code: 'no-signing-key',
+          message: 'this machine has no key to prove',
+        },
+      }),
+    })
+    const result = await runAccept({ id: 'fix-auth' }, deps)
+
+    expect(result.code).toBe(1)
+    expect(result.stderr).toContain('answered 401')
+    expect(result.stderr).toContain('this machine has no key to prove')
+  })
+
+  test('a forbidden read carries it too', async () => {
+    const { deps } = harness({
+      proposals: async () => ({
+        kind: 'failed',
+        message: 'answered 403',
+        status: 403,
+        problem: { kind: 'problem', code: 'no-signature', message: 'the key could not sign' },
+      }),
+    })
+    expect((await runAccept({ id: 'fix-auth' }, deps)).stderr).toContain('the key could not sign')
+  })
+
+  // The host's fault and the deployment's shape, neither of which a signing key
+  // would have changed — saying so would send an agent to fix the wrong thing.
+  test('a 500 is the host’s fault, and says nothing about this machine’s keys', async () => {
+    const { deps } = harness({
+      proposals: async () => ({
+        kind: 'failed',
+        message: 'answered 500',
+        status: 500,
+        problem: { kind: 'problem', code: 'no-signing-key', message: 'no key to prove' },
+      }),
+    })
+    const result = await runAccept({ id: 'fix-auth' }, deps)
+
+    expect(result.code).toBe(1)
+    expect(result.stderr).not.toContain('no key to prove')
+  })
+
+  test('a 404 means the deployment offers no Proposals, and says nothing either', async () => {
+    const { deps } = harness({
+      proposals: async () => ({
+        kind: 'failed',
+        message: 'this deployment does not offer Proposals',
+        status: 404,
+        problem: { kind: 'problem', code: 'no-signing-key', message: 'no key to prove' },
+      }),
+    })
+    const result = await runAccept({ id: 'fix-auth' }, deps)
+
+    expect(result.code).toBe(1)
+    expect(result.stderr).not.toContain('no key to prove')
   })
 
   test('a host that cannot be read is a failure, not an empty list of Proposals', async () => {
@@ -509,6 +577,48 @@ describe('proposalPusher', () => {
       message: 'answered 403',
     }))
     expect(await pusher({ repo: 'study-42', id: 'fix-auth', target: 'main' })).toBeNull()
+  })
+
+  // Swallowed, before: the event said `pusher: null` and the reason the read
+  // was refused went nowhere. It goes into the watcher's own latch instead, so
+  // whichever of the socket and this read noticed first is the one that says it.
+  test('a refused read reports why this machine had no credential, once', async () => {
+    const said: { event: string; fields: Record<string, unknown> }[] = []
+    const problems = credentialProblems((event, fields) => void said.push({ event, fields }))
+    const pusher = proposalPusher({ ...scope, problems }, async () => ({
+      kind: 'failed',
+      message: 'answered 401',
+      status: 401,
+      problem: { kind: 'problem', code: 'no-signing-key', message: 'no key to prove' },
+    }))
+
+    expect(await pusher({ repo: 'study-42', id: 'fix-auth', target: 'main' })).toBeNull()
+    expect(await pusher({ repo: 'study-42', id: 'fix-auth', target: 'main' })).toBeNull()
+
+    expect(said).toEqual([
+      {
+        event: 'credential-problem',
+        fields: {
+          origin: 'https://walgit.example',
+          code: 'no-signing-key',
+          problem: 'no key to prove',
+        },
+      },
+    ])
+  })
+
+  test('a 500 is the host’s fault, and reports nothing about this machine’s keys', async () => {
+    const said: string[] = []
+    const problems = credentialProblems((event) => void said.push(event))
+    const pusher = proposalPusher({ ...scope, problems }, async () => ({
+      kind: 'failed',
+      message: 'answered 500',
+      status: 500,
+      problem: { kind: 'problem', code: 'no-signing-key', message: 'no key to prove' },
+    }))
+
+    await pusher({ repo: 'study-42', id: 'fix-auth', target: 'main' })
+    expect(said).toEqual([])
   })
 
   test('a Proposal the listing does not hold is unknown, not an error', async () => {
