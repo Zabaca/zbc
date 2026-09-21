@@ -9,11 +9,13 @@
 
 import { describe, expect, test } from 'bun:test'
 
+import type { Authorization } from './credential'
 import {
   type AcceptClone,
   type AcceptDeps,
   type ProposalListing,
   proposalPusher,
+  fetchProposals,
   runAccept,
 } from './accept'
 
@@ -51,7 +53,7 @@ const harness = ({ run, ...over }: Over = {}): Harness => {
   const ran: string[][] = []
   const deps: AcceptDeps = {
     discover: () => clone,
-    proposals: async () => [],
+    proposals: async () => ({ kind: 'proposals', proposals: [] }),
     git: (args) => {
       ran.push([...args])
       return run?.(args) ?? { code: 0, stdout: '', stderr: '' }
@@ -98,7 +100,7 @@ describe('agentgit accept: refusals', () => {
   test('a detached HEAD is refused: there is no target branch to accept onto', async () => {
     const { deps, ran } = harness({
       discover: () => ({ ...clone, ref: null }),
-      proposals: async () => [proposal()],
+      proposals: async () => ({ kind: 'proposals', proposals: [proposal()] }),
     })
     const result = await runAccept({ id: 'fix-auth' }, deps)
 
@@ -111,7 +113,7 @@ describe('agentgit accept: refusals', () => {
     const { deps, ran } = harness({
       run: (args) =>
         args[0] === 'status' ? { code: 0, stdout: ' M src/a.ts\n', stderr: '' } : undefined,
-      proposals: async () => [proposal()],
+      proposals: async () => ({ kind: 'proposals', proposals: [proposal()] }),
     })
     const result = await runAccept({ id: 'fix-auth' }, deps)
 
@@ -126,7 +128,7 @@ describe('agentgit accept: refusals', () => {
 describe('agentgit accept: finding the Proposal', () => {
   test('an id the host does not hold is named in the error, with what it does hold', async () => {
     const { deps, ran } = harness({
-      proposals: async () => [proposal({ id: 'fix-login' })],
+      proposals: async () => ({ kind: 'proposals', proposals: [proposal({ id: 'fix-login' })] }),
     })
     const result = await runAccept({ id: 'fix-auth' }, deps)
 
@@ -138,7 +140,7 @@ describe('agentgit accept: finding the Proposal', () => {
 
   test('a Proposal targeting another branch names both branches rather than merging it here', async () => {
     const { deps, ran } = harness({
-      proposals: async () => [proposal({ target: 'release' })],
+      proposals: async () => ({ kind: 'proposals', proposals: [proposal({ target: 'release' })] }),
     })
     const result = await runAccept({ id: 'fix-auth' }, deps)
 
@@ -149,7 +151,9 @@ describe('agentgit accept: finding the Proposal', () => {
   })
 
   test('a Proposal already merged is reported, and nothing is pushed', async () => {
-    const { deps, ran } = harness({ proposals: async () => [proposal({ merged: true })] })
+    const { deps, ran } = harness({
+      proposals: async () => ({ kind: 'proposals', proposals: [proposal({ merged: true })] }),
+    })
     const result = await runAccept({ id: 'fix-auth' }, deps)
 
     expect(result.code).toBe(0)
@@ -159,9 +163,7 @@ describe('agentgit accept: finding the Proposal', () => {
 
   test('a host that cannot be read is a failure, not an empty list of Proposals', async () => {
     const { deps, ran } = harness({
-      proposals: async () => {
-        throw new Error('503 unavailable')
-      },
+      proposals: async () => ({ kind: 'failed', message: '503 unavailable' }),
     })
     const result = await runAccept({ id: 'fix-auth' }, deps)
 
@@ -175,7 +177,7 @@ describe('agentgit accept: fetch, merge, push', () => {
   test('fetches the Proposal ref, merges its tip, and pushes the target signed', async () => {
     const tip = 'b'.repeat(40)
     const { deps, ran } = harness({
-      proposals: async () => [proposal({ tip })],
+      proposals: async () => ({ kind: 'proposals', proposals: [proposal({ tip })] }),
       run: (args) =>
         args[0] === 'rev-parse' ? { code: 0, stdout: `${tip}\n`, stderr: '' } : undefined,
     })
@@ -202,7 +204,10 @@ describe('agentgit accept: fetch, merge, push', () => {
 
   test('a tip that moved between the listing and the fetch is refused, not merged', async () => {
     const { deps, ran } = harness({
-      proposals: async () => [proposal({ tip: 'b'.repeat(40) })],
+      proposals: async () => ({
+        kind: 'proposals',
+        proposals: [proposal({ tip: 'b'.repeat(40) })],
+      }),
       run: (args) =>
         args[0] === 'rev-parse'
           ? { code: 0, stdout: `${'c'.repeat(40)}\n`, stderr: '' }
@@ -218,7 +223,7 @@ describe('agentgit accept: fetch, merge, push', () => {
   test('a conflicting merge is refused with the tree left as git left it', async () => {
     const tip = 'b'.repeat(40)
     const { deps, ran } = harness({
-      proposals: async () => [proposal({ tip })],
+      proposals: async () => ({ kind: 'proposals', proposals: [proposal({ tip })] }),
       run: (args) => {
         if (args[0] === 'rev-parse') return { code: 0, stdout: `${tip}\n`, stderr: '' }
         if (args[0] === 'merge')
@@ -239,7 +244,7 @@ describe('agentgit accept: fetch, merge, push', () => {
   test('a push the host refuses fails loudly, and says the merge is still here', async () => {
     const tip = 'b'.repeat(40)
     const { deps } = harness({
-      proposals: async () => [proposal({ tip })],
+      proposals: async () => ({ kind: 'proposals', proposals: [proposal({ tip })] }),
       run: (args) => {
         if (args[0] === 'rev-parse') return { code: 0, stdout: `${tip}\n`, stderr: '' }
         if (args[0] === 'push')
@@ -255,7 +260,7 @@ describe('agentgit accept: fetch, merge, push', () => {
 
   test('a fetch that fails stops before the merge', async () => {
     const { deps, ran } = harness({
-      proposals: async () => [proposal()],
+      proposals: async () => ({ kind: 'proposals', proposals: [proposal()] }),
       run: (args) =>
         args[0] === 'fetch'
           ? { code: 128, stdout: '', stderr: 'couldn’t find remote ref\n' }
@@ -308,7 +313,7 @@ describe('agentgit accept: the Signer List', () => {
 
   test('fast-forwards the list when the Proposal already contains it, and pushes it signed', async () => {
     const { deps, ran } = listHarness({
-      proposals: async () => [listProposal()],
+      proposals: async () => ({ kind: 'proposals', proposals: [listProposal()] }),
       // The list's tip is already in the Proposal's history: nothing to merge.
       run: (args) => (args[0] === 'merge-base' ? { code: 0, stdout: '', stderr: '' } : undefined),
     })
@@ -330,7 +335,7 @@ describe('agentgit accept: the Signer List', () => {
 
   test('merges without a checkout when the list has moved on, and pushes the merge', async () => {
     const { deps, ran } = listHarness({
-      proposals: async () => [listProposal()],
+      proposals: async () => ({ kind: 'proposals', proposals: [listProposal()] }),
       run: (args) => {
         // The list's tip is NOT in the Proposal's history, so the two diverged.
         if (args[0] === 'merge-base') return { code: 1, stdout: '', stderr: '' }
@@ -352,7 +357,7 @@ describe('agentgit accept: the Signer List', () => {
 
   test('a conflicting list merge is refused, and nothing is pushed', async () => {
     const { deps, ran } = listHarness({
-      proposals: async () => [listProposal()],
+      proposals: async () => ({ kind: 'proposals', proposals: [listProposal()] }),
       run: (args) => {
         if (args[0] === 'merge-base') return { code: 1, stdout: '', stderr: '' }
         if (args[0] === 'merge-tree')
@@ -370,7 +375,7 @@ describe('agentgit accept: the Signer List', () => {
   test('is accepted from a detached HEAD and a dirty tree, which it never touches', async () => {
     const { deps, ran } = listHarness({
       discover: () => ({ ...clone, ref: null }),
-      proposals: async () => [listProposal()],
+      proposals: async () => ({ kind: 'proposals', proposals: [listProposal()] }),
       run: (args) => {
         if (args[0] === 'status') return { code: 0, stdout: ' M src/a.ts\n', stderr: '' }
         if (args[0] === 'merge-base') return { code: 0, stdout: '', stderr: '' }
@@ -385,7 +390,7 @@ describe('agentgit accept: the Signer List', () => {
 
   test('a merge git could not attempt is not reported as a conflict', async () => {
     const { deps, ran } = listHarness({
-      proposals: async () => [listProposal()],
+      proposals: async () => ({ kind: 'proposals', proposals: [listProposal()] }),
       run: (args) => {
         if (args[0] === 'merge-base') return { code: 1, stdout: '', stderr: '' }
         // Not exit 1: git failed to run the merge at all.
@@ -408,7 +413,7 @@ describe('agentgit accept: the Signer List', () => {
     // `signers` file, which is a different thing entirely.
     let fetched = ''
     const { deps, ran } = harness({
-      proposals: async () => [listProposal()],
+      proposals: async () => ({ kind: 'proposals', proposals: [listProposal()] }),
       run: (args) => {
         if (args[0] === 'fetch') {
           fetched = args[args.length - 1] ?? ''
@@ -431,7 +436,10 @@ describe('agentgit accept: the Signer List', () => {
 
   test('a list Proposal that moved between the listing and the fetch is refused', async () => {
     const { deps, ran } = listHarness({
-      proposals: async () => [listProposal({ tip: 'c'.repeat(40) })],
+      proposals: async () => ({
+        kind: 'proposals',
+        proposals: [listProposal({ tip: 'c'.repeat(40) })],
+      }),
     })
     const result = await runAccept({ id: 'add-me' }, deps)
 
@@ -440,7 +448,9 @@ describe('agentgit accept: the Signer List', () => {
   })
 
   test('an already-merged list Proposal is reported, and nothing is pushed', async () => {
-    const { deps, ran } = listHarness({ proposals: async () => [listProposal({ merged: true })] })
+    const { deps, ran } = listHarness({
+      proposals: async () => ({ kind: 'proposals', proposals: [listProposal({ merged: true })] }),
+    })
     const result = await runAccept({ id: 'add-me' }, deps)
 
     expect(result.code).toBe(0)
@@ -467,44 +477,157 @@ describe('proposalPusher', () => {
   const scope = {
     targets: new Map([['study-42', '/work/study']]),
     origin: 'https://walgit.example',
-    token: null,
+    authorize: async () => ({ kind: 'none' }) as Authorization,
   }
 
   test('names the pusher of the Proposal with that id AND that target', async () => {
-    const pusher = proposalPusher(scope, async () => listing)
+    const pusher = proposalPusher(scope, async () => ({ kind: 'proposals', proposals: listing }))
     expect(await pusher({ repo: 'study-42', id: 'fix-auth', target: 'review' })).toBe('SHA256:bbb')
   })
 
   test('reads the clone the repository was fetched into, at its own origin', async () => {
     const asked: unknown[] = []
-    const pusher = proposalPusher({ ...scope, token: 'deploy-token' }, async (read, token) => {
-      asked.push({ clone: read, token })
-      return listing
+    const authorize = async () =>
+      ({ kind: 'header', header: 'Bearer deploy-token' }) as Authorization
+    const pusher = proposalPusher({ ...scope, authorize }, async (read, given) => {
+      asked.push({ clone: read, authorize: given })
+      return { kind: 'proposals', proposals: listing }
     })
     await pusher({ repo: 'study-42', id: 'fix-auth', target: 'main' })
+    // The one authorization is handed on, not a second opinion about it.
     expect(asked).toEqual([
       {
         clone: { root: '/work/study', origin: 'https://walgit.example', repo: 'study-42' },
-        token: 'deploy-token',
+        authorize,
       },
     ])
   })
 
+  test('a read the host refused names no pusher, rather than failing the event', async () => {
+    const pusher = proposalPusher(scope, async () => ({
+      kind: 'failed',
+      message: 'answered 403',
+    }))
+    expect(await pusher({ repo: 'study-42', id: 'fix-auth', target: 'main' })).toBeNull()
+  })
+
   test('a Proposal the listing does not hold is unknown, not an error', async () => {
-    const pusher = proposalPusher(scope, async () => listing)
+    const pusher = proposalPusher(scope, async () => ({ kind: 'proposals', proposals: listing }))
     expect(await pusher({ repo: 'study-42', id: 'nope', target: 'main' })).toBeNull()
   })
 
-  test('a repository with no directory, or a clone with no origin, is not read at all', async () => {
+  test('a repository this process did not fetch into is not read at all', async () => {
     let reads = 0
     const counting = async () => {
       reads += 1
-      return listing
+      return { kind: 'proposals', proposals: listing } as const
     }
     const stranger = proposalPusher(scope, counting)
     expect(await stranger({ repo: 'other', id: 'fix-auth', target: 'main' })).toBeNull()
-    const originless = proposalPusher({ ...scope, origin: null }, counting)
-    expect(await originless({ repo: 'study-42', id: 'fix-auth', target: 'main' })).toBeNull()
     expect(reads).toBe(0)
+  })
+})
+
+/**
+ * The Proposals read, which used to build its own credential inside itself —
+ * so none of this could be reached from a test without a host and an ssh key.
+ *
+ * It takes the one authorization thunk now, and a failed read is a VALUE. A
+ * 404 and a 403 are different things to tell an agent, and the difference was
+ * previously carried in the text of a thrown Error that two callers each
+ * caught and discarded.
+ */
+describe('fetchProposals', () => {
+  const where = { root: '/w/clone', origin: 'https://agentgit.zabaca.com', repo: 'demo' }
+  const listing: ProposalListing[] = [
+    { id: 'fix-auth', target: 'main', tip: 'abc123', pusher: 'SHA256:aaa', merged: false },
+  ]
+
+  /** A stubbed `fetch`, recording what it was asked for. */
+  const stub = (answer: {
+    status: number
+    body: string
+  }): { fetch: typeof globalThis.fetch; seen: { url: string; authorization?: string }[] } => {
+    const seen: { url: string; authorization?: string }[] = []
+    const fetcher = (async (url: string | URL, init?: RequestInit) => {
+      const headers = (init?.headers ?? {}) as Record<string, string>
+      seen.push({ url: String(url), authorization: headers.authorization })
+      return new Response(answer.body, { status: answer.status })
+    }) as unknown as typeof globalThis.fetch
+    return { fetch: fetcher, seen }
+  }
+
+  const withFetch = async <T>(fetcher: typeof globalThis.fetch, run: () => Promise<T>) => {
+    const real = globalThis.fetch
+    globalThis.fetch = fetcher
+    try {
+      return await run()
+    } finally {
+      globalThis.fetch = real
+    }
+  }
+
+  test('presents the header the thunk answers for the directory being read', async () => {
+    const { fetch: fetcher, seen } = stub({
+      status: 200,
+      body: JSON.stringify({ proposals: listing }),
+    })
+    const asked: string[] = []
+    const read = await withFetch(fetcher, () =>
+      fetchProposals(where, async (dir) => {
+        asked.push(dir)
+        return { kind: 'header', header: 'Basic stubbed' }
+      }),
+    )
+    expect(read).toEqual({ kind: 'proposals', proposals: listing })
+    // The directory of the repository being read, so a repository-local
+    // signing key wins exactly as it does for a push.
+    expect(asked).toEqual(['/w/clone'])
+    expect(seen).toEqual([
+      {
+        url: 'https://agentgit.zabaca.com/demo.git/proposals',
+        authorization: 'Basic stubbed',
+      },
+    ])
+  })
+
+  test('nothing to present is not a failure: the read is made without a header', async () => {
+    const { fetch: fetcher, seen } = stub({ status: 200, body: JSON.stringify({ proposals: [] }) })
+    const read = await withFetch(fetcher, () =>
+      fetchProposals(where, async () => ({ kind: 'none' })),
+    )
+    expect(read).toEqual({ kind: 'proposals', proposals: [] })
+    expect(seen[0]?.authorization).toBeUndefined()
+  })
+
+  test('a 404 is the deployment saying it offers no Proposals at all', async () => {
+    const { fetch: fetcher } = stub({ status: 404, body: 'not found' })
+    const read = await withFetch(fetcher, () =>
+      fetchProposals(where, async () => ({ kind: 'none' })),
+    )
+    if (read.kind !== 'failed') throw new Error(`expected a failure, got ${read.kind}`)
+    expect(read.message).toContain('does not offer Proposals')
+  })
+
+  test('any other status is reported with its code and the body', async () => {
+    const { fetch: fetcher } = stub({ status: 403, body: 'not on the Reader List' })
+    const read = await withFetch(fetcher, () =>
+      fetchProposals(where, async () => ({ kind: 'none' })),
+    )
+    if (read.kind !== 'failed') throw new Error(`expected a failure, got ${read.kind}`)
+    expect(read.message).toContain('403')
+    expect(read.message).toContain('not on the Reader List')
+    expect(read.message).not.toContain('does not offer Proposals')
+  })
+
+  test('a host that could not be reached is a value too, not a throw', async () => {
+    const fetcher = (async () => {
+      throw new Error('ECONNREFUSED')
+    }) as unknown as typeof globalThis.fetch
+    const read = await withFetch(fetcher, () =>
+      fetchProposals(where, async () => ({ kind: 'none' })),
+    )
+    if (read.kind !== 'failed') throw new Error(`expected a failure, got ${read.kind}`)
+    expect(read.message).toContain('ECONNREFUSED')
   })
 })

@@ -18,7 +18,7 @@
 
 import { describe, expect, test } from 'bun:test'
 
-import { type CredentialDeps, runCredential } from './credential'
+import { type CredentialDeps, authorize, runCredential } from './credential'
 
 const ARMOUR = `-----BEGIN SSH SIGNATURE-----\nU1NIU0lHAAAAAQ==\n-----END SSH SIGNATURE-----\n`
 
@@ -161,5 +161,97 @@ describe('agentgit credential store and erase', () => {
       expect(result).toMatchObject({ code: 0, stdout: '' })
       expect(signed).toEqual([])
     }
+  })
+})
+
+/**
+ * The one authorization decision: what this machine presents to one origin.
+ *
+ * The rule that a deployment token and a Read Challenge signature arrive in
+ * the SAME header — so exactly one is ever presented — used to be restated at
+ * three call sites. It is asserted here, once, on the four things that can
+ * come back: a token, a signature, nothing, and a problem.
+ *
+ * A problem is a VALUE. The helper above already composes three actionable
+ * sentences, and the function that used to sit over it read only the answer
+ * and threw them away — which is how a machine with no `user.signingkey` got a
+ * socket error and an unbounded reconnect loop instead of the one line that
+ * would have fixed it.
+ */
+describe('authorize', () => {
+  const ORIGIN = 'https://agentgit.zabaca.com'
+
+  test('a deployment token is presented as Bearer, and nothing is signed', async () => {
+    const asked: string[] = []
+    const answer = await authorize(
+      ORIGIN,
+      'deploy-token',
+      deps({
+        challenge: async (origin) => {
+          asked.push(origin)
+          return 'a3f9nonce'
+        },
+      }),
+    )
+    expect(answer).toEqual({ kind: 'header', header: 'Bearer deploy-token' })
+    // A token holder needs no ssh key, so the challenge is never even fetched.
+    expect(asked).toEqual([])
+  })
+
+  test('with no token the Read Challenge signature is presented as Basic', async () => {
+    const answer = await authorize(ORIGIN, null, deps())
+    if (answer.kind !== 'header') throw new Error(`expected a header, got ${answer.kind}`)
+    expect(answer.header.startsWith('Basic ')).toBe(true)
+    // Decoded the way walgit reads it: the LAST colon splits the fingerprint
+    // from the signature, and the signature is the armour encoded once more.
+    const decoded = Buffer.from(answer.header.slice('Basic '.length), 'base64').toString('utf8')
+    const cut = decoded.lastIndexOf(':')
+    expect(decoded.slice(0, cut)).toBe('SHA256:1uNCXGZ4mL2p0G8fq2Kf5N0S2vT3iyq1t5nP0hW2xYc')
+    expect(Buffer.from(decoded.slice(cut + 1), 'base64').toString('utf8')).toBe(ARMOUR)
+  })
+
+  test('a host that publishes no challenge is the ordinary public case: nothing, and no problem', async () => {
+    expect(await authorize(ORIGIN, null, deps({ challenge: async () => null }))).toEqual({
+      kind: 'none',
+    })
+  })
+
+  test('the three misconfigurations come back named, with the sentence that fixes them', async () => {
+    const noKey = await authorize(ORIGIN, null, deps({ signingKey: () => null }))
+    if (noKey.kind !== 'problem') throw new Error(`expected a problem, got ${noKey.kind}`)
+    expect(noKey.code).toBe('no-signing-key')
+    expect(noKey.message).toContain('user.signingkey')
+
+    const noFingerprint = await authorize(ORIGIN, null, deps({ fingerprint: () => null }))
+    if (noFingerprint.kind !== 'problem') throw new Error('expected a problem')
+    expect(noFingerprint.code).toBe('no-fingerprint')
+    expect(noFingerprint.message).toContain('/home/agent/.ssh/id_ed25519')
+
+    const noSignature = await authorize(ORIGIN, null, deps({ sign: () => null }))
+    if (noSignature.kind !== 'problem') throw new Error('expected a problem')
+    expect(noSignature.code).toBe('no-signature')
+    expect(noSignature.message).toContain('/home/agent/.ssh/id_ed25519')
+  })
+
+  test('an origin nothing can be addressed at is reported, not thrown', async () => {
+    const answer = await authorize('not an origin', null, deps())
+    if (answer.kind !== 'problem') throw new Error(`expected a problem, got ${answer.kind}`)
+    expect(answer.code).toBe('unaddressable-origin')
+    expect(answer.message).toContain('not an origin')
+  })
+
+  test('a host that could not be reached for a nonce is nothing, not a problem', async () => {
+    // git's own request is about to fail with a network error of its own,
+    // which is the better message.
+    const answer = await authorize(
+      ORIGIN,
+      null,
+      deps({
+        challenge: async () => {
+          throw new Error('ECONNREFUSED')
+        },
+      }),
+    )
+    expect(answer).toEqual({ kind: 'none' })
   })
 })

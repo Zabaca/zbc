@@ -18,6 +18,7 @@
 import { proposalPusher } from './accept'
 import type { CloneDiscovery } from './clone'
 import type { WatchOptions } from './args'
+import type { Authorize } from './credential'
 import { type AgentgitEnv, envHost, envToken } from './env'
 import type { WatchConfig } from './watch'
 
@@ -30,11 +31,12 @@ export interface ResolveDeps {
   /** Which clone this is (`src/clone.ts`). Called only where something is missing. */
   discover(cwd: string): CloneDiscovery
   /**
-   * The `Authorization` a Private repository's event socket needs, for one
-   * origin — a factory, because a challenge stands for five minutes and the
-   * header is re-derived per connect rather than cached.
+   * The one authorization decision (`src/credential.ts`), bound to an origin
+   * and whatever token was presented — a factory, because a challenge stands
+   * for five minutes and the header is re-derived per connect rather than
+   * cached.
    */
-  credential(origin: string): () => Promise<string | null>
+  authorize(origin: string, token: string | null): Authorize
 }
 
 /**
@@ -182,15 +184,18 @@ export function resolveWatch(options: WatchOptions, deps: ResolveDeps): Resoluti
   const origin =
     cloneOrigin && sameHost(cloneOrigin.host, host) ? cloneOrigin.origin : `https://${host}`
 
+  // One authorization for this invocation, shared by the socket and the
+  // Proposals read. Which of a token and a Read Challenge signature is
+  // presented is ITS decision and no longer restated here: they arrive in the
+  // same header, and presenting both is not a thing one request can do.
+  const authorize = deps.authorize(origin, presented)
+
   return {
     kind: 'watch',
     config: {
       origin,
-      token: presented,
-      // Only where no token was given: a deployment token and a Read Challenge
-      // signature arrive in the same header, and presenting both is not a thing
-      // one request can do.
-      credential: presented !== null ? null : deps.credential(origin),
+      authorize,
+      cwd: deps.cwd,
       targets,
       refs: options.allRefs ? [] : refs,
       remoteName,
@@ -203,7 +208,7 @@ export function resolveWatch(options: WatchOptions, deps: ResolveDeps): Resoluti
       // The fingerprint behind a Proposal is the Proposals read's business
       // (`src/accept.ts`), which is where the lookup lives; this only decides
       // that it is wanted, and with which targets and credential.
-      pusher: options.proposals ? proposalPusher({ targets, origin, token: presented }) : null,
+      pusher: options.proposals ? proposalPusher({ targets, origin, authorize }) : null,
     },
   }
 }

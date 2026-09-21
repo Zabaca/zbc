@@ -10,7 +10,7 @@
 
 import { describe, expect, test } from 'bun:test'
 
-import { eventsUrl, route } from './watch'
+import { credentialDir, eventsUrl, route } from './watch'
 
 const BRANCH = ['refs/heads/main']
 
@@ -101,5 +101,31 @@ describe('eventsUrl', () => {
 
   test('a plain-http origin is a plain-ws socket, port and all', () => {
     expect(eventsUrl('http://node.local:8080')).toBe('ws://node.local:8080/_walgit/events')
+  })
+})
+
+/**
+ * Which clone's git config decides the authorization this watcher presents.
+ *
+ * `user.signingkey` is git config, and a repository-local one wins for a push,
+ * so it has to win for the read a watch is — but only where there IS one
+ * repository to mean. This is the whole of that rule, and the socket is the
+ * only thing around it.
+ */
+describe('credentialDir', () => {
+  test('one target means that checkout, so a repository-local key decides it', () => {
+    expect(credentialDir(new Map([['study-42', '/work/study']]), '/elsewhere')).toBe('/work/study')
+  })
+
+  test('several checkouts mean none of them: the invocation directory answers', () => {
+    const many = new Map([
+      ['a', '/work/a'],
+      ['b', '/work/b'],
+    ])
+    expect(credentialDir(many, '/elsewhere')).toBe('/elsewhere')
+  })
+
+  test('no targets at all is the invocation directory too', () => {
+    expect(credentialDir(new Map(), '/elsewhere')).toBe('/elsewhere')
   })
 })

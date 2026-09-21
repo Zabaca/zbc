@@ -69,7 +69,15 @@ The second thing the Client does, and the only one git itself calls: `agentgit c
 It is needed for a **push** to a Private name as much as for a read: the push begins with the `info/refs?service=git-receive-pack` advertisement, which hands over every ref and oid, so the same gate catches it — and git relays none of the 401's body, it asks for a username (`could not read Username for 'https://agentgit.co'`). So the helper goes on *before* a name writes its Reader List.
 
 It lives here for the reason everything else here does: the mechanism is walgit's and ships in the app template, and the *client* is agentgit's — forty lines and a config line, which is what ADR-0013 chose over inventing a second identity system with tokens to store, leak and rotate.
+
+The helper is now one of three callers of the same decision — see **Authorization**.
 _Avoid_: "login", "token", "auth" — there is no account and nothing is stored.
+
+**Authorization**:
+What this machine presents to one host, as a single decision (`src/credential.ts`, `authorize`). A deployment token and a Read Challenge signature arrive in the *same* header, so exactly one is ever presented and the token wins; a host that publishes no challenge is the ordinary public case and gets nothing. It answers a header, nothing, or a **problem** — a named misconfiguration (no `user.signingkey`, no fingerprint for it, a key that will not sign, an origin nothing can be addressed at) carried as a value rather than thrown, because a caller that reads the answer and drops the sentence is how a misconfigured machine got a socket error and an unbounded reconnect loop instead of the one line that would have fixed it.
+
+Its three callers — the Credential Helper above, the Watcher's socket and the Proposals read — share it as a thunk taking a DIRECTORY, because `user.signingkey` is git config and a repository-local one must win for a read as it does for a push, and because a challenge stands five minutes while a watcher runs for hours.
+_Avoid_: "credential" for this — that is the helper, which is one of its callers.
 
 **Daemon** (considered, not built — [ADR-0009](../../docs/adr/0009-walgit-ref-events-are-latest-state.md)):
 The host-side version of a Watcher: one socket per machine, fetching into a store every worktree shares. It was the original endgame and is now the fallback plan, because the spike showed the protocol needs no client machinery worth installing — and the Client has since taken the convenience half of the job without taking the sharing half. What would justify it is sharing rather than capability — ten agents on one machine hold ten sockets and fetch the same objects ten times — and nobody has yet been hurt by that. If it is ever built it lives here, never in the walgit app template.

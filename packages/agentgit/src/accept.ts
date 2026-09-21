@@ -25,7 +25,7 @@
  */
 
 import { type Clone, type CloneDiscovery, discoverClone } from './clone'
-import { readAuthorization, realCredentialDeps } from './credential'
+import { type Authorize, realAuthorize } from './credential'
 import { type GitResult, git, shortRef } from './git'
 
 /**
@@ -50,11 +50,22 @@ export interface ProposalListing {
   merged: boolean
 }
 
+/**
+ * The answer to a Proposals read — the listing, or why it could not be made.
+ *
+ * A value rather than a throw, because both callers wanted it as one: `accept`
+ * turns it into a refusal and a watcher turns it into an unknown pusher, and
+ * each was reconstructing that from the text of a caught Error.
+ */
+export type ProposalsRead =
+  | { kind: 'proposals'; proposals: ProposalListing[] }
+  | { kind: 'failed'; message: string }
+
 export interface AcceptDeps {
   /** Where this was run, named: a clone, a root with no walgit remote, or neither. */
   discover(): CloneDiscovery
   /** The Proposals the host holds for this repository. */
-  proposals(clone: AcceptClone): Promise<ProposalListing[]>
+  proposals(clone: AcceptClone): Promise<ProposalsRead>
   /** `git …`, in the clone. */
   git(args: readonly string[]): GitResult
 }
@@ -113,15 +124,14 @@ export async function runAccept(request: AcceptRequest, deps: AcceptDeps): Promi
     )
   }
   const clone = where
-  let listing: ProposalListing[]
-  try {
-    listing = await deps.proposals(clone)
-  } catch (err) {
+  const read = await deps.proposals(clone)
+  if (read.kind === 'failed') {
     // Refused rather than treated as "no such Proposal". A host we could not
     // read is a repository whose Proposals we do not know, and an agent told
     // its id does not exist would go and push a duplicate.
-    return refuse(`could not read the Proposals of ${clone.repo}: ${(err as Error).message}`, 1)
+    return refuse(`could not read the Proposals of ${clone.repo}: ${read.message}`, 1)
   }
+  const listing = read.proposals
 
   // Matched by id alone, then checked against the branch — so a Proposal for
   // another target is reported as what it is, rather than as an id that does
@@ -400,29 +410,35 @@ export async function fetchProposals(
   // and a directory — `watch --proposals` does — need not assemble a whole
   // clone it did not discover.
   clone: Pick<AcceptClone, 'root' | 'origin' | 'repo'>,
-  token: string | null,
-): Promise<ProposalListing[]> {
+  authorize: Authorize,
+): Promise<ProposalsRead> {
   const url = `${clone.origin}/${clone.repo}.git/proposals`
-  const authorization = token
-    ? `Bearer ${token}`
-    : await readAuthorization(clone.origin, realCredentialDeps(clone.root))
-  const response = await fetch(url, {
-    headers: authorization ? { authorization } : {},
-  })
-  if (!response.ok) {
-    const body = (await response.text().catch(() => '')).trim()
-    // A 404 here is the deployment saying it does not offer Proposals at all —
-    // worth saying in those words, because the alternative reading ("this
-    // repository has none") is an answer the endpoint would have given as an
-    // empty list.
-    throw new Error(
-      response.status === 404
-        ? `${url} answered 404 — this deployment does not offer Proposals`
-        : `${url} answered ${response.status}${body ? `: ${body}` : ''}`,
-    )
+  // The clone's own directory, so a repository-local signing key decides this
+  // read exactly as it decides a push from the same checkout.
+  const answer = await authorize(clone.root)
+  try {
+    const response = await fetch(url, {
+      headers: answer.kind === 'header' ? { authorization: answer.header } : {},
+    })
+    if (!response.ok) {
+      const body = (await response.text().catch(() => '')).trim()
+      // A 404 here is the deployment saying it does not offer Proposals at all
+      // — worth saying in those words, because the alternative reading ("this
+      // repository has none") is an answer the endpoint would have given as an
+      // empty list.
+      return {
+        kind: 'failed',
+        message:
+          response.status === 404
+            ? `${url} answered 404 — this deployment does not offer Proposals`
+            : `${url} answered ${response.status}${body ? `: ${body}` : ''}`,
+      }
+    }
+    const body = (await response.json()) as { proposals?: ProposalListing[] }
+    return { kind: 'proposals', proposals: body.proposals ?? [] }
+  } catch (err) {
+    return { kind: 'failed', message: `${url} could not be read: ${(err as Error).message}` }
   }
-  const body = (await response.json()) as { proposals?: ProposalListing[] }
-  return body.proposals ?? []
 }
 
 /**
@@ -438,22 +454,26 @@ export function proposalPusher(
   scope: {
     /** `repo` → the checkout it is fetched into, as the watcher resolved them. */
     targets: ReadonlyMap<string, string>
-    /** The clone's own origin, where it named one. */
-    origin: string | null
-    token: string | null
+    /** The one origin the watcher is talking to. */
+    origin: string
+    /** The one authorization decision (`src/credential.ts`). */
+    authorize: Authorize
   },
   read: (
     clone: Pick<AcceptClone, 'root' | 'origin' | 'repo'>,
-    token: string | null,
-  ) => Promise<ProposalListing[]> = fetchProposals,
+    authorize: Authorize,
+  ) => Promise<ProposalsRead> = fetchProposals,
 ): (proposal: { repo: string; id: string; target: string }) => Promise<string | null> {
   return async ({ repo, id, target }) => {
     const root = scope.targets.get(repo)
-    if (root === undefined || scope.origin === null) return null
-    const listing = await read({ root, origin: scope.origin, repo }, scope.token)
+    if (root === undefined) return null
+    const listing = await read({ root, origin: scope.origin, repo }, scope.authorize)
+    if (listing.kind === 'failed') return null
     // Matched on the pair, not the id: a Proposal id is the pusher's word and
     // the same word can aim at two branches.
-    return listing.find((entry) => entry.id === id && entry.target === target)?.pusher ?? null
+    return (
+      listing.proposals.find((entry) => entry.id === id && entry.target === target)?.pusher ?? null
+    )
   }
 }
 
@@ -468,7 +488,7 @@ export function realAcceptDeps(
   const found = () => (resolved ??= discoverClone(cwd))
   return {
     discover: found,
-    proposals: (clone) => fetchProposals(clone, token),
+    proposals: (clone) => fetchProposals(clone, realAuthorize(clone.origin, token)),
     git: (args) => {
       const where = found()
       return git(where.kind === 'no-repository' ? cwd : where.root, args)

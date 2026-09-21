@@ -11,6 +11,7 @@
 
 import { spawnSync } from 'node:child_process'
 
+import type { Authorize } from './credential'
 import { type FfOutcome, fastForwardOnClean } from './ff'
 import { git, shortRef } from './git'
 import { conflictPaths } from './remote'
@@ -47,18 +48,23 @@ export interface WatchConfig {
    * for.
    */
   origin: string
-  token: string | null
   /**
-   * The `Authorization` a Private repository's event stream needs, built fresh
-   * per connect, or `null` where there is nothing to present.
+   * Where the command was run, and the directory whose git config decides the
+   * authorization when this watcher follows more than one checkout.
+   */
+  cwd: string
+  /**
+   * The one authorization this watcher presents (`src/credential.ts`), asked
+   * fresh per connect.
    *
    * A walgit event is a strict subset of what a fetch hands over (docs/adr/0009
-   * and 0013), so the credential is the same one a clone presents: a signature
-   * over the host's challenge. It is re-derived on each connect because a
-   * challenge stands for five minutes — a cached header would come back after a
-   * long disconnect as a socket the host refuses.
+   * and 0013), so it is the same decision a clone makes: a deployment token
+   * where there is one, otherwise a signature over the host's challenge. It is
+   * re-asked on each connect because a challenge stands for five minutes — a
+   * cached header would come back after a long disconnect as a socket the host
+   * refuses.
    */
-  credential?: (() => Promise<string | null>) | null
+  authorize: Authorize
   /** `repo` → the checkout to fetch into. */
   targets: Map<string, string>
   /** Empty watches every ref in each repository. */
@@ -251,6 +257,21 @@ export function route(
   return { kind: 'ref', merged: interest.proposals ? [...(event.merged ?? [])] : [] }
 }
 
+/**
+ * Which directory's git config decides this watcher's authorization.
+ *
+ * The single target's, where there is exactly one — so a repository-local
+ * `user.signingkey` decides a read of that clone exactly as it decides that
+ * clone's pushes. Where several checkouts are followed no one of them is the
+ * answer, so the directory the command was run in is, which is where a global
+ * key is read from anyway.
+ */
+export function credentialDir(targets: ReadonlyMap<string, string>, cwd: string): string {
+  if (targets.size !== 1) return cwd
+  for (const dir of targets.values()) return dir
+  return cwd
+}
+
 export function watch(config: WatchConfig): Watcher {
   const emit = config.emit ?? makeEmit(config.json)
   /** The collision each watched ref last reported, so repeats stay quiet. */
@@ -408,9 +429,10 @@ export function watch(config: WatchConfig): Watcher {
     // which a stop can arrive.
     if (closing) return
     const url = eventsUrl(config.origin)
-    const authorization = config.token
-      ? `Bearer ${config.token}`
-      : ((await config.credential?.().catch(() => null)) ?? null)
+    // Nothing here can throw, so nothing here catches. A `problem` is a value
+    // this watcher does not yet say out loud (ZBC-QEN6MD is where it will).
+    const answered = await config.authorize(credentialDir(config.targets, config.cwd))
+    const authorization = answered.kind === 'header' ? answered.header : null
     if (closing) return
     socket = authorization
       ? new WebSocket(url, { headers: { authorization } } as never)
