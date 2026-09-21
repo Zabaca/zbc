@@ -115,7 +115,10 @@ work.
 | `<repo>=<dir>`      | several checkouts on one socket.                                                                            |
 | `--host`, `--token` | a deployment the remote does not name, or one that needs a credential.                                      |
 
-`$AGENTGIT_HOST` and `$AGENTGIT_TOKEN` are read where the flags are absent.
+`$AGENTGIT_HOST` and `$AGENTGIT_TOKEN` are read where the flags are absent. An
+exported-but-empty variable is read as unset — `AGENTGIT_TOKEN=` is not a
+credential — and an empty flag value (`--host ''`) is refused rather than
+carried along as a host nobody can reach.
 
 ## Examples
 
