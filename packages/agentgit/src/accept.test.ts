@@ -21,11 +21,13 @@ const proposal = (over: Partial<ProposalListing> = {}): ProposalListing => ({
 })
 
 const clone: AcceptClone = {
+  kind: 'clone',
   root: '/w/clone',
   remoteName: 'origin',
   origin: 'https://agentgit.zabaca.com',
   repo: 'demo',
-  branch: 'main',
+  host: 'agentgit.zabaca.com',
+  ref: 'refs/heads/main',
 }
 
 interface Harness {
@@ -54,12 +56,33 @@ const harness = ({ run, ...over }: Over = {}): Harness => {
 }
 
 describe('agentgit accept: refusals', () => {
-  test('outside a clone it says so and runs nothing', async () => {
-    const { deps, ran } = harness({ discover: () => null })
+  // The two ways there is no clone to accept in are two different things to
+  // tell an agent, and one message for both said "wrong directory" to one that
+  // was plainly standing in a checkout.
+  test('outside a git repository it says that, and runs nothing', async () => {
+    const { deps, ran } = harness({ discover: () => ({ kind: 'no-repository' }) })
     const result = await runAccept({ id: 'fix-auth' }, deps)
 
     expect(result.code).toBe(2)
-    expect(result.stderr).toContain('clone')
+    expect(result.stderr).toContain('not inside a git repository')
+    expect(ran).toEqual([])
+  })
+
+  test('in a repository with no walgit remote it names the remotes it did find', async () => {
+    const { deps, ran } = harness({
+      discover: () => ({
+        kind: 'no-remote',
+        root: '/w/clone',
+        ref: 'refs/heads/main',
+        remotes: [{ name: 'origin', url: 'git@github.com:you/thing.git' }],
+      }),
+    })
+    const result = await runAccept({ id: 'fix-auth' }, deps)
+
+    expect(result.code).toBe(2)
+    expect(result.stderr).not.toContain('not inside a git repository')
+    expect(result.stderr).toContain('no walgit remote')
+    expect(result.stderr).toContain('git@github.com:you/thing.git')
     expect(ran).toEqual([])
   })
 
@@ -68,7 +91,7 @@ describe('agentgit accept: refusals', () => {
   // to be detached from and never touches the working tree.
   test('a detached HEAD is refused: there is no target branch to accept onto', async () => {
     const { deps, ran } = harness({
-      discover: () => ({ ...clone, branch: null }),
+      discover: () => ({ ...clone, ref: null }),
       proposals: async () => [proposal()],
     })
     const result = await runAccept({ id: 'fix-auth' }, deps)
@@ -340,7 +363,7 @@ describe('agentgit accept: the Signer List', () => {
 
   test('is accepted from a detached HEAD and a dirty tree, which it never touches', async () => {
     const { deps, ran } = listHarness({
-      discover: () => ({ ...clone, branch: null }),
+      discover: () => ({ ...clone, ref: null }),
       proposals: async () => [listProposal()],
       run: (args) => {
         if (args[0] === 'status') return { code: 0, stdout: ' M src/a.ts\n', stderr: '' }
