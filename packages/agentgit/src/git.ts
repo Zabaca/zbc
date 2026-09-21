@@ -40,10 +40,6 @@ export function toplevel(cwd: string): string | null {
   return result.code === 0 ? result.stdout.trim() : null
 }
 
-export function remoteList(dir: string): string {
-  return git(dir, ['remote', '-v']).stdout
-}
-
 export function symbolicHead(dir: string): string {
   return git(dir, ['symbolic-ref', '--quiet', 'HEAD']).stdout
 }
