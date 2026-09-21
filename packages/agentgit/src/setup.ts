@@ -8,15 +8,15 @@
  * machine with no human at it is a hang.
  */
 
-import { git, toplevel } from './git'
-import { originOf, parseRemoteList, pickRemote } from './remote'
+import { type CloneDiscovery, discoverClone } from './clone'
+import { git } from './git'
 
 /** What the helper is invoked as. `!` is git's "run this as a command". */
 export const HELPER_COMMAND = '!agentgit credential'
 
 export interface SetupDeps {
-  /** The origin of the walgit remote in the current checkout, if there is one. */
-  remoteOrigin(): string | null
+  /** Which clone this is (`src/clone.ts`) — the same answer `watch` and `accept` get. */
+  discover(): CloneDiscovery
   /** `git config …`. A non-zero code with git's own message is a failure. */
   writeConfig(args: readonly string[]): { code: number; stderr: string }
 }
@@ -50,16 +50,9 @@ export function helperConfigKey(origin: string): string {
 }
 
 export async function runSetup(request: SetupRequest, deps: SetupDeps): Promise<SetupResult> {
-  const origin = request.host === null ? deps.remoteOrigin() : originFromArgument(request.host)
-  if (origin === null) {
-    return {
-      stdout: '',
-      stderr:
-        'agentgit: no walgit remote here to take a host from.\n' +
-        'Run this in a clone, or name the host: agentgit setup agentgit.co\n',
-      code: 2,
-    }
-  }
+  const origin =
+    request.host === null ? originOfClone(deps.discover()) : originFromArgument(request.host)
+  if (typeof origin !== 'string') return origin
 
   const key = helperConfigKey(origin)
   const scope = request.global ? '--global' : '--local'
@@ -81,19 +74,37 @@ export async function runSetup(request: SetupRequest, deps: SetupDeps): Promise<
   }
 }
 
+/** Every refusal here ends the same way, because every one of them has the same fix. */
+const refuse = (message: string): SetupResult => ({
+  stdout: '',
+  stderr: `agentgit: ${message}\nName the host instead: agentgit setup agentgit.co\n`,
+  code: 2,
+})
+
+/**
+ * The origin to write a helper for, or the refusal to return instead.
+ *
+ * Three arms, three sentences. "Not in a checkout" and "in a checkout whose
+ * remotes we cannot address" are different problems with different fixes, and
+ * a clone full of GitHub remotes told "no walgit remote here to take a host
+ * from" reads as though it has no remotes at all.
+ */
+function originOfClone(found: CloneDiscovery): string | SetupResult {
+  if (found.kind === 'clone') return found.origin
+  if (found.kind === 'no-repository')
+    return refuse('not inside a git repository, so there is no remote to take a host from.')
+  const seen = found.remotes.map((remote) => `${remote.name} → ${remote.url}`)
+  return refuse(
+    seen.length === 0
+      ? `${found.root} has no remotes, so there is no host to take.`
+      : `none of the remotes in ${found.root} is a walgit host we can address: ${seen.join(', ')}.`,
+  )
+}
+
 /** The deps as they are on a real machine. */
 export function realSetupDeps(cwd: string = process.cwd()): SetupDeps {
   return {
-    remoteOrigin() {
-      const root = toplevel(cwd)
-      if (!root) return null
-      const remotes = parseRemoteList(git(root, ['remote', '-v']).stdout)
-      // The same remote `watch` would subscribe to, so `setup` and `watch`
-      // can never disagree about which host this clone belongs to.
-      const chosen = pickRemote(remotes)
-      const url = chosen && remotes.find((remote) => remote.name === chosen.name)?.url
-      return url ? originOf(url) : null
-    },
+    discover: () => discoverClone(cwd),
     writeConfig(args) {
       const run = git(cwd, args)
       return { code: run.code, stderr: run.stderr }

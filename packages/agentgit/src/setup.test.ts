@@ -8,10 +8,21 @@
 
 import { describe, expect, test } from 'bun:test'
 
+import type { CloneDiscovery } from './clone'
 import { type SetupDeps, runSetup } from './setup'
 
+const inClone: CloneDiscovery = {
+  kind: 'clone',
+  root: '/w/clone',
+  remoteName: 'origin',
+  host: 'agentgit.zabaca.com',
+  origin: 'https://agentgit.zabaca.com',
+  repo: 'demo',
+  ref: 'refs/heads/main',
+}
+
 const deps = (over: Partial<SetupDeps> = {}): SetupDeps => ({
-  remoteOrigin: () => 'https://agentgit.zabaca.com',
+  discover: () => inClone,
   writeConfig: () => ({ code: 0, stderr: '' }),
   ...over,
 })
@@ -44,11 +55,11 @@ describe('agentgit setup', () => {
   })
 
   test('a named host does not need a clone, and keeps a scheme and port when given one', async () => {
-    const bare = recording({ remoteOrigin: () => null })
+    const bare = recording({ discover: () => ({ kind: 'no-repository' }) })
     await runSetup({ host: 'walgit.example.com', global: true }, bare.deps)
     expect(bare.written[0]?.[2]).toBe('credential.https://walgit.example.com.helper')
 
-    const local = recording({ remoteOrigin: () => null })
+    const local = recording({ discover: () => ({ kind: 'no-repository' }) })
     await runSetup({ host: 'http://127.0.0.1:8787', global: true }, local.deps)
     expect(local.written[0]?.[2]).toBe('credential.http://127.0.0.1:8787.helper')
   })
@@ -60,12 +71,42 @@ describe('agentgit setup', () => {
   })
 
   test('outside a clone with no host, it says what to pass instead of guessing', async () => {
-    const { written, deps: d } = recording({ remoteOrigin: () => null })
+    const { written, deps: d } = recording({ discover: () => ({ kind: 'no-repository' }) })
     const result = await runSetup({ host: null, global: true }, d)
 
     expect(result.code).not.toBe(0)
     expect(written).toEqual([])
     expect(result.stderr).toContain('agentgit setup')
+  })
+
+  // A checkout whose remotes are all foreign is not "no remote here": there IS
+  // one, and what setup cannot do is address its host. Said apart, because the
+  // fix is different — name the host, rather than go and find a clone.
+  test('a clone whose remotes it cannot address is refused in those words', async () => {
+    const { written, deps: d } = recording({
+      discover: () => ({
+        kind: 'no-remote',
+        root: '/w/clone',
+        ref: 'refs/heads/main',
+        remotes: [{ name: 'origin', url: 'git@github.com:you/thing.git' }],
+      }),
+    })
+    const result = await runSetup({ host: null, global: true }, d)
+
+    expect(result.code).not.toBe(0)
+    expect(written).toEqual([])
+    expect(result.stderr).toContain('git@github.com:you/thing.git')
+    expect(result.stderr).toContain('agentgit setup')
+  })
+
+  test('a clone with no remotes at all is refused as having none', async () => {
+    const { deps: d } = recording({
+      discover: () => ({ kind: 'no-remote', root: '/w/clone', ref: null, remotes: [] }),
+    })
+    const result = await runSetup({ host: null, global: true }, d)
+
+    expect(result.code).not.toBe(0)
+    expect(result.stderr).toContain('no remotes')
   })
 
   test('a git config that refuses the write fails loudly', async () => {

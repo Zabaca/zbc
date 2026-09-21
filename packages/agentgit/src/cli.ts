@@ -17,13 +17,13 @@
  * agents cannot use. No dependencies, for the same reason.
  */
 
-import { type AcceptClone, fetchProposals, realAcceptDeps, runAccept } from './accept'
+import { fetchProposals, realAcceptDeps, runAccept } from './accept'
 import { parseArgs, type WatchOptions } from './args'
+import { discoverClone } from './clone'
 import { readAuthorization, realCredentialDeps, runCredential } from './credential'
-import { remoteList, symbolicHead, toplevel } from './git'
-import { originOf, parseHead, parseRemoteList, pickRemote } from './remote'
+import { agentgitEnv, envHost, envToken } from './env'
 import { realSetupDeps, runSetup } from './setup'
-import { envToken, watch } from './watch'
+import { watch } from './watch'
 
 /**
  * What `--version` prints.
@@ -32,6 +32,9 @@ import { envToken, watch } from './watch'
  * file with nothing beside it to read. `src/node.test.ts` pins it to the
  * manifest, which is the part that had already drifted.
  */
+/** The four variables this client reads, taken once so every path agrees. */
+const ENV = agentgitEnv(process.env)
+
 const VERSION = '0.5.0'
 
 const HELP = `agentgit — watch a walgit repository and keep a clone current
@@ -135,10 +138,9 @@ function fail(message: string): never {
  * same in a clone and out of one.
  */
 function resolve(options: WatchOptions): Parameters<typeof watch>[0] {
-  const envHost = process.env.AGENTGIT_HOST ?? process.env.WALGIT_HOST ?? null
-  const presented = envToken()
+  const presented = envToken(ENV)
 
-  let host = options.host ?? envHost
+  let host = options.host ?? envHost(ENV)
   let remoteName = 'origin'
   /** The remote's scheme and host, for the credential the event socket needs. */
   let origin: string | null = null
@@ -152,31 +154,30 @@ function resolve(options: WatchOptions): Parameters<typeof watch>[0] {
     [...targets.values()].some((dir) => dir === '')
 
   if (needsDiscovery) {
-    const root = toplevel(process.cwd())
-    if (!root) {
+    // The one discovery (`src/clone.ts`), which `accept` and `setup` also ask,
+    // so the three can never disagree about which remote a clone belongs to.
+    const found = discoverClone(process.cwd())
+    if (found.kind === 'no-repository') {
       if (targets.size === 0)
         fail('not inside a git repository — name a repository, or run this in a clone')
       if (host === null)
         fail('no --host and no $AGENTGIT_HOST, and not inside a clone to read one from')
     } else {
-      const remotes = parseRemoteList(remoteList(root))
-      const found = pickRemote(remotes)
-      if (found) {
-        remoteName = found.name
+      if (found.kind === 'clone') {
+        remoteName = found.remoteName
         host ??= found.host
-        origin = originOf(remotes.find((remote) => remote.name === found.name)?.url ?? '')
-        if (targets.size === 0) targets.set(found.repo, root)
+        origin = found.origin
+        if (targets.size === 0) targets.set(found.repo, found.root)
       } else if (targets.size === 0) {
         fail('no https remote here that looks like a walgit repository — pass <repo> and --host')
       }
-      for (const [repo, dir] of targets) if (dir === '') targets.set(repo, root)
-      if (refs.length === 0 && !options.allRefs) {
-        const head = parseHead(symbolicHead(root))
-        if (head) refs.push(head)
-        // A detached HEAD is not an error — an agent mid-review is a normal
-        // state — but it is no basis for a subscription, so the whole
-        // repository is watched rather than a branch nobody is on.
-      }
+      for (const [repo, dir] of targets) if (dir === '') targets.set(repo, found.root)
+      // A detached HEAD is not an error — an agent mid-review is a normal
+      // state — but it is no basis for a subscription, so the whole repository
+      // is watched rather than a branch nobody is on. The ref rides on both
+      // arms that have a root, so a checkout whose only remote is GitHub still
+      // gets its default when a repository was named on the command line.
+      if (refs.length === 0 && !options.allRefs && found.ref) refs.push(found.ref)
     }
   }
 
@@ -230,14 +231,10 @@ function resolve(options: WatchOptions): Parameters<typeof watch>[0] {
       ? async ({ repo, id, target }) => {
           const dir = targets.get(repo)
           if (dir === undefined || origin === null) return null
-          const clone: AcceptClone = {
-            root: dir,
-            remoteName,
-            origin,
-            repo,
-            branch: target,
-          }
-          const listing = await fetchProposals(clone, options.token ?? presented)
+          const listing = await fetchProposals(
+            { root: dir, origin, repo },
+            options.token ?? presented,
+          )
           return listing.find((entry) => entry.id === id && entry.target === target)?.pusher ?? null
         }
       : null,
@@ -278,7 +275,10 @@ switch (parsed.kind) {
     // The same token `watch` takes from the environment: a deployment gate and
     // a Read Challenge signature arrive in one header, and where a token is set
     // it is the one to present.
-    const accepted = await runAccept({ id: parsed.id }, realAcceptDeps(process.cwd(), envToken()))
+    const accepted = await runAccept(
+      { id: parsed.id },
+      realAcceptDeps(process.cwd(), envToken(ENV)),
+    )
     if (accepted.stdout) process.stdout.write(accepted.stdout)
     if (accepted.stderr) process.stderr.write(accepted.stderr)
     process.exitCode = accepted.code

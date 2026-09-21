@@ -178,18 +178,38 @@ describe('fastForwardOnClean', () => {
   })
 
   test("the synthesized commit is the owner's, where the owner has an identity", () => {
-    run(clone, 'config', 'user.name', 'Owner')
-    run(clone, 'config', 'user.email', 'owner@example.com')
-    commit(clone, 'b.txt', 'mine\n', 'local work')
-    upstreamMoves('base\nupstream\n')
+    // The owner's identity here is the CONFIGURED one, which is what the
+    // fallback defers to. `GIT_AUTHOR_*`/`GIT_COMMITTER_*` in the ambient
+    // environment outrank it — a CI runner and an agent's own box both set
+    // them — so a machine that has them would see its own bot named here and
+    // learn nothing about whose identity git chose. They are cleared for the
+    // length of the test rather than worked around, for the reason the
+    // neighbouring test isolates config: an env identity proves nothing.
+    const saved = { ...process.env }
+    for (const key of [
+      'GIT_AUTHOR_NAME',
+      'GIT_AUTHOR_EMAIL',
+      'GIT_COMMITTER_NAME',
+      'GIT_COMMITTER_EMAIL',
+    ]) {
+      delete process.env[key]
+    }
+    try {
+      run(clone, 'config', 'user.name', 'Owner')
+      run(clone, 'config', 'user.email', 'owner@example.com')
+      commit(clone, 'b.txt', 'mine\n', 'local work')
+      upstreamMoves('base\nupstream\n')
 
-    expect(fastForwardOnClean(clone, 'refs/heads/main', 'origin/main')).toMatchObject({
-      kind: 'moved',
-      synthesized: true,
-    })
-    expect(run(clone, 'log', '-1', '--format=%cn <%ce>').stdout.trim()).toBe(
-      'Owner <owner@example.com>',
-    )
+      expect(fastForwardOnClean(clone, 'refs/heads/main', 'origin/main')).toMatchObject({
+        kind: 'moved',
+        synthesized: true,
+      })
+      expect(run(clone, 'log', '-1', '--format=%cn <%ce>').stdout.trim()).toBe(
+        'Owner <owner@example.com>',
+      )
+    } finally {
+      process.env = saved
+    }
   })
 
   test('it is still written where git has no identity of its own', () => {

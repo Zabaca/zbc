@@ -24,21 +24,16 @@
  * Proposal and never will.
  */
 
+import { type Clone, type CloneDiscovery, discoverClone } from './clone'
 import { readAuthorization, realCredentialDeps } from './credential'
-import { type GitResult, git, symbolicHead, toplevel } from './git'
-import { originOf, parseHead, parseRemoteList, pickRemote } from './remote'
+import { type GitResult, git, shortRef } from './git'
 
-/** The clone `accept` was run in, reduced to what the three steps need. */
-export interface AcceptClone {
-  root: string
-  /** The remote the Proposal is fetched from and the target pushed to. */
-  remoteName: string
-  /** Scheme, host and port — what the Proposals read is addressed to. */
-  origin: string
-  repo: string
-  /** The branch HEAD is on, or `null` on a detached HEAD. */
-  branch: string | null
-}
+/**
+ * The clone `accept` was run in — one module's answer, not a fourth derivation
+ * of it (`src/clone.ts`), so `accept`, `setup` and `watch` cannot disagree
+ * about which remote this checkout belongs to.
+ */
+export type AcceptClone = Clone
 
 /**
  * One Proposal, as `GET /<name>.git/proposals` reports it (docs/adr/0018).
@@ -56,8 +51,8 @@ export interface ProposalListing {
 }
 
 export interface AcceptDeps {
-  /** Where this was run, or `null` if it was not run in a walgit clone. */
-  discover(): AcceptClone | null
+  /** Where this was run, named: a clone, a root with no walgit remote, or neither. */
+  discover(): CloneDiscovery
   /** The Proposals the host holds for this repository. */
   proposals(clone: AcceptClone): Promise<ProposalListing[]>
   /** `git …`, in the clone. */
@@ -98,12 +93,26 @@ const refuse = (message: string, code = 2): AcceptResult => ({
 })
 
 export async function runAccept(request: AcceptRequest, deps: AcceptDeps): Promise<AcceptResult> {
-  const clone = deps.discover()
-  if (clone === null) {
+  const where = deps.discover()
+  // Named apart, because they are different instructions. "You are not in a
+  // checkout" is a directory to change; "this checkout points nowhere we can
+  // accept from" is a remote to add, and telling an agent standing in a clone
+  // that it is not in one is how it goes looking for the wrong problem.
+  if (where.kind === 'no-repository') {
     return refuse(
-      'not inside a clone of a walgit repository — run accept where the target branch is checked out',
+      'not inside a git repository — run accept in the clone where the target branch is checked out',
     )
   }
+  if (where.kind === 'no-remote') {
+    const seen = where.remotes.map((remote) => `${remote.name} → ${remote.url}`)
+    return refuse(
+      `${where.root} has no walgit remote to accept from.\n` +
+        (seen.length === 0
+          ? '  it has no remotes at all'
+          : `  it has: ${seen.join(', ')}\n  add one: git remote add agentgit https://agentgit.co/<name>.git`),
+    )
+  }
+  const clone = where
   let listing: ProposalListing[]
   try {
     listing = await deps.proposals(clone)
@@ -142,7 +151,9 @@ export async function runAccept(request: AcceptRequest, deps: AcceptDeps): Promi
   }
   if (list) return acceptSignerList(clone, list, deps)
 
-  const branch = clone.branch
+  // A Proposal's target is a branch name, which is the short form of the ref
+  // discovery reports.
+  const branch = clone.ref ? shortRef(clone.ref) : null
   if (branch === null) {
     return refuse('HEAD is detached: check out the branch the Proposal targets, then accept it')
   }
@@ -385,7 +396,10 @@ function fetchOid(clone: AcceptClone, ref: string, deps: AcceptDeps): string | A
  * name the Proposals read is gated exactly as a fetch is.
  */
 export async function fetchProposals(
-  clone: AcceptClone,
+  // Only the three facts the read needs, so a caller holding a repository name
+  // and a directory — `watch --proposals` does — need not assemble a whole
+  // clone it did not discover.
+  clone: Pick<AcceptClone, 'root' | 'origin' | 'repo'>,
   token: string | null,
 ): Promise<ProposalListing[]> {
   const url = `${clone.origin}/${clone.repo}.git/proposals`
@@ -416,32 +430,16 @@ export function realAcceptDeps(
   cwd: string = process.cwd(),
   token: string | null = null,
 ): AcceptDeps {
-  // Resolved once, and by `git` as well as by `discover`, so the order the two
-  // are called in cannot change which directory a subprocess runs in.
-  let resolved: string | null | undefined
-  const root = () => (resolved ??= toplevel(cwd))
+  // Discovered once, and read by `git` as well as by `discover`, so the order
+  // the two are called in cannot change which directory a subprocess runs in.
+  let resolved: CloneDiscovery | undefined
+  const found = () => (resolved ??= discoverClone(cwd))
   return {
-    discover() {
-      const dir = root()
-      if (!dir) return null
-      const remotes = parseRemoteList(git(dir, ['remote', '-v']).stdout)
-      // The same remote `watch` subscribes to and `setup` configures, so the
-      // three commands can never disagree about which host a clone belongs to.
-      const chosen = pickRemote(remotes)
-      if (!chosen) return null
-      const url = remotes.find((remote) => remote.name === chosen.name)?.url ?? ''
-      const origin = originOf(url)
-      if (!origin) return null
-      const head = parseHead(symbolicHead(dir))
-      return {
-        root: dir,
-        remoteName: chosen.name,
-        origin,
-        repo: chosen.repo,
-        branch: head === null ? null : head.replace(/^refs\/heads\//, ''),
-      }
-    },
+    discover: found,
     proposals: (clone) => fetchProposals(clone, token),
-    git: (args) => git(root() ?? cwd, args),
+    git: (args) => {
+      const where = found()
+      return git(where.kind === 'no-repository' ? cwd : where.root, args)
+    },
   }
 }

@@ -486,17 +486,6 @@ export function watch(config: WatchConfig): Watcher {
 }
 
 /**
- * The token a deployment gate takes, from the environment.
- *
- * One reading, in one place: `watch` and `accept` present the same header, and
- * two spellings of "which variable wins" would be two deployments' worth of
- * confusion.
- */
-export function envToken(): string | null {
-  return process.env.AGENTGIT_TOKEN ?? process.env.WALGIT_TOKEN ?? null
-}
-
-/**
  * `--on`, run in the clone that just moved.
  *
  * A shell string rather than an argv, because the point is to paste whatever
