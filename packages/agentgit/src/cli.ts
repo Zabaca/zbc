@@ -17,11 +17,12 @@
  * agents cannot use. No dependencies, for the same reason.
  */
 
-import { fetchProposals, realAcceptDeps, runAccept } from './accept'
-import { parseArgs, type WatchOptions } from './args'
+import { realAcceptDeps, runAccept } from './accept'
+import { parseArgs } from './args'
 import { discoverClone } from './clone'
 import { readAuthorization, realCredentialDeps, runCredential } from './credential'
-import { agentgitEnv, envHost, envToken } from './env'
+import { agentgitEnv, envToken } from './env'
+import { resolveWatch } from './resolve'
 import { realSetupDeps, runSetup } from './setup'
 import { watch } from './watch'
 
@@ -125,122 +126,6 @@ progress are left alone. When what arrives collides with what you are in the
 middle of, it says so, and says which files.
 `
 
-function fail(message: string): never {
-  process.stderr.write(`agentgit: ${message}\n`)
-  process.exit(2)
-}
-
-/**
- * Fill in whatever was not said, from the checkout the command was run in.
- *
- * Discovery only ever ADDS: a flag or an argument that was given is never
- * overridden by what git happens to say, so an explicit invocation behaves the
- * same in a clone and out of one.
- */
-function resolve(options: WatchOptions): Parameters<typeof watch>[0] {
-  const presented = envToken(ENV)
-
-  let host = options.host ?? envHost(ENV)
-  let remoteName = 'origin'
-  /** The remote's scheme and host, for the credential the event socket needs. */
-  let origin: string | null = null
-  const targets = new Map(options.targets)
-  const refs = [...options.refs]
-
-  const needsDiscovery =
-    targets.size === 0 ||
-    host === null ||
-    (refs.length === 0 && !options.allRefs) ||
-    [...targets.values()].some((dir) => dir === '')
-
-  if (needsDiscovery) {
-    // The one discovery (`src/clone.ts`), which `accept` and `setup` also ask,
-    // so the three can never disagree about which remote a clone belongs to.
-    const found = discoverClone(process.cwd())
-    if (found.kind === 'no-repository') {
-      if (targets.size === 0)
-        fail('not inside a git repository — name a repository, or run this in a clone')
-      if (host === null)
-        fail('no --host and no $AGENTGIT_HOST, and not inside a clone to read one from')
-    } else {
-      if (found.kind === 'clone') {
-        remoteName = found.remoteName
-        host ??= found.host
-        origin = found.origin
-        if (targets.size === 0) targets.set(found.repo, found.root)
-      } else if (targets.size === 0) {
-        fail('no https remote here that looks like a walgit repository — pass <repo> and --host')
-      }
-      for (const [repo, dir] of targets) if (dir === '') targets.set(repo, found.root)
-      // A detached HEAD is not an error — an agent mid-review is a normal
-      // state — but it is no basis for a subscription, so the whole repository
-      // is watched rather than a branch nobody is on. The ref rides on both
-      // arms that have a root, so a checkout whose only remote is GitHub still
-      // gets its default when a repository was named on the command line.
-      if (refs.length === 0 && !options.allRefs && found.ref) refs.push(found.ref)
-    }
-  }
-
-  if (host === null) fail('no host: pass --host or set $AGENTGIT_HOST')
-  // A Proposal's ref names the branch it targets, so with no branch to watch
-  // there is no namespace to scope — every Proposal would be ignored, silently.
-  // Said here rather than reported as nothing: a detached HEAD is the case,
-  // and `--all-refs` is already refused at parse.
-  if (options.proposals && refs.length === 0) {
-    fail(
-      '--proposals needs a branch to aim at, and HEAD is detached: check out the ' +
-        'branch the Proposals target, or name it with --ref',
-    )
-  }
-  for (const [repo, dir] of targets) {
-    if (dir === '') fail(`no directory for ${repo}: pass ${repo}=<dir>`)
-  }
-
-  return {
-    host,
-    origin,
-    token: options.token ?? presented,
-    // Only where no token was given: a deployment token and a Read Challenge
-    // signature arrive in the same header, and presenting both is not a thing
-    // one request can do. Re-derived on every connect rather than cached — a
-    // nonce stands for five minutes, and a stale one is a socket that is
-    // refused rather than one that reconnects.
-    credential:
-      (options.token ?? presented) !== null
-        ? null
-        : () => readAuthorization(origin ?? `https://${host}`, realCredentialDeps()),
-    targets,
-    refs: options.allRefs ? [] : refs,
-    remoteName,
-    fetch: options.fetch,
-    once: options.once,
-    onChange: options.onChange,
-    ffOnClean: options.ffOnClean,
-    json: options.json,
-    proposals: options.proposals,
-    // A refusal is the host naming what it refused, and a watcher that stopped
-    // because of one did not do what it was asked. `watch` reports the stop and
-    // leaves the exit code here, so the same watcher is also a library call.
-    onDone: (reason) => {
-      if (reason === 'refused') process.exitCode = 1
-    },
-    // A Ref Event names a ref and a sha; the fingerprint that pushed a Proposal
-    // is the Proposals read's (docs/adr/0018), so it is a second call, made only
-    // under the flag and only for the repository this clone belongs to.
-    pusher: options.proposals
-      ? async ({ repo, id, target }) => {
-          const dir = targets.get(repo)
-          if (dir === undefined || origin === null) return null
-          const listing = await fetchProposals(
-            { root: dir, origin, repo },
-            options.token ?? presented,
-          )
-          return listing.find((entry) => entry.id === id && entry.target === target)?.pusher ?? null
-        }
-      : null,
-  }
-}
-
 const parsed = parseArgs(process.argv.slice(2))
 
 switch (parsed.kind) {
@@ -254,9 +139,33 @@ switch (parsed.kind) {
     process.stderr.write(`agentgit: ${parsed.message}\n\n${HELP}`)
     process.exit(2)
     break
-  case 'watch':
-    watch(resolve(parsed.options))
+  case 'watch': {
+    // Everything the invocation means is decided in `src/resolve.ts`, where a
+    // refusal is a value; what is left here is the two things that are about
+    // this process and not about the resolution — where the lines go, and what
+    // the exit code is.
+    const resolution = resolveWatch(parsed.options, {
+      env: ENV,
+      cwd: process.cwd(),
+      discover: discoverClone,
+      credential: (origin) => () => readAuthorization(origin, realCredentialDeps()),
+    })
+    if (resolution.kind === 'refusal') {
+      process.stderr.write(`agentgit: ${resolution.message}\n`)
+      process.exit(2)
+    }
+    watch({
+      ...resolution.config,
+      // A refusal is the host naming what it refused, and a watcher that
+      // stopped because of one did not do what it was asked. `watch` reports
+      // the stop and leaves the exit code here, so the same watcher is also a
+      // library call.
+      onDone: (reason) => {
+        if (reason === 'refused') process.exitCode = 1
+      },
+    })
     break
+  }
   case 'credential': {
     // git writes the request and closes the pipe; reading it to the end before
     // answering is what keeps `get` from racing its own stdout. Iterated

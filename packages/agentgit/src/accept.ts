@@ -425,6 +425,38 @@ export async function fetchProposals(
   return body.proposals ?? []
 }
 
+/**
+ * Who pushed one Proposal, for a watcher that was told about it as a ref.
+ *
+ * A Ref Event names a ref and a sha (docs/adr/0009); the fingerprint is the
+ * Proposals read's (docs/adr/0018), so it is a second call — made only under
+ * `--proposals`, and only for a repository this process actually fetched into.
+ * Where either of those is missing the answer is `null` rather than a read: an
+ * event withheld is worse than one whose pusher is unknown.
+ */
+export function proposalPusher(
+  scope: {
+    /** `repo` → the checkout it is fetched into, as the watcher resolved them. */
+    targets: ReadonlyMap<string, string>
+    /** The clone's own origin, where it named one. */
+    origin: string | null
+    token: string | null
+  },
+  read: (
+    clone: Pick<AcceptClone, 'root' | 'origin' | 'repo'>,
+    token: string | null,
+  ) => Promise<ProposalListing[]> = fetchProposals,
+): (proposal: { repo: string; id: string; target: string }) => Promise<string | null> {
+  return async ({ repo, id, target }) => {
+    const root = scope.targets.get(repo)
+    if (root === undefined || scope.origin === null) return null
+    const listing = await read({ root, origin: scope.origin, repo }, scope.token)
+    // Matched on the pair, not the id: a Proposal id is the pusher's word and
+    // the same word can aim at two branches.
+    return listing.find((entry) => entry.id === id && entry.target === target)?.pusher ?? null
+  }
+}
+
 /** The deps as they are on a real machine. */
 export function realAcceptDeps(
   cwd: string = process.cwd(),
