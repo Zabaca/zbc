@@ -229,8 +229,13 @@ export interface Plan {
   cliTag: string
   file: string
   commitMessage: string
-  /** Whether zbc-core has anything new to receive — decides if publish-core runs. */
-  needsCore: boolean
+  /**
+   * Whether zbc-core has anything new to receive. It does NOT decide whether
+   * publish-core runs — that is every release, because `init --subtree` and
+   * `update` pin zbc-core-v<cli version> exactly. 0.19.1 through 0.21.1 skipped
+   * it because the engine had not changed, and `init --subtree` failed on each.
+   */
+  coreChanged: boolean
   /** Whether the CHANGELOG already documents this version. */
   hasChangelogEntry: boolean
 }
@@ -238,7 +243,7 @@ export interface Plan {
 export function plan(world: World, bump: Bump): Plan {
   const version = nextVersion(world.version, bump)
   const commits = world.unreleasedCommits.map((line) => `  ${line}`).join('\n')
-  const needsCore = world.unreleasedPrefixCommits.length > 0
+  const coreChanged = world.unreleasedPrefixCommits.length > 0
   const commitMessage = [
     releaseSubject(version),
     '',
@@ -247,11 +252,11 @@ export function plan(world: World, bump: Bump): Plan {
     '',
     commits,
     '',
-    needsCore
+    coreChanged
       ? `${world.unreleasedPrefixCommits.length} of them touch ${PREFIX}/, so ${tagFor(version)} ` +
         'names them for consumers vendoring the subtree.'
-      : `Nothing under ${PREFIX}/ changed, so this is an npm-only release — consumers ` +
-        'vendoring the subtree have nothing to re-pull.',
+      : `Nothing under ${PREFIX}/ changed, so ${tagFor(version)} lands on zbc-core's ` +
+        'existing head — consumers vendoring the subtree have nothing to re-pull.',
     '',
   ].join('\n')
   return {
@@ -260,7 +265,7 @@ export function plan(world: World, bump: Bump): Plan {
     cliTag: cliTagFor(version),
     file: VERSION_FILE,
     commitMessage,
-    needsCore,
+    coreChanged,
     hasChangelogEntry: world.changelogVersions.includes(version),
   }
 }
@@ -345,7 +350,7 @@ if (import.meta.main) {
   const refusals = checkRelease(world, p.version)
 
   console.log(`current  ${world.version}`)
-  console.log(`release  ${p.version}  →  ${p.cliTag}${p.needsCore ? ` + ${p.tag}` : ''}`)
+  console.log(`release  ${p.version}  →  ${p.cliTag} + ${p.tag}`)
   console.log(`covering ${world.unreleasedCommits.length} commit(s) under ${PACKAGE}/`)
   // Bounded, because the count is unbounded when no release commit exists to
   // measure from — a version bumped inside a feature PR rather than by a
@@ -358,9 +363,9 @@ if (import.meta.main) {
     console.log(`  … and ${world.unreleasedCommits.length - LISTED} more`)
   }
   console.log(
-    p.needsCore
-      ? `\ncore     ${world.unreleasedPrefixCommits.length} of them touch ${PREFIX}/ — publish-core needed`
-      : `\ncore     nothing under ${PREFIX}/ — npm-only release`,
+    p.coreChanged
+      ? `\ncore     ${world.unreleasedPrefixCommits.length} of them touch ${PREFIX}/ — ${p.tag} names new engine code`
+      : `\ncore     nothing under ${PREFIX}/ — ${p.tag} lands on zbc-core's existing head (still required)`,
   )
   // Not a refusal. The CHANGELOG's own header says it is for releases a
   // consumer has to read before upgrading, so most releases correctly have no
@@ -399,7 +404,7 @@ if (import.meta.main) {
 
   console.log(`\npushed main and ${p.cliTag}. Nothing is published yet — that is the point.`)
   console.log('\nNext:')
-  console.log(`  cd packages/cli && bun run publish:npm      # never npm publish`)
-  if (p.needsCore) console.log(`  gh workflow run publish-core.yml           # tags ${p.tag}`)
+  console.log(`  gh workflow run publish-npm.yml            # never publish locally`)
+  console.log(`  gh workflow run publish-core.yml           # tags ${p.tag} — every release`)
   console.log(`  gh workflow run production.yml -f instances=<scope|ALL>`)
 }

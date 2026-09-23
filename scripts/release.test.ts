@@ -121,7 +121,7 @@ describe('checkRelease', () => {
   // The npm surface is wider than the vendored one. An engine-only change
   // ships a real new CLI while zbc-core has nothing to receive, and refusing
   // that is exactly how #115 went unpublished.
-  test('an npm-only release is allowed — nothing under the split prefix is not nothing', () => {
+  test('a release with no engine change is allowed — nothing under the split prefix is not nothing', () => {
     expect(codes({ unreleasedPrefixCommits: [] })).not.toContain('nothing-to-release')
   })
 
@@ -147,9 +147,9 @@ describe('plan', () => {
     expect(p.file).toBe('packages/cli/package.json')
   })
 
-  test('needsCore decides whether publish-core has anything to do', () => {
-    expect(p.needsCore).toBe(true)
-    expect(plan({ ...clean, unreleasedPrefixCommits: [] }, 'patch').needsCore).toBe(false)
+  test('coreChanged reports whether zbc-core receives new engine code', () => {
+    expect(p.coreChanged).toBe(true)
+    expect(plan({ ...clean, unreleasedPrefixCommits: [] }, 'patch').coreChanged).toBe(false)
   })
 
   // Not a refusal — the CHANGELOG documents only releases a consumer must read
@@ -160,9 +160,12 @@ describe('plan', () => {
     expect(plan({ ...clean, changelogVersions: ['0.10.7'] }, 'patch').hasChangelogEntry).toBe(true)
   })
 
-  test('an npm-only release says so, rather than implying a subtree pull', () => {
-    const npmOnly = plan({ ...clean, unreleasedPrefixCommits: [] }, 'patch')
-    expect(npmOnly.commitMessage).toContain('npm-only release')
+  // init --subtree and update pin zbc-core-v<cli version> exactly, so an
+  // unchanged engine still gets its tag — it just names the commit consumers have.
+  test('an unchanged engine still names its core tag, rather than implying a subtree pull', () => {
+    const unchanged = plan({ ...clean, unreleasedPrefixCommits: [] }, 'patch')
+    expect(unchanged.commitMessage).toContain("zbc-core-v0.10.7 lands on zbc-core's existing head")
+    expect(unchanged.commitMessage).not.toContain('npm-only')
   })
 
   test('follows the commit convention every past release used', () => {

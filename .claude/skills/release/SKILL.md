@@ -51,9 +51,8 @@ Read what it prints before deciding anything else:
 
 - **`covering N commit(s)`** — what npm would receive. Pick the bump from these:
   patch for fixes, minor for a new command, module or flag, major for a break.
-- **`core …`** — whether `templates/infra/` changed. If it says *npm-only
-  release*, skip `publish-core` entirely in step 5; dispatching it would tag a
-  split commit consumers already have.
+- **`core …`** — whether `templates/infra/` changed. This decides what the
+  zbc-core tag *contains*, never whether step 5 runs: step 5 runs every release.
 - **`changelog …`** — whether `packages/cli/CHANGELOG.md` documents this version.
 
 ### 2. Write the CHANGELOG entry — or decide it needs none
@@ -120,7 +119,7 @@ Two things the local path used to be for, and where they went:
   clean checkout regardless. A correct package is **~1.6 MB across 212 files**;
   check it in the workflow log.
 
-### 5. Tag zbc-core — only if the preflight said so
+### 5. Tag zbc-core — every release, engine changed or not
 
 ```sh
 gh workflow run publish-core.yml
@@ -133,6 +132,14 @@ tags `zbc-core-v<version>`.
 `packages/cli/package.json`, which is *outside* the split prefix, so the split
 produces no new commit. A consumer tracking main has nothing to re-pull — the
 tag just gives them a name for the commit they have.
+
+**That name is not optional.** `zbc init --subtree` and `zbc update` pin
+`zbc-core-v<cli version>` exactly, with no fallback to an older tag. This step
+used to say "only if the preflight said so", and 0.19.1, 0.20.0, 0.21.0 and
+0.21.1 all skipped it because nothing under the prefix had changed — so
+`init --subtree` failed on every one of them until a consumer hit it on
+2026-09-23. A tag on a commit consumers already have costs nothing; a missing
+one blocks every new consumer on that CLI.
 
 ### 6. Deploy production
 
