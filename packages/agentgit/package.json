@@ -11,6 +11,11 @@
     "webhook"
   ],
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Zabaca/zbc.git",
+    "directory": "packages/agentgit"
+  },
   "bin": {
     "agentgit": "./dist/agentgit.js"
   },

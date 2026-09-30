@@ -3,6 +3,11 @@
   "version": "0.1.0",
   "description": "A Claude Agent SDK configuration that sends 97% fewer input tokens than the defaults, plus sandboxed and remote profiles",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Zabaca/zbc.git",
+    "directory": "packages/agent"
+  },
   "type": "module",
   "publishConfig": {
     "access": "public"

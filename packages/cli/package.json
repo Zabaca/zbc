@@ -3,6 +3,11 @@
   "version": "0.22.0",
   "description": "Zabaca stack CLI — scaffold and deploy infrastructure",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Zabaca/zbc.git",
+    "directory": "packages/cli"
+  },
   "type": "module",
   "bin": {
     "zbc": "./bin/zbc.js"

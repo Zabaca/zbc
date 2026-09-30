@@ -13,31 +13,49 @@
 # agentgit homepage prints `bunx @zabaca/agentgit watch` as the one command it
 # asks anyone to run. A version in the repo that is not on npm is that command
 # failing for every visitor, which is worse than a stale CLI — it is a broken
-# promise on the front page. Its first publish was attempted by hand and
-# REFUSED — npm requires a token with 2FA bypass, which the CI credential has
-# and a personal login does not — so a package this repository ships had no way
-# to reach npm at all until it was in here.
+# promise on the front page.
 #
-# Both are triggered on the version file alone, not on the sources, so a change
-# without a release does not attempt a publish it would only skip. The matrix
-# runs every package on any of those triggers, which is deliberate: the
+# The matrix runs every package on every dispatch, which is deliberate: the
 # already-published check makes the others a no-op, and a version that was
 # missed heals on the next release of anything.
+#
+# ── Trusted publishing, since 2026-09-30 ──────────────────────────────────
+# There is no npm token. Each package names this repository and this workflow
+# file as its trusted publisher on npmjs.com, and the publish job proves it is
+# that workflow with a GitHub OIDC token minted for the run. It replaced a
+# granular token with 2FA bypass, for two reasons at once: that token expired
+# under a 0.22.0 publish (a 404 from the registry, which is how npm refuses a
+# credential for a scoped package), and npm is withdrawing publish rights from
+# 2FA-bypass tokens altogether around January 2027
+# (https://github.blog/changelog/2026-07-08-npm-install-time-security-and-gat-bypass2fa-deprecation/).
+#
+# That shapes the whole file, in three ways:
+#
+#   - **Two jobs, not one.** npm accepts OIDC only from GitHub-HOSTED runners,
+#     and @zabaca/agent's tests only run on a self-hosted one (see its matrix
+#     entry). So `pack` tests and packs each package wherever it must, and
+#     `publish` uploads the tarball from a hosted runner. The tarball crosses as
+#     an artifact, so what is published is byte-for-byte what was tested.
+#   - **bun packs, npm publishes.** Only the npm CLI speaks trusted publishing.
+#     But `npm publish` from the package directory drops `bin/zbc.js` — "bin[zbc]
+#     script name bin/zbc.js was invalid and removed" (npm 11.6.2, 2026-09-30)
+#     — which ships a CLI with no command. Handed a tarball `bun pm pack` built,
+#     the same npm reports no correction. The dry run before the real publish
+#     refuses if npm ever starts rewriting that manifest too.
+#   - **Provenance is automatic**, because the repository is public. npm then
+#     insists each package.json's `repository.url` names this repository, and
+#     refuses the publish when it does not.
 name: publish-npm
 
 # **Manual only since 2026-09-03**, when releasing moved out of merging and into
-# `/release`. That skill publishes the CLI from the releaser's machine, so this
-# is no longer the usual path — but it stays, and stays wired to every package,
-# for the reason agentgit's first publish existed at all: npm wants a token with
-# 2FA bypass, which this credential has and a personal login does not. When a
-# local `bun publish` is refused, dispatching this is the way the package ships.
+# `/release`, which dispatches this.
 on:
   workflow_dispatch:
 
 concurrency: publish-npm
 
 jobs:
-  publish:
+  pack:
     # Per package, because only one of them needs a particular machine. The
     # matrix sets it; `ubuntu-latest` stays the default for anything that does
     # not ask. See `runner` on the @zabaca/agent entry below.
@@ -51,6 +69,7 @@ jobs:
       matrix:
         include:
           - package: '@zabaca/zbc'
+            slug: zbc
             dir: packages/cli
             # What ships is what this covers. A version-only bump does not touch
             # `templates/infra`, so core-tests.yml does not fire on a release
@@ -59,6 +78,7 @@ jobs:
             test: bun test packages/cli/templates/infra
             build: ''
           - package: '@zabaca/agentgit'
+            slug: agentgit
             dir: packages/agentgit
             # The published artefact is a bundle, and the suite builds it the
             # way `build` does and runs it under node. That is the only check
@@ -67,6 +87,7 @@ jobs:
             test: bun test packages/agentgit/src
             build: bun run build
           - package: '@zabaca/agent'
+            slug: agent
             dir: packages/agent
             # The one job that cannot run on a hosted runner. Its tests drive
             # the real sandbox rather than a stub, and `@anthropic-ai/sandbox-
@@ -81,6 +102,9 @@ jobs:
             # would also have worked, and is the right answer for a fleet with
             # no such machine; this repo has one, and six sibling repos already
             # use it.
+            #
+            # Only packing happens here. The publish itself cannot: npm refuses
+            # OIDC from a self-hosted runner.
             runner: [self-hosted, ryzen]
             # First consumer outside the workspace is the Zabaca fork of
             # claude-mem, which installs from npm — so unlike the other two
@@ -88,7 +112,7 @@ jobs:
             # consumer's own bundler wants the SDK as a real dependency.
             test: bun test packages/agent/src
             build: bun run build
-    name: ${{ matrix.package }}
+    name: pack ${{ matrix.package }}
     steps:
       - uses: actions/checkout@v4
 
@@ -113,38 +137,116 @@ jobs:
             echo "published=no" >> "$GITHUB_OUTPUT"
           fi
 
-      # Only for a package that has one. Building in the publish step rather
-      # than relying on a committed `dist/` is what keeps the artefact on npm
+      # Only for a package that has one. Building in the pack job rather than
+      # relying on a committed `dist/` is what keeps the artefact on npm
       # identical to the source this commit tested.
       - name: Build the artefact
         if: steps.state.outputs.published == 'no' && matrix.build != ''
         working-directory: ${{ matrix.dir }}
         run: ${{ matrix.build }}
 
-      - name: Publish
+      # `bun pm pack` is the packer `bun publish` used, so the tarball holds
+      # what the token-era workflow shipped. A correct @zabaca/zbc is ~2 MB
+      # unpacked; its file list is in this step's log.
+      - name: Pack
         if: steps.state.outputs.published == 'no'
-        env:
-          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
         working-directory: ${{ matrix.dir }}
         run: |
-          # Checked here rather than in an `if:`, because a step's own `env` is
-          # not in scope for that step's own condition — written that way first,
-          # the guard fired on every run including the ones with a credential.
-          #
-          # And loudly, not silently: a missing credential that skipped quietly
-          # is the exact shape of the gap this workflow exists to close.
-          # publish-core.yml's tag step printed "already published — skipping"
-          # for two releases and nobody saw it.
-          if [ -z "${NPM_TOKEN}" ]; then
-            echo "::error::NPM_TOKEN is not set on this repository, so ${{ matrix.package }}@${{ steps.state.outputs.version }} cannot be published."
+          rm -rf "${RUNNER_TEMP}/pack" && mkdir -p "${RUNNER_TEMP}/pack"
+          bun pm pack --destination "${RUNNER_TEMP}/pack"
+          count=$(find "${RUNNER_TEMP}/pack" -name '*.tgz' | wc -l)
+          if [ "${count}" -ne 1 ]; then
+            echo "::error::expected one tarball for ${{ matrix.package }}, found ${count}"
             exit 1
           fi
-          printf '//registry.npmjs.org/:_authToken=%s\n' "${NPM_TOKEN}" > ~/.npmrc
-          bun publish --access public
-          rm -f ~/.npmrc
+
+      - name: Hand the tarball to the publish job
+        if: steps.state.outputs.published == 'no'
+        uses: actions/upload-artifact@v4
+        with:
+          name: tarball-${{ matrix.slug }}
+          path: ${{ runner.temp }}/pack/*.tgz
+          if-no-files-found: error
+          retention-days: 1
+
+  publish:
+    needs: pack
+    # A failed pack elsewhere in the matrix must not hold back a package whose
+    # own pack succeeded — the same reason `fail-fast` is off above. A package
+    # with no tarball has nothing to publish, and its leg says so and stops;
+    # the run is already red from the pack that failed.
+    if: ${{ !cancelled() }}
+    # GitHub-hosted, always: npm refuses trusted publishing from anything else.
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - package: '@zabaca/zbc'
+            slug: zbc
+          - package: '@zabaca/agentgit'
+            slug: agentgit
+          - package: '@zabaca/agent'
+            slug: agent
+    name: publish ${{ matrix.package }}
+    steps:
+      - name: Fetch the tarball
+        id: fetch
+        # Absent when the pack job found the version already on npm, or failed.
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          name: tarball-${{ matrix.slug }}
+          path: ${{ runner.temp }}/pack
+
+      - name: Anything to publish?
+        id: state
+        run: |
+          TARBALL=$(find "${RUNNER_TEMP}/pack" -name '*.tgz' 2>/dev/null | head -1)
+          if [ -z "${TARBALL}" ]; then
+            echo "publish=no" >> "$GITHUB_OUTPUT"
+            echo "no tarball for ${{ matrix.package }} — already on npm, or its pack failed (see the pack job)"
+            exit 0
+          fi
+          VERSION=$(tar -xzOf "${TARBALL}" package/package.json | jq -r .version)
+          echo "publish=yes" >> "$GITHUB_OUTPUT"
+          echo "tarball=${TARBALL}" >> "$GITHUB_OUTPUT"
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+
+      # Trusted publishing needs npm >= 11.5.1 and node >= 22.14. No
+      # `registry-url` here: it would write an .npmrc expecting a token.
+      - uses: actions/setup-node@v4
+        if: steps.state.outputs.publish == 'yes'
+        with:
+          node-version: 24
+
+      - name: Install an npm that speaks OIDC
+        if: steps.state.outputs.publish == 'yes'
+        run: |
+          npm install -g npm@^11.5.1
+          npm --version
+
+      # The shebang guard. A dry run prints what npm would change about the
+      # manifest; any correction at all means the published package would not
+      # be the one bun packed — for @zabaca/zbc, a CLI with no `zbc` command.
+      - name: Refuse if npm would rewrite the manifest
+        if: steps.state.outputs.publish == 'yes'
+        run: |
+          npm publish --dry-run --access public "${{ steps.state.outputs.tarball }}" 2>&1 | tee "${RUNNER_TEMP}/dry-run.log"
+          if grep -qiE 'auto-corrected|was invalid and removed' "${RUNNER_TEMP}/dry-run.log"; then
+            echo "::error::npm would rewrite ${{ matrix.package }}'s package.json on publish — see the lines above. Not publishing."
+            exit 1
+          fi
+
+      - name: Publish
+        if: steps.state.outputs.publish == 'yes'
+        run: npm publish --access public "${{ steps.state.outputs.tarball }}"
 
       - name: Confirm it landed
-        if: steps.state.outputs.published == 'no'
+        if: steps.state.outputs.publish == 'yes'
         run: |
           VERSION="${{ steps.state.outputs.version }}"
           # The publish command's exit code is not the same as the registry
