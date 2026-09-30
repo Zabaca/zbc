@@ -241,9 +241,14 @@ jobs:
             exit 1
           fi
 
+      # Verbose, because a failed OIDC exchange is otherwise silent: npm drops
+      # to publishing with no credential and reports only `ENEEDAUTH` — which
+      # is all the first trusted-publishing run said. The `oidc` lines at this
+      # level carry the registry's actual reason, typically a trusted-publisher
+      # setting on npmjs.com that does not match this repository or workflow.
       - name: Publish
         if: steps.state.outputs.publish == 'yes'
-        run: npm publish --access public "${{ steps.state.outputs.tarball }}"
+        run: npm publish --access public --loglevel verbose "${{ steps.state.outputs.tarball }}"
 
       - name: Confirm it landed
         if: steps.state.outputs.publish == 'yes'
