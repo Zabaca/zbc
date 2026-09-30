@@ -115,6 +115,13 @@ the npmjs.com setting is updated to match. A publish refused with a `404` for a
 package that plainly exists is npm refusing the credential, not a missing
 package.
 
+A green run means npm **accepted** the version, not that it is installable yet.
+npm holds each new version as "Validating" on the package's versions tab for an
+automated review (0.22.0 was still held after three minutes). Wait for it to
+show Published before the production deploy, and do not re-dispatch the
+workflow meanwhile — `npm view` cannot see a held version, so the run would
+try to publish it again.
+
 Two things the local path used to be for, and where they went:
 
 - **The bun shebang.** `npm publish` run from `packages/cli` drops the `zbc`

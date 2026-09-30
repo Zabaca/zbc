@@ -246,33 +246,15 @@ jobs:
       # is all the first trusted-publishing run said. The `oidc` lines at this
       # level carry the registry's actual reason, typically a trusted-publisher
       # setting on npmjs.com that does not match this repository or workflow.
+      #
+      # This step's exit code is the last thing the run checks. The registry
+      # answers a trusted publish with `202 Accepted` and holds the version as
+      # "Validating" for an automated review first; 0.22.0 was still there
+      # after three minutes, so a polling step can only turn a good publish
+      # red. Watch the versions tab on npmjs.com instead — and do not
+      # re-dispatch while a version is Validating: `npm view` does not see it
+      # yet, so this run would try to publish it a second time.
       - name: Publish
         if: steps.state.outputs.publish == 'yes'
         run: npm publish --access public --loglevel verbose "${{ steps.state.outputs.tarball }}"
 
-      - name: Confirm it landed
-        if: steps.state.outputs.publish == 'yes'
-        run: |
-          VERSION="${{ steps.state.outputs.version }}"
-          # The publish command's exit code is not the same as the registry
-          # holding the version; check the thing consumers will actually resolve.
-          #
-          # Five seconds apart for five tries was enough for a package npm
-          # already knew, and not for a new one. @zabaca/agentgit@0.1.0
-          # published cleanly and this step failed the build: the tarball was
-          # already served, `npm access` already listed the package, and only
-          # the packument — the document `npm view` and `npx` read — was still
-          # propagating. It took minutes, not seconds.
-          #
-          # So the window is now three minutes with a widening gap, and a
-          # failure here means the version is genuinely absent rather than
-          # merely young.
-          for wait in 5 5 10 10 15 15 20 30 30 40 0; do
-            if npm view "${{ matrix.package }}@${VERSION}" version >/dev/null 2>&1; then
-              echo "${{ matrix.package }}@${VERSION} is live"
-              exit 0
-            fi
-            sleep "${wait}"
-          done
-          echo "::error::publish reported success but ${{ matrix.package }}@${VERSION} still does not resolve after three minutes"
-          exit 1
