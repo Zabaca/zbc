@@ -104,15 +104,26 @@ npm is restricting tokens that bypass two-factor authentication for direct
 publishing (https://gh.io/npm-gat-bypass2fa-deprecation), so a personal token
 stages a publish and waits for a confirmation it cannot give. 0.16.2 and 0.16.3
 were both burned this way on 2026-09-14, one after the other, because the first
-failure looked like a size problem rather than an auth one. The workflow's
-credential is the supported path.
+failure looked like a size problem rather than an auth one.
+
+The workflow has no token either. Since 2026-09-30 it publishes by **trusted
+publishing (OIDC)**: each package on npmjs.com names `Zabaca/zbc` and
+`publish-npm.yml` as its trusted publisher, and the run proves it is that
+workflow. So there is no credential to expire or rotate — but renaming the
+workflow file, or moving the publish into a reusable workflow, breaks it until
+the npmjs.com setting is updated to match. A publish refused with a `404` for a
+package that plainly exists is npm refusing the credential, not a missing
+package.
 
 Two things the local path used to be for, and where they went:
 
-- **The bun shebang.** `npm publish` strips it from `bin/zbc.js` and breaks the
-  CLI for everyone. The workflow runs `bun publish`, so this is handled — but if
-  you are ever tempted to publish by hand, it is still `bun`, never `npm`.
-- **What gets packed.** `bun publish` packs from disk, so a local publish
+- **The bun shebang.** `npm publish` run from `packages/cli` drops the `zbc`
+  bin entry ("was invalid and removed") and ships a CLI with no command. The
+  workflow packs with `bun pm pack` and hands npm the tarball, which it uploads
+  unchanged, and a dry run refuses the publish if npm ever reports correcting
+  the manifest. If you are ever tempted to publish by hand, never run
+  `npm publish` in the package directory.
+- **What gets packed.** `bun pm pack` packs from disk, so a local publish
   carries whatever is installed under `templates/apps/*/node_modules` —
   0.16.0 and 0.16.1 shipped at 302 MB across 2901 files for exactly this reason.
   `!templates/**/node_modules` in the `files` list closes it, and CI packs a
