@@ -20,9 +20,12 @@
  * here instead — off the serving path, and only for what the log cannot answer
  * (shared/telemetry.ts).
  *
- * Reads are proxied like everything else. Serving a fetch straight from R2 at
- * the edge, without waking the container, is a real optimisation and
- * deliberately not in this milestone.
+ * Reads are proxied like everything else, with one exception: a protocol-v2
+ * ref check — `info/refs` and the `ls-refs` after it — is answered here off the
+ * Index (shared/edge-refs.ts), because polling agents send little else and each
+ * poll kept the container awake. Serving a fetch straight from R2 at the edge,
+ * without waking the container, is a real optimisation and deliberately not in
+ * this milestone.
  */
 
 import { AwsClient } from 'aws4fetch'
@@ -74,6 +77,7 @@ import {
   type RequestMetric,
 } from '../shared/telemetry'
 import { browseResponse } from '../shared/browse'
+import { refsAtEdge, uploadPackKeyFor } from '../shared/edge-refs'
 import { BROADCAST_PATH, EVENTS_OBJECT_NAME, WalgitEvents } from './events-do'
 import { handleMcp } from './mcp'
 // The card's picture, as bytes in the bundle (wrangler.jsonc's `Data` rule).
@@ -886,13 +890,49 @@ export default {
       return edgeNotFound(request.method)
     }
 
+    // A protocol-v2 ref check — the advertisement, or the `ls-refs` after it —
+    // answered off the Index without waking the container (`shared/edge-refs.ts`).
+    // It is nearly all of a public deployment's git traffic: agents polling one
+    // ref, each poll keeping the container awake for another `sleepAfter`.
+    //
+    // Only on a public deployment, for the reason the 404 above is: a
+    // token-gated container answers a stranger 401 before it reads the path,
+    // and nothing here may get ahead of that. Everything `refsAtEdge` is not
+    // sure of comes back as a request to forward — the original, or, when the
+    // body had to be read to be sure, a rebuilt one carrying the same bytes.
+    let forwardable = request
+    if (caps.publicAccess && (facts.kind === 'clone-advertise' || facts.kind === 'clone')) {
+      const edge = await refsAtEdge(request, {
+        publicAccess: caps.publicAccess,
+        store: edgeStore(env),
+        recordKey: uploadPackKeyFor(env),
+      })
+      if (edge.response) {
+        record(env, ctx, {
+          ...base(facts, request),
+          outcome: 'ok',
+          reject: '',
+          status: edge.response.status,
+          // Not the container, which is the property this branch exists to
+          // create — the same claim the landing page and the list make.
+          served: false,
+          cold: false,
+          ttfbMs: Date.now() - startedAt,
+          totalMs: Date.now() - startedAt,
+          bytesServed: edge.bytes,
+        })
+        return edge.response
+      }
+      forwardable = edge.request
+    }
+
     // The container's expiry endpoint trusts INTERNAL_HEADER to mean "the
     // scheduled handler asked". That is only true because this line makes it
     // true: every request arriving from the internet has the header removed
     // before it is proxied, whatever the client set it to. Done for ALL paths,
     // not just the one, so a future internal endpoint inherits the guarantee
     // instead of having to remember it.
-    const forwarded = stripInternal(request)
+    const forwarded = stripInternal(forwardable)
 
     let response: Response
     try {
