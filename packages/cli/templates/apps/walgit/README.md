@@ -694,6 +694,13 @@ snippet creates no profile for an anonymous reader; session replay follows
 the PostHog project's own setting. Unset, the page carries no script at all (`analyticsFrom`,
 `shared/analytics.ts`).
 
+`WALGIT_SLEEP_AFTER` is how long the container idles before it stops — `20m`
+unless set, in the library's syntax (`90s`, `5m`, `1h`; anything else is
+ignored). Every request that reaches the container buys that much time for the
+container and the Durable Object in front of it, so on a quiet deployment it is
+most of the bill; shorter trades that for cold starts. Edge-only, so changing it
+restarts nothing (`shared/sleep-after.ts`).
+
 For the three boolean flags — `WALGIT_APPEND_ONLY`, `WALGIT_PUBLIC` and
 `WALGIT_SIGNER_LISTS` — **on means `1` or `true`, and nothing else**
 (`flagEnabled`, `shared/policy.ts`). An unrecognised value (`yes`, `on`, `TRUE`)

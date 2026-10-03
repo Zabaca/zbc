@@ -35,6 +35,7 @@ import { authorizeAnnounce, authorizeSubscribe } from '../shared/events'
 import { renderLanding, wantsLanding } from '../shared/landing'
 import { renderLlms, wantsLlms } from '../shared/llms'
 import { renderInstructions } from '../shared/instructions'
+import { sleepAfterFrom } from '../shared/sleep-after'
 import { indexKey } from '../shared/keys'
 import {
   FAVICON_BODY,
@@ -191,6 +192,8 @@ export interface Env {
   WALGIT_POSTHOG_KEY?: string
   WALGIT_POSTHOG_HOST?: string
   WALGIT_POSTHOG_UI_HOST?: string
+  /** How long the container idles before it stops (`shared/sleep-after.ts`). */
+  WALGIT_SLEEP_AFTER?: string
   WALGIT_EVENTS: DurableObjectNamespace<WalgitEvents>
 }
 
@@ -219,8 +222,10 @@ export class WalgitContainer extends Container<Env> {
 
   // A clone of a cold repository has to materialize it from the log first, and
   // a large push writes a pack before it is acknowledged. Neither is fast, and
-  // both are the normal path here rather than an edge case.
-  sleepAfter = '20m'
+  // both are the normal path here rather than an edge case. So the default is
+  // generous, and an instance whose traffic makes idle time the larger cost
+  // sets its own (`shared/sleep-after.ts`).
+  sleepAfter = sleepAfterFrom(this.env)
 
   // The container is a separate process on a separate machine: `wrangler secret
   // put` reaches this Worker and stops there. Forwarding is what gives the push

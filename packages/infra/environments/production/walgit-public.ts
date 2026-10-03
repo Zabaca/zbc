@@ -462,6 +462,15 @@ export default cloudflareModule.instance({
       // host says which PostHog region owns the project.
       { name: 'WALGIT_POSTHOG_KEY', value: 'phc_tvfFcfPyMXbCMCQEvFLp7sVPooGUL7ZBQeG9ktM4agZh' },
       { name: 'WALGIT_POSTHOG_HOST', value: 'https://d.agentgit.co' },
+      // ── idle stop ────────────────────────────────────────────────────────
+      //
+      // Five minutes, not the template's twenty. Traffic here is a handful of
+      // agents checking a ref, minutes apart, and each one bought twenty
+      // minutes of container and Durable Object time: modelled on Sep 26–Oct 2
+      // it is ~8 h/day awake against ~11, for ~37 cold starts a day against ~4.
+      // A cold start is a few seconds plus a materialize, which an agent
+      // waiting on `git` tolerates. Edge-only, so changing it restarts nothing.
+      { name: 'WALGIT_SLEEP_AFTER', value: '5m' },
       // ── ref events ───────────────────────────────────────────────────────
       //
       // Where the container announces a push TO — this deployment's own public
