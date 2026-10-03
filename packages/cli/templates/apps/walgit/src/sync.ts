@@ -23,7 +23,7 @@
 
 import type { ObjectStore } from '../shared/store'
 import type { ResolvedRepo } from './repo'
-import { isPartial, materialize, type MaterializeStats } from './materialize'
+import { ensureHead, isPartial, materialize, type MaterializeStats } from './materialize'
 import { reconcile, type ReconcileResult } from './reconcile'
 import { loadIndex } from '../shared/wal-index'
 
@@ -47,7 +47,15 @@ export async function syncRepo(
   // `isPartial` covers the case reconcile cannot see: an interrupted restore
   // that happened to finish placing the packs its refs need, but died before
   // the rest. The marker is the only evidence, so it is trusted over the refs.
-  if (reconciled.missing.length === 0 && !isPartial(repo.dir)) return reconciled
+  if (reconciled.missing.length === 0 && !isPartial(repo.dir)) {
+    // HEAD as well as the refs, on every access and not only on a restore: a
+    // push moves refs without touching HEAD, so a first push of `feature`
+    // leaves it on the unborn `main` `git init` chose until something points
+    // it at the Default Branch — and the edge, answering `ls-refs` from the
+    // Index, already reports that branch (`shared/edge-refs.ts`).
+    ensureHead(repo.dir, index.refs)
+    return reconciled
+  }
 
   const result = await materialize(store, repo, index)
   return { ...result.reconciled, materialize: result.stats }

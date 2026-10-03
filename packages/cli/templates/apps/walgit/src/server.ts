@@ -16,6 +16,7 @@ import { parseTokens } from '../shared/credentials'
 import { listCommits, listTree, readBlob, statBlob } from './browse'
 import { clearBootResidue } from './boot-residue'
 import { ensureBareRepo } from './cache'
+import { publishUploadPackAtBoot } from './edge-refs'
 import { configuredExpiryMs, expireRepos } from './expire'
 import { createHttpHandler } from './http'
 import { privateReposConfigError, privateReposEnabled, privateReposSeed } from './private'
@@ -310,6 +311,12 @@ if (residue.cleared.length > 0) {
 }
 
 const server = Bun.serve({ port, idleTimeout: 0, fetch: handler })
+
+// What this image's git advertises, published for the edge to answer ref
+// checks with while this container sleeps (`src/edge-refs.ts`). After the
+// listener is up and never awaited: the request that woke this container is
+// served the ordinary way either way, and so is every one until this lands.
+if (store) void publishUploadPackAtBoot(store)
 
 // The container's idle stop is a SIGTERM (`stopContainer` in
 // worker/durable-container.ts), and this process is PID 1, which the kernel

@@ -439,6 +439,25 @@ A repository is created on first contact: pushing to a name nobody has used
 creates it, with `receive.unpackLimit=0` so even a tiny push is retained as a
 packfile (what the WAL will upload).
 
+### Ref checks at the edge
+
+An agent polling a ref (`git ls-remote`) sends a protocol-v2 `info/refs` and
+then `command=ls-refs`. On a public deployment the Worker answers both itself,
+off `index.json`, without waking the container (`shared/edge-refs.ts`) — the
+bytes are those the container's git would send: the advertisement and the
+headers are the container's own, published to the store at boot under
+`walgit/upload-pack-v2/<env fingerprint>.json` (`src/edge-refs.ts`), and the
+refs and `HEAD` come from the Index, with `HEAD` on the Default Branch on both
+sides (`ensureHead` now asserts it on every access). Everything else is
+forwarded unchanged: a v0/v1 client, a fetch, a token-gated deployment, a
+Private name, an empty one, `peel` where a non-branch ref is listed, and any
+request shape not shown equivalent in `src/edge-refs.test.ts`.
+
+It needs `WALGIT_BUILD_ID` (the `cloudflare` module's `deployIdVar`). Without a
+deploy id an image-only deploy keeps the environment fingerprint, and the edge
+could serve one git's advertisement in front of another — so it answers
+nothing and every ref check reaches the container, as before.
+
 ### The MCP endpoint
 
 `/_walgit/mcp` is a Model Context Protocol server over Streamable HTTP
