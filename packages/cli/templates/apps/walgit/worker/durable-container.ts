@@ -387,13 +387,13 @@ export class WalgitDurableContainer extends DurableObject<ContainerHostEnv> {
 
     const begun = Date.now()
     if (plan.from === 'snapshot' && record) {
+      // Recorded BEFORE the start, not after: a deploy can reset this object
+      // between the container coming up and the write that would follow, and a
+      // container nobody recorded is one the next stop declines to snapshot.
+      await this.ctx.storage.put({ [BOOTED_IMAGE_KEY]: image, [BOOTED_FROM_KEY]: 'snapshot' })
       const failure = await this.startFrom({ snapshotId: plan.id }, READY_TIMEOUT_MS)
       if (failure === null) {
-        await this.ctx.storage.put<string | SnapshotRecord>({
-          [SNAPSHOT_KEY]: refreshSnapshot(record, Date.now()),
-          [BOOTED_IMAGE_KEY]: image,
-          [BOOTED_FROM_KEY]: 'snapshot',
-        })
+        await this.ctx.storage.put(SNAPSHOT_KEY, refreshSnapshot(record, Date.now()))
         this.started('snapshot')
         return
       }
@@ -411,12 +411,14 @@ export class WalgitDurableContainer extends DurableObject<ContainerHostEnv> {
     // start) in seconds, and the next request makes the next attempt — which
     // is also the retry the docs ask for after a stop, without making any one
     // client wait through several.
+    // Recorded before the start, for the reason the restore above is.
+    await this.ctx.storage.put({ [BOOTED_IMAGE_KEY]: image, [BOOTED_FROM_KEY]: 'image' })
     const failure = await this.startFrom({ image }, freshStartTimeoutMs(Date.now() - begun))
     if (failure !== null) {
       console.error(`walgit container: start failed (${failure})`)
+      await this.ctx.storage.delete([BOOTED_IMAGE_KEY, BOOTED_FROM_KEY])
       throw new Error(failure)
     }
-    await this.ctx.storage.put({ [BOOTED_IMAGE_KEY]: image, [BOOTED_FROM_KEY]: 'image' })
     this.started('image')
   }
 

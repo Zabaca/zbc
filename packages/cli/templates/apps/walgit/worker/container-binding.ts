@@ -19,6 +19,7 @@
 import { type Container, getContainer } from '@cloudflare/containers'
 
 import { containerPolicyFrom } from '../shared/container-lifecycle'
+import { SERVED_HEADER } from '../shared/protocol'
 import { containerHost, type WalgitDurableContainer } from './durable-container'
 
 /** The bindings and the switch, as every caller's environment carries them. */
@@ -52,6 +53,40 @@ export interface ContainerFetcher {
  * old application is still the one that exists.
  */
 export function containerFor(env: ContainerBindings): ContainerFetcher {
+  return retryingReads(pickContainer(env))
+}
+
+/**
+ * Send a bodiless read once more when the container never answered it.
+ *
+ * A deploy resets the Durable Object in front of the container, and a request
+ * caught mid-start in that moment is answered `500 Failed to start container:
+ * Durable Object reset because its code was updated` — by the object, with no
+ * `SERVED_HEADER`, because the container never saw it. The object's own retry
+ * dies with it, so the one that works is out here, against the NEW object. Only
+ * GET/HEAD, which carry no body to have been consumed, and only once.
+ */
+/** The runtime's words when a deploy resets a Durable Object mid-request. */
+const RESET_BY_DEPLOY = 'reset because its code was updated'
+
+function retryingReads(target: ContainerFetcher): ContainerFetcher {
+  return {
+    async fetch(request) {
+      const response = await target.fetch(request)
+      const read = request.method === 'GET' || request.method === 'HEAD'
+      if (!read || response.status !== 500 || response.headers.has(SERVED_HEADER)) return response
+      // Only the reset. A start that genuinely failed already took its budget,
+      // and a second attempt would double the wait it was capped to avoid.
+      const text = await response.text()
+      if (!text.includes(RESET_BY_DEPLOY)) {
+        return new Response(text, { status: response.status, headers: response.headers })
+      }
+      return target.fetch(request)
+    },
+  }
+}
+
+function pickContainer(env: ContainerBindings): ContainerFetcher {
   if (containerPolicyFrom(env) === 'durable_object') {
     if (env.WALGIT_DURABLE_CONTAINER) return containerHost(env.WALGIT_DURABLE_CONTAINER)
     console.error(
