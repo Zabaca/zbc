@@ -98,7 +98,12 @@ export function reconcile(gitDir: string, index: WalIndex): ReconcileResult {
  * for exactly the refs that were wrong.
  */
 function writePackedRefs(gitDir: string, refs: Record<string, string>): void {
-  const lines = ['# pack-refs with: peeled fully-peeled sorted ']
+  // `sorted` and nothing else. `peeled`/`fully-peeled` promise that every
+  // annotated tag carries its `^<oid>` line, and these lines come from the
+  // Index, which holds no object types — so git trusted the promise and
+  // advertised annotated tags with no peeled value. Without the traits git
+  // peels them itself from the objects.
+  const lines = ['# pack-refs with: sorted ']
   for (const ref of Object.keys(refs).sort()) lines.push(`${refs[ref]} ${ref}`)
 
   const target = path.join(gitDir, 'packed-refs')
