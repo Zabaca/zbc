@@ -500,22 +500,22 @@ export default cloudflareModule.instance({
       { name: 'WALGIT_SNAPSHOTS', value: '1' },
       // ── which container application ──────────────────────────────────────
       //
-      // PHASE 1 of three, and deliberately so: `WALGIT_CONTAINER_POLICY` is
-      // NOT set here yet, so this deploy creates the `durable_object` container
-      // application and routes nothing to it — git keeps being served by the
+      // PHASE 2 of three (2026-10-03). Phase 1 deployed this file without the
+      // line below: that created the `durable_object` container application
+      // and routed nothing to it, while git kept being served by the
       // `default`-policy `WalgitContainer`. One deploy cannot do both, because
       // `wrangler deploy` puts the Worker live before it creates the new
       // application, and a Worker routing to it in that gap fails every start
       // (packages/walgit/worker/container-binding.ts).
       //
-      // PHASE 2, once `wrangler containers list` shows the `durable_object`
-      // application for `WalgitDurableContainer`, is this one line, uncommented
-      // and deployed. Rolling back is deleting it again and deploying — a
+      // PHASE 2, once `wrangler containers list` showed the `durable_object`
+      // application for `WalgitDurableContainer`, is this one line. Rolling
+      // back is deleting it again and deploying — a
       // forward deploy, never `wrangler rollback`, which refuses to cross the
       // `v3` migration. `WALGIT_SNAPSHOTS` above takes effect from here: it is
       // read only by the new class.
       //
-      // { name: 'WALGIT_CONTAINER_POLICY', value: 'durable_object' },
+      { name: 'WALGIT_CONTAINER_POLICY', value: 'durable_object' },
       // ── ref events ───────────────────────────────────────────────────────
       //
       // Where the container announces a push TO — this deployment's own public
