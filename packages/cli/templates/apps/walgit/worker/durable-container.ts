@@ -73,6 +73,8 @@ import {
   refreshSnapshot,
   restorePlan,
   shouldSnapshot,
+  needsNewSnapshot,
+  DISK_CHANGED_COMMAND,
   snapshotsEnabled,
   storeIdentity,
 } from '../shared/container-snapshot'
@@ -120,6 +122,8 @@ const SNAPSHOT_KEY = 'container-snapshot'
  * it reports an empty image for a container restored from a snapshot.
  */
 const BOOTED_IMAGE_KEY = 'container-booted-image'
+/** How the running container started (`StartSource`), for `needsNewSnapshot`. */
+const BOOTED_FROM_KEY = 'container-booted-from'
 
 const SIGTERM = 15
 
@@ -388,6 +392,7 @@ export class WalgitDurableContainer extends DurableObject<ContainerHostEnv> {
         await this.ctx.storage.put<string | SnapshotRecord>({
           [SNAPSHOT_KEY]: refreshSnapshot(record, Date.now()),
           [BOOTED_IMAGE_KEY]: image,
+          [BOOTED_FROM_KEY]: 'snapshot',
         })
         this.started('snapshot')
         return
@@ -411,7 +416,7 @@ export class WalgitDurableContainer extends DurableObject<ContainerHostEnv> {
       console.error(`walgit container: start failed (${failure})`)
       throw new Error(failure)
     }
-    await this.ctx.storage.put(BOOTED_IMAGE_KEY, image)
+    await this.ctx.storage.put({ [BOOTED_IMAGE_KEY]: image, [BOOTED_FROM_KEY]: 'image' })
     this.started('image')
   }
 
@@ -633,7 +638,7 @@ export class WalgitDurableContainer extends DurableObject<ContainerHostEnv> {
       console.warn(`walgit container: still running ${STOP_GRACE_MS} ms after SIGTERM; killing`)
       await container.destroy()
     }
-    await this.ctx.storage.delete(BOOTED_IMAGE_KEY)
+    await this.ctx.storage.delete([BOOTED_IMAGE_KEY, BOOTED_FROM_KEY])
     this.freshStart = null
     console.log('walgit container: stopped for idleness')
   }
@@ -646,6 +651,14 @@ export class WalgitDurableContainer extends DurableObject<ContainerHostEnv> {
     if (await this.compacting(container)) {
       console.log('walgit container: compaction running; not snapshotting this stop')
       return
+    }
+    const bootedFrom = (await this.ctx.storage.get<StartSource>(BOOTED_FROM_KEY)) ?? null
+    if (bootedFrom === 'snapshot') {
+      const changed = await this.diskChanged(container)
+      if (!needsNewSnapshot({ bootedFrom, changed })) {
+        console.log('walgit container: cache unchanged since restore; keeping the snapshot')
+        return
+      }
     }
     await this.flushDisk(container)
     const begun = Date.now()
@@ -686,6 +699,24 @@ export class WalgitDurableContainer extends DurableObject<ContainerHostEnv> {
       return (await settledWithin(check.exitCode, 5_000)) === 0
     } catch {
       return false
+    }
+  }
+
+  /**
+   * Has the repo cache changed since this container booted?
+   *
+   * `null` when the check could not answer, which `needsNewSnapshot` reads as
+   * "snapshot anyway": the cost of a needless snapshot is seconds, and the cost
+   * of a missed one is a restore that re-syncs what this run already fetched.
+   */
+  private async diskChanged(container: Container): Promise<boolean | null> {
+    try {
+      const run = await container.exec(DISK_CHANGED_COMMAND, { stdout: 'pipe', stderr: 'ignore' })
+      const out = await settledWithin(run.output(), 10_000)
+      if (out === undefined || out.exitCode !== 0) return null
+      return new TextDecoder().decode(out.stdout).trim() !== ''
+    } catch {
+      return null
     }
   }
 

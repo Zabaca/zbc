@@ -158,6 +158,46 @@ export function shouldSnapshot(state: {
   return state.enabled && state.bootedImage !== null && state.bootedImage === state.image
 }
 
+/**
+ * Where the container marks its own boot, and what the marker holds.
+ *
+ * Written by `src/server.ts` once boot residue is cleared and before the port
+ * opens, holding the repos directory's path. Every file the cache changes after
+ * that is newer than the marker, which is how a stop asks "did anything change
+ * since this disk was restored?" without the Durable Object knowing where the
+ * cache lives. In `/tmp` and rewritten on every boot, so the copy a snapshot
+ * carries is always replaced before it could be compared against.
+ */
+export const BOOT_MARKER = '/tmp/walgit-booted'
+
+/**
+ * The command that answers it: prints a changed path, or nothing.
+ *
+ * `head -1` rather than `find -quit`, which busybox's `find` may not have.
+ * Paths are taken from the marker, so this never names the cache directly.
+ */
+export const DISK_CHANGED_COMMAND = [
+  'sh',
+  '-c',
+  `find "$(cat ${BOOT_MARKER})" -newer ${BOOT_MARKER} | head -1`,
+]
+
+/**
+ * Does this stop need a new snapshot, or does the one it booted from still hold?
+ *
+ * A container booted from a snapshot whose cache did not change since has
+ * nothing new to save: the record it restored is the same disk, and taking
+ * another costs seconds on every stop — which, with a short idle timeout, is
+ * most of what a quiet deployment does. Anything uncertain snapshots: a fresh
+ * boot from the image, or a change check that could not answer (`null`).
+ */
+export function needsNewSnapshot(state: {
+  bootedFrom: 'snapshot' | 'image' | null
+  changed: boolean | null
+}): boolean {
+  return state.bootedFrom !== 'snapshot' || state.changed !== false
+}
+
 /** The record a fresh snapshot handle becomes. */
 export function recordSnapshot(
   handle: { id: string; size: number },

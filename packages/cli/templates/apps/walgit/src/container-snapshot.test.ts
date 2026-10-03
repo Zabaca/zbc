@@ -9,7 +9,15 @@
 
 import { describe, expect, test } from 'bun:test'
 
+import { spawnSync } from 'node:child_process'
+import * as fs from 'node:fs'
+import * as os from 'node:os'
+import * as path from 'node:path'
+
 import {
+  BOOT_MARKER,
+  DISK_CHANGED_COMMAND,
+  needsNewSnapshot,
   SNAPSHOT_MAX_BYTES,
   SNAPSHOT_TTL_MS,
   recordSnapshot,
@@ -119,5 +127,45 @@ describe('storeIdentity', () => {
     } as Record<string, string>)
     expect(identity).toBe(STORE)
     expect(identity).not.toContain('wal')
+  })
+})
+
+describe('needsNewSnapshot', () => {
+  test('a restored container whose cache did not change keeps its snapshot', () => {
+    expect(needsNewSnapshot({ bootedFrom: 'snapshot', changed: false })).toBe(false)
+  })
+
+  test('anything else snapshots: a change, an unanswered check, a boot from the image', () => {
+    expect(needsNewSnapshot({ bootedFrom: 'snapshot', changed: true })).toBe(true)
+    expect(needsNewSnapshot({ bootedFrom: 'snapshot', changed: null })).toBe(true)
+    expect(needsNewSnapshot({ bootedFrom: 'image', changed: false })).toBe(true)
+    expect(needsNewSnapshot({ bootedFrom: null, changed: false })).toBe(true)
+  })
+})
+
+describe('DISK_CHANGED_COMMAND', () => {
+  // Run for real against a scratch marker: the command reads its paths from
+  // the marker, so pointing a copy of it at a temp marker exercises exactly
+  // what the container runs.
+  test('prints nothing for an untouched cache and a path once one changes', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'walgit-marker-'))
+    const repos = path.join(root, 'repos')
+    fs.mkdirSync(path.join(repos, 'a.git'), { recursive: true })
+    fs.writeFileSync(path.join(repos, 'a.git', 'HEAD'), 'ref: refs/heads/main\n')
+    const old = new Date(Date.now() - 60_000)
+    for (const p of [repos, path.join(repos, 'a.git'), path.join(repos, 'a.git', 'HEAD')]) {
+      fs.utimesSync(p, old, old)
+    }
+    const marker = path.join(root, 'booted')
+    fs.writeFileSync(marker, repos)
+    const script = DISK_CHANGED_COMMAND[2]!.replaceAll(BOOT_MARKER, marker)
+    const run = () => spawnSync('sh', ['-c', script], { encoding: 'utf8' })
+
+    expect(run().status).toBe(0)
+    expect(run().stdout.trim()).toBe('')
+
+    fs.writeFileSync(path.join(repos, 'a.git', 'packed-refs'), '# pack-refs with: sorted \n')
+    expect(run().stdout.trim()).not.toBe('')
+    fs.rmSync(root, { recursive: true, force: true })
   })
 })

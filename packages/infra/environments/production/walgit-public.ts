@@ -452,13 +452,16 @@ export default cloudflareModule.instance({
       { name: 'WALGIT_POSTHOG_HOST', value: 'https://d.agentgit.co' },
       // ── idle stop ────────────────────────────────────────────────────────
       //
-      // Five minutes, not the template's twenty. Traffic here is a handful of
-      // agents checking a ref, minutes apart, and each one bought twenty
-      // minutes of container and Durable Object time: modelled on Sep 26–Oct 2
-      // it is ~8 h/day awake against ~11, for ~37 cold starts a day against ~4.
-      // A cold start is a few seconds plus a materialize, which an agent
-      // waiting on `git` tolerates. Edge-only, so changing it restarts nothing.
-      { name: 'WALGIT_SLEEP_AFTER', value: '5m' },
+      // Two minutes, not the template's twenty. Since the move to the
+      // `durable_object` policy (2026-10-03) a wake costs about 3 s from a
+      // snapshot, the Durable Object sleeps while the container runs, and ref
+      // checks never reach the container — so this now trades only container
+      // time against cold starts. Modelled on Sep 26–Oct 2 traffic that still
+      // reaches the container: ~3.0 h/day awake and ~66 wakes at 2m, against
+      // ~5.8 h and ~44 at 5m. A stop whose cache did not change since its
+      // restore keeps the snapshot it has (`needsNewSnapshot`). Edge-only, so
+      // changing it restarts nothing.
+      { name: 'WALGIT_SLEEP_AFTER', value: '2m' },
       // ── snapshots ────────────────────────────────────────────────────────
       //
       // On, and it is what the five minutes above were waiting for. A wake used

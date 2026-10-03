@@ -11,7 +11,10 @@
  * straight to this port.
  */
 
+import * as fs from 'node:fs'
+
 import { capabilitiesFrom } from '../shared/capabilities'
+import { BOOT_MARKER } from '../shared/container-snapshot'
 import { parseTokens } from '../shared/credentials'
 import { listCommits, listTree, readBlob, statBlob } from './browse'
 import { clearBootResidue } from './boot-residue'
@@ -304,6 +307,14 @@ try {
 // (src/boot-residue.ts). Logged only when it found something, which on a disk
 // that was not restored is never.
 const residue = clearBootResidue(reposDir)
+// After the residue goes, so clearing it does not read as a change: the stop
+// compares the cache against this marker to decide whether a new snapshot is
+// worth taking (`needsNewSnapshot`, shared/container-snapshot.ts).
+try {
+  fs.writeFileSync(BOOT_MARKER, reposDir)
+} catch (err) {
+  console.warn(`walgit: could not write ${BOOT_MARKER}: ${(err as Error).message}`)
+}
 if (residue.cleared.length > 0) {
   console.log(
     `walgit: cleared ${residue.cleared.length} stale lock/hand-off path(s) across ${residue.repos} cached repo(s)`,
