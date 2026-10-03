@@ -27,11 +27,15 @@ One packfile published to the log, by one push or by one compaction, identified 
 The bare git repo on local disk. Disposable by definition: it can be deleted at any moment and rebuilt from the log, it is reconciled against the Index on every access, and nothing may be served from it that the log has not confirmed. Provisioned by `cache.ts`; git's own housekeeping is disabled on it, because a cache that repacks itself behind the log's back is a cache that disagrees with it.
 _Avoid_: the repo (ambiguous with the repository the log describes), the replica, local state
 
+**Snapshot**:
+A point-in-time copy of the container's root filesystem — and so of every Cache on it — taken on the way to the idle stop and restored by the next start, when `WALGIT_SNAPSHOTS` is on (`shared/container-snapshot.ts`). Not a backup and not a second source of truth: a restored disk is a Cache like any other, reconciled against the Index on first access, so a Snapshot can only change how much a wake re-syncs, never what it serves. Tied to the image it was taken from and never restored onto another.
+_Avoid_: backup, volume, persistent disk — each implies the disk is authoritative
+
 **Reconcile**:
 Force the Cache's refs to match the Index. Always one-directional — whatever the disk believes is discarded — and written as a single `packed-refs` file. A ref whose object is absent is reported rather than written: a stale clone is survivable, a broken one is not.
 
 **Materialize** (walgit sense):
-Rebuild a Cache from the Write-Ahead Log: download every WAL Entry above the Compaction Frontier, place its pack, then Reconcile. The container sleeps when idle and its disk is wiped on restart, so this is the normal path on ordinary first access after an idle pause, not disaster recovery.
+Rebuild a Cache from the Write-Ahead Log: download every WAL Entry above the Compaction Frontier, place its pack, then Reconcile. The container sleeps when idle and its disk is wiped on restart unless a Snapshot is restored, so this is the normal path on ordinary first access after an idle pause, not disaster recovery.
 _Disambiguate_: the zbc repository's warehouse uses the same word for a `dlt` extract plus `dbt run`. The two are unrelated; a bare "materialize" is ambiguous across that repo.
 
 **Compaction**:

@@ -20,7 +20,6 @@
  * be connected and permanently deaf.
  */
 
-import { Container, getContainer } from '@cloudflare/containers'
 import { DurableObject } from 'cloudflare:workers'
 
 import { capabilitiesFrom } from '../shared/capabilities'
@@ -38,6 +37,7 @@ import {
 import { Outbox } from '../shared/outbox'
 import { INTERNAL_HEADER, READ_VERDICT_PATH, REFS_PATH } from '../shared/protocol'
 import { RefCache } from '../shared/ref-cache'
+import { containerHost, type WalgitDurableContainer } from './durable-container'
 
 /** Only the bindings this object touches — the Worker's Env is a superset. */
 export interface EventsEnv {
@@ -55,12 +55,11 @@ export interface EventsEnv {
   WALGIT_PRIVATE_REPOS?: string
   WALGIT_SIGNER_LISTS?: string
   WALGIT_PUSH_CERT_SEED?: string
-  // The BASE class, not `WalgitContainer`: that one is defined in index.ts,
-  // which imports this file, so naming it here would be a cycle. `any` was the
-  // first way around that and cost a typecheck — `DurableObjectStub<any>` sends
-  // the RPC type machinery infinitely deep (TS2589). The base is enough: all
-  // this object ever does with the binding is `fetch`.
-  WALGIT_CONTAINER: DurableObjectNamespace<Container>
+  // The container's own class, which lives in its own file precisely so this
+  // one can name it: the old `WalgitContainer` was defined in index.ts, which
+  // imports this file, and naming it here would have been a cycle. All this
+  // object ever does with the binding is `fetch`.
+  WALGIT_CONTAINER: DurableObjectNamespace<WalgitDurableContainer>
 }
 
 /** The Worker's internal call to fan an announcement out. Never client-reachable. */
@@ -307,7 +306,7 @@ export class WalgitEvents extends DurableObject<EventsEnv> {
       },
       body: JSON.stringify({ credential, repos }),
     })
-    const response = await getContainer(this.env.WALGIT_CONTAINER).fetch(request)
+    const response = await containerHost(this.env.WALGIT_CONTAINER).fetch(request)
     if (!response.ok) throw new Error(`read verdict: ${response.status}`)
     const body = (await response.json()) as { verdicts?: Record<string, boolean> }
     if (!body.verdicts) throw new Error('read verdict: no verdicts in the answer')
@@ -382,7 +381,7 @@ export class WalgitEvents extends DurableObject<EventsEnv> {
       `https://walgit.internal${REFS_PATH}?repo=${encodeURIComponent(repo)}`,
       { headers: { [INTERNAL_HEADER]: '1' } },
     )
-    const response = await getContainer(this.env.WALGIT_CONTAINER).fetch(request)
+    const response = await containerHost(this.env.WALGIT_CONTAINER).fetch(request)
     if (!response.ok) throw new Error(`refs lookup for ${repo}: ${response.status}`)
     const body = (await response.json()) as { refs?: Record<string, string> }
     return body.refs ?? {}

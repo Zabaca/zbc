@@ -25,6 +25,47 @@
   // replaces the built-in.
   "rules": [{ "type": "Data", "globs": ["**/*.png"], "fallthrough": true }],
   "containers": [
+    // The container walgit runs in: the `durable_object` scheduling policy,
+    // driven by `WalgitDurableContainer` (worker/durable-container.ts) through
+    // `ctx.container`. Under this policy wrangler configures almost nothing —
+    // which image may be started, and that is all. The instance size is chosen
+    // in code at each start (`CONTAINER_INSTANCE`, shared/container-lifecycle.ts,
+    // which says why it is `standard-1`); there is no `max_instances`, because
+    // the policy has none and one named object already means one container; and
+    // there are no rollouts, because the Durable Object decides when a running
+    // container is replaced (it fingerprints the image it booted from). What the
+    // policy adds is a start in well under a second and filesystem snapshots,
+    // which `WALGIT_SNAPSHOTS` turns on.
+    //
+    // No `name`: wrangler derives `<worker>-<class>`, which differs from the
+    // retiring entry's because the class does — and an explicit name would be
+    // shared by every deployment of this file in an account.
+    {
+      "class_name": "WalgitDurableContainer",
+      "scheduling_policy": "durable_object",
+      // Read as `ctx.container.images.walgit`: a digest-pinned reference that
+      // changes exactly when this image does.
+      "images": { "walgit": { "dockerfile": "./Dockerfile" } }
+    },
+    // RETIRING — the `default`-policy application `WalgitContainer` ran in.
+    // Nothing routes to it: `WALGIT_CONTAINER` below names the class above.
+    //
+    // It cannot simply become the entry above. A scheduling policy is fixed
+    // when an application is created, and changing it in place fails the deploy
+    // AFTER the new Worker is already live, leaving it with no container behind
+    // it. So it stays, untouched (a changed `name` or `class_name` would make
+    // wrangler create another application rather than update this one), as the
+    // rollback path through the observation window. Removing it is an operator
+    // step, in this order — README.md, "Deployment":
+    //
+    //   1. delete this entry and deploy;
+    //   2. `wrangler containers list`, then `wrangler containers delete <id>`
+    //      for `walgit-walgitcontainer` — removing the entry does NOT delete the
+    //      application or its instances;
+    //   3. later, once nothing will roll back to it, delete the class: a
+    //      `deleted_classes: ["WalgitContainer"]` migration, the class in
+    //      worker/index.ts and `@cloudflare/containers` with it. That deletes
+    //      its storage too, which holds only a fingerprint.
     {
       "class_name": "WalgitContainer",
       "image": "./Dockerfile",
@@ -59,7 +100,11 @@
   ],
   "durable_objects": {
     "bindings": [
-      { "class_name": "WalgitContainer", "name": "WALGIT_CONTAINER" },
+      // The container's Durable Object — the `durable_object`-policy class.
+      // Switched from `WalgitContainer` in the same deploy that created it, so
+      // no request reaches two containers by two routes: one binding, one
+      // name, one container (`containerHost`, worker/durable-container.ts).
+      { "class_name": "WalgitDurableContainer", "name": "WALGIT_CONTAINER" },
       // The ref-event stream's rendezvous: one object holding every subscriber's
       // socket, so a push published in one colo reaches a client connected to
       // another (worker/events-do.ts). Bound unconditionally — the endpoints
@@ -84,7 +129,7 @@
   // It was hourly, and the reason it is not is the half of the cost the old
   // comment named without weighing: "a sweep with nothing to collect is one
   // delimited LIST plus a container wake". A wake is not free the way a LIST
-  // is. `WalgitContainer.sleepAfter` is 20m, so an hourly sweep holds the
+  // is. `WALGIT_SLEEP_AFTER` is 20m unless set, so an hourly sweep holds the
   // container up for at least a third of every hour on a deployment with no
   // traffic at all, and the sweeper is the only thing asking. Daily makes the
   // floor a twenty-fourth of that.
@@ -97,7 +142,10 @@
   "triggers": { "crons": ["0 4 * * *"] },
   "migrations": [
     { "tag": "v1", "new_sqlite_classes": ["WalgitContainer"] },
-    { "tag": "v2", "new_sqlite_classes": ["WalgitEvents"] }
+    { "tag": "v2", "new_sqlite_classes": ["WalgitEvents"] },
+    // A new namespace rather than a renamed one: the old namespace is attached
+    // to the `default`-policy application, and a namespace attaches to one.
+    { "tag": "v3", "new_sqlite_classes": ["WalgitDurableContainer"] }
   ]
   // No r2_buckets binding. The container writes the log itself, outside the
   // Worker's binding graph, so it needs real S3 credentials (WALGIT_S3_*) —

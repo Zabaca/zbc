@@ -26,7 +26,7 @@
  */
 
 import { AwsClient } from 'aws4fetch'
-import { Container, getContainer } from '@cloudflare/containers'
+import { Container } from '@cloudflare/containers'
 
 import { capabilitiesFrom, type Capabilities } from '../shared/capabilities'
 import { containerEnv, fingerprintEnv, reconcileContainerEnv } from '../shared/container-env'
@@ -74,6 +74,7 @@ import {
   type RequestMetric,
 } from '../shared/telemetry'
 import { browseResponse } from '../shared/browse'
+import { containerHost, WalgitDurableContainer } from './durable-container'
 import { BROADCAST_PATH, EVENTS_OBJECT_NAME, WalgitEvents } from './events-do'
 import { handleMcp } from './mcp'
 // The card's picture, as bytes in the bundle (wrangler.jsonc's `Data` rule).
@@ -82,7 +83,13 @@ import { handleMcp } from './mcp'
 import OG_IMAGE_BYTES from '../assets/agentgit-og.png'
 
 export interface Env {
-  WALGIT_CONTAINER: DurableObjectNamespace<WalgitContainer>
+  /**
+   * The container, through the Durable Object that owns it. Names
+   * `WalgitDurableContainer` (worker/durable-container.ts) — the
+   * `durable_object` scheduling policy's class — and no longer
+   * `WalgitContainer` below, whose application is retiring.
+   */
+  WALGIT_CONTAINER: DurableObjectNamespace<WalgitDurableContainer>
   /**
    * The commit this Worker was deployed from, set by the cloudflare module's
    * `deployIdVar`. Nothing reads it: it exists so that a deploy which changes
@@ -194,14 +201,34 @@ export interface Env {
   WALGIT_POSTHOG_UI_HOST?: string
   /** How long the container idles before it stops (`shared/sleep-after.ts`). */
   WALGIT_SLEEP_AFTER?: string
+  /**
+   * `1` to snapshot the container's disk on the idle stop and start the next
+   * one from it, so a wake re-syncs the Cache instead of rebuilding it
+   * (`shared/container-snapshot.ts`). Off unless set — the platform feature is
+   * in public beta — and edge-only: the Durable Object reads it and the
+   * container never does, so turning it either way restarts nothing.
+   */
+  WALGIT_SNAPSHOTS?: string
   WALGIT_EVENTS: DurableObjectNamespace<WalgitEvents>
 }
 
-export { WalgitEvents }
+export { WalgitEvents, WalgitDurableContainer }
 
 /** Where `reconcileEnv` remembers the environment the container booted with. */
 const ENV_FINGERPRINT_KEY = 'container-env-fingerprint'
 
+/**
+ * RETIRING. The `default`-policy container class, kept exported only because
+ * its namespace and its container application still exist: deleting the class
+ * before the application is deleted is a deploy wrangler refuses, and the
+ * application is kept through the observation window as the rollback path
+ * (wrangler.jsonc says how to remove both). Nothing routes to it — the
+ * `WALGIT_CONTAINER` binding names `WalgitDurableContainer` — so its one
+ * instance idles out after the cutover deploy and stays stopped.
+ *
+ * Left exactly as it was, so a rollback to the previous Worker version gets the
+ * class it was written against.
+ */
 export class WalgitContainer extends Container<Env> {
   /**
    * Was this instance's container only just started?
@@ -698,7 +725,7 @@ export default {
         // route below: the edge must not open a door the client could not.
         headers: authorizationOf(request),
       })
-      const res = await getContainer(env.WALGIT_CONTAINER).fetch(asked)
+      const res = await containerHost(env.WALGIT_CONTAINER).fetch(asked)
       const outcome = outcomeOf({
         status: res.status,
         declared: res.headers.get(REJECT_HEADER) ?? '',
@@ -756,7 +783,7 @@ export default {
               // client could not.
               headers: authorizationOf(request),
             })
-            const res = await getContainer(env.WALGIT_CONTAINER).fetch(asked)
+            const res = await containerHost(env.WALGIT_CONTAINER).fetch(asked)
             return {
               status: res.status,
               text: await res.text(),
@@ -901,7 +928,7 @@ export default {
       // and `sync.ts` reconciles on every access, so any container could take any
       // push — it is cache locality: a second instance starts with an empty disk
       // and materializes everything it is asked for from the log.
-      response = await getContainer(env.WALGIT_CONTAINER).fetch(forwarded)
+      response = await containerHost(env.WALGIT_CONTAINER).fetch(forwarded)
     } catch (error) {
       // The container never answered, so nothing downstream can name this
       // refusal — it is an `edge` one by construction, and counting it as such
@@ -1074,7 +1101,7 @@ async function sweep(event: ScheduledController, env: Env): Promise<void> {
     headers: { [INTERNAL_HEADER]: '1' },
   })
   try {
-    const response = await getContainer(env.WALGIT_CONTAINER).fetch(request)
+    const response = await containerHost(env.WALGIT_CONTAINER).fetch(request)
     const body = (await response.text()).trim()
     console.log(`walgit expire [cron ${event.cron}]: ${response.status} ${body}`)
   } catch (error) {

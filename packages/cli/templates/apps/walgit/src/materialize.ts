@@ -293,7 +293,15 @@ function ensureHead(gitDir: string, index: WalIndex): void {
  * is genuinely absent.
  */
 function acquire(gitDir: string): Promise<LockRelease> {
-  return acquireLock(path.join(gitDir, LOCK), { breakAfter: 1200 })
+  return acquireLock(lockPath(gitDir), { breakAfter: 1200 })
+}
+
+/**
+ * Where that lock lives. Exported for the one other reader: the boot-time
+ * sweep (src/boot-residue.ts), which removes a lock no process can hold yet.
+ */
+export function lockPath(gitDir: string): string {
+  return path.join(gitDir, LOCK)
 }
 
 /**

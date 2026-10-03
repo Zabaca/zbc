@@ -14,6 +14,7 @@
 import { capabilitiesFrom } from '../shared/capabilities'
 import { parseTokens } from '../shared/credentials'
 import { listCommits, listTree, readBlob, statBlob } from './browse'
+import { clearBootResidue } from './boot-residue'
 import { ensureBareRepo } from './cache'
 import { configuredExpiryMs, expireRepos } from './expire'
 import { createHttpHandler } from './http'
@@ -296,14 +297,28 @@ try {
   process.exit(1)
 }
 
+// Before the port opens, because the port opening is what the Durable Object
+// takes to mean "ready": a disk restored from a snapshot can carry a dead
+// push's hand-off record and a materialize lock, and no request may see either
+// (src/boot-residue.ts). Logged only when it found something, which on a disk
+// that was not restored is never.
+const residue = clearBootResidue(reposDir)
+if (residue.cleared.length > 0) {
+  console.log(
+    `walgit: cleared ${residue.cleared.length} stale lock/hand-off path(s) across ${residue.repos} cached repo(s)`,
+  )
+}
+
 const server = Bun.serve({ port, idleTimeout: 0, fetch: handler })
 
-// The container's idle stop is a SIGTERM (`sleepAfter` in worker/index.ts), and
-// this process is PID 1, which the kernel exempts from every signal it has no
-// handler for. Without this the stop was ignored, the container ran around the
-// clock, and the Durable Object in front of it stayed awake polling it. Stop
-// accepting, let the requests in flight finish, then exit — nothing durable is
-// lost by going, since a push is acknowledged only once the log holds it.
+// The container's idle stop is a SIGTERM (`stopContainer` in
+// worker/durable-container.ts), and this process is PID 1, which the kernel
+// exempts from every signal it has no handler for. Without this the stop was
+// ignored, the container ran around the clock, and the Durable Object in front
+// of it stayed awake polling it. Stop accepting, let the requests in flight
+// finish, then exit — nothing durable is lost by going, since a push is
+// acknowledged only once the log holds it. The Durable Object kills the
+// container outright if this has not happened within its grace period.
 process.on('SIGTERM', () => {
   console.log('walgit: SIGTERM, draining and exiting')
   void server.stop().finally(() => process.exit(0))
