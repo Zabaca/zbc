@@ -7,8 +7,13 @@
 import { describe, expect, test } from 'bun:test'
 
 import {
+  BOOT_BUDGET_MS,
   CONTAINER_INSTANCE,
+  INFLIGHT_MAX_MS,
   MAX_INACTIVITY_TIMEOUT_MS,
+  READY_TIMEOUT_MS,
+  containerPolicyFrom,
+  freshStartTimeoutMs,
   idleVerdict,
   inactivityTimeoutMs,
   mayRetry,
@@ -105,4 +110,41 @@ test('the instance is one the durable_object policy accepts', () => {
     CONTAINER_INSTANCE,
   )
   expect(CONTAINER_INSTANCE).not.toBe('lite')
+})
+
+describe('containerPolicyFrom', () => {
+  test('unset, blank or anything else is the default-policy container', () => {
+    // The deploy that introduces the new application routes nowhere new.
+    for (const value of [undefined, '', 'default', 'durable-object', 'DURABLE_OBJECT', '1']) {
+      expect(containerPolicyFrom({ WALGIT_CONTAINER_POLICY: value })).toBe('default')
+    }
+  })
+
+  test('the exact word moves the traffic', () => {
+    expect(containerPolicyFrom({ WALGIT_CONTAINER_POLICY: 'durable_object' })).toBe(
+      'durable_object',
+    )
+    expect(containerPolicyFrom({ WALGIT_CONTAINER_POLICY: ' durable_object ' })).toBe(
+      'durable_object',
+    )
+  })
+})
+
+describe('freshStartTimeoutMs', () => {
+  test('a start is bounded in seconds, not minutes', () => {
+    expect(freshStartTimeoutMs(0)).toBe(READY_TIMEOUT_MS)
+    expect(READY_TIMEOUT_MS).toBeLessThanOrEqual(BOOT_BUDGET_MS)
+  })
+
+  test('a failed restore leaves the fresh start what is left of the budget', () => {
+    expect(freshStartTimeoutMs(8_000)).toBe(BOOT_BUDGET_MS - 8_000)
+  })
+
+  test('but never too little to come up at all', () => {
+    expect(freshStartTimeoutMs(BOOT_BUDGET_MS)).toBe(5_000)
+  })
+})
+
+test('a request is let go of within the hour, whoever holds its body', () => {
+  expect(INFLIGHT_MAX_MS).toBe(60 * 60 * 1000)
 })

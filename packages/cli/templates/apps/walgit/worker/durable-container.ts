@@ -14,9 +14,10 @@
  * scheduling policy is fixed when it is created, one Durable Object namespace
  * attaches to one application, and changing `scheduling_policy` in place fails
  * the deploy AFTER the new Worker is live. So this is a new namespace with its
- * own application, and the binding the Worker reaches the container through
- * (`WALGIT_CONTAINER`) now names it. The old class stays exported until its
- * application is deleted (wrangler.jsonc says when).
+ * own application, bound as `WALGIT_DURABLE_CONTAINER` and routed to only once
+ * `WALGIT_CONTAINER_POLICY` says so (worker/container-binding.ts says why that
+ * takes two deploys). The old class stays exported until its application is
+ * deleted (README.md, "Deployment", phase 3).
  *
  * Everything the library used to decide is decided here, and each rule is in
  * shared/ where it can be tested without a runtime:
@@ -56,9 +57,11 @@ import {
   CONTAINER_PORT,
   READY_POLL_MS,
   READY_PROBE_TIMEOUT_MS,
+  INFLIGHT_MAX_MS,
   READY_TIMEOUT_MS,
   RETRY_DELAY_MS,
   STOP_GRACE_MS,
+  freshStartTimeoutMs,
   idleVerdict,
   inactivityTimeoutMs,
   mayRetry,
@@ -73,7 +76,7 @@ import {
   snapshotsEnabled,
   storeIdentity,
 } from '../shared/container-snapshot'
-import { COLD_HEADER } from '../shared/protocol'
+import { COLD_HEADER, HEALTH_PATH } from '../shared/protocol'
 import { sleepAfterMsFrom } from '../shared/sleep-after'
 
 /** Only what this object reads — the Worker's `Env` is a superset. */
@@ -120,8 +123,11 @@ const BOOTED_IMAGE_KEY = 'container-booted-image'
 
 const SIGTERM = 15
 
-/** How many times a fresh start is tried before the request is refused. */
-const FRESH_START_ATTEMPTS = 3
+/**
+ * The detached compaction a push can leave running (src/hook-main.ts spawns
+ * it), as `pgrep -f` finds it inside the container.
+ */
+const COMPACTION_PROCESS = 'compact-main'
 
 /** How the running container came to be, for the cold stamp and the logs. */
 type StartSource = 'snapshot' | 'image'
@@ -157,6 +163,14 @@ export class WalgitDurableContainer extends DurableObject<ContainerHostEnv> {
   private lastActivity: number | null = null
   /** What this object last armed the alarm for, if it knows. */
   private alarmAt: number | null = null
+  /**
+   * The running container's exit, from ONE `monitor()` per start. A pending
+   * `monitor()` keeps this object from being evicted for up to 15 minutes, so
+   * it is asked for only when an exit is actually being waited on — a start
+   * that stopped before it was ready, or a stop — and then shared, rather than
+   * asked again on every readiness probe and left pending each time.
+   */
+  private exit: Promise<string> | null = null
 
   constructor(ctx: DurableObjectState, env: ContainerHostEnv) {
     super(ctx, env)
@@ -181,26 +195,43 @@ export class WalgitDurableContainer extends DurableObject<ContainerHostEnv> {
     // Before anything is proxied, so a request never reaches a container whose
     // environment or image this deploy already superseded. Memoized: the
     // storage read happens once per object lifetime, not per request.
-    if (!this.reconciled) {
+    //
+    // Started only with NOTHING in flight. The first one always is — every
+    // request awaits it before it is counted — but a reconcile that failed is
+    // cleared to be retried, and by then other requests may be streaming a
+    // clone or uploading a push from the very container a retry would destroy.
+    // So the retry waits for a request that arrives to an idle object; until
+    // then requests are served by the container already running, which is the
+    // state the failed reconcile left anyway.
+    if (!this.reconciled && this.inflight === 0) {
       this.reconciled = this.reconcileEnv().catch((error) => {
-        // Cleared so the next request retries. Never rethrown: a container
+        // Cleared so a later request retries. Never rethrown: a container
         // serving a stale limit is a worse day than an outage only if it is
         // ALSO the reason git stopped working, and it should not be.
         this.reconciled = null
         console.error(`walgit container env reconcile failed: ${messageOf(error)}`)
       })
     }
-    await this.reconciled
+    if (this.reconciled) await this.reconciled
 
     // Counted from here, before the start, so an alarm that fires while this
     // request waits for a container sees it and does not stop that container.
+    // Released when the response is over — or after `INFLIGHT_MAX_MS`, so a
+    // caller that never reads the body cannot pin the container up for good.
     this.inflight += 1
     let settled = false
     const settle = () => {
       if (settled) return
       settled = true
+      clearTimeout(cap)
       this.finished()
     }
+    const cap = setTimeout(() => {
+      if (settled) return
+      const path = new URL(request.url).pathname
+      console.warn(`walgit container: ${path} open ${INFLIGHT_MAX_MS} ms; no longer in flight`)
+      settle()
+    }, INFLIGHT_MAX_MS)
 
     try {
       await this.ensureRunning()
@@ -350,8 +381,9 @@ export class WalgitDurableContainer extends DurableObject<ContainerHostEnv> {
     const record = (await this.ctx.storage.get<SnapshotRecord>(SNAPSHOT_KEY)) ?? null
     const plan = restorePlan({ enabled: this.snapshots, record, image, store, now: Date.now() })
 
+    const begun = Date.now()
     if (plan.from === 'snapshot' && record) {
-      const failure = await this.startFrom({ snapshotId: plan.id })
+      const failure = await this.startFrom({ snapshotId: plan.id }, READY_TIMEOUT_MS)
       if (failure === null) {
         await this.ctx.storage.put<string | SnapshotRecord>({
           [SNAPSHOT_KEY]: refreshSnapshot(record, Date.now()),
@@ -369,21 +401,18 @@ export class WalgitDurableContainer extends DurableObject<ContainerHostEnv> {
       console.log(`walgit container: snapshot ${record.id} not restored (${plan.reason})`)
     }
 
-    let failure = 'not attempted'
-    for (let attempt = 0; attempt < FRESH_START_ATTEMPTS; attempt++) {
-      // A container can be briefly unallocatable just after a stop; the docs
-      // say to retry the allocation, which is what a second start is.
-      if (attempt > 0) await sleep(RETRY_DELAY_MS)
-      const result = await this.startFrom({ image })
-      if (result === null) {
-        await this.ctx.storage.put(BOOTED_IMAGE_KEY, image)
-        this.started('image')
-        return
-      }
-      failure = result
-      console.error(`walgit container: start ${attempt + 1} failed (${failure})`)
+    // ONE fresh start per request, inside what is left of `BOOT_BUDGET_MS`.
+    // A failure fails this request (and every request waiting on the same
+    // start) in seconds, and the next request makes the next attempt — which
+    // is also the retry the docs ask for after a stop, without making any one
+    // client wait through several.
+    const failure = await this.startFrom({ image }, freshStartTimeoutMs(Date.now() - begun))
+    if (failure !== null) {
+      console.error(`walgit container: start failed (${failure})`)
+      throw new Error(failure)
     }
-    throw new Error(failure)
+    await this.ctx.storage.put(BOOTED_IMAGE_KEY, image)
+    this.started('image')
   }
 
   /** A start succeeded: stamp the next response, and make sure a stop is armed. */
@@ -402,6 +431,7 @@ export class WalgitDurableContainer extends DurableObject<ContainerHostEnv> {
    */
   private async startFrom(
     source: { image: string } | { snapshotId: string },
+    timeoutMs: number,
   ): Promise<string | null> {
     const container = this.container
     const common = {
@@ -418,6 +448,8 @@ export class WalgitDurableContainer extends DurableObject<ContainerHostEnv> {
     } catch (error) {
       return `start refused: ${messageOf(error)}`
     }
+    // A new container, so a new exit to wait on — never the last one's.
+    this.exit = null
     try {
       await container.setInactivityTimeout(inactivityTimeoutMs(this.sleepAfterMs))
     } catch (error) {
@@ -425,26 +457,28 @@ export class WalgitDurableContainer extends DurableObject<ContainerHostEnv> {
       // will be stopped when this object idles rather than by the alarm.
       console.error(`walgit container: inactivity timeout not set: ${messageOf(error)}`)
     }
-    return this.waitReady()
+    return this.waitReady(timeoutMs)
   }
 
   /**
    * Wait for the process to answer on its port.
    *
-   * Any HTTP answer is ready — `GET /` is what the library probed with, and
-   * src/server.ts answers it from memory. A probe that fails while the
-   * container is still running is a process still booting; one that fails
-   * after it stopped is a container that will not come up, and `monitor()` —
-   * which settles for a container that already stopped — says why.
+   * Asked of `HEALTH_PATH`, the one route src/http.ts answers before any
+   * credential, policy or repository is looked at — so the probe costs nothing
+   * on the container and is never counted as a request for `/`. Any answer is
+   * ready. A probe that fails while the container is still running is a
+   * process still booting; one that fails after it stopped is a container that
+   * will not come up, and `monitor()` — which settles for a container that
+   * already stopped — says why.
    */
-  private async waitReady(): Promise<string | null> {
+  private async waitReady(timeoutMs: number): Promise<string | null> {
     const container = this.container
     const port = container.getTcpPort(CONTAINER_PORT)
-    const deadline = Date.now() + READY_TIMEOUT_MS
+    const deadline = Date.now() + timeoutMs
     let last = 'no answer'
     while (Date.now() < deadline) {
       try {
-        const res = await port.fetch('http://container/', {
+        const res = await port.fetch(`http://container${HEALTH_PATH}`, {
           signal: AbortSignal.timeout(READY_PROBE_TIMEOUT_MS),
         })
         await res.body?.cancel()
@@ -453,14 +487,14 @@ export class WalgitDurableContainer extends DurableObject<ContainerHostEnv> {
         last = messageOf(error)
       }
       if (!container.running) {
-        const why = await settledWithin(exitOf(container), 1_000)
+        const why = await settledWithin(this.exitOf(container), 1_000)
         // Not yet settled is a container still being placed, not a dead one.
         if (why !== undefined) return `stopped before it was ready: ${why}`
       }
       await sleep(READY_POLL_MS)
     }
     await container.destroy().catch(() => undefined)
-    return `not ready after ${READY_TIMEOUT_MS} ms: ${last}`
+    return `not ready after ${timeoutMs} ms: ${last}`
   }
 
   /** Send a request to the container, once more if it lands on one that just exited. */
@@ -594,7 +628,7 @@ export class WalgitDurableContainer extends DurableObject<ContainerHostEnv> {
     }
 
     if (container.running) container.signal(SIGTERM)
-    const exited = await settledWithin(exitOf(container), STOP_GRACE_MS)
+    const exited = await settledWithin(this.exitOf(container), STOP_GRACE_MS)
     if (exited === undefined && container.running) {
       console.warn(`walgit container: still running ${STOP_GRACE_MS} ms after SIGTERM; killing`)
       await container.destroy()
@@ -609,6 +643,10 @@ export class WalgitDurableContainer extends DurableObject<ContainerHostEnv> {
     const image = this.image()
     const bootedImage = (await this.ctx.storage.get<string>(BOOTED_IMAGE_KEY)) ?? null
     if (!shouldSnapshot({ enabled: this.snapshots, bootedImage, image })) return
+    if (await this.compacting(container)) {
+      console.log('walgit container: compaction running; not snapshotting this stop')
+      return
+    }
     await this.flushDisk(container)
     const begun = Date.now()
     const handle = await container.snapshotContainer({ name: `walgit-${begun}` })
@@ -619,6 +657,42 @@ export class WalgitDurableContainer extends DurableObject<ContainerHostEnv> {
     console.log(
       `walgit container: snapshot ${handle.id} (${handle.size} bytes) in ${Date.now() - begun} ms`,
     )
+  }
+
+  /**
+   * Is a detached compaction still running in the container?
+   *
+   * It is the one piece of work nothing counts in flight: `post-receive`
+   * spawns it disowned so the push can be acknowledged, and it repacks the
+   * repository's Cache in place. A snapshot taken mid-repack would still only
+   * cost a re-sync — every object stays present throughout `git repack -adf`,
+   * and reconcile rewrites refs either way — but packs not yet renamed to their
+   * WAL names are packs the next materialize re-downloads. So the stop goes
+   * ahead (a killed compaction loses nothing: its lease lapses and the next
+   * push re-triggers it) and the snapshot does not: the record already held is
+   * for this same image, and the next start restores that one instead.
+   *
+   * Answered with `pgrep` in the container, which the image's busybox carries.
+   * A failed check reads as "not compacting": the cost of being wrong is the
+   * re-download above, and the cost of the other answer is a stop that never
+   * snapshots.
+   */
+  private async compacting(container: Container): Promise<boolean> {
+    try {
+      const check = await container.exec(['pgrep', '-f', COMPACTION_PROCESS], {
+        stdout: 'ignore',
+        stderr: 'ignore',
+      })
+      return (await settledWithin(check.exitCode, 5_000)) === 0
+    } catch {
+      return false
+    }
+  }
+
+  /** The running container's exit, asked of `monitor()` once per start. */
+  private exitOf(container: Container): Promise<string> {
+    if (!this.exit) this.exit = exitOf(container)
+    return this.exit
   }
 
   /**

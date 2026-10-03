@@ -77,7 +77,8 @@ import {
   type RequestMetric,
 } from '../shared/telemetry'
 import { browseResponse } from '../shared/browse'
-import { containerHost, WalgitDurableContainer } from './durable-container'
+import { type ContainerBindings, containerFor } from './container-binding'
+import { WalgitDurableContainer } from './durable-container'
 import { refsAtEdge, uploadPackKeyFor } from '../shared/edge-refs'
 import { BROADCAST_PATH, EVENTS_OBJECT_NAME, WalgitEvents } from './events-do'
 import { handleMcp } from './mcp'
@@ -86,14 +87,15 @@ import { handleMcp } from './mcp'
 // committed — never drawn per request.
 import OG_IMAGE_BYTES from '../assets/agentgit-og.png'
 
-export interface Env {
-  /**
-   * The container, through the Durable Object that owns it. Names
-   * `WalgitDurableContainer` (worker/durable-container.ts) — the
-   * `durable_object` scheduling policy's class — and no longer
-   * `WalgitContainer` below, whose application is retiring.
-   */
-  WALGIT_CONTAINER: DurableObjectNamespace<WalgitDurableContainer>
+/**
+ * The container is reached through `containerFor` (worker/container-binding.ts)
+ * and never through a binding directly: two bindings exist while the deployment
+ * moves to the `durable_object` scheduling policy — `WALGIT_CONTAINER` for
+ * `WalgitContainer` below, `WALGIT_DURABLE_CONTAINER` for
+ * `WalgitDurableContainer` — and `WALGIT_CONTAINER_POLICY` says which one this
+ * deployment routes to.
+ */
+export interface Env extends ContainerBindings {
   /**
    * The commit this Worker was deployed from, set by the cloudflare module's
    * `deployIdVar`. Nothing reads it: it exists so that a deploy which changes
@@ -222,16 +224,14 @@ export { WalgitEvents, WalgitDurableContainer }
 const ENV_FINGERPRINT_KEY = 'container-env-fingerprint'
 
 /**
- * RETIRING. The `default`-policy container class, kept exported only because
- * its namespace and its container application still exist: deleting the class
- * before the application is deleted is a deploy wrangler refuses, and the
- * application is kept through the observation window as the rollback path
- * (wrangler.jsonc says how to remove both). Nothing routes to it — the
- * `WALGIT_CONTAINER` binding names `WalgitDurableContainer` — so its one
- * instance idles out after the cutover deploy and stays stopped.
+ * RETIRING. The `default`-policy container class. It serves until a deployment
+ * sets `WALGIT_CONTAINER_POLICY=durable_object` — the default routes here, so
+ * the deploy that introduces the new application changes nothing a client sees
+ * — and after that it is the rollback path: unsetting the variable routes back
+ * to it in one forward deploy. Kept exported until its application is deleted
+ * and its class retired (README.md, "Deployment", phase 3).
  *
- * Left exactly as it was, so a rollback to the previous Worker version gets the
- * class it was written against.
+ * Left exactly as it was: it is the known-good half of the move.
  */
 export class WalgitContainer extends Container<Env> {
   /**
@@ -729,7 +729,7 @@ export default {
         // route below: the edge must not open a door the client could not.
         headers: authorizationOf(request),
       })
-      const res = await containerHost(env.WALGIT_CONTAINER).fetch(asked)
+      const res = await containerFor(env).fetch(asked)
       const outcome = outcomeOf({
         status: res.status,
         declared: res.headers.get(REJECT_HEADER) ?? '',
@@ -754,6 +754,10 @@ export default {
       // bookkeeping rather than protocol.
       const headers = new Headers(res.headers)
       for (const name of INTERNAL_HEADERS) headers.delete(name)
+      // A HEAD sends no body, but the container was asked a GET and is sending
+      // one: cancelled, so the request it belongs to ends here rather than
+      // staying in flight in the container's object (worker/durable-container.ts).
+      if (request.method === 'HEAD') await res.body?.cancel()
       return new Response(request.method === 'HEAD' ? null : res.body, {
         status: res.status,
         statusText: res.statusText,
@@ -787,7 +791,7 @@ export default {
               // client could not.
               headers: authorizationOf(request),
             })
-            const res = await containerHost(env.WALGIT_CONTAINER).fetch(asked)
+            const res = await containerFor(env).fetch(asked)
             return {
               status: res.status,
               text: await res.text(),
@@ -968,7 +972,7 @@ export default {
       // and `sync.ts` reconciles on every access, so any container could take any
       // push — it is cache locality: a second instance starts with an empty disk
       // and materializes everything it is asked for from the log.
-      response = await containerHost(env.WALGIT_CONTAINER).fetch(forwarded)
+      response = await containerFor(env).fetch(forwarded)
     } catch (error) {
       // The container never answered, so nothing downstream can name this
       // refusal — it is an `edge` one by construction, and counting it as such
@@ -1141,7 +1145,7 @@ async function sweep(event: ScheduledController, env: Env): Promise<void> {
     headers: { [INTERNAL_HEADER]: '1' },
   })
   try {
-    const response = await containerHost(env.WALGIT_CONTAINER).fetch(request)
+    const response = await containerFor(env).fetch(request)
     const body = (await response.text()).trim()
     console.log(`walgit expire [cron ${event.cron}]: ${response.status} ${body}`)
   } catch (error) {

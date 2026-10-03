@@ -66,16 +66,19 @@ export default cloudflareModule.instance({
     // renders whichever host the request arrived on, so every one reads
     // correctly rather than advertising another.
     routes: ['agentgit.co/*', 'www.agentgit.co/*', 'agentgit.zabaca.com/*', 'walgit.zabaca.com/*'],
-    // Rolls the RETIRING `default`-policy container application to the new
-    // image, and nothing else. walgit now runs under the `durable_object`
-    // scheduling policy (packages/walgit/worker/durable-container.ts), which
+    // Rolls the `default`-policy container application — the one serving
+    // until `WALGIT_CONTAINER_POLICY` below moves traffic off it, and the
+    // rollback path after — to the new image, and nothing else. The
+    // `durable_object` application (packages/walgit/worker/durable-container.ts)
     // has no rollouts: wrangler applies this flag to `default`-policy
     // applications only and skips the other without a word. It stays set for
     // as long as packages/walgit/wrangler.jsonc still carries the old
-    // `WalgitContainer` entry, so that the rollback path — `wrangler rollback`
-    // to a Worker version that still routes there — finds that application on
-    // the current image rather than on whatever it last rolled to. Delete this
-    // line in the same change that deletes that entry.
+    // `WalgitContainer` entry, so that rolling back — a FORWARD deploy that
+    // unsets `WALGIT_CONTAINER_POLICY`; `wrangler rollback` refuses to cross
+    // the `v3` Durable Object migration — finds that application on the
+    // current image rather than on whatever it last rolled to. Delete this line
+    // in the same change that deletes that entry (phase 3, packages/walgit
+    // README.md, "Deployment").
     //
     // It was never sufficient on its own even when it mattered: it did not
     // drain the single always-warm instance this deployment runs. On
@@ -495,6 +498,24 @@ export default cloudflareModule.instance({
       // deploy that restarts nothing, and every start after it is the cold
       // start this deployment ran on until now.
       { name: 'WALGIT_SNAPSHOTS', value: '1' },
+      // ── which container application ──────────────────────────────────────
+      //
+      // PHASE 1 of three, and deliberately so: `WALGIT_CONTAINER_POLICY` is
+      // NOT set here yet, so this deploy creates the `durable_object` container
+      // application and routes nothing to it — git keeps being served by the
+      // `default`-policy `WalgitContainer`. One deploy cannot do both, because
+      // `wrangler deploy` puts the Worker live before it creates the new
+      // application, and a Worker routing to it in that gap fails every start
+      // (packages/walgit/worker/container-binding.ts).
+      //
+      // PHASE 2, once `wrangler containers list` shows the `durable_object`
+      // application for `WalgitDurableContainer`, is this one line, uncommented
+      // and deployed. Rolling back is deleting it again and deploying — a
+      // forward deploy, never `wrangler rollback`, which refuses to cross the
+      // `v3` migration. `WALGIT_SNAPSHOTS` above takes effect from here: it is
+      // read only by the new class.
+      //
+      // { name: 'WALGIT_CONTAINER_POLICY', value: 'durable_object' },
       // ── ref events ───────────────────────────────────────────────────────
       //
       // Where the container announces a push TO — this deployment's own public

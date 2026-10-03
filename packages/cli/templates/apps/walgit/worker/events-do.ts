@@ -37,10 +37,10 @@ import {
 import { Outbox } from '../shared/outbox'
 import { INTERNAL_HEADER, READ_VERDICT_PATH, REFS_PATH } from '../shared/protocol'
 import { RefCache } from '../shared/ref-cache'
-import { containerHost, type WalgitDurableContainer } from './durable-container'
+import { type ContainerBindings, containerFor } from './container-binding'
 
 /** Only the bindings this object touches — the Worker's Env is a superset. */
-export interface EventsEnv {
+export interface EventsEnv extends ContainerBindings {
   /**
    * The announce secret, presented to the container when this object asks
    * whether a subscriber may read what it watches (docs/adr/0013).
@@ -55,11 +55,6 @@ export interface EventsEnv {
   WALGIT_PRIVATE_REPOS?: string
   WALGIT_SIGNER_LISTS?: string
   WALGIT_PUSH_CERT_SEED?: string
-  // The container's own class, which lives in its own file precisely so this
-  // one can name it: the old `WalgitContainer` was defined in index.ts, which
-  // imports this file, and naming it here would have been a cycle. All this
-  // object ever does with the binding is `fetch`.
-  WALGIT_CONTAINER: DurableObjectNamespace<WalgitDurableContainer>
 }
 
 /** The Worker's internal call to fan an announcement out. Never client-reachable. */
@@ -306,8 +301,14 @@ export class WalgitEvents extends DurableObject<EventsEnv> {
       },
       body: JSON.stringify({ credential, repos }),
     })
-    const response = await containerHost(this.env.WALGIT_CONTAINER).fetch(request)
-    if (!response.ok) throw new Error(`read verdict: ${response.status}`)
+    const response = await containerFor(this.env).fetch(request)
+    if (!response.ok) {
+      // Cancelled, not dropped: the container's object counts a request in
+      // flight until its body is over, and an unread body may never be — which
+      // would hold the idle stop off (worker/durable-container.ts).
+      await response.body?.cancel()
+      throw new Error(`read verdict: ${response.status}`)
+    }
     const body = (await response.json()) as { verdicts?: Record<string, boolean> }
     if (!body.verdicts) throw new Error('read verdict: no verdicts in the answer')
     return body.verdicts
@@ -381,8 +382,12 @@ export class WalgitEvents extends DurableObject<EventsEnv> {
       `https://walgit.internal${REFS_PATH}?repo=${encodeURIComponent(repo)}`,
       { headers: { [INTERNAL_HEADER]: '1' } },
     )
-    const response = await containerHost(this.env.WALGIT_CONTAINER).fetch(request)
-    if (!response.ok) throw new Error(`refs lookup for ${repo}: ${response.status}`)
+    const response = await containerFor(this.env).fetch(request)
+    if (!response.ok) {
+      // Cancelled for the reason `readVerdicts` cancels its own.
+      await response.body?.cancel()
+      throw new Error(`refs lookup for ${repo}: ${response.status}`)
+    }
     const body = (await response.json()) as { refs?: Record<string, string> }
     return body.refs ?? {}
   }

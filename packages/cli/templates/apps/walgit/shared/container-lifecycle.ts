@@ -45,13 +45,37 @@ export const CONTAINER_INSTANCE = 'standard-1'
 export const CONTAINER_PORT = 8080
 
 /**
- * The longest `start()` may take to produce a container answering on
- * `CONTAINER_PORT`. `start()` returns before the process is up, so readiness
- * is asked of the port itself. The library allowed 8 s to obtain a container
- * and 20 s more for its port; one budget covering both is the same allowance
- * without a second number to keep in step.
+ * How long one start may wait for `CONTAINER_PORT` to answer. `start()`
+ * returns before the process is up, so readiness is asked of the port itself.
+ *
+ * Short on purpose, and ONE attempt per request. Under the `durable_object`
+ * policy a container is up in well under a second and src/server.ts listens a
+ * second after that; a start that has not answered in ten has failed for a
+ * reason a second try will not fix — most sharply, an application that does not
+ * exist yet, which is what every start meets between a deploy putting the
+ * Worker live and wrangler creating the application behind it. Under the
+ * library, three tries at 28 s each held git for two minutes before saying so;
+ * now the request fails in seconds, and the next one tries again.
  */
-export const READY_TIMEOUT_MS = 28_000
+export const READY_TIMEOUT_MS = 10_000
+
+/**
+ * The whole of what one request may spend starting a container: a snapshot
+ * restore that does not come up, then the fresh start that replaces it.
+ */
+export const BOOT_BUDGET_MS = 15_000
+
+/** The least a fresh start is given, however much a failed restore spent. */
+const MIN_FRESH_START_MS = 5_000
+
+/**
+ * How long the fresh start may wait, after `elapsedMs` already went on a
+ * restore. Never below `MIN_FRESH_START_MS`, so a slow failed restore cannot
+ * leave the image too little time to come up at all.
+ */
+export function freshStartTimeoutMs(elapsedMs: number): number {
+  return Math.min(READY_TIMEOUT_MS, Math.max(BOOT_BUDGET_MS - elapsedMs, MIN_FRESH_START_MS))
+}
 
 /** Between two readiness probes. The library's interval. */
 export const READY_POLL_MS = 300
@@ -97,6 +121,19 @@ export function inactivityTimeoutMs(sleepAfterMs: number): number {
   const margin = 2 * 60 * 1000
   return Math.min(sleepAfterMs + margin, MAX_INACTIVITY_TIMEOUT_MS)
 }
+
+/**
+ * The longest one request may count as in flight.
+ *
+ * In flight is what holds the idle stop off, and it ends when a response's
+ * last byte leaves — which depends on whoever is reading it. A caller that
+ * drops a response without reading or cancelling its body leaves a stream that
+ * may never finish, and one such request would keep the container up forever:
+ * the alarm sees it in flight and re-arms, every time. An hour is far past any
+ * clone or push this host takes (the push cap is 99 MiB), so a request still
+ * counted after it is let go of, and the idle clock starts.
+ */
+export const INFLIGHT_MAX_MS = 60 * 60 * 1000
 
 /** What the idle alarm decided. */
 export type IdleVerdict = { stop: true } | { stop: false; at: number }
@@ -176,3 +213,27 @@ export function mayRetry(method: string, attempt: number): boolean {
 
 /** How long to wait before that one retry. */
 export const RETRY_DELAY_MS = 500
+
+/**
+ * Which container application the Worker routes to, during the move between
+ * scheduling policies — `WALGIT_CONTAINER_POLICY`, edge-only.
+ *
+ * Two applications exist for a while, and the Worker must not reach the new
+ * one before it does. `wrangler deploy` puts the Worker live FIRST, rolls the
+ * `default`-policy application, and only then creates the `durable_object` one
+ * — so a deploy that both introduced the new application and routed to it would
+ * answer every git request with a failed start until wrangler caught up, and
+ * forever if the rollout in between threw. So the deploy that introduces it
+ * routes nowhere new, and a second deploy, setting this to `durable_object`,
+ * moves the traffic (README.md, "Deployment").
+ *
+ * Anything but the exact word is the old application: a typo must leave a
+ * deployment where it was, not move it.
+ */
+export type ContainerPolicy = 'default' | 'durable_object'
+
+export function containerPolicyFrom(env: { WALGIT_CONTAINER_POLICY?: string }): ContainerPolicy {
+  return (env.WALGIT_CONTAINER_POLICY ?? '').trim() === 'durable_object'
+    ? 'durable_object'
+    : 'default'
+}

@@ -649,7 +649,10 @@ Through the `cloudflare` module, never by hand — `zbc apply <env>`. The Worker
 (`worker/index.ts`) is a thin proxy in front of a Container running this
 package's Dockerfile under the **`durable_object` scheduling policy**: the
 Durable Object `WalgitDurableContainer` (`worker/durable-container.ts`) starts,
-proxies to, snapshots and stops it through `ctx.container` directly. `wrangler
+proxies to, snapshots and stops it through `ctx.container` directly — once
+`WALGIT_CONTAINER_POLICY=durable_object` routes to it. Unset, the Worker still
+routes to the `default`-policy `WalgitContainer`; the move between the two is
+below. `wrangler
 deploy` builds the image, so Docker must be running at apply time, the account
 must be on a Workers Paid plan with Containers enabled, and wrangler must be
 4.147 or later (the policy is not in the schema of older ones).
@@ -665,7 +668,9 @@ the running container on the first request after the deploy.
 **Lifecycle.** The first request after a sleep starts the container — from the
 last snapshot when snapshots are on and it qualifies, from the image otherwise
 — at `standard-1` (`CONTAINER_INSTANCE`, `shared/container-lifecycle.ts`, says
-why that size), and waits for port 8080 to answer before proxying. Its response
+why that size), and waits for `/_walgit/health` on port 8080 to answer before
+proxying. One start per request, inside 15 s: a start that fails, fails that
+request in seconds and the next request tries again. Its response
 is stamped cold for the telemetry. A bodiless read that lands on a container
 that just exited is retried once. `WALGIT_SLEEP_AFTER` after the last request
 **finished** — never while a clone streams or a push uploads — an alarm wakes
@@ -689,23 +694,44 @@ the variable off restarts nothing and makes every start cold again.
 
 **Moving an existing deployment onto this policy.** A container application's
 scheduling policy cannot be changed, so the `durable_object` application is a
-new one beside the `default`-policy one `WalgitContainer` ran in, and
-`wrangler.jsonc` carries both. The deploy that ships this switches
-`WALGIT_CONTAINER` to the new class; the old instance idles out on its own. Then,
-by hand and in order:
+new one beside the `default`-policy one `WalgitContainer` runs in, and
+`wrangler.jsonc` carries both, each behind its own binding (`WALGIT_CONTAINER`,
+`WALGIT_DURABLE_CONTAINER`). `WALGIT_CONTAINER_POLICY` picks which one the
+Worker routes to; unset is the old one. It takes three phases, because
+`wrangler deploy` puts the new Worker live **before** it creates the new
+container application — after rolling the old one, so a rollout that throws
+leaves the new application uncreated — and a Worker that routed to it in that
+gap would fail every git request.
 
-1. Watch the new application through a rollback window. Rolling back is
-   `wrangler rollback` to the previous Worker version, which still names
-   `WalgitContainer` — the reason its application is kept until now.
-2. Delete the `WalgitContainer` entry from `containers` in `wrangler.jsonc` and
-   deploy.
-3. `wrangler containers list`, find `walgit-walgitcontainer`, and
-   `wrangler containers delete <id>` — removing the entry does **not** delete
-   the application or its instances.
-4. Later, once no rollback will need it: delete the `WalgitContainer` class from
-   `worker/index.ts` (and `@cloudflare/containers` with it), and add a
-   `{ "tag": "v4", "deleted_classes": ["WalgitContainer"] }` migration. That
-   deletes the old namespace's storage, which holds only a fingerprint.
+1. **Phase 1 — create it, route nothing to it.** Deploy this package with
+   `WALGIT_CONTAINER_POLICY` unset: the `v3` migration, the
+   `WalgitDurableContainer` class and binding, and the `durable_object`
+   container entry arrive, and traffic stays on `WalgitContainer`. Then confirm
+   the application exists: `wrangler containers list` shows a `durable_object`
+   application for `WalgitDurableContainer`. If it does not (the deploy failed
+   after the Worker went live), run the deploy again — nothing routes to it yet,
+   so nothing is broken in the meantime.
+2. **Phase 2 — move the traffic.** Add
+   `{ name: 'WALGIT_CONTAINER_POLICY', value: 'durable_object' }` to the
+   instance's `workerVars` and deploy. The next request starts a container in
+   the new application; the old instance idles out on its own. **Rolling back**
+   is the same deploy with that var removed — a forward deploy. `wrangler
+   rollback` will not do it: it refuses to cross the `v3` migration, and the
+   migration and the class stay whichever way traffic points.
+3. **Phase 3 — retire the old application**, once no rollback will be wanted:
+   delete the `WalgitContainer` entry from `containers` and the
+   `WALGIT_CONTAINER` binding from `wrangler.jsonc`, drop
+   `immediateContainerRollout` from the instance, and deploy (keep
+   `WALGIT_CONTAINER_POLICY` set — with no old binding, an unset switch has
+   nothing to route to). Then `wrangler containers list`, find
+   `walgit-walgitcontainer`, and `wrangler containers delete <id>` — removing the
+   entry does **not** delete the application or its instances. Later still,
+   delete the `WalgitContainer` class (and `@cloudflare/containers` with it) and
+   add a `{ "tag": "v4", "deleted_classes": ["WalgitContainer"] }` migration,
+   which deletes the old namespace's storage — only a fingerprint.
+
+Until phase 3, both `containers` entries build `./Dockerfile`, so every deploy
+builds and pushes the image twice.
 
 The container reads its configuration from environment variables the **Worker**
 forwards (`CONTAINER_ENV` in `shared/container-env.ts`): `wrangler secret put`
