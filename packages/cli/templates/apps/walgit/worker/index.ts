@@ -304,9 +304,24 @@ export class WalgitContainer extends Container<Env> {
     }
     await this.reconciled
 
+    let response = await super.fetch(request)
+    // A read that lands between the container's SIGTERM exit and the library
+    // noticing it is refused by the library itself (a 500 the container never
+    // stamped). Once more, after a beat, starts a fresh container instead. Only
+    // a bodiless read: a push's body has already been consumed.
+    if (
+      (request.method === 'GET' || request.method === 'HEAD') &&
+      response.status === 500 &&
+      !response.headers.has(SERVED_HEADER)
+    ) {
+      await scheduler.wait(500)
+      response = await super.fetch(request)
+    }
+    // Read AFTER the fetch: `onStart` runs inside `super.fetch`, so a flag read
+    // before it was still `false` for the request that woke the container and
+    // stamped the next one cold instead.
     const cold = this.freshStart
     this.freshStart = false
-    const response = await super.fetch(request)
     if (!cold) return response
     // Rebuilt rather than mutated (Response headers are immutable), passing the
     // body by reference so a clone is not buffered to add one header.
@@ -664,6 +679,7 @@ export default {
           kind: 'browse',
           repo: browseRoute.repo,
           ...EDGE_NOT_FOUND_METRIC,
+          bytesReceived: 0,
           ttfbMs: Date.now() - startedAt,
           totalMs: Date.now() - startedAt,
         })
@@ -1093,7 +1109,6 @@ const EDGE_NOT_FOUND_METRIC = {
   served: false,
   cold: false,
   bytesServed: 0,
-  bytesReceived: 0,
 } as const
 
 /**
