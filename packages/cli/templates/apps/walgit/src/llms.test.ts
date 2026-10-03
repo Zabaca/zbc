@@ -18,7 +18,7 @@ import { MAX_REFS_PER_ENTRY, MAX_WATCH_ENTRIES } from '../shared/events'
 import { renderLlms, wantsLlms } from '../shared/llms'
 import { operatorFrom, type OperatorEnv } from '../shared/operator'
 import { CHALLENGE_PATH, READ_CHALLENGE_NAMESPACE, SIGNERS_REF } from '../shared/protocol'
-import { renderInstructions } from './instructions'
+import { renderInstructions } from '../shared/instructions'
 
 const HOST = 'agentgit.zabaca.com'
 

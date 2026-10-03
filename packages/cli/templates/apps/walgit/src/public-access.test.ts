@@ -21,7 +21,7 @@ import { authorizeSubscribe } from '../shared/events'
 import { renderLanding } from '../shared/landing'
 import { renderLlms } from '../shared/llms'
 import { createHttpHandler } from './http'
-import { renderInstructions } from './instructions'
+import { renderInstructions } from '../shared/instructions'
 
 const TOKEN = 's3cret'
 const TOKENS = [TOKEN]

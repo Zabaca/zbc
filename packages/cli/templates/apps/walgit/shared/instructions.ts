@@ -15,9 +15,9 @@
  * constant.
  */
 
-import type { Capabilities } from '../shared/capabilities'
-import { describeBytes, describeWindow } from '../shared/policy'
-import { EVENTS_PATH, PROVENANCE_PATH } from '../shared/protocol'
+import type { Capabilities } from './capabilities'
+import { describeBytes, describeWindow } from './policy'
+import { EVENTS_PATH, PROVENANCE_PATH } from './protocol'
 
 /**
  * Rendered per request rather than baked at boot, because the host an agent

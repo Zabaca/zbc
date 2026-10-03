@@ -2,7 +2,7 @@
  * The page a browser gets at `/`.
  *
  * The same URL answers two audiences. git and curl send an `Accept` that never
- * names HTML, and get src/instructions.ts — plain text, the whole protocol, no
+ * names HTML, and get shared/instructions.ts — plain text, the whole protocol, no
  * markup to parse. A browser sends `Accept: text/html` and gets this. One
  * hostname, one route, and the pitch is never a second deployment to keep in
  * sync with the service it describes.

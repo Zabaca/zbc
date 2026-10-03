@@ -296,5 +296,16 @@ try {
   process.exit(1)
 }
 
-Bun.serve({ port, idleTimeout: 0, fetch: handler })
+const server = Bun.serve({ port, idleTimeout: 0, fetch: handler })
+
+// The container's idle stop is a SIGTERM (`sleepAfter` in worker/index.ts), and
+// this process is PID 1, which the kernel exempts from every signal it has no
+// handler for. Without this the stop was ignored, the container ran around the
+// clock, and the Durable Object in front of it stayed awake polling it. Stop
+// accepting, let the requests in flight finish, then exit — nothing durable is
+// lost by going, since a push is acknowledged only once the log holds it.
+process.on('SIGTERM', () => {
+  console.log('walgit: SIGTERM, draining and exiting')
+  void server.stop().finally(() => process.exit(0))
+})
 console.log(`walgit smart-HTTP listening on :${port} (repos: ${reposDir})`)

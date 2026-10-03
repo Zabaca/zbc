@@ -3,7 +3,7 @@
  *
  * Both halves state walgit's limits and only one of them enforces them: the
  * container refuses an oversized push in `pre-receive` (`src/limits.ts`), while
- * `GET /` (`src/instructions.ts`) and the landing page (`shared/landing.ts`)
+ * `GET /` (`shared/instructions.ts`) and the landing page (`shared/landing.ts`)
  * describe the caps to whoever is about to push. A page that promised a number
  * the hook does not hold would be a lie told at the top of the funnel, and the
  * only reliable way not to tell it is for the statement and the enforcement to

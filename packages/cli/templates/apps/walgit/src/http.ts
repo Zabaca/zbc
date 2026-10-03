@@ -42,7 +42,7 @@ import {
   type ContainerRejectKind,
 } from '../shared/protocol'
 import { emptyReadResponse } from './empty-read'
-import { renderInstructions } from './instructions'
+import { renderInstructions } from '../shared/instructions'
 import { acceptedNonces, readAllowed, readChallengeNonce, renderReadChallenge } from './private'
 import type { ProposalListing } from './proposals'
 import { countsNewRepos, createSourceLimiter, rateLimitsEnforced, rateLimitsOf } from './rate-limit'

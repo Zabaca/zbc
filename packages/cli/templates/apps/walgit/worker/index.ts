@@ -34,6 +34,8 @@ import { parseTokens } from '../shared/credentials'
 import { authorizeAnnounce, authorizeSubscribe } from '../shared/events'
 import { renderLanding, wantsLanding } from '../shared/landing'
 import { renderLlms, wantsLlms } from '../shared/llms'
+import { renderInstructions } from '../shared/instructions'
+import { indexKey } from '../shared/keys'
 import {
   FAVICON_BODY,
   FAVICON_CONTENT_TYPE,
@@ -54,6 +56,7 @@ import {
   COLD_HEADER,
   EVENTS_PATH,
   BROWSE_PATH,
+  containerRoutes,
   EXPIRE_PATH,
   INTERNAL_HEADER,
   INTERNAL_HEADERS,
@@ -204,8 +207,12 @@ export class WalgitContainer extends Container<Env> {
    * test cannot show them in production, and only this side knows it: from the
    * Worker every request is a `fetch` that took as long as it took. So the
    * first response after a start is stamped, once, and the Worker reads it off.
+   *
+   * `false` until `onStart` says otherwise: a Durable Object reconstructed in
+   * front of a container that was already running has started nothing, and
+   * stamping its first response cold counted ~10 phantom cold starts a day.
    */
-  private freshStart = true
+  private freshStart = false
 
   // src/server.ts's PORT default, and the Dockerfile's.
   defaultPort = 8080
@@ -404,6 +411,32 @@ export default {
           // config change.
           'cache-control': 'public, max-age=60',
         },
+      })
+    }
+
+    // The plain-text `/` — the API surface an agent's default fetch reads
+    // (`shared/instructions.ts`). The browser's `/` is the landing branch
+    // above; this is everything else that asks for `/`. It used to be proxied,
+    // and agents fetch it often enough that it alone kept the container from
+    // sleeping. Rendered from the same capabilities the container would use,
+    // and above the credential gate there too, so the answer is the same one.
+    if (url.pathname === '/' && (request.method === 'GET' || request.method === 'HEAD')) {
+      const bytes = new TextEncoder().encode(renderInstructions(url.origin, caps))
+      record(env, ctx, {
+        kind: 'instructions',
+        repo: '',
+        outcome: 'ok',
+        reject: '',
+        status: 200,
+        served: false,
+        cold: false,
+        ttfbMs: Date.now() - startedAt,
+        totalMs: Date.now() - startedAt,
+        bytesServed: request.method === 'HEAD' ? 0 : bytes.byteLength,
+        bytesReceived: 0,
+      })
+      return new Response(request.method === 'HEAD' ? null : bytes, {
+        headers: { 'content-type': 'text/plain; charset=utf-8' },
       })
     }
 
@@ -619,7 +652,23 @@ export default {
     // container has already chosen the `content-type` from the CONTENT — plain
     // text with `nosniff`, or an octet-stream attachment — because it is the
     // half holding the bytes, and nothing here second-guesses that.
+    // A repository page for a name nobody has pushed to is a 404 the edge can
+    // read off the log, and most of these are not people: `/contact`,
+    // `/about` and `/impressum` are scanners trying a site that is not here.
+    // See `absentAtEdge` for when the edge is allowed to say so.
+    const absent = browseRoute ? await absentAtEdge(env, caps, browseRoute.repo) : false
+
     if (browseRoute && browseRoute.kind === 'raw') {
+      if (absent) {
+        record(env, ctx, {
+          kind: 'browse',
+          repo: browseRoute.repo,
+          ...EDGE_NOT_FOUND_METRIC,
+          ttfbMs: Date.now() - startedAt,
+          totalMs: Date.now() - startedAt,
+        })
+        return edgeNotFound(request.method)
+      }
       const query =
         `?repo=${encodeURIComponent(browseRoute.repo)}&op=raw` +
         (browseRoute.rest === '' ? '' : `&ref=${encodeURIComponent(browseRoute.rest)}`)
@@ -667,6 +716,18 @@ export default {
         {
           caps,
           ask: async (query) => {
+            // The container's own 404, word for word, so `browseResponse`
+            // renders the page it always rendered for a missing name.
+            if (absent) {
+              return {
+                status: 404,
+                text: NOT_FOUND_BODY,
+                contentType: 'text/plain;charset=UTF-8',
+                served: false,
+                reject: 'not-found',
+                challenges: [],
+              }
+            }
             const asked = new Request(`https://walgit.internal${BROWSE_PATH}${query}`, {
               // The client's own credential, and nothing else: the container
               // answers this behind the deployment token and then the Read
@@ -788,6 +849,21 @@ export default {
     }
 
     const facts = classifyRequest(request.method, url.pathname, url.search)
+
+    // A path the container does not route is a 404 there, so on a public
+    // deployment it is a 404 here, without the wake (`containerRoutes`). Not
+    // on a token-gated one: its container answers an unauthenticated stranger
+    // 401 before it looks at the path, and a 404 from here would tell that
+    // stranger which paths are not repositories.
+    if (caps.publicAccess && facts.kind === 'other' && !containerRoutes(url.pathname)) {
+      record(env, ctx, {
+        ...base(facts, request),
+        ...EDGE_NOT_FOUND_METRIC,
+        ttfbMs: Date.now() - startedAt,
+        totalMs: Date.now() - startedAt,
+      })
+      return edgeNotFound(request.method)
+    }
 
     // The container's expiry endpoint trusts INTERNAL_HEADER to mean "the
     // scheduled handler asked". That is only true because this line makes it
@@ -996,6 +1072,54 @@ async function sweep(event: ScheduledController, env: Env): Promise<void> {
  * same the container makes; what is here is only the dependency it takes, since
  * the signer belongs to whichever half has `aws4fetch` to hand.
  */
+/** The container's `NOT_FOUND` body (`src/http.ts`), which the edge repeats. */
+const NOT_FOUND_BODY = 'not found\n'
+
+function edgeNotFound(method: string): Response {
+  return new Response(method === 'HEAD' ? null : NOT_FOUND_BODY, {
+    status: 404,
+    headers: { 'content-type': 'text/plain;charset=UTF-8' },
+  })
+}
+
+/**
+ * How a 404 the edge answered itself is counted: `not-found`, as the
+ * container would have named it, and `served: false`, because it did not.
+ */
+const EDGE_NOT_FOUND_METRIC = {
+  outcome: 'reject',
+  reject: 'not-found',
+  status: 404,
+  served: false,
+  cold: false,
+  bytesServed: 0,
+  bytesReceived: 0,
+} as const
+
+/**
+ * Does the log say this name has never been pushed to?
+ *
+ * The container's browse answers a name with no Index 404 once the Private
+ * gate has passed, and the gate cannot refuse a name with no Index: the Claim
+ * lives IN the Index (`src/server.ts`'s `readClaim`), so there is nothing for
+ * it to read. So on a public deployment, an absent `index.json` is the
+ * container's answer known in advance. Any doubt is `false` and the request
+ * goes to the container as before: no store, a name the container would
+ * normalize differently, or a read that failed.
+ */
+async function absentAtEdge(env: Env, caps: Capabilities, repo: string): Promise<boolean> {
+  if (!caps.publicAccess) return false
+  // `normalizeRepoId` strips a `.git` suffix, so `/alpha.git` browses `alpha`.
+  if (repo.endsWith('.git')) return false
+  const store = edgeStore(env)
+  if (!store) return false
+  try {
+    return (await store.get(indexKey(repo))) === null
+  } catch {
+    return false
+  }
+}
+
 function edgeStore(env: Env): ObjectStore | null {
   return s3StoreFrom(env, (credentials) => new AwsClient(credentials))
 }

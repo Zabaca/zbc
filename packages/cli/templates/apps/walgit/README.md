@@ -58,7 +58,7 @@ by layer:
 | `src/signers.ts`                                     | the Signer List a repository holds, resolved in `pre-receive` beside the size caps and re-asked at the publish                                   |
 | `src/private.ts`, `src/ssh-signature.ts`             | the Reader List and the Read Challenge: who may read a Private repository, and the nonce-and-signature that proves it                            |
 | `src/usage.ts`                                       | what the log says this service holds, folded out of the indexes                                                                                  |
-| `src/instructions.ts`                                | the plain-text `GET /` — the whole API surface, rendered from the limits actually enforced                                                       |
+| `shared/instructions.ts`                             | the plain-text `GET /` — the whole API surface, rendered from the limits actually enforced                                                       |
 | `src/verify.ts`, `src/cli.ts`                        | the operator CLI: inspect, rebuild, verify, reclaim                                                                                              |
 | `src/git.ts`, `src/mkdir-lock.ts`                    | the two shared primitives: running a git plumbing command, and locking with `mkdir`                                                              |
 
