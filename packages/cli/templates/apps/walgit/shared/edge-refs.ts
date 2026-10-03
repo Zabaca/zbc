@@ -554,7 +554,18 @@ export async function refsAtEdge(request: Request, deps: EdgeRefsDeps): Promise<
   let body: Uint8Array | null = null
   let forward = request
   if (route.kind === 'ls-refs') {
-    body = new Uint8Array(await request.arrayBuffer())
+    try {
+      body = new Uint8Array(await request.arrayBuffer())
+    } catch {
+      // The client went away mid-body. There is nothing left to forward — the
+      // stream is spent — and nobody left to answer, so say so plainly rather
+      // than throw out of the Worker with no telemetry row.
+      return {
+        response: new Response('walgit: request body unreadable\n', { status: 400 }),
+        route,
+        bytes: 0,
+      }
+    }
     // Rebuilt from parts rather than `new Request(request, { body })`: the
     // original's body is spent, and whether a runtime accepts a spent request
     // as the template is not a thing to find out in production.

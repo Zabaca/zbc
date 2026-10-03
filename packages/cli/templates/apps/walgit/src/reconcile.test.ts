@@ -49,6 +49,22 @@ beforeEach(() => {
 afterAll(() => fs.rmSync(scratch, { recursive: true, force: true }))
 
 describe('reconcile', () => {
+  test('an annotated tag it writes is still advertised with its peeled value', () => {
+    const work = path.join(path.dirname(bare), 'work')
+    git(work, 'tag', '-a', '-m', 'release', 'v1')
+    git(work, 'push', '--quiet', bare, 'refs/tags/v1')
+    const tagOid = git(work, 'rev-parse', 'v1')
+    // Dropping `topic` makes the reconcile rewrite `packed-refs`.
+    const result = reconcile(
+      bare,
+      indexWith({ 'refs/heads/main': topicOid, 'refs/tags/v1': tagOid }),
+    )
+    expect(result.changed).toBe(true)
+    // A `peeled` trait on a file with no `^` lines told git nothing peels, and
+    // every clone then saw the tag without the commit it points at.
+    expect(git(bare, 'ls-remote', '.', 'refs/tags/v1*')).toContain(`${topicOid}\trefs/tags/v1^{}`)
+  })
+
   test('an agreeing repo is left alone', () => {
     const result = reconcile(
       bare,
