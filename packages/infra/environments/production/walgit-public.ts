@@ -66,29 +66,6 @@ export default cloudflareModule.instance({
     // renders whichever host the request arrived on, so every one reads
     // correctly rather than advertising another.
     routes: ['agentgit.co/*', 'www.agentgit.co/*', 'agentgit.zabaca.com/*', 'walgit.zabaca.com/*'],
-    // Rolls the `default`-policy container application — the one serving
-    // until `WALGIT_CONTAINER_POLICY` below moves traffic off it, and the
-    // rollback path after — to the new image, and nothing else. The
-    // `durable_object` application (packages/walgit/worker/durable-container.ts)
-    // has no rollouts: wrangler applies this flag to `default`-policy
-    // applications only and skips the other without a word. It stays set for
-    // as long as packages/walgit/wrangler.jsonc still carries the old
-    // `WalgitContainer` entry, so that rolling back — a FORWARD deploy that
-    // unsets `WALGIT_CONTAINER_POLICY`; `wrangler rollback` refuses to cross
-    // the `v3` Durable Object migration — finds that application on the
-    // current image rather than on whatever it last rolled to. Delete this line
-    // in the same change that deletes that entry (phase 3, packages/walgit
-    // README.md, "Deployment").
-    //
-    // It was never sufficient on its own even when it mattered: it did not
-    // drain the single always-warm instance this deployment runs. On
-    // 2026-09-14 the 0.16.1 deploy moved the application to v51 with a new
-    // image, reported the rollout `completed`, and left the instance started
-    // an hour earlier answering git with the pre-0.16.1 clone recipe
-    // (ZBC-OA7D84). What replaces a running container is the line below, and
-    // under the new policy the image reference the Durable Object fingerprints
-    // beside it — see the note above `workerVars`.
-    immediateContainerRollout: true,
     // Every deploy names itself, as `WALGIT_BUILD_ID`: the deployed commit
     // (`GITHUB_SHA` in CI, `git rev-parse HEAD` locally). It configures
     // nothing. It exists so that a deploy carrying only new CODE still changes
@@ -500,7 +477,10 @@ export default cloudflareModule.instance({
       { name: 'WALGIT_SNAPSHOTS', value: '1' },
       // ── which container application ──────────────────────────────────────
       //
-      // PHASE 2 of three (2026-10-03). Phase 1 deployed this file without the
+      // PHASE 3 of three done (2026-10-03): the old container entry, its
+      // binding and `immediateContainerRollout` are gone, and this line stays
+      // set (it is moot once only the new binding exists). Phase 2 history:
+      // phase 1 deployed this file without the
       // line below: that created the `durable_object` container application
       // and routed nothing to it, while git kept being served by the
       // `default`-policy `WalgitContainer`. One deploy cannot do both, because

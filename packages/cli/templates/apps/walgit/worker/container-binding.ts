@@ -28,7 +28,7 @@ export interface ContainerBindings {
    * class rather than the subclass, which is defined in index.ts — and index.ts
    * imports this file. All any caller does with it is `fetch`.
    */
-  WALGIT_CONTAINER: DurableObjectNamespace<Container>
+  WALGIT_CONTAINER?: DurableObjectNamespace<Container>
   /**
    * The `durable_object`-policy application's object. Optional so a Worker
    * deployed from a config that predates it still typechecks against reality:
@@ -58,6 +58,12 @@ export function containerFor(env: ContainerBindings): ContainerFetcher {
       'walgit: WALGIT_CONTAINER_POLICY=durable_object but no WALGIT_DURABLE_CONTAINER binding; ' +
         'routing to the default-policy container',
     )
+  }
+  // A config that binds only the new class has nothing else to route to, so
+  // the switch is moot: this is every deployment after phase 3.
+  if (!env.WALGIT_CONTAINER) {
+    if (env.WALGIT_DURABLE_CONTAINER) return containerHost(env.WALGIT_DURABLE_CONTAINER)
+    throw new Error('walgit: no container binding (WALGIT_DURABLE_CONTAINER) configured')
   }
   return getContainer(env.WALGIT_CONTAINER)
 }

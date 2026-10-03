@@ -718,7 +718,10 @@ gap would fail every git request.
    is the same deploy with that var removed — a forward deploy. `wrangler
    rollback` will not do it: it refuses to cross the `v3` migration, and the
    migration and the class stay whichever way traffic points.
-3. **Phase 3 — retire the old application**, once no rollback will be wanted:
+3. **Phase 3 — retire the old application**, once no rollback will be wanted. This
+   template ships already past it (agentgit.co did all three on 2026-10-03), so a
+   deployment still on `WalgitContainer` takes phases 1 and 2 from the release that
+   carried both bindings before taking this one. For the record, phase 3 was:
    delete the `WalgitContainer` entry from `containers` and the
    `WALGIT_CONTAINER` binding from `wrangler.jsonc`, drop
    `immediateContainerRollout` from the instance, and deploy (keep
