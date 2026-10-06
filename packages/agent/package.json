@@ -16,6 +16,7 @@
     "dist",
     "mods",
     "!mods/**/tests",
+    "!mods/**/tsconfig.json",
     "README.md",
     "CONTEXT.md"
   ],

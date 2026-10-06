@@ -407,7 +407,13 @@ bun run dev "your prompt"   # run the CLI
 bun test src                # levers are pinned by tests
 bun run typecheck
 bun run e2e                 # live containment check — spends ~$0.14, macOS only
+bun run e2e:reminders       # live reminder-filter check — spends ~$0.0001
 ```
+
+The reminder filter in `mods/reminders` is a Claude Code plugin, not package
+code: `bun test src` runs its own tests through the bundled Claude Code, which
+also lays that build's plugin API types in `mods/reminders/.claude-plugin/types`
+(ignored), after which `tsc -p mods/reminders` typechecks it.
 
 The tests assert the defaults rather than the SDK: a change that quietly
 reinstates tool schemas or settings loading costs ~20k tokens per call and
