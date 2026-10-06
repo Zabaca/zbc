@@ -72,6 +72,9 @@ Output tokens move too. With thinking left on, `"Reply with exactly: OK"` cost
 Every number came from capturing the real request through a local proxy and
 reading `usage` off the response stream. Method and the full field-by-field
 comparison across clients: [`docs/research/claude-code-wire.html`](../../docs/research/claude-code-wire.html).
+That table was measured on Claude Code 2.1.220 (Agent SDK 0.3.220). Later
+releases inject reminders on every request, and holding the line against them
+takes a plugin: see [Reminders Claude Code injects](#reminders-claude-code-injects).
 
 **Tool schemas are the lever.** They are 55–76% of a default request body. The
 SDK's own system prompt is a single 62-character sentence — there is nothing to
@@ -90,6 +93,7 @@ instructions.
 | `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1` | Auto-update checks, feature-flag lookups, and the session title. See below.                                               |
 | `settings.disableClaudeAiConnectors`         | claude.ai account connectors. Pass `claudeAiConnectors: true` to restore.                                                 |
 | `CLAUDE_CODE_ATTRIBUTION_HEADER=0`           | The `system[0]` billing block. Discloses nothing new — see below.                                                         |
+| `keepReminders: []`                          | The date, the model's name, its working directory and OS. Keep `'environment'` for an agent with tools. See below.        |
 
 ### Auto-memory is a correctness fix, not a token one
 
@@ -117,6 +121,36 @@ drop Bash and they are promoted automatically.
 Adding tools back is also the point at which to consider adding instructions.
 By default this gives you a capable model with **no operating guidance** — that
 is fine for classification and summarisation, and thin once an agent has tools.
+
+### Reminders Claude Code injects
+
+From Claude Code 2.1.291 (Agent SDK 0.3.291), every request carries messages the
+engine adds on its own, and no option or setting turns them off:
+
+| Reminder                | Carries                                                                                                |
+| ----------------------- | ------------------------------------------------------------------------------------------------------ |
+| `environment`           | Working directory, platform, shell, OS version, guidance on downloaded files                           |
+| `session_context`       | **The logged-in account's email address**, even with `inheritEnv: false`                               |
+| `model`                 | The model's name, ID and knowledge cutoff                                                              |
+| `total_tokens_reminder` | A token counter                                                                                        |
+| `date`                  | Today's date                                                                                           |
+| `remote_session_change` | Inside a remote Claude Code session, with its environment inherited: that session's commit attribution |
+
+That is auto-memory's problem again — the operator's identity and machine in an
+unrelated agent's prompt — and a cost: `"Reply with exactly: OK"` took **487**
+input tokens with them and **28** without (Haiku, `usage` off the result, no
+prompt cache involved). `minimalOptions()` drops them all with a Claude Code
+plugin this package ships, [`mods/reminders`](./mods/reminders), loaded through
+the SDK's `plugins` option. Keep what an agent needs by type:
+
+```ts
+minimalOptions({ tools: ['Read', 'Edit', 'Bash'], keepReminders: ['environment', 'date'] })
+```
+
+`keepReminders: 'all'` loads no filter. The filter needs Claude Code 2.1.291 or
+newer; an older CLI ignores it and sends everything. `bun run e2e:reminders`
+checks it live, and fails on a reminder type it has not seen before — the moment
+to decide whether an agent needs it.
 
 ## Two things to know before deploying
 

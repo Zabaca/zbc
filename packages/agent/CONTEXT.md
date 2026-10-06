@@ -70,3 +70,14 @@ sanctioned way to grant one narrow capability without widening a policy that
 applies to everything else the agent does.
 _Avoid_: MCP server (a Custom Tool may be one, but the term is about where the
 code runs and what that implies, not the transport)
+
+**Reminder**:
+A message Claude Code injects into a request on its own — the environment block,
+the model line, the date, a token counter, the logged-in account's email address,
+a remote session's commit attribution — as opposed to anything the caller sent.
+Dropped by default by a plugin the base configuration loads, because each one is
+the operator's machine or identity leaking into an unrelated agent, the same
+failure auto-memory is. Kept only by name (`keepReminders`), so a new type
+Claude Code starts injecting is dropped until someone decides an agent needs it.
+_Avoid_: system reminder (the wrapper the engine puts around it, not the thing),
+context (the caller's own context is something else entirely)

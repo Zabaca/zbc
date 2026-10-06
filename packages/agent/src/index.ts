@@ -8,6 +8,7 @@
 // request body; the SDK's own system prompt is one 62-character sentence, so
 // there is nothing to win there and no reason to hand-write a replacement
 // unless the agent actually needs instructions.
+import { fileURLToPath } from 'node:url'
 import {
   type ModelUsage,
   type NonNullableUsage,
@@ -18,6 +19,14 @@ import {
 
 /** Default model for zbc agents. Cheapest tier that handles routine work. */
 export const DEFAULT_MODEL = 'claude-haiku-4-5'
+
+/**
+ * The plugin that keeps Claude Code's own reminders out of the request — see
+ * `MinimalOptions.keepReminders`. Resolved from this file, so it is the same
+ * folder whether the package runs from `src/` in the workspace or `dist/` from
+ * npm: `mods/` sits beside both.
+ */
+export const REMINDER_FILTER = fileURLToPath(new URL('../mods/reminders', import.meta.url))
 
 /**
  * Environment carried into an agent that does not inherit the operator's.
@@ -176,6 +185,26 @@ export type MinimalOptions = {
    * ignored entirely on API-key auth or a third-party provider.
    */
   claudeAiConnectors?: boolean
+  /**
+   * Which of the reminders Claude Code injects on its own reach the model.
+   * `[]` — the default — lets none through.
+   *
+   * From Claude Code 2.1.291 (Agent SDK 0.3.291) every request carries them,
+   * and no option or setting turns them off: the environment block (working
+   * directory, platform, OS, guidance on downloaded files), the model line, the
+   * date, a token counter, and `session_context` — the logged-in account's
+   * email address, injected even with `inheritEnv: false`. A run that inherits
+   * a remote Claude Code session's environment adds `remote_session_change`,
+   * which tells the agent to sign its commits with *that* session's link. For
+   * `"Reply with exactly: OK"` they cost 487 input tokens against 28 without.
+   *
+   * They are dropped by a Claude Code plugin this package ships (see
+   * {@link REMINDER_FILTER}), loaded through the SDK's `plugins` option. Name
+   * the types to keep — an agent with tools usually wants `'environment'`, the
+   * working directory being in it — or pass `'all'` to load no filter. Spreading
+   * your own `plugins` over the result replaces this one; append to it instead.
+   */
+  keepReminders?: readonly string[] | 'all'
 }
 
 /** Read named variables out of the current environment, skipping unset ones. */
@@ -206,6 +235,7 @@ export function minimalOptions({
   attribution = false,
   nonessentialTraffic = false,
   claudeAiConnectors = false,
+  keepReminders = [],
 }: MinimalOptions = {}): Options {
   return {
     model,
@@ -229,7 +259,11 @@ export function minimalOptions({
       ...extraEnv,
       ...(attribution ? {} : { CLAUDE_CODE_ATTRIBUTION_HEADER: '0' }),
       ...(nonessentialTraffic ? {} : { CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1' }),
+      // Set even when empty, so an inherited value cannot widen what is kept.
+      ...(keepReminders === 'all' ? {} : { ZBC_AGENT_KEEP_REMINDERS: keepReminders.join(',') }),
     },
+
+    ...(keepReminders === 'all' ? {} : { plugins: [{ type: 'local', path: REMINDER_FILTER }] }),
 
     // No MCP servers, and ignore any a project config tries to contribute.
     // Without `strictMcpConfig` a stray `.mcp.json` silently reintroduces the

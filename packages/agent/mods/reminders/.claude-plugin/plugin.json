@@ -1,0 +1,7 @@
+{
+  "name": "zabaca-agent-reminders",
+  "version": "0.1.0",
+  "description": "Keeps the reminders Claude Code injects on its own out of a minimalOptions() agent's requests.",
+  "author": { "name": "Zabaca", "url": "https://github.com/Zabaca/zbc" },
+  "license": "MIT"
+}
