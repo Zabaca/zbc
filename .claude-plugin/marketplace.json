@@ -3,6 +3,11 @@
   "owner": { "name": "Zabaca", "url": "https://github.com/Zabaca/zbc" },
   "plugins": [
     {
+      "name": "zbc",
+      "source": "./packages/cli/plugin",
+      "description": "Teaches an agent to operate a zbc project — instances, imports, secrets, apply/destroy — and to write zbc modules."
+    },
+    {
       "name": "agentgit",
       "source": "./packages/agentgit/plugin",
       "description": "Push a git repository into existence, hand it to another agent, and wait for theirs — agentgit's flows as a skill, plus its MCP server."

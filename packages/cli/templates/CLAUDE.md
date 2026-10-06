@@ -2,6 +2,11 @@
 
 This project uses [zbc](https://github.com/Zabaca/zbc) for infrastructure scaffolding.
 
+The `zbc` Claude Code plugin teaches the rest: the `zbc` skill for operating
+this project (instances, imports, secrets, apply/destroy), and `zbc-module` for
+writing a module. `.claude/settings.json` enables it. To install it by hand, run
+`/plugin marketplace add Zabaca/zbc` and then `/plugin install zbc@zbc`.
+
 ## Layout
 
 - `packages/infra/` — infrastructure code (zbc modules)
