@@ -254,6 +254,8 @@ export type PublishResult =
    * has to read like one.
    */
   | { ok: false; reason: 'not-allowed'; kind: GateRefusal; message: string }
+  /** The repository is being deleted right now (`RepoDeletion.collecting_at`). */
+  | { ok: false; reason: 'deleting' }
 
 export interface PublishOptions {
   /** How many compare-and-swap attempts before giving up. */
@@ -319,6 +321,23 @@ function claimIsThisPush(index: WalIndex, pending: PendingPush): boolean {
 }
 
 /**
+ * A push lifts an expiry mark: expiry marked the repository because nobody had
+ * pushed to it, and somebody just did. Left in place, the mark's grace would run
+ * out and the collection would delete the push this compare-and-swap is about to
+ * acknowledge. An operator's mark (no `by`) stays — that was a decision about
+ * the repository, not a reading of its idleness.
+ *
+ * A ref-only push lifts it too, though it appends no WAL entry and so does not
+ * move the date expiry reads: the next full sweep marks the repository again.
+ * That is a day's notice rather than a silent loss.
+ */
+export function liftExpiry(next: WalIndex): WalIndex {
+  if (next.deletion?.by !== 'expiry') return next
+  const { deletion: _lifted, ...rest } = next
+  return rest
+}
+
+/**
  * Publish the pending entry with the push's ref changes, under CAS.
  *
  * Retry is here rather than inside `commitIndex`, and it is guarded: every
@@ -344,6 +363,11 @@ export async function publishPush(
   const attempts = options.attempts ?? 5
   for (let i = 0; i < attempts; i += 1) {
     const { index, etag } = await loadIndex(store, repoId)
+
+    // Refused, not published: past this field the collection is removing the
+    // repository and will not look at the Index again, so anything published
+    // now would be acknowledged and then deleted.
+    if (index.deletion?.collecting_at) return { ok: false, reason: 'deleting' }
 
     for (const change of changes) {
       const actual = index.refs[change.ref] ?? ZERO_OID
@@ -417,14 +441,16 @@ export async function publishPush(
       provenance: pending.provenance ?? null,
       claim: pending.claim ?? null,
     }
-    const next = pending.entry
-      ? nextIndex(index, pending.entry, changes, record)
-      : {
-          ...index,
-          refs: applyRefChanges(index.refs, changes),
-          provenance: applyProvenance(index.provenance, changes, record.provenance),
-          claim: applyClaim(index.claim, changes, record.claim),
-        }
+    const next = liftExpiry(
+      pending.entry
+        ? nextIndex(index, pending.entry, changes, record)
+        : {
+            ...index,
+            refs: applyRefChanges(index.refs, changes),
+            provenance: applyProvenance(index.provenance, changes, record.provenance),
+            claim: applyClaim(index.claim, changes, record.claim),
+          },
+    )
 
     const result = await commitIndex(store, next, etag)
     if (result.ok) return { ok: true, index: next }

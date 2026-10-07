@@ -434,6 +434,19 @@ describe('expiresIn', () => {
     )
   })
 
+  test('a claimed repository counts down its own window', () => {
+    const caps = capabilitiesFrom({
+      WALGIT_RETENTION_HOURS: '24',
+      WALGIT_CLAIMED_RETENTION_HOURS: '168',
+      WALGIT_SIGNER_LISTS: '1',
+      WALGIT_PUSH_CERT_SEED: 'seed',
+    })
+    const pushed = '2026-09-19T12:00:00.000Z'
+    const later = at('2026-09-20T13:00:00.000Z')
+    expect(expiresIn(pushed, caps, later)).toBe('expires at any moment')
+    expect(expiresIn(pushed, caps, later, true)).toBe('expires in 143 hours')
+  })
+
   test('says nothing where there is no window, and nothing to measure from', () => {
     expect(expiresIn('2026-09-19T12:00:00.000Z', capabilitiesFrom({}), Date.now())).toBe(null)
     expect(expiresIn(null, capabilitiesFrom({ WALGIT_RETENTION_HOURS: '24' }), Date.now())).toBe(

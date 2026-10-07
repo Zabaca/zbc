@@ -30,7 +30,7 @@ import * as fs from 'node:fs'
 import type { ObjectStore } from '../shared/store'
 import { indexKey, repoPrefix } from '../shared/keys'
 import { loadIndex, type WalIndex } from '../shared/wal-index'
-import { updateIndex } from './wal-index'
+import { commitIndex, updateIndex } from './wal-index'
 
 /**
  * How long a repository sits tombstoned before its objects may be deleted.
@@ -50,6 +50,12 @@ export function configuredDeleteGraceMs(env = process.env): number {
 export type DeleteStatus =
   /** Nothing under this repo's prefix and no index: there was nothing to do. */
   | 'absent'
+  /**
+   * The repository moved under the request — a push landed between the caller
+   * deciding and this writing — and `stillDue` said it no longer should go, or
+   * a collection lost its compare-and-swap. Nothing was written or removed.
+   */
+  | 'superseded'
   /** The marker was written (or would be); the grace period starts now. */
   | 'tombstoned'
   /** Already marked, still inside the grace period. Nothing was removed. */
@@ -87,6 +93,16 @@ export interface DeleteOptions {
   dryRun?: boolean
   /** The bare repo on disk to remove once the log has let go of it. */
   dir?: string
+  /** Who is asking: `'expiry'` writes a marker a push lifts (`RepoDeletion.by`). */
+  by?: 'expiry'
+  /**
+   * Re-asked against the Index the marker would be written on. The caller
+   * decided on an earlier read, and a push can land between that read and this
+   * write — marking a repository its owner just pushed to would delete work
+   * the push was acknowledged for. Absent means always due, which is an
+   * operator's `walgit delete`.
+   */
+  stillDue?: (current: WalIndex) => boolean
 }
 
 /**
@@ -137,25 +153,35 @@ export async function deleteRepo(
   const existing = index.deletion
   if (!existing) {
     const collectAfter = new Date(now.getTime() + graceMs).toISOString()
+    if (opts.stillDue && !opts.stillDue(index)) {
+      return superseded(repoId, keys, dryRun, 'pushed to since it was judged idle')
+    }
     if (!dryRun) {
-      const committed = await updateIndex(
-        store,
-        repoId,
-        (current): WalIndex => ({
+      let lifted = false
+      const committed = await updateIndex(store, repoId, (current): WalIndex => {
+        // Re-read inside the mutation: a delete that raced another one must
+        // keep the FIRST request's deadline, never restart the clock — and a
+        // push that raced this one must not be marked at all.
+        if (!current.deletion && opts.stillDue && !opts.stillDue(current)) {
+          lifted = true
+          return current
+        }
+        lifted = false
+        return {
           ...current,
-          // Re-read inside the mutation: a delete that raced another one must
-          // keep the FIRST request's deadline, never restart the clock.
           deletion: current.deletion ?? {
             requested_at: now.toISOString(),
             collect_after: collectAfter,
+            ...(opts.by ? { by: opts.by } : {}),
           },
-        }),
-      )
+        }
+      })
       if (!committed.ok) {
         throw new Error(
           `walgit: delete for ${repoId} could not update the index; nothing was changed`,
         )
       }
+      if (lifted) return superseded(repoId, keys, false, 'pushed to since it was judged idle')
       return {
         repoId,
         status: 'tombstoned',
@@ -206,6 +232,19 @@ export async function deleteRepo(
     }
   }
 
+  // Claim the collection under compare-and-swap on the Index this decision was
+  // read from. Losing it means something wrote in between — most likely a push,
+  // which may have lifted the mark — and the next sweep decides again. Winning
+  // it means every later push is refused (`RepoDeletion.collecting_at`).
+  const claimed = await commitIndex(
+    store,
+    { ...index, deletion: { ...existing, collecting_at: now.toISOString() } },
+    etag,
+  )
+  if (!claimed.ok) {
+    return superseded(repoId, keys, false, 'the index moved under the collection')
+  }
+
   // The record goes first. From here on the objects are unreferenced, so a
   // crash at any point below leaves orphans the collector reclaims — never an
   // index naming an object that is gone.
@@ -233,6 +272,16 @@ export async function deleteRepo(
     retained: [],
     collectAfter: existing.collect_after,
     cacheRemoved,
+    dryRun,
+  }
+}
+
+function superseded(repoId: string, keys: string[], dryRun: boolean, why: string): DeleteResult {
+  return {
+    repoId,
+    status: 'superseded',
+    deleted: [],
+    retained: keys.map((key) => ({ key, reason: `${why} — nothing was changed` })),
     dryRun,
   }
 }

@@ -42,7 +42,8 @@ export function wantsLlms(method: string, pathname: string): boolean {
   return pathname === '/llms.txt'
 }
 
-const hours = (n: number) => (n === 1 ? '1 hour' : `${n} hours`)
+const hours = (n: number) =>
+  n >= 48 && n % 24 === 0 ? `${n / 24} days` : n === 1 ? '1 hour' : `${n} hours`
 
 export function renderLlms(
   host: string,
@@ -108,7 +109,11 @@ export function renderLlms(
   }
   if (caps.retentionHours !== null) {
     limits.push(
-      `- **A repository is deleted ${hours(caps.retentionHours)} after its LAST push.** Cloning does not extend it; pushing does. This is scratch space. Copy anything that must outlive that window.`,
+      `- **A repository is deleted ${hours(caps.retentionHours)} after its LAST push.** Cloning does not extend it; pushing does.${
+        caps.claimedRetentionHours !== null
+          ? ` A claimed name (see Ownership below) is kept ${hours(caps.claimedRetentionHours)} instead.`
+          : ''
+      } This is scratch space. Copy anything that must outlive that window.`,
     )
   }
   if (caps.maxPushBytes !== null) {
@@ -293,7 +298,7 @@ it will say so on this page first.`
   const lostKey =
     caps.retentionHours === null
       ? 'A lost key ends the name: nobody can push to it again.'
-      : `Where a key is lost, ${hours(caps.retentionHours)} without a push collects the repository
+      : `Where a key is lost, ${hours(caps.claimedRetentionHours ?? caps.retentionHours)} without a push collects the repository
 and frees the name with it — the only way back.`
 
   /**
@@ -655,7 +660,11 @@ ${[
     : `- **Contact.** ${operator.contact} — takedowns, abuse and anything else about this host.`,
   caps.retentionHours === null
     ? null
-    : `- **Expiry.** A repository is collected ${hours(caps.retentionHours)} after its last push, whether or not anybody asks. Nothing here is archived.`,
+    : `- **Expiry.** A repository is collected ${hours(caps.retentionHours)} after its last push${
+        caps.claimedRetentionHours !== null
+          ? ` (${hours(caps.claimedRetentionHours)} once claimed)`
+          : ''
+      }, whether or not anybody asks. Nothing here is archived.`,
 ]
   .filter((line): line is string => line !== null)
   .join('\n')}
@@ -865,6 +874,6 @@ Not a forge: no pull requests, no code review, no CI, no issues.${
     caps.publicAccess && !caps.namesCanBePrivate
       ? ' Not private: everything here is readable by everyone.'
       : ''
-  }${caps.retentionHours !== null ? ` Not permanent: ${hours(caps.retentionHours)} from the last push, a repository is collected.` : ' Not an archive: nothing here is a promise to keep your history.'} Not a place for anything you cannot lose.
+  }${caps.retentionHours !== null ? ` Not permanent: ${hours(caps.retentionHours)} from the last push, a repository is collected${caps.claimedRetentionHours !== null ? ` (${hours(caps.claimedRetentionHours)} once claimed)` : ''}.` : ' Not an archive: nothing here is a promise to keep your history.'} Not a place for anything you cannot lose.
 `
 }

@@ -112,7 +112,11 @@ function facts(caps: Capabilities): string[] {
   }
   if (caps.retentionHours !== null) {
     facts.push(
-      `A repository is deleted ${describeHours(caps.retentionHours)} after its LAST PUSH. Cloning does not extend it; pushing does. This is scratch space — copy the work elsewhere if it must outlive that window.`,
+      `A repository is deleted ${describeHours(caps.retentionHours)} after its LAST PUSH. Cloning does not extend it; pushing does.${
+        caps.claimedRetentionHours !== null
+          ? ` A claimed one — a name with a Signer List — is kept ${describeHours(caps.claimedRetentionHours)} instead.`
+          : ''
+      } This is scratch space — copy the work elsewhere if it must outlive that window.`,
     )
   }
   if (caps.maxPushBytes !== null) {

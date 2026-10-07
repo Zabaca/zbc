@@ -251,3 +251,102 @@ describe('safety', () => {
     expect((await store.list(repoPrefix('r'))).length).toBe(preview.deleted.length)
   })
 })
+
+/**
+ * The two places a push can land between a decision and the write that acts
+ * on it. Both must end with the push kept: a mark never lands on a repository
+ * that was just pushed to, and a collection never proceeds over an Index that
+ * moved after it was read.
+ */
+describe('a push racing the deletion', () => {
+  test('stillDue is asked before the mark, and a no keeps the repository', async () => {
+    const store = new MemoryStore()
+    await seedRepo(store)
+
+    const result = await deleteRepo(store, 'r', {
+      now,
+      graceMs: GRACE,
+      dryRun: false,
+      stillDue: () => false,
+    })
+    expect(result.status).toBe('superseded')
+    expect((await loadIndex(store, 'r')).index.deletion).toBeUndefined()
+  })
+
+  test('…and asked again on the Index the mark would land on', async () => {
+    const store = new MemoryStore()
+    await seedRepo(store)
+    // Due when judged, not by the time the mark is written: a push in between.
+    let asked = 0
+    const result = await deleteRepo(store, 'r', {
+      now,
+      graceMs: GRACE,
+      dryRun: false,
+      stillDue: () => ++asked === 1,
+    })
+    expect(asked).toBe(2)
+    expect(result.status).toBe('superseded')
+    expect((await loadIndex(store, 'r')).index.deletion).toBeUndefined()
+  })
+
+  test('the mark records that expiry wrote it', async () => {
+    const store = new MemoryStore()
+    await seedRepo(store)
+    await deleteRepo(store, 'r', { now, graceMs: GRACE, dryRun: false, by: 'expiry' })
+    expect((await loadIndex(store, 'r')).index.deletion?.by).toBe('expiry')
+  })
+
+  test('a collection whose Index moved after it was read removes nothing', async () => {
+    const store = new MemoryStore()
+    await seedRepo(store)
+    await deleteRepo(store, 'r', { now, graceMs: GRACE, dryRun: false, by: 'expiry' })
+
+    // The collection reads the Index and lists the prefix together; the push
+    // lands after the read, before the collection writes.
+    const list = store.list.bind(store)
+    store.list = async (prefix: string) => {
+      const keys = await list(prefix)
+      const { index, etag } = await loadIndex(store, 'r')
+      const { deletion: _lifted, ...pushed } = index
+      await commitIndex(store, { ...pushed, seq: index.seq + 1 }, etag)
+      return keys
+    }
+
+    const result = await deleteRepo(store, 'r', {
+      now: () => at(GRACE + 1),
+      graceMs: GRACE,
+      dryRun: false,
+    })
+    expect(result.status).toBe('superseded')
+    expect(result.deleted).toEqual([])
+    const { index } = await loadIndex(store, 'r')
+    expect(index.seq).toBe(3)
+    expect(index.deletion).toBeUndefined()
+    expect(await store.list(repoPrefix('r'))).not.toEqual([])
+  })
+
+  test('a collection that wins marks itself before it deletes anything', async () => {
+    const store = new MemoryStore()
+    await seedRepo(store)
+    await deleteRepo(store, 'r', { now, graceMs: GRACE, dryRun: false })
+
+    // Observe the Index at the moment the first object goes.
+    let seen: WalIndex | null = null
+    const del = store.delete.bind(store)
+    store.delete = async (key: string) => {
+      if (seen === null) {
+        const raw = await store.get(`repos/r/index.json`)
+        seen = raw ? (JSON.parse(new TextDecoder().decode(raw.body)) as WalIndex) : null
+      }
+      return del(key)
+    }
+
+    const result = await deleteRepo(store, 'r', {
+      now: () => at(GRACE + 1),
+      graceMs: GRACE,
+      dryRun: false,
+    })
+    expect(result.status).toBe('collected')
+    expect(seen!.deletion?.collecting_at).toBe(at(GRACE + 1).toISOString())
+  })
+})

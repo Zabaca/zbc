@@ -418,6 +418,8 @@ function publishRefusal(result: Extract<PublishResult, { ok: false }>): string {
       return result.message
     case 'contended':
       return 'walgit: the write-ahead log stayed contended — retry the push'
+    case 'deleting':
+      return 'walgit: this repository is being deleted — push to a new name'
   }
 }
 

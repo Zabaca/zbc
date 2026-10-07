@@ -81,6 +81,15 @@
   // between 24 and 48 hours after the last push. Over-retaining is the safe
   // direction; nothing is collected EARLY.
   //
+  // Two expressions, not one, because collection is two steps: the 04:00 sweep
+  // only TOMBSTONES an expired repository (a clone already in flight must be
+  // allowed to finish, `src/delete-repo.ts`), and with one daily sweep the
+  // removal then waited a whole day for the next one — 48 to 72 hours, not the
+  // 24 to 48 above. The 05:15 sweep collects only, a grace period after the
+  // first, so removal lands 75 minutes after the tombstone. Both expressions are `SWEEP_CRON` and `COLLECT_CRON` in
+  // `shared/protocol.ts`, which is how the Worker tells them apart; edit them
+  // together. The second costs one more container wake a day.
+  //
   // It was hourly, and the reason it is not is the half of the cost the old
   // comment named without weighing: "a sweep with nothing to collect is one
   // delimited LIST plus a container wake". A wake is not free the way a LIST
@@ -94,7 +103,7 @@
   // then exposes no sweep endpoint at all, so the cron logs a 404 and collects
   // nothing. Unlike a route, a Cron Trigger is per-Worker rather than per-zone,
   // so it cannot be stolen by another deployment of this same config.
-  "triggers": { "crons": ["0 4 * * *"] },
+  "triggers": { "crons": ["0 4 * * *", "15 5 * * *"] },
   "migrations": [
     { "tag": "v1", "new_sqlite_classes": ["WalgitContainer"] },
     { "tag": "v2", "new_sqlite_classes": ["WalgitEvents"] }

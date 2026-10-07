@@ -905,7 +905,7 @@ describe('the roadmap', () => {
     expect(html.split('<h3>').length - 1).toBe(0)
     expect(html).not.toContain("<h2>What's next.</h2>")
     expect(html).not.toContain('Nothing here is a date')
-    expect(html).toContain('<p class="caveat fine">Not permanent: 72 hours from the last push')
+    expect(html).toContain('<p class="caveat fine">Not permanent: 3 days from the last push')
   })
 
   // One row, so no order to describe.
@@ -1453,5 +1453,35 @@ describe('renderLanding: per-source limits', () => {
     const page = renderLanding(HOST, caps({ ...OPEN, WALGIT_MAX_PUSHES_PER_SOURCE: '300' }))
     expect(page).toContain('300 pushes')
     expect(page).not.toContain('new repositories')
+  })
+})
+
+describe('the claimed window', () => {
+  const RUN: OperatorEnv = { WALGIT_OPERATOR: 'Zabaca', WALGIT_CONTACT: 'abuse@zabaca.com' }
+  const CLAIMABLE: CapabilityEnv = {
+    ...OPEN,
+    WALGIT_PUSH_CERT_SEED: 'seed',
+    WALGIT_SIGNER_LISTS: '1',
+    WALGIT_RETENTION_HOURS: '24',
+  }
+
+  test('the fine print and the expiry row both state it', () => {
+    const html = renderLanding(
+      HOST,
+      caps({ ...CLAIMABLE, WALGIT_CLAIMED_RETENTION_HOURS: '168' }),
+      operatorFrom(RUN),
+    )
+    expect(html).toContain(
+      'Not permanent: 24 hours from the last push, an unclaimed repository is collected — a claimed one, 7 days.',
+    )
+    expect(html).toContain('after its last push</b> (7 days once claimed)')
+  })
+
+  test('absent, the page reads as it did', () => {
+    const html = renderLanding(HOST, caps(CLAIMABLE), operatorFrom(RUN))
+    expect(html).toContain(
+      'Not permanent: 24 hours from the last push, an unclaimed repository is collected.',
+    )
+    expect(html).not.toContain('once claimed')
   })
 })

@@ -72,6 +72,7 @@ export function wantsLanding(method: string, pathname: string, accept: string): 
 }
 
 export function describeHours(hours: number): string {
+  if (hours >= 48 && hours % 24 === 0) return `${hours / 24} days`
   if (hours === 1) return '1 hour'
   return `${hours} hours`
 }
@@ -135,7 +136,9 @@ function limits(caps: Capabilities): string {
 function permanence(caps: Capabilities): string {
   return caps.retentionHours === null
     ? 'Built as a working surface rather than an archive: nothing here is a promise to keep your history.'
-    : `Not permanent: ${describeHours(caps.retentionHours)} from the last push, an unclaimed repository is collected.`
+    : caps.claimedRetentionHours === null
+      ? `Not permanent: ${describeHours(caps.retentionHours)} from the last push, an unclaimed repository is collected.`
+      : `Not permanent: ${describeHours(caps.retentionHours)} from the last push, an unclaimed repository is collected — a claimed one, ${describeHours(caps.claimedRetentionHours)}.`
 }
 
 /**
@@ -957,7 +960,11 @@ function operatorSection(caps: Capabilities, operator: Operator | null): string 
     rows.push(
       claim(
         'Expiry',
-        `<b>A repository is collected ${window} after its last push</b>, whether or not anybody asks. Nothing here is archived.`,
+        `<b>A repository is collected ${window} after its last push</b>${
+          caps.claimedRetentionHours === null
+            ? ''
+            : ` (${describeHours(caps.claimedRetentionHours)} once claimed)`
+        }, whether or not anybody asks. Nothing here is archived.`,
       ),
     )
   }
