@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import { capabilitiesFrom, type Capabilities, type CapabilityEnv } from '../shared/capabilities'
-import { renderInstructions } from './instructions'
+import { renderInstructions } from '../shared/instructions'
 
 /** Fixtures go through here so a misspelled variable is a compile error. */
 const caps = (env: CapabilityEnv) => capabilitiesFrom(env)

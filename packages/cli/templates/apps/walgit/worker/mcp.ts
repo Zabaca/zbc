@@ -36,7 +36,6 @@
  */
 
 import { StreamableHTTPTransport } from '@hono/mcp'
-import { getContainer } from '@cloudflare/containers'
 import { Hono } from 'hono'
 
 import type { Capabilities } from '../shared/capabilities'
@@ -58,6 +57,7 @@ import {
   PROVENANCE_PATH,
   REFS_PATH,
 } from '../shared/protocol'
+import { containerFor } from './container-binding'
 import { EVENTS_OBJECT_NAME } from './events-do'
 import type { Env } from './index'
 
@@ -156,7 +156,7 @@ async function provenanceRead(
 ): Promise<Read<{ provenance: ProvenanceFacts; claim?: Claim }>> {
   const headers = new Headers()
   if (authorization) headers.set('authorization', authorization)
-  const response = await getContainer(env.WALGIT_CONTAINER).fetch(
+  const response = await containerFor(env).fetch(
     new Request(`https://walgit.internal${PROVENANCE_PATH}?repo=${encodeURIComponent(name)}`, {
       headers,
     }),
@@ -175,7 +175,7 @@ async function provenanceRead(
 
 /** One repository's ref state, read from the Index through the container. */
 async function readRefs(env: Env, name: string): Promise<Record<string, string>> {
-  const response = await getContainer(env.WALGIT_CONTAINER).fetch(
+  const response = await containerFor(env).fetch(
     new Request(`https://walgit.internal${REFS_PATH}?repo=${encodeURIComponent(name)}`, {
       headers: { [INTERNAL_HEADER]: '1' },
     }),
@@ -183,7 +183,12 @@ async function readRefs(env: Env, name: string): Promise<Record<string, string>>
   // Empty rather than thrown: the gate above already said this name may be
   // read, and a refs lookup that did not answer is a repository with nothing
   // known about it — which is what `exists: false` says.
-  if (!response.ok) return {}
+  if (!response.ok) {
+    // Cancelled rather than dropped: an unread body is a request the
+    // container's object keeps counting in flight (worker/durable-container.ts).
+    await response.body?.cancel()
+    return {}
+  }
   const body = (await response.json()) as { refs?: Record<string, string> }
   return body.refs ?? {}
 }

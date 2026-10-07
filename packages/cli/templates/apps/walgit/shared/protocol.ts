@@ -334,6 +334,26 @@ export const SMART_HTTP = /^\/([^/]+)\.git\/(info\/refs|git-upload-pack|git-rece
 export const PROPOSALS_HTTP = /^\/([^/]+)\.git\/proposals$/
 
 /**
+ * Would the container route this path at all?
+ *
+ * Everything the container answers lives under one of four shapes: `/`, the
+ * reserved `/_walgit/` prefix, the three smart-HTTP endpoints, and the Proposal
+ * read. Any other path is a 404 there, and on a public deployment the edge says
+ * so itself rather than waking the one container to hear it — a scanner asking
+ * for `/.env` every few minutes is otherwise enough to keep it from ever
+ * sleeping. A route added to `src/http.ts` outside these shapes must be added
+ * here too; `src/edge-answers.test.ts` holds the two lists against each other.
+ */
+export function containerRoutes(pathname: string): boolean {
+  return (
+    pathname === '/' ||
+    pathname.startsWith('/_walgit/') ||
+    SMART_HTTP.test(pathname) ||
+    PROPOSALS_HTTP.test(pathname)
+  )
+}
+
+/**
  * A repo id is one flat segment.
  *
  * Flat because the WAL keys repositories by id (docs/adr/0007), not by a

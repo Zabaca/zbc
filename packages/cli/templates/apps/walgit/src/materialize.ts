@@ -36,6 +36,7 @@
 import * as fs from 'node:fs'
 import * as path from 'node:path'
 
+import { defaultBranch } from '../shared/browse'
 import { ensureBareRepo } from './cache'
 import { git } from './git'
 import { siblingIdx } from '../shared/keys'
@@ -176,7 +177,7 @@ export async function materialize(
 
     const refsStart = performance.now()
     const reconciled = reconcile(repo.dir, index)
-    ensureHead(repo.dir, index)
+    ensureHead(repo.dir, index.refs)
     const refsMs = performance.now() - refsStart
 
     fs.rmSync(markerPath(repo.dir), { force: true })
@@ -255,26 +256,36 @@ function writeAtomic(target: string, body: Uint8Array): void {
 }
 
 /**
- * Point HEAD at a branch that exists.
+ * Point HEAD at the Index's Default Branch (`defaultBranch`, `shared/browse.ts`).
  *
  * A bare repo is initialised with HEAD on `main`; a repo whose log only carries
  * `master` would then clone successfully into an empty working tree, which
  * reads as data loss. The log's ref state is the only thing that knows.
+ *
+ * A function of the Index and nothing else, which is a property and not a
+ * simplification. It used to keep whatever HEAD already named while that branch
+ * existed, so the answer depended on the disk's history: a name first pushed as
+ * `feature` and later given `main` reported `feature` on a container that had
+ * watched it happen and `main` on one that had just Materialized it. Now every
+ * Cache says what the Index says — and so does the edge, which answers
+ * `ls-refs` off the Index without a Cache at all (`shared/edge-refs.ts`) and
+ * calls the same function for the same answer. Exported so `sync.ts` can
+ * assert it on every access, which is what makes a first push of a branch
+ * other than `main` visible as HEAD without waiting for a restart.
+ *
+ * A repository with no branch is left alone: HEAD is unborn there either way.
  */
-function ensureHead(gitDir: string, index: WalIndex): void {
-  const branches = Object.keys(index.refs).filter((ref) => ref.startsWith('refs/heads/'))
-  if (branches.length === 0) return
+export function ensureHead(gitDir: string, refs: Record<string, string>): void {
+  const head = defaultBranch(refs)
+  if (head === null) return
 
   const headFile = path.join(gitDir, 'HEAD')
-  const current = fs.existsSync(headFile) ? fs.readFileSync(headFile, 'utf8').trim() : ''
-  const target = /^ref: (.+)$/.exec(current)?.[1]
-  if (target && branches.includes(target)) return
-
-  const preferred =
-    branches.find((ref) => ref === 'refs/heads/main') ??
-    branches.find((ref) => ref === 'refs/heads/master') ??
-    branches.sort()[0]!
-  fs.writeFileSync(headFile, `ref: ${preferred}\n`)
+  const wanted = `ref: ${head}\n`
+  const current = fs.existsSync(headFile) ? fs.readFileSync(headFile, 'utf8') : ''
+  if (current === wanted) return
+  // Renamed into place, because a `git upload-pack` reading HEAD while it is
+  // being written would otherwise see an empty file and report no HEAD at all.
+  writeAtomic(headFile, new TextEncoder().encode(wanted))
 }
 
 /**
@@ -293,7 +304,15 @@ function ensureHead(gitDir: string, index: WalIndex): void {
  * is genuinely absent.
  */
 function acquire(gitDir: string): Promise<LockRelease> {
-  return acquireLock(path.join(gitDir, LOCK), { breakAfter: 1200 })
+  return acquireLock(lockPath(gitDir), { breakAfter: 1200 })
+}
+
+/**
+ * Where that lock lives. Exported for the one other reader: the boot-time
+ * sweep (src/boot-residue.ts), which removes a lock no process can hold yet.
+ */
+export function lockPath(gitDir: string): string {
+  return path.join(gitDir, LOCK)
 }
 
 /**

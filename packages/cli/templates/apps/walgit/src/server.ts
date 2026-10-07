@@ -11,10 +11,15 @@
  * straight to this port.
  */
 
+import * as fs from 'node:fs'
+
 import { capabilitiesFrom } from '../shared/capabilities'
+import { BOOT_MARKER } from '../shared/container-snapshot'
 import { parseTokens } from '../shared/credentials'
 import { listCommits, listTree, readBlob, statBlob } from './browse'
+import { clearBootResidue } from './boot-residue'
 import { ensureBareRepo } from './cache'
+import { publishUploadPackAtBoot } from './edge-refs'
 import { configuredClaimedExpiryMs, configuredExpiryMs, expireRepos } from './expire'
 import { createHttpHandler, type SweepOptions } from './http'
 import { privateReposConfigError, privateReposEnabled, privateReposSeed } from './private'
@@ -313,5 +318,44 @@ try {
   process.exit(1)
 }
 
-Bun.serve({ port, idleTimeout: 0, fetch: handler })
+// Before the port opens, because the port opening is what the Durable Object
+// takes to mean "ready": a disk restored from a snapshot can carry a dead
+// push's hand-off record and a materialize lock, and no request may see either
+// (src/boot-residue.ts). Logged only when it found something, which on a disk
+// that was not restored is never.
+const residue = clearBootResidue(reposDir)
+// After the residue goes, so clearing it does not read as a change: the stop
+// compares the cache against this marker to decide whether a new snapshot is
+// worth taking (`needsNewSnapshot`, shared/container-snapshot.ts).
+try {
+  fs.writeFileSync(BOOT_MARKER, reposDir)
+} catch (err) {
+  console.warn(`walgit: could not write ${BOOT_MARKER}: ${(err as Error).message}`)
+}
+if (residue.cleared.length > 0) {
+  console.log(
+    `walgit: cleared ${residue.cleared.length} stale lock/hand-off path(s) across ${residue.repos} cached repo(s)`,
+  )
+}
+
+const server = Bun.serve({ port, idleTimeout: 0, fetch: handler })
+
+// What this image's git advertises, published for the edge to answer ref
+// checks with while this container sleeps (`src/edge-refs.ts`). After the
+// listener is up and never awaited: the request that woke this container is
+// served the ordinary way either way, and so is every one until this lands.
+if (store) void publishUploadPackAtBoot(store)
+
+// The container's idle stop is a SIGTERM (`stopContainer` in
+// worker/durable-container.ts), and this process is PID 1, which the kernel
+// exempts from every signal it has no handler for. Without this the stop was
+// ignored, the container ran around the clock, and the Durable Object in front
+// of it stayed awake polling it. Stop accepting, let the requests in flight
+// finish, then exit — nothing durable is lost by going, since a push is
+// acknowledged only once the log holds it. The Durable Object kills the
+// container outright if this has not happened within its grace period.
+process.on('SIGTERM', () => {
+  console.log('walgit: SIGTERM, draining and exiting')
+  void server.stop().finally(() => process.exit(0))
+})
 console.log(`walgit smart-HTTP listening on :${port} (repos: ${reposDir})`)

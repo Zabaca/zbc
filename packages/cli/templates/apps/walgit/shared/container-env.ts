@@ -9,11 +9,19 @@
  * The only way a new value reaches the container is a new container.
  *
  * A `wrangler deploy` that changes only vars produces no new container image,
- * so `--containers-rollout immediate` has nothing to roll: the Worker picks the
+ * so `--containers-rollout immediate` had nothing to roll: the Worker picks the
  * value up on its next request and the container keeps serving the old one, for
  * as long as traffic keeps it awake. The fingerprint below is what closes that
  * gap — the Durable Object compares it against the one it last booted with and
- * replaces the container when they differ (see `WalgitContainer` in worker/index.ts).
+ * replaces the container when they differ (`WalgitDurableContainer` in
+ * worker/durable-container.ts).
+ *
+ * Under the `durable_object` scheduling policy that is no longer one mechanism
+ * among two: there are no rollouts at all, and a deploy that ships a new image
+ * only changes which reference `ctx.container.images` hands out on the NEXT
+ * start. So the image reference is folded into the same fingerprint
+ * (`bootFingerprint`), and the replacement that already fired for a changed
+ * variable is now also the whole of how a new image reaches a running container.
  */
 
 /**
@@ -156,6 +164,36 @@ export function fingerprintEnv(env: Record<string, string>): string {
     hash = Math.imul(hash, 0x01000193)
   }
   return (hash >>> 0).toString(16).padStart(8, '0')
+}
+
+/**
+ * The key the image reference is filed under inside `bootFingerprint`.
+ *
+ * `=` is the one character a POSIX environment variable's NAME can never hold
+ * — it is the separator in `NAME=value` — so no forwarded variable can collide
+ * with it, whatever `CONTAINER_ENV` grows to.
+ */
+const IMAGE_KEY = '=image'
+
+/**
+ * Everything a container is booted FROM, as one digest: the forwarded
+ * environment and the image reference.
+ *
+ * The image is here because the `durable_object` scheduling policy has no
+ * rollouts: a deploy that builds a new image changes only the digest-pinned
+ * reference `ctx.container.images` returns, and a container already running
+ * keeps its old image until something stops it. Folding the reference into the
+ * fingerprint makes that something `reconcileContainerEnv` — the replacement
+ * that already fires for a changed variable fires for a changed image too, with
+ * no second record and no second rule.
+ *
+ * An empty reference is fingerprinted like any other value rather than
+ * special-cased: it is what a Worker with no named image would pass, and that
+ * deployment then simply never replaces on an image change, which is all it
+ * could ever observe.
+ */
+export function bootFingerprint(env: Record<string, string>, image: string): string {
+  return fingerprintEnv({ ...env, [IMAGE_KEY]: image })
 }
 
 /**

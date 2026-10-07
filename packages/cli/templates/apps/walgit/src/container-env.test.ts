@@ -10,6 +10,7 @@ import { describe, expect, test } from 'bun:test'
 
 import {
   CONTAINER_ENV,
+  bootFingerprint,
   containerEnv,
   fingerprintEnv,
   reconcileContainerEnv,
@@ -244,5 +245,43 @@ describe('the build id closes the image-only deploy', () => {
 
     expect(outcome).toBe('replaced')
     expect(target.transcript).toContain('destroy')
+  })
+})
+
+describe('bootFingerprint — the image is part of what a container was booted from', () => {
+  const policy = { WALGIT_PUBLIC: '1', WALGIT_BUILD_ID: '22294ea' }
+  const v1 = 'registry.cloudflare.com/acct/walgit@sha256:' + 'a'.repeat(64)
+  const v2 = 'registry.cloudflare.com/acct/walgit@sha256:' + 'b'.repeat(64)
+
+  test('a new image moves it when nothing else did', () => {
+    // The `durable_object` policy has no rollouts: a deploy with a new image
+    // and an unchanged environment would otherwise leave the old container
+    // serving until it next idled out.
+    expect(bootFingerprint(policy, v1)).not.toBe(bootFingerprint(policy, v2))
+  })
+
+  test('the same environment and image fingerprint the same way', () => {
+    expect(bootFingerprint(policy, v1)).toBe(bootFingerprint({ ...policy }, v1))
+  })
+
+  test('a changed variable still moves it', () => {
+    expect(bootFingerprint(policy, v1)).not.toBe(
+      bootFingerprint({ ...policy, WALGIT_RETENTION_HOURS: '24' }, v1),
+    )
+  })
+
+  test('the image cannot be impersonated by a forwarded variable', () => {
+    // Filed under a key no environment variable can be named, so no value of
+    // any variable reproduces an image's fingerprint.
+    for (const name of CONTAINER_ENV) {
+      expect(bootFingerprint({ [name]: v1 }, '')).not.toBe(bootFingerprint({}, v1))
+    }
+  })
+
+  test('a running container booted from the old image is replaced', async () => {
+    const target = fakeTarget({ running: true, booted: bootFingerprint(policy, v1) })
+
+    expect(await reconcileContainerEnv(target.port, bootFingerprint(policy, v2))).toBe('replaced')
+    expect(target.transcript).toEqual(['read', 'destroy', `write:${bootFingerprint(policy, v2)}`])
   })
 })

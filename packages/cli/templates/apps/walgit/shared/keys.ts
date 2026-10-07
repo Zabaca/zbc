@@ -17,6 +17,7 @@
  *     repos/<repo_id>/wal/<seq>-<ulid>.pack          one push's objects
  *     repos/<repo_id>/wal/<seq>-<ulid>.idx           its sibling index
  *     repos/<repo_id>/compaction.lease               who is compacting, until when
+ *     walgit/upload-pack-v2/<fingerprint>.json       what the container's git advertises
  *
  * Enumerating repositories lives here too, and that is a move rather than a new
  * function: `listRepoIds` was in `usage.ts`, the read-only reporting command,
@@ -49,6 +50,22 @@ export function indexKey(repoId: string): string {
 /** Who holds the compaction lease for this repository, and until when. */
 export function leaseKey(repoId: string): string {
   return `${repoPrefix(repoId)}compaction.lease`
+}
+
+/**
+ * Where a container publishes the protocol-v2 advertisement its own git makes
+ * (`shared/edge-refs.ts`), one object per environment it booted with.
+ *
+ * Outside `repos/` on purpose, and that is the whole collision argument: every
+ * repository walk — `listRepoIds`, the expiry sweep, the usage report — starts
+ * from `REPOS_PREFIX`, so nothing here can be mistaken for a repository, and
+ * no repository id can name a key here.
+ */
+export const UPLOAD_PACK_PREFIX = 'walgit/upload-pack-v2/'
+
+/** The advertisement a container booted with this environment fingerprint published. */
+export function uploadPackKey(fingerprint: string): string {
+  return `${UPLOAD_PACK_PREFIX}${fingerprint}.json`
 }
 
 /** Zero-padded to 12 digits so lexicographic key order is numeric order. */

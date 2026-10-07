@@ -58,7 +58,7 @@ by layer:
 | `src/signers.ts`                                     | the Signer List a repository holds, resolved in `pre-receive` beside the size caps and re-asked at the publish                                   |
 | `src/private.ts`, `src/ssh-signature.ts`             | the Reader List and the Read Challenge: who may read a Private repository, and the nonce-and-signature that proves it                            |
 | `src/usage.ts`                                       | what the log says this service holds, folded out of the indexes                                                                                  |
-| `src/instructions.ts`                                | the plain-text `GET /` — the whole API surface, rendered from the limits actually enforced                                                       |
+| `shared/instructions.ts`                             | the plain-text `GET /` — the whole API surface, rendered from the limits actually enforced                                                       |
 | `src/verify.ts`, `src/cli.ts`                        | the operator CLI: inspect, rebuild, verify, reclaim                                                                                              |
 | `src/git.ts`, `src/mkdir-lock.ts`                    | the two shared primitives: running a git plumbing command, and locking with `mkdir`                                                              |
 
@@ -239,9 +239,11 @@ seq order, drops each `.pack`/`.idx` pair straight into `objects/pack/`, and
 writes `packed-refs` from `index.json.refs` in one shot.
 
 **It is not disaster recovery — it is the normal path.** The container sleeps
-when idle and its disk is wiped completely on every restart, so an idle repo
-loses its cache routinely and the next access rebuilds it. The restore path is
-therefore exercised continuously rather than only in a crisis.
+when idle and, unless `WALGIT_SNAPSHOTS` is on, its disk is wiped completely on
+every restart, so an idle repo loses its cache routinely and the next access
+rebuilds it. The restore path is therefore exercised continuously rather than
+only in a crisis — and with snapshots on it still runs, for whatever the
+restored disk is missing; it simply has less to do.
 
 `src/sync.ts` decides which of the two repairs an access needs, and a warm disk
 pays for neither:
@@ -457,6 +459,25 @@ A repository is created on first contact: pushing to a name nobody has used
 creates it, with `receive.unpackLimit=0` so even a tiny push is retained as a
 packfile (what the WAL will upload).
 
+### Ref checks at the edge
+
+An agent polling a ref (`git ls-remote`) sends a protocol-v2 `info/refs` and
+then `command=ls-refs`. On a public deployment the Worker answers both itself,
+off `index.json`, without waking the container (`shared/edge-refs.ts`) — the
+bytes are those the container's git would send: the advertisement and the
+headers are the container's own, published to the store at boot under
+`walgit/upload-pack-v2/<env fingerprint>.json` (`src/edge-refs.ts`), and the
+refs and `HEAD` come from the Index, with `HEAD` on the Default Branch on both
+sides (`ensureHead` now asserts it on every access). Everything else is
+forwarded unchanged: a v0/v1 client, a fetch, a token-gated deployment, a
+Private name, an empty one, `peel` where a non-branch ref is listed, and any
+request shape not shown equivalent in `src/edge-refs.test.ts`.
+
+It needs `WALGIT_BUILD_ID` (the `cloudflare` module's `deployIdVar`). Without a
+deploy id an image-only deploy keeps the environment fingerprint, and the edge
+could serve one git's advertisement in front of another — so it answers
+nothing and every ref check reaches the container, as before.
+
 ### The MCP endpoint
 
 `/_walgit/mcp` is a Model Context Protocol server over Streamable HTTP
@@ -645,12 +666,95 @@ only its bare browse URL.
 ## Deployment
 
 Through the `cloudflare` module, never by hand — `zbc apply <env>`. The Worker
-(`worker/index.ts`) is a thin proxy in front of a Durable-Object-bound Container
-running this package's Dockerfile; `wrangler deploy` builds the image, so Docker
-must be running at apply time and the account must be on a Workers Paid plan
-with Containers enabled. Set `immediateContainerRollout: true` on the instance —
-wrangler's gradual default never drains a single always-warm container, so a
-redeployed image silently never takes effect until it idle-sleeps.
+(`worker/index.ts`) is a thin proxy in front of a Container running this
+package's Dockerfile under the **`durable_object` scheduling policy**: the
+Durable Object `WalgitDurableContainer` (`worker/durable-container.ts`) starts,
+proxies to, snapshots and stops it through `ctx.container` directly — once
+`WALGIT_CONTAINER_POLICY=durable_object` routes to it. Unset, the Worker still
+routes to the `default`-policy `WalgitContainer`; the move between the two is
+below. `wrangler
+deploy` builds the image, so Docker must be running at apply time, the account
+must be on a Workers Paid plan with Containers enabled, and wrangler must be
+4.147 or later (the policy is not in the schema of older ones).
+
+There are **no container rollouts** under this policy, so
+`immediateContainerRollout` does nothing for this container. A deploy that
+builds a new image changes only the digest-pinned reference
+`ctx.container.images.walgit` returns, and the Durable Object folds that
+reference into the fingerprint it already keeps for the environment
+(`bootFingerprint`, below) — so a new image, like a changed variable, replaces
+the running container on the first request after the deploy.
+
+**Lifecycle.** The first request after a sleep starts the container — from the
+last snapshot when snapshots are on and it qualifies, from the image otherwise
+— at `standard-1` (`CONTAINER_INSTANCE`, `shared/container-lifecycle.ts`, says
+why that size), and waits for `/_walgit/health` on port 8080 to answer before
+proxying. One start per request, inside 15 s: a start that fails, fails that
+request in seconds and the next request tries again. Its response
+is stamped cold for the telemetry. A bodiless read that lands on a container
+that just exited is retried once. `WALGIT_SLEEP_AFTER` after the last request
+**finished** — never while a clone streams or a push uploads — an alarm wakes
+the object, snapshots the disk, SIGTERMs the process (which drains and exits)
+and kills it after 15 s if it has not. With the container stopped the object
+holds no alarm and nothing else keeps it awake.
+
+**Snapshots** (`WALGIT_SNAPSHOTS=1`, off unless set, edge-only). The idle stop
+snapshots the container's root filesystem, and the next start restores it, so a
+wake re-syncs the Cache against the log instead of rebuilding every repository
+it serves from nothing — the larger half of a cold start. Safe because the
+Cache is reconciled against `index.json` on every access: a restored disk can
+be any amount behind and only costs a bigger first sync, never a stale ref. A
+snapshot is restored only if it was taken from the image this deploy starts,
+against this deployment's log, within the platform's 30-day retention and under
+4 GB; anything else, or a restore that does not come up, is a fresh start. The
+process clears the per-process residue a restored disk can carry — a dead
+push's hand-off record, a materialize lock — before it opens its port
+(`src/boot-residue.ts`). Snapshots are a public-beta platform feature; turning
+the variable off restarts nothing and makes every start cold again.
+
+**Moving an existing deployment onto this policy.** A container application's
+scheduling policy cannot be changed, so the `durable_object` application is a
+new one beside the `default`-policy one `WalgitContainer` runs in, and
+`wrangler.jsonc` carries both, each behind its own binding (`WALGIT_CONTAINER`,
+`WALGIT_DURABLE_CONTAINER`). `WALGIT_CONTAINER_POLICY` picks which one the
+Worker routes to; unset is the old one. It takes three phases, because
+`wrangler deploy` puts the new Worker live **before** it creates the new
+container application — after rolling the old one, so a rollout that throws
+leaves the new application uncreated — and a Worker that routed to it in that
+gap would fail every git request.
+
+1. **Phase 1 — create it, route nothing to it.** Deploy this package with
+   `WALGIT_CONTAINER_POLICY` unset: the `v3` migration, the
+   `WalgitDurableContainer` class and binding, and the `durable_object`
+   container entry arrive, and traffic stays on `WalgitContainer`. Then confirm
+   the application exists: `wrangler containers list` shows a `durable_object`
+   application for `WalgitDurableContainer`. If it does not (the deploy failed
+   after the Worker went live), run the deploy again — nothing routes to it yet,
+   so nothing is broken in the meantime.
+2. **Phase 2 — move the traffic.** Add
+   `{ name: 'WALGIT_CONTAINER_POLICY', value: 'durable_object' }` to the
+   instance's `workerVars` and deploy. The next request starts a container in
+   the new application; the old instance idles out on its own. **Rolling back**
+   is the same deploy with that var removed — a forward deploy. `wrangler
+   rollback` will not do it: it refuses to cross the `v3` migration, and the
+   migration and the class stay whichever way traffic points.
+3. **Phase 3 — retire the old application**, once no rollback will be wanted. This
+   template ships already past it (agentgit.co did all three on 2026-10-03), so a
+   deployment still on `WalgitContainer` takes phases 1 and 2 from the release that
+   carried both bindings before taking this one. For the record, phase 3 was:
+   delete the `WalgitContainer` entry from `containers` and the
+   `WALGIT_CONTAINER` binding from `wrangler.jsonc`, drop
+   `immediateContainerRollout` from the instance, and deploy (keep
+   `WALGIT_CONTAINER_POLICY` set — with no old binding, an unset switch has
+   nothing to route to). Then `wrangler containers list`, find
+   `walgit-walgitcontainer`, and `wrangler containers delete <id>` — removing the
+   entry does **not** delete the application or its instances. Later still,
+   delete the `WalgitContainer` class (and `@cloudflare/containers` with it) and
+   add a `{ "tag": "v4", "deleted_classes": ["WalgitContainer"] }` migration,
+   which deletes the old namespace's storage — only a fingerprint.
+
+Until phase 3, both `containers` entries build `./Dockerfile`, so every deploy
+builds and pushes the image twice.
 
 The container reads its configuration from environment variables the **Worker**
 forwards (`CONTAINER_ENV` in `shared/container-env.ts`): `wrangler secret put`
@@ -659,11 +763,10 @@ arrives.
 
 It reads them **once, at container start** — a running process's environment
 cannot be changed, so re-reading `process.env` per request would return the same
-value. `immediateContainerRollout` does not help either: a deploy that changes
-only vars produces no new container image for it to roll. So the Durable Object
-fingerprints the environment it would boot with, keeps that fingerprint in its
-own storage, and destroys the running container the first time the two differ
-(`reconcileEnv`). Changing a forwarded variable therefore costs one container
+value. So the Durable Object fingerprints the environment it would boot with,
+together with the image reference, keeps that fingerprint in its own storage,
+and destroys the running container the first time the two differ
+(`reconcileEnv`, `bootFingerprint`). Changing a forwarded variable therefore costs one container
 restart on the first request after the deploy, and takes effect immediately —
 where previously the Worker picked it up and the container kept the old value
 for as long as traffic kept it awake.
@@ -713,6 +816,14 @@ answer — referrer, scroll depth, return visits — once traffic is real. The
 snippet creates no profile for an anonymous reader; session replay follows
 the PostHog project's own setting. Unset, the page carries no script at all (`analyticsFrom`,
 `shared/analytics.ts`).
+
+`WALGIT_SLEEP_AFTER` is how long the container idles before it stops — `20m`
+unless set, as a number and one unit (`90s`, `5m`, `1h`; anything else is
+ignored). Every request that reaches the container buys that much container
+time, so on a quiet deployment it is most of the bill; shorter trades that for
+cold starts, which `WALGIT_SNAPSHOTS` makes cheaper. The Durable Object in front
+of it sleeps in between and wakes once to stop it. Edge-only, so changing it
+restarts nothing (`shared/sleep-after.ts`).
 
 For the three boolean flags — `WALGIT_APPEND_ONLY`, `WALGIT_PUBLIC` and
 `WALGIT_SIGNER_LISTS` — **on means `1` or `true`, and nothing else**
@@ -787,14 +898,18 @@ because the name stopped being the secret when ownership landed — and the body
 names the helper and the by-hand exchange.
 
 The container sleeps when idle and the next request wakes it — one regime,
-median 1.77 s, spread 0.93–6.45 s, and a ten-minute idle measures the same. Its
-10.67 GiB disk is **wiped completely on every restart**, which is exactly the
-assumption the cache-and-log design was written against, so there is no volume
-and nothing to mount.
+median 1.77 s, spread 0.93–6.45 s, and a ten-minute idle measures the same
+(measured under the `default` scheduling policy; Cloudflare reports the
+`durable_object` policy walgit now runs under as roughly six times faster, not
+yet measured here). Its disk is **wiped completely on every restart** unless a
+snapshot is restored, which is exactly the assumption the cache-and-log design
+was written against, so there is no volume and nothing to mount — and a
+snapshot changes how much a wake re-syncs, never whether it does.
 
 Trap worth knowing when tearing one down: `wrangler delete` on the Worker does
 **not** delete its container application. That needs a separate
-`wrangler containers delete`, or the instances stay live.
+`wrangler containers delete`, or the instances stay live. A deployment that
+moved policies has two (see Deployment).
 
 ## Append-only refs
 

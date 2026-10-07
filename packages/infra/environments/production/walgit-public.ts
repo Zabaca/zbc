@@ -66,21 +66,6 @@ export default cloudflareModule.instance({
     // renders whichever host the request arrived on, so every one reads
     // correctly rather than advertising another.
     routes: ['agentgit.co/*', 'www.agentgit.co/*', 'agentgit.zabaca.com/*', 'walgit.zabaca.com/*'],
-    // Rolls the container APPLICATION to the new image instead of wrangler's
-    // gradual default. Necessary, and on its own it has never been sufficient:
-    // it does not drain the single always-warm instance this deployment runs,
-    // so the old container keeps serving until it idle-sleeps, which under
-    // sustained traffic is never. That is not a theory — on 2026-09-14 the
-    // 0.16.1 deploy moved the application to v51 with a new image, reported the
-    // rollout `completed`, and left the instance started an hour earlier
-    // answering git with the pre-0.16.1 clone recipe (ZBC-OA7D84).
-    //
-    // And it covers the image only: a deploy that changes a var below and
-    // nothing else produces no new container version for it to roll.
-    //
-    // What actually replaces a running container is the line below, in both
-    // cases — see the note above `workerVars`.
-    immediateContainerRollout: true,
     // Every deploy names itself, as `WALGIT_BUILD_ID`: the deployed commit
     // (`GITHUB_SHA` in CI, `git rev-parse HEAD` locally). It configures
     // nothing. It exists so that a deploy carrying only new CODE still changes
@@ -196,15 +181,18 @@ export default cloudflareModule.instance({
     // So the Durable Object fingerprints the environment it would boot with,
     // keeps that fingerprint in its own storage, and destroys the running
     // container the first time the two differ — `reconcileEnv` in
-    // packages/walgit/worker/index.ts. Changing a var here costs one container
-    // restart on the next request after the deploy, and the value is live.
+    // packages/walgit/worker/durable-container.ts. Changing a var here costs
+    // one container restart on the next request after the deploy, and the
+    // value is live.
     //
     // A deploy that changes only CODE used to slip past that, for the mirror
     // reason: no var moved, so the fingerprint did not either, and the
     // container kept serving the old image (ZBC-OA7D84). `deployIdVar` above
     // closes it by making every deploy change one var — so both halves of a
     // release, its configuration and its code, now reach the container on the
-    // first request after the deploy.
+    // first request after the deploy. Under the `durable_object` policy the
+    // image reference is fingerprinted too, so a new image would be caught
+    // even without it.
     //
     // The one thing that does NOT propagate this way is a new NAME: a variable
     // reaches the container only if `CONTAINER_ENV` in
@@ -327,7 +315,7 @@ export default cloudflareModule.instance({
       // caps above bound how big a thing may be and say nothing about how
       // often one arrives: a hundred 1 MiB pushes are each individually fine,
       // and a hundred new names are each individually free. One container
-      // serves every repository here (`max_instances: 1`), so a single visitor
+      // serves every repository here (one named object), so a single visitor
       // filling the bucket is not merely storage — it is the queue everyone
       // else is behind, which is exactly the shape of a launch-day spike.
       //
@@ -347,7 +335,7 @@ export default cloudflareModule.instance({
       // `docs/research/agentgit-load-2026-09-16.md`. The intent above is
       // unchanged; what the run added is the other ceiling, which no amount of
       // reasoning about one agent's habits produces — ONE CONTAINER SERVES
-      // EVERYONE (`max_instances: 1`), so what a single source may take is
+      // EVERYONE (one named object), so what a single source may take is
       // properly a fraction of the whole host's hourly capacity, and a filled
       // queue is not that source's problem but everyone else's latency. The
       // host sustains 0.35 pushes/s (~1,260 an hour) and ~1.1 MiB/s (~3.9 GiB
@@ -414,7 +402,7 @@ export default cloudflareModule.instance({
       // are git objects, only the Cache holds those, so every repository page
       // wakes the container exactly as a clone does — and a cold one
       // Materializes the repository first. One container serves everything
-      // here (`max_instances: 1`), so a crawler walking a large repository is
+      // here (one named object), so a crawler walking a large repository is
       // queue time a pusher waits behind. Every browse page says `noindex` in
       // its header AND its markup — `/robots.txt` deliberately does not refuse
       // them, because it is the landing page's file and silence there is read
@@ -470,6 +458,55 @@ export default cloudflareModule.instance({
       // host says which PostHog region owns the project.
       { name: 'WALGIT_POSTHOG_KEY', value: 'phc_tvfFcfPyMXbCMCQEvFLp7sVPooGUL7ZBQeG9ktM4agZh' },
       { name: 'WALGIT_POSTHOG_HOST', value: 'https://d.agentgit.co' },
+      // ── idle stop ────────────────────────────────────────────────────────
+      //
+      // Two minutes, not the template's twenty. Since the move to the
+      // `durable_object` policy (2026-10-03) a wake costs about 3 s from a
+      // snapshot, the Durable Object sleeps while the container runs, and ref
+      // checks never reach the container — so this now trades only container
+      // time against cold starts. Modelled on Sep 26–Oct 2 traffic that still
+      // reaches the container: ~3.0 h/day awake and ~66 wakes at 2m, against
+      // ~5.8 h and ~44 at 5m. A stop whose cache did not change since its
+      // restore keeps the snapshot it has (`needsNewSnapshot`). Edge-only, so
+      // changing it restarts nothing.
+      { name: 'WALGIT_SLEEP_AFTER', value: '2m' },
+      // ── snapshots ────────────────────────────────────────────────────────
+      //
+      // On, and it is what the five minutes above were waiting for. A wake used
+      // to cost 12–22 s here: boot, then materializing each repository it was
+      // asked for from the log onto an empty disk. With this set the idle stop
+      // snapshots the container's disk and the next start restores it, so a
+      // wake re-syncs against the log instead of rebuilding from it
+      // (packages/walgit/shared/container-snapshot.ts) — safe because the Cache
+      // is reconciled against `index.json` on every access, so a restored disk
+      // can only cost a bigger sync, never a stale ref.
+      //
+      // Snapshots are a public-beta platform feature. Edge-only — the Durable
+      // Object reads it, the container never does — so turning it OFF is a
+      // deploy that restarts nothing, and every start after it is the cold
+      // start this deployment ran on until now.
+      { name: 'WALGIT_SNAPSHOTS', value: '1' },
+      // ── which container application ──────────────────────────────────────
+      //
+      // PHASE 3 of three done (2026-10-03): the old container entry, its
+      // binding and `immediateContainerRollout` are gone, and this line stays
+      // set (it is moot once only the new binding exists). Phase 2 history:
+      // phase 1 deployed this file without the
+      // line below: that created the `durable_object` container application
+      // and routed nothing to it, while git kept being served by the
+      // `default`-policy `WalgitContainer`. One deploy cannot do both, because
+      // `wrangler deploy` puts the Worker live before it creates the new
+      // application, and a Worker routing to it in that gap fails every start
+      // (packages/walgit/worker/container-binding.ts).
+      //
+      // PHASE 2, once `wrangler containers list` showed the `durable_object`
+      // application for `WalgitDurableContainer`, is this one line. Rolling
+      // back is deleting it again and deploying — a
+      // forward deploy, never `wrangler rollback`, which refuses to cross the
+      // `v3` migration. `WALGIT_SNAPSHOTS` above takes effect from here: it is
+      // read only by the new class.
+      //
+      { name: 'WALGIT_CONTAINER_POLICY', value: 'durable_object' },
       // ── ref events ───────────────────────────────────────────────────────
       //
       // Where the container announces a push TO — this deployment's own public

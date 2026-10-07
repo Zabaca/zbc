@@ -166,6 +166,9 @@ describe('GET /_walgit/browse', () => {
     const { ask, asked } = deployment({ refs: null })
     const res = await ask('?repo=alpha&op=tree')
     expect(res.status).toBe(404)
+    // Word for word: the edge answers an absent name itself with this body
+    // (`absentAtEdge` in worker/index.ts), so the two must not drift.
+    expect(await res.text()).toBe('not found\n')
     expect(asked.created).toEqual([])
     expect(asked.synced).toEqual([])
   })

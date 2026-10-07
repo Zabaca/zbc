@@ -20,13 +20,16 @@
  * here instead — off the serving path, and only for what the log cannot answer
  * (shared/telemetry.ts).
  *
- * Reads are proxied like everything else. Serving a fetch straight from R2 at
- * the edge, without waking the container, is a real optimisation and
- * deliberately not in this milestone.
+ * Reads are proxied like everything else, with one exception: a protocol-v2
+ * ref check — `info/refs` and the `ls-refs` after it — is answered here off the
+ * Index (shared/edge-refs.ts), because polling agents send little else and each
+ * poll kept the container awake. Serving a fetch straight from R2 at the edge,
+ * without waking the container, is a real optimisation and deliberately not in
+ * this milestone.
  */
 
 import { AwsClient } from 'aws4fetch'
-import { Container, getContainer } from '@cloudflare/containers'
+import { Container } from '@cloudflare/containers'
 
 import { capabilitiesFrom, type Capabilities } from '../shared/capabilities'
 import { containerEnv, fingerprintEnv, reconcileContainerEnv } from '../shared/container-env'
@@ -34,6 +37,9 @@ import { parseTokens } from '../shared/credentials'
 import { authorizeAnnounce, authorizeSubscribe } from '../shared/events'
 import { renderLanding, wantsLanding } from '../shared/landing'
 import { renderLlms, wantsLlms } from '../shared/llms'
+import { renderInstructions } from '../shared/instructions'
+import { sleepAfterFrom } from '../shared/sleep-after'
+import { indexKey } from '../shared/keys'
 import {
   FAVICON_BODY,
   FAVICON_CONTENT_TYPE,
@@ -55,6 +61,7 @@ import {
   EVENTS_PATH,
   BROWSE_PATH,
   COLLECT_CRON,
+  containerRoutes,
   EXPIRE_PATH,
   INTERNAL_HEADER,
   INTERNAL_HEADERS,
@@ -71,6 +78,9 @@ import {
   type RequestMetric,
 } from '../shared/telemetry'
 import { browseResponse } from '../shared/browse'
+import { type ContainerBindings, containerFor } from './container-binding'
+import { WalgitDurableContainer } from './durable-container'
+import { refsAtEdge, uploadPackKeyFor } from '../shared/edge-refs'
 import { BROADCAST_PATH, EVENTS_OBJECT_NAME, WalgitEvents } from './events-do'
 import { handleMcp } from './mcp'
 // The card's picture, as bytes in the bundle (wrangler.jsonc's `Data` rule).
@@ -78,8 +88,15 @@ import { handleMcp } from './mcp'
 // committed — never drawn per request.
 import OG_IMAGE_BYTES from '../assets/agentgit-og.png'
 
-export interface Env {
-  WALGIT_CONTAINER: DurableObjectNamespace<WalgitContainer>
+/**
+ * The container is reached through `containerFor` (worker/container-binding.ts)
+ * and never through a binding directly: two bindings exist while the deployment
+ * moves to the `durable_object` scheduling policy — `WALGIT_CONTAINER` for
+ * `WalgitContainer` below, `WALGIT_DURABLE_CONTAINER` for
+ * `WalgitDurableContainer` — and `WALGIT_CONTAINER_POLICY` says which one this
+ * deployment routes to.
+ */
+export interface Env extends ContainerBindings {
   /**
    * The commit this Worker was deployed from, set by the cloudflare module's
    * `deployIdVar`. Nothing reads it: it exists so that a deploy which changes
@@ -190,14 +207,34 @@ export interface Env {
   WALGIT_POSTHOG_KEY?: string
   WALGIT_POSTHOG_HOST?: string
   WALGIT_POSTHOG_UI_HOST?: string
+  /** How long the container idles before it stops (`shared/sleep-after.ts`). */
+  WALGIT_SLEEP_AFTER?: string
+  /**
+   * `1` to snapshot the container's disk on the idle stop and start the next
+   * one from it, so a wake re-syncs the Cache instead of rebuilding it
+   * (`shared/container-snapshot.ts`). Off unless set — the platform feature is
+   * in public beta — and edge-only: the Durable Object reads it and the
+   * container never does, so turning it either way restarts nothing.
+   */
+  WALGIT_SNAPSHOTS?: string
   WALGIT_EVENTS: DurableObjectNamespace<WalgitEvents>
 }
 
-export { WalgitEvents }
+export { WalgitEvents, WalgitDurableContainer }
 
 /** Where `reconcileEnv` remembers the environment the container booted with. */
 const ENV_FINGERPRINT_KEY = 'container-env-fingerprint'
 
+/**
+ * RETIRING. The `default`-policy container class. It serves until a deployment
+ * sets `WALGIT_CONTAINER_POLICY=durable_object` — the default routes here, so
+ * the deploy that introduces the new application changes nothing a client sees
+ * — and after that it is the rollback path: unsetting the variable routes back
+ * to it in one forward deploy. Kept exported until its application is deleted
+ * and its class retired (README.md, "Deployment", phase 3).
+ *
+ * Left exactly as it was: it is the known-good half of the move.
+ */
 export class WalgitContainer extends Container<Env> {
   /**
    * Was this instance's container only just started?
@@ -206,16 +243,22 @@ export class WalgitContainer extends Container<Env> {
    * test cannot show them in production, and only this side knows it: from the
    * Worker every request is a `fetch` that took as long as it took. So the
    * first response after a start is stamped, once, and the Worker reads it off.
+   *
+   * `false` until `onStart` says otherwise: a Durable Object reconstructed in
+   * front of a container that was already running has started nothing, and
+   * stamping its first response cold counted ~10 phantom cold starts a day.
    */
-  private freshStart = true
+  private freshStart = false
 
   // src/server.ts's PORT default, and the Dockerfile's.
   defaultPort = 8080
 
   // A clone of a cold repository has to materialize it from the log first, and
   // a large push writes a pack before it is acknowledged. Neither is fast, and
-  // both are the normal path here rather than an edge case.
-  sleepAfter = '20m'
+  // both are the normal path here rather than an edge case. So the default is
+  // generous, and an instance whose traffic makes idle time the larger cost
+  // sets its own (`shared/sleep-after.ts`).
+  sleepAfter = sleepAfterFrom(this.env)
 
   // The container is a separate process on a separate machine: `wrangler secret
   // put` reaches this Worker and stops there. Forwarding is what gives the push
@@ -299,9 +342,24 @@ export class WalgitContainer extends Container<Env> {
     }
     await this.reconciled
 
+    let response = await super.fetch(request)
+    // A read that lands between the container's SIGTERM exit and the library
+    // noticing it is refused by the library itself (a 500 the container never
+    // stamped). Once more, after a beat, starts a fresh container instead. Only
+    // a bodiless read: a push's body has already been consumed.
+    if (
+      (request.method === 'GET' || request.method === 'HEAD') &&
+      response.status === 500 &&
+      !response.headers.has(SERVED_HEADER)
+    ) {
+      await scheduler.wait(500)
+      response = await super.fetch(request)
+    }
+    // Read AFTER the fetch: `onStart` runs inside `super.fetch`, so a flag read
+    // before it was still `false` for the request that woke the container and
+    // stamped the next one cold instead.
     const cold = this.freshStart
     this.freshStart = false
-    const response = await super.fetch(request)
     if (!cold) return response
     // Rebuilt rather than mutated (Response headers are immutable), passing the
     // body by reference so a clone is not buffered to add one header.
@@ -406,6 +464,32 @@ export default {
           // config change.
           'cache-control': 'public, max-age=60',
         },
+      })
+    }
+
+    // The plain-text `/` — the API surface an agent's default fetch reads
+    // (`shared/instructions.ts`). The browser's `/` is the landing branch
+    // above; this is everything else that asks for `/`. It used to be proxied,
+    // and agents fetch it often enough that it alone kept the container from
+    // sleeping. Rendered from the same capabilities the container would use,
+    // and above the credential gate there too, so the answer is the same one.
+    if (url.pathname === '/' && (request.method === 'GET' || request.method === 'HEAD')) {
+      const bytes = new TextEncoder().encode(renderInstructions(url.origin, caps))
+      record(env, ctx, {
+        kind: 'instructions',
+        repo: '',
+        outcome: 'ok',
+        reject: '',
+        status: 200,
+        served: false,
+        cold: false,
+        ttfbMs: Date.now() - startedAt,
+        totalMs: Date.now() - startedAt,
+        bytesServed: request.method === 'HEAD' ? 0 : bytes.byteLength,
+        bytesReceived: 0,
+      })
+      return new Response(request.method === 'HEAD' ? null : bytes, {
+        headers: { 'content-type': 'text/plain; charset=utf-8' },
       })
     }
 
@@ -621,7 +705,24 @@ export default {
     // container has already chosen the `content-type` from the CONTENT — plain
     // text with `nosniff`, or an octet-stream attachment — because it is the
     // half holding the bytes, and nothing here second-guesses that.
+    // A repository page for a name nobody has pushed to is a 404 the edge can
+    // read off the log, and most of these are not people: `/contact`,
+    // `/about` and `/impressum` are scanners trying a site that is not here.
+    // See `absentAtEdge` for when the edge is allowed to say so.
+    const absent = browseRoute ? await absentAtEdge(env, caps, browseRoute.repo) : false
+
     if (browseRoute && browseRoute.kind === 'raw') {
+      if (absent) {
+        record(env, ctx, {
+          kind: 'browse',
+          repo: browseRoute.repo,
+          ...EDGE_NOT_FOUND_METRIC,
+          bytesReceived: 0,
+          ttfbMs: Date.now() - startedAt,
+          totalMs: Date.now() - startedAt,
+        })
+        return edgeNotFound(request.method)
+      }
       const query =
         `?repo=${encodeURIComponent(browseRoute.repo)}&op=raw` +
         (browseRoute.rest === '' ? '' : `&ref=${encodeURIComponent(browseRoute.rest)}`)
@@ -630,7 +731,7 @@ export default {
         // route below: the edge must not open a door the client could not.
         headers: authorizationOf(request),
       })
-      const res = await getContainer(env.WALGIT_CONTAINER).fetch(asked)
+      const res = await containerFor(env).fetch(asked)
       const outcome = outcomeOf({
         status: res.status,
         declared: res.headers.get(REJECT_HEADER) ?? '',
@@ -655,6 +756,10 @@ export default {
       // bookkeeping rather than protocol.
       const headers = new Headers(res.headers)
       for (const name of INTERNAL_HEADERS) headers.delete(name)
+      // A HEAD sends no body, but the container was asked a GET and is sending
+      // one: cancelled, so the request it belongs to ends here rather than
+      // staying in flight in the container's object (worker/durable-container.ts).
+      if (request.method === 'HEAD') await res.body?.cancel()
       return new Response(request.method === 'HEAD' ? null : res.body, {
         status: res.status,
         statusText: res.statusText,
@@ -669,6 +774,18 @@ export default {
         {
           caps,
           ask: async (query) => {
+            // The container's own 404, word for word, so `browseResponse`
+            // renders the page it always rendered for a missing name.
+            if (absent) {
+              return {
+                status: 404,
+                text: NOT_FOUND_BODY,
+                contentType: 'text/plain;charset=UTF-8',
+                served: false,
+                reject: 'not-found',
+                challenges: [],
+              }
+            }
             const asked = new Request(`https://walgit.internal${BROWSE_PATH}${query}`, {
               // The client's own credential, and nothing else: the container
               // answers this behind the deployment token and then the Read
@@ -676,7 +793,7 @@ export default {
               // client could not.
               headers: authorizationOf(request),
             })
-            const res = await getContainer(env.WALGIT_CONTAINER).fetch(asked)
+            const res = await containerFor(env).fetch(asked)
             return {
               status: res.status,
               text: await res.text(),
@@ -791,13 +908,64 @@ export default {
 
     const facts = classifyRequest(request.method, url.pathname, url.search)
 
+    // A path the container does not route is a 404 there, so on a public
+    // deployment it is a 404 here, without the wake (`containerRoutes`). Not
+    // on a token-gated one: its container answers an unauthenticated stranger
+    // 401 before it looks at the path, and a 404 from here would tell that
+    // stranger which paths are not repositories.
+    if (caps.publicAccess && facts.kind === 'other' && !containerRoutes(url.pathname)) {
+      record(env, ctx, {
+        ...base(facts, request),
+        ...EDGE_NOT_FOUND_METRIC,
+        ttfbMs: Date.now() - startedAt,
+        totalMs: Date.now() - startedAt,
+      })
+      return edgeNotFound(request.method)
+    }
+
+    // A protocol-v2 ref check — the advertisement, or the `ls-refs` after it —
+    // answered off the Index without waking the container (`shared/edge-refs.ts`).
+    // It is nearly all of a public deployment's git traffic: agents polling one
+    // ref, each poll keeping the container awake for another `sleepAfter`.
+    //
+    // Only on a public deployment, for the reason the 404 above is: a
+    // token-gated container answers a stranger 401 before it reads the path,
+    // and nothing here may get ahead of that. Everything `refsAtEdge` is not
+    // sure of comes back as a request to forward — the original, or, when the
+    // body had to be read to be sure, a rebuilt one carrying the same bytes.
+    let forwardable = request
+    if (caps.publicAccess && (facts.kind === 'clone-advertise' || facts.kind === 'clone')) {
+      const edge = await refsAtEdge(request, {
+        publicAccess: caps.publicAccess,
+        store: edgeStore(env),
+        recordKey: uploadPackKeyFor(env),
+      })
+      if (edge.response) {
+        record(env, ctx, {
+          ...base(facts, request),
+          outcome: 'ok',
+          reject: '',
+          status: edge.response.status,
+          // Not the container, which is the property this branch exists to
+          // create — the same claim the landing page and the list make.
+          served: false,
+          cold: false,
+          ttfbMs: Date.now() - startedAt,
+          totalMs: Date.now() - startedAt,
+          bytesServed: edge.bytes,
+        })
+        return edge.response
+      }
+      forwardable = edge.request
+    }
+
     // The container's expiry endpoint trusts INTERNAL_HEADER to mean "the
     // scheduled handler asked". That is only true because this line makes it
     // true: every request arriving from the internet has the header removed
     // before it is proxied, whatever the client set it to. Done for ALL paths,
     // not just the one, so a future internal endpoint inherits the guarantee
     // instead of having to remember it.
-    const forwarded = stripInternal(request)
+    const forwarded = stripInternal(forwardable)
 
     let response: Response
     try {
@@ -806,7 +974,7 @@ export default {
       // and `sync.ts` reconciles on every access, so any container could take any
       // push — it is cache locality: a second instance starts with an empty disk
       // and materializes everything it is asked for from the log.
-      response = await getContainer(env.WALGIT_CONTAINER).fetch(forwarded)
+      response = await containerFor(env).fetch(forwarded)
     } catch (error) {
       // The container never answered, so nothing downstream can name this
       // refusal — it is an `edge` one by construction, and counting it as such
@@ -980,7 +1148,7 @@ async function sweep(event: ScheduledController, env: Env): Promise<void> {
     headers: { [INTERNAL_HEADER]: '1' },
   })
   try {
-    const response = await getContainer(env.WALGIT_CONTAINER).fetch(request)
+    const response = await containerFor(env).fetch(request)
     const body = (await response.text()).trim()
     console.log(`walgit expire [cron ${event.cron}]: ${response.status} ${body}`)
   } catch (error) {
@@ -999,6 +1167,53 @@ async function sweep(event: ScheduledController, env: Env): Promise<void> {
  * same the container makes; what is here is only the dependency it takes, since
  * the signer belongs to whichever half has `aws4fetch` to hand.
  */
+/** The container's `NOT_FOUND` body (`src/http.ts`), which the edge repeats. */
+const NOT_FOUND_BODY = 'not found\n'
+
+function edgeNotFound(method: string): Response {
+  return new Response(method === 'HEAD' ? null : NOT_FOUND_BODY, {
+    status: 404,
+    headers: { 'content-type': 'text/plain;charset=UTF-8' },
+  })
+}
+
+/**
+ * How a 404 the edge answered itself is counted: `not-found`, as the
+ * container would have named it, and `served: false`, because it did not.
+ */
+const EDGE_NOT_FOUND_METRIC = {
+  outcome: 'reject',
+  reject: 'not-found',
+  status: 404,
+  served: false,
+  cold: false,
+  bytesServed: 0,
+} as const
+
+/**
+ * Does the log say this name has never been pushed to?
+ *
+ * The container's browse answers a name with no Index 404 once the Private
+ * gate has passed, and the gate cannot refuse a name with no Index: the Claim
+ * lives IN the Index (`src/server.ts`'s `readClaim`), so there is nothing for
+ * it to read. So on a public deployment, an absent `index.json` is the
+ * container's answer known in advance. Any doubt is `false` and the request
+ * goes to the container as before: no store, a name the container would
+ * normalize differently, or a read that failed.
+ */
+async function absentAtEdge(env: Env, caps: Capabilities, repo: string): Promise<boolean> {
+  if (!caps.publicAccess) return false
+  // `normalizeRepoId` strips a `.git` suffix, so `/alpha.git` browses `alpha`.
+  if (repo.endsWith('.git')) return false
+  const store = edgeStore(env)
+  if (!store) return false
+  try {
+    return (await store.get(indexKey(repo))) === null
+  } catch {
+    return false
+  }
+}
+
 function edgeStore(env: Env): ObjectStore | null {
   return s3StoreFrom(env, (credentials) => new AwsClient(credentials))
 }

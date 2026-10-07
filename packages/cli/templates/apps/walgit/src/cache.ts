@@ -91,6 +91,15 @@ export function ensureBareRepo(repo: ResolvedRepo): ResolvedRepo {
   // is what makes a small push arrive as a packfile rather than exploding into
   // loose objects, and there is no packfile to upload if it does.
   ensureConfig(repo.dir, 'receive.unpackLimit', '0')
+  // HEAD follows the Index now (`ensureHead`, re-run on every sync), so it is
+  // always on a branch that exists — and git's default refuses to delete the
+  // branch HEAD names, even in a bare repo. That refusal used to be unreachable
+  // because HEAD sat on an unborn `main`; with HEAD kept honest it would make a
+  // repo's only-other branch undeletable, and an atomic "create main, delete
+  // master" impossible. The next sync moves HEAD off a deleted branch, which is
+  // the job `ensureHead` already does. Append-only deployments refuse every
+  // deletion anyway (`receive.denyDeletes` below).
+  ensureConfig(repo.dir, 'receive.denyDeleteCurrent', 'ignore')
   // git's own housekeeping is turned OFF, and that is not a performance
   // choice. `receive.autogc` runs `git gc --auto` after a push, which on a repo
   // holding one pack per WAL entry fires almost immediately (gc.autoPackLimit

@@ -2,7 +2,7 @@
  * What this deployment advertises, derived once.
  *
  * Three agent-facing documents describe the same host — the plain-text `GET /`
- * (`src/instructions.ts`), the landing page (`shared/landing.ts`) and
+ * (`shared/instructions.ts`), the landing page (`shared/landing.ts`) and
  * `/llms.txt` (`shared/llms.ts`) — and the push path enforces what they
  * describe. Each of them used to read the environment for itself, from three
  * types that disagreed about how to spell "unset" and about which variables a
