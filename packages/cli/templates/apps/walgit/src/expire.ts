@@ -26,6 +26,7 @@
  */
 
 import { deleteRepo, type DeleteResult } from './delete-repo'
+import { capabilitiesFrom } from '../shared/capabilities'
 import type { ObjectStore } from '../shared/store'
 import { listRepoIds } from '../shared/keys'
 import { loadIndex, type WalIndex } from '../shared/wal-index'
@@ -39,6 +40,19 @@ export function configuredExpiryMs(env = process.env): number | null {
   const hours = Number(env.WALGIT_RETENTION_HOURS)
   if (!Number.isFinite(hours) || hours <= 0) return null
   return hours * 60 * 60 * 1000
+}
+
+/**
+ * A claimed repository's window, or `null` when a claim buys no extra time.
+ *
+ * Read through `capabilitiesFrom` rather than straight off the variable, because
+ * the rules for when it applies — names can be claimed, expiry is on, and it is
+ * longer than the base window — are the ones `GET /` states it under, and a
+ * second reading here is how the page and the sweeper would come to disagree.
+ */
+export function configuredClaimedExpiryMs(env = process.env): number | null {
+  const hours = capabilitiesFrom(env).claimedRetentionHours
+  return hours === null ? null : hours * 60 * 60 * 1000
 }
 
 export type ExpiryVerdict = 'collect' | 'retain'
@@ -80,6 +94,19 @@ export interface DecideOptions {
   now: Date
   /** Null means expiry is not configured, so nothing is ever collected. */
   windowMs: number | null
+  /**
+   * The window for a repository with a Signer List (`index.claim`), when a claim
+   * earns a longer one. Null or absent: every repository gets `windowMs`.
+   */
+  claimedWindowMs?: number | null
+  /**
+   * Finish deletions only: collect what is already tombstoned and past its
+   * grace, and tombstone nothing new. The second of the deployment's two daily
+   * sweeps runs this way (`wrangler.jsonc`), so that a repository tombstoned by
+   * the first is collected a grace period later rather than a day later — and
+   * so that nothing it tombstones itself sits waiting a day for the next one.
+   */
+  collectOnly?: boolean
 }
 
 /**
@@ -88,9 +115,14 @@ export interface DecideOptions {
  * sweep that would hide them.
  */
 export function decideExpiry(index: WalIndex | null, opts: DecideOptions): ExpiryDecision {
-  const { now, windowMs } = opts
+  const { now, collectOnly = false } = opts
+  // Which window this repository is judged by. Decided before anything else so
+  // that every reason below names the window that was actually applied.
+  const claimed = opts.claimedWindowMs != null && index?.claim !== undefined
+  const windowMs = claimed ? (opts.claimedWindowMs ?? null) : opts.windowMs
+  const which = claimed ? 'claimed ' : ''
 
-  if (windowMs === null) {
+  if (opts.windowMs === null || windowMs === null) {
     return { verdict: 'retain', reason: 'expiry is not configured (WALGIT_RETENTION_HOURS unset)' }
   }
 
@@ -148,7 +180,16 @@ export function decideExpiry(index: WalIndex | null, opts: DecideOptions): Expir
   if (idleMs < windowMs) {
     return {
       verdict: 'retain',
-      reason: `last push ${lastPushAt} is ${describe(idleMs)} ago, inside the ${describe(windowMs)} window`,
+      reason: `last push ${lastPushAt} is ${describe(idleMs)} ago, inside the ${which}${describe(windowMs)} window`,
+      lastPushAt,
+      idleMs,
+    }
+  }
+
+  if (collectOnly) {
+    return {
+      verdict: 'retain',
+      reason: `last push ${lastPushAt} is ${describe(idleMs)} ago, past the ${which}${describe(windowMs)} window — left for the next full sweep to tombstone`,
       lastPushAt,
       idleMs,
     }
@@ -156,7 +197,7 @@ export function decideExpiry(index: WalIndex | null, opts: DecideOptions): Expir
 
   return {
     verdict: 'collect',
-    reason: `last push ${lastPushAt} is ${describe(idleMs)} ago, past the ${describe(windowMs)} window`,
+    reason: `last push ${lastPushAt} is ${describe(idleMs)} ago, past the ${which}${describe(windowMs)} window`,
     lastPushAt,
     idleMs,
   }
@@ -172,7 +213,7 @@ function describe(ms: number): string {
 export interface ExpiryOutcome {
   repoId: string
   decision: ExpiryDecision
-  /** Present only for a collected repository: what `deleteRepo` did. */
+  /** What `deleteRepo` did — present when it was asked, so also on a superseded one. */
   deletion?: DeleteResult
 }
 
@@ -182,6 +223,8 @@ export interface ExpireResult {
   /** Repositories deliberately kept, each carrying the reason it was kept. */
   retained: ExpiryOutcome[]
   windowMs: number | null
+  claimedWindowMs: number | null
+  collectOnly: boolean
   dryRun: boolean
 }
 
@@ -189,6 +232,10 @@ export interface ExpireOptions {
   now?: () => Date
   /** Null (the default when unconfigured) sweeps nothing. */
   windowMs?: number | null
+  /** A claimed repository's window — see `DecideOptions.claimedWindowMs`. */
+  claimedWindowMs?: number | null
+  /** Collect tombstoned repositories only — see `DecideOptions.collectOnly`. */
+  collectOnly?: boolean
   dryRun?: boolean
   /** Only consider these repositories, instead of every one in the store. */
   repoIds?: readonly string[]
@@ -213,9 +260,18 @@ export async function expireRepos(
 ): Promise<ExpireResult> {
   const now = opts.now ?? (() => new Date())
   const windowMs = opts.windowMs ?? null
+  const claimedWindowMs = opts.claimedWindowMs ?? null
+  const collectOnly = opts.collectOnly ?? false
   const dryRun = opts.dryRun !== false
 
-  const result: ExpireResult = { collected: [], retained: [], windowMs, dryRun }
+  const result: ExpireResult = {
+    collected: [],
+    retained: [],
+    windowMs,
+    claimedWindowMs,
+    collectOnly,
+    dryRun,
+  }
 
   // Unconfigured stops before the LIST, not after it: an instance that does not
   // expire should not be walking its bucket on a timer either.
@@ -228,7 +284,7 @@ export async function expireRepos(
   for (const repoId of repoIds) {
     const loaded = await loadIndex(store, repoId)
     const index = loaded.etag === null ? null : loaded.index
-    const decision = decideExpiry(index, { now: now(), windowMs })
+    const decision = decideExpiry(index, { now: now(), windowMs, claimedWindowMs, collectOnly })
 
     if (decision.verdict === 'retain') {
       result.retained.push({ repoId, decision })
@@ -238,9 +294,21 @@ export async function expireRepos(
     const deletion = await deleteRepo(store, repoId, {
       now,
       dryRun,
+      by: 'expiry',
+      // Re-judged on the Index the mark would land on, so a push between this
+      // read and that write keeps the repository rather than marking it.
+      stillDue: (current) =>
+        decideExpiry(current, { now: now(), windowMs, claimedWindowMs, collectOnly }).verdict ===
+        'collect',
       graceMs: opts.graceMs,
       dir: opts.reposDir ? `${opts.reposDir}/${repoId}.git` : undefined,
     })
+    // A push between the decision and the write: kept, and reported as kept.
+    if (deletion.status === 'superseded') {
+      const reason = deletion.retained[0]?.reason ?? 'the repository moved under the sweep'
+      result.retained.push({ repoId, decision: { verdict: 'retain', reason }, deletion })
+      continue
+    }
     result.collected.push({ repoId, decision, deletion })
   }
 

@@ -132,6 +132,7 @@ describe('GET /_walgit/browse', () => {
       repo: 'alpha',
       defaultBranch: 'refs/heads/main',
       lastPush: '2026-09-19T00:00:00.000Z',
+      claimed: false,
       refs: [
         { name: 'refs/heads/feature/x', oid: FEATURE },
         { name: 'refs/heads/main', oid: MAIN },

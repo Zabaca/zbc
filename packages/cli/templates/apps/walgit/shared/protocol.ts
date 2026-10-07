@@ -78,6 +78,21 @@ export const HEALTH_PATH = '/_walgit/health'
 /** The sweeper's front door. `INTERNAL_HEADER` only — see above. */
 export const EXPIRE_PATH = '/_walgit/expire'
 
+/**
+ * The sweeper's two Cron Triggers, which `wrangler.jsonc` must list verbatim —
+ * the Worker tells them apart by the expression it was fired with.
+ *
+ * The first is a full sweep: it tombstones what has gone idle and collects
+ * what is past its grace. The second runs a grace period later and only
+ * collects, so a repository tombstoned at 04:00 is gone by 05:15 rather than
+ * waiting a day for the next full sweep — 75 minutes covers the default
+ * one-hour `WALGIT_DELETE_GRACE_MS` and the time the first sweep itself takes.
+ * A longer grace is safe, just slower: whatever the second sweep finds still
+ * inside it is collected by the next day's first.
+ */
+export const SWEEP_CRON = '0 4 * * *'
+export const COLLECT_CRON = '15 5 * * *'
+
 /** One repository's ref state, for the event stream's handshake. Internal. */
 export const REFS_PATH = '/_walgit/refs'
 

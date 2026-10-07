@@ -292,6 +292,7 @@ test('an unconfigured deployment advertises nothing, and says so in every field'
     proposals: false,
     web: false,
     retentionHours: null,
+    claimedRetentionHours: null,
     maxPushBytes: null,
     maxRepoBytes: null,
     // The per-source window is the one number here that is never null: it is
@@ -303,5 +304,49 @@ test('an unconfigured deployment advertises nothing, and says so in every field'
     maxNewReposPerSource: null,
     maxPushesPerSource: null,
     maxPushBytesPerSource: null,
+  })
+})
+
+/**
+ * A claim buys a longer window only where a claim exists and a window does, and
+ * only when it is actually longer — anything else would be a sentence about a
+ * name nobody can claim, or a claim that shortened a name's life.
+ */
+describe('the claimed window', () => {
+  const CLAIMABLE: CapabilityEnv = {
+    WALGIT_SIGNER_LISTS: '1',
+    WALGIT_PUSH_CERT_SEED: 'seed',
+    WALGIT_RETENTION_HOURS: '24',
+  }
+
+  test('is the configured hours where names can be claimed and expiry is on', () => {
+    expect(
+      caps({ ...CLAIMABLE, WALGIT_CLAIMED_RETENTION_HOURS: '168' }).claimedRetentionHours,
+    ).toBe(168)
+  })
+
+  test('is null without a claimed window', () => {
+    expect(caps(CLAIMABLE).claimedRetentionHours).toBeNull()
+  })
+
+  test('is null where names cannot be claimed', () => {
+    const env = { ...CLAIMABLE, WALGIT_CLAIMED_RETENTION_HOURS: '168' }
+    expect(caps({ ...env, WALGIT_SIGNER_LISTS: '' }).claimedRetentionHours).toBeNull()
+    expect(caps({ ...env, WALGIT_PUSH_CERT_SEED: '' }).claimedRetentionHours).toBeNull()
+  })
+
+  test('is null where nothing is collected', () => {
+    expect(
+      caps({ ...CLAIMABLE, WALGIT_RETENTION_HOURS: '', WALGIT_CLAIMED_RETENTION_HOURS: '168' })
+        .claimedRetentionHours,
+    ).toBeNull()
+  })
+
+  test('is null when it is not longer than the base window', () => {
+    for (const hours of ['24', '12']) {
+      expect(
+        caps({ ...CLAIMABLE, WALGIT_CLAIMED_RETENTION_HOURS: hours }).claimedRetentionHours,
+      ).toBeNull()
+    }
   })
 })

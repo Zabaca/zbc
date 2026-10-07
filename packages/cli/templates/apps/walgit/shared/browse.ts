@@ -74,6 +74,12 @@ export interface BrowseRefsAnswer {
   refs: BrowseRef[]
   /** ISO instant of the newest push entry, or `null` when there is none. */
   lastPush: string | null
+  /**
+   * The repository has a Signer List. Optional because the edge and the
+   * container deploy apart: a container older than the field answers without
+   * it, and the page then states the unclaimed window — the shorter one.
+   */
+  claimed?: boolean
 }
 
 /** What `op=tree` answers: the same, plus one level of one directory. */
@@ -396,11 +402,17 @@ export async function browseResponse(
  * the sweeper does not honour. Rounded UP, because "expires in 0 hours" on a
  * repository that has 50 minutes left reads as gone.
  */
-export function expiresIn(lastPush: string | null, caps: Capabilities, now: number): string | null {
+export function expiresIn(
+  lastPush: string | null,
+  caps: Capabilities,
+  now: number,
+  claimed = false,
+): string | null {
   if (caps.retentionHours === null || lastPush === null) return null
   const at = Date.parse(lastPush)
   if (!Number.isFinite(at)) return null
-  const left = Math.ceil((at + caps.retentionHours * 3_600_000 - now) / 3_600_000)
+  const hours = (claimed ? caps.claimedRetentionHours : null) ?? caps.retentionHours
+  const left = Math.ceil((at + hours * 3_600_000 - now) / 3_600_000)
   return left <= 0 ? 'expires at any moment' : `expires in ${describeHours(left)}`
 }
 
@@ -467,7 +479,9 @@ function entryRow(repo: string, ref: string, path: string, entry: TreeEntry): st
 }
 
 /** What every page's chrome needs: the repository, the ref and the ref list. */
-type PageCommon = Pick<BrowseRefsAnswer, 'repo' | 'refs' | 'lastPush'> & { ref?: string }
+type PageCommon = Pick<BrowseRefsAnswer, 'repo' | 'refs' | 'lastPush' | 'claimed'> & {
+  ref?: string
+}
 
 function refList(answer: PageCommon): string {
   if (answer.refs.length === 0) return ''
@@ -509,7 +523,7 @@ function breadcrumb(answer: PageCommon & { path?: string }, leaf?: string): stri
  * The retention line every page carries, in the landing page's own words.
  */
 function fineprint(answer: PageCommon, caps: Capabilities, now: number): string {
-  const expiry = expiresIn(answer.lastPush, caps, now)
+  const expiry = expiresIn(answer.lastPush, caps, now, answer.claimed === true)
   return [
     answer.lastPush === null ? '' : `last push ${escapeHtml(answer.lastPush.slice(0, 10))}`,
     expiry === null ? '' : escapeHtml(expiry),

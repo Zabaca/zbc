@@ -27,7 +27,7 @@ import * as path from 'node:path'
 
 import { compact, configuredGraceMs, type CompactResult } from './compact'
 import { configuredDeleteGraceMs, deleteRepo } from './delete-repo'
-import { configuredExpiryMs, expireRepos } from './expire'
+import { configuredClaimedExpiryMs, configuredExpiryMs, expireRepos } from './expire'
 import { collectGarbage } from './gc'
 import { materialize, round } from './materialize'
 import { normalizeRepoId, resolveRepo } from './repo'
@@ -52,7 +52,15 @@ export interface ParsedArgs {
  * `gc myrepo --yes myotherrepo` swallow a repo id: a flag takes the next token
  * only when it is declared to want one.
  */
-const KNOWN_VALUE_FLAGS = new Set(['min-age', 'repos-dir', 'grace', 'after', 'since', 'top'])
+const KNOWN_VALUE_FLAGS = new Set([
+  'min-age',
+  'repos-dir',
+  'grace',
+  'after',
+  'claimed-after',
+  'since',
+  'top',
+])
 
 export function parseArgs(argv: readonly string[]): ParsedArgs {
   const positional: string[] = []
@@ -96,6 +104,10 @@ Options
   --min-age <minutes> gc: never collect an object younger than this (default 60)
   --grace <minutes>   delete/expire: how long a repo is tombstoned first (default 60)
   --after <hours>     expire: idle window (default $WALGIT_RETENTION_HOURS; unset = off)
+  --claimed-after <hours>
+                      expire: window for a claimed repo (default
+                      $WALGIT_CLAIMED_RETENTION_HOURS; unset = same as --after)
+  --collect-only      expire: collect tombstoned repos, tombstone nothing new
   --since <duration>  usage: push window, e.g. 24h, 7d, 30m (default 24h)
   --top <n>           usage: how many repositories to name (0 = all, default 10)
 
@@ -321,6 +333,17 @@ async function expireCommand(args: ParsedArgs, env: NodeJS.ProcessEnv): Promise<
     )
     return MISUSE
   }
+  const claimedFlag = args.flags['claimed-after']
+  const claimedWindowMs =
+    typeof claimedFlag === 'string'
+      ? Number(claimedFlag) * 3_600_000
+      : configuredClaimedExpiryMs(env)
+  if (claimedWindowMs !== null && (!Number.isFinite(claimedWindowMs) || claimedWindowMs <= 0)) {
+    console.error(
+      `walgit expire: --claimed-after must be a positive number of hours, got ${String(claimedFlag)}`,
+    )
+    return MISUSE
+  }
   const graceFlag = args.flags.grace
   const graceMs =
     typeof graceFlag === 'string' ? Number(graceFlag) * 60_000 : configuredDeleteGraceMs(env)
@@ -334,7 +357,14 @@ async function expireCommand(args: ParsedArgs, env: NodeJS.ProcessEnv): Promise<
     // and the timer calling this should not start failing because of it.
     emit(
       args,
-      { collected: [], retained: [], windowMs: null, dryRun: true },
+      {
+        collected: [],
+        retained: [],
+        windowMs: null,
+        claimedWindowMs: null,
+        collectOnly: false,
+        dryRun: true,
+      },
       'expiry is not configured — set WALGIT_RETENTION_HOURS or pass --after <hours>',
     )
     return OK
@@ -344,6 +374,8 @@ async function expireCommand(args: ParsedArgs, env: NodeJS.ProcessEnv): Promise<
   const dryRun = args.flags.yes !== true
   const result = await expireRepos(store, {
     windowMs,
+    claimedWindowMs,
+    collectOnly: args.flags['collect-only'] === true,
     graceMs,
     dryRun,
     reposDir: reposDirOf(args, env),
@@ -352,7 +384,10 @@ async function expireCommand(args: ParsedArgs, env: NodeJS.ProcessEnv): Promise<
   })
 
   const lines: string[] = [
-    `window ${windowMs / 3_600_000}h — ${result.collected.length} collected, ` +
+    `window ${windowMs / 3_600_000}h` +
+      (claimedWindowMs === null ? '' : ` (claimed ${claimedWindowMs / 3_600_000}h)`) +
+      (result.collectOnly ? ', collect only' : '') +
+      ` — ${result.collected.length} collected, ` +
       `${result.retained.length} retained`,
   ]
   for (const outcome of result.collected) {

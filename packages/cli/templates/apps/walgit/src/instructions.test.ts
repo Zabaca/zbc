@@ -449,3 +449,19 @@ function everyConfiguration(): Capabilities[] {
   }
   return all
 }
+
+describe('the claimed window', () => {
+  test('is stated beside the base window where a claim buys one', () => {
+    const text = renderInstructions(
+      'https://walgit.example',
+      caps({ ...OPEN, ...LIMITS, ...SEED, ...GATE, WALGIT_CLAIMED_RETENTION_HOURS: '168' }),
+    ).replace(/\s+/g, ' ')
+    expect(text).toContain('24 hours after its LAST PUSH')
+    expect(text).toContain('A claimed one — a name with a Signer List — is kept 7 days instead.')
+  })
+
+  test('is not mentioned where it is not configured', () => {
+    const text = renderInstructions('https://walgit.example', EVERYTHING)
+    expect(text).not.toContain('A claimed one')
+  })
+})

@@ -400,4 +400,36 @@ describe('walgit expire', () => {
   test('--after must be a positive number of hours', async () => {
     expect(await main(['expire', '--after', 'soon'], env)).toBe(2)
   })
+
+  test('--claimed-after keeps a claimed repository the unclaimed window would take', async () => {
+    const { repoId } = await published()
+    await backdate(repoId, 100)
+    const { index, etag } = await loadIndex(store, repoId)
+    await commitIndex(
+      store,
+      { ...index, claim: { signers: [`SHA256:${'a'.repeat(43)}`], ts: index.entries[0]!.ts } },
+      etag,
+    )
+
+    expect(
+      await main(['expire', repoId, '--after', '24', '--claimed-after', '168', '--yes'], env),
+    ).toBe(0)
+    const text = out.join('\n')
+    expect(text).toContain('window 24h (claimed 168h)')
+    expect(text).toContain('inside the claimed 168h window')
+    expect((await loadIndex(store, repoId)).index.deletion).toBeUndefined()
+  })
+
+  test('--claimed-after must be a positive number of hours', async () => {
+    expect(await main(['expire', '--after', '24', '--claimed-after', '0'], env)).toBe(2)
+  })
+
+  test('--collect-only tombstones nothing', async () => {
+    const { repoId } = await published()
+    await backdate(repoId, 100)
+
+    expect(await main(['expire', repoId, '--after', '24', '--collect-only', '--yes'], env)).toBe(0)
+    expect(out.join('\n')).toContain('next full sweep')
+    expect((await loadIndex(store, repoId)).index.deletion).toBeUndefined()
+  })
 })

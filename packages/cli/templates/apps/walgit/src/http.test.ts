@@ -1,7 +1,19 @@
 import { describe, expect, test } from 'bun:test'
-import { INTERNAL_HEADER, REJECT_HEADER, SERVED_HEADER } from '../shared/protocol'
+import * as fs from 'node:fs'
+import {
+  COLLECT_CRON,
+  INTERNAL_HEADER,
+  REJECT_HEADER,
+  SERVED_HEADER,
+  SWEEP_CRON,
+} from '../shared/protocol'
 import { capabilitiesFrom } from '../shared/capabilities'
-import { createHttpHandler, type HttpHandlerDeps, type ProvenanceRead } from './http'
+import {
+  createHttpHandler,
+  type HttpHandlerDeps,
+  type ProvenanceRead,
+  type SweepOptions,
+} from './http'
 
 const handler = () =>
   createHttpHandler({
@@ -699,5 +711,45 @@ describe('createHttpHandler: per-source limits', () => {
     // one left, so a client is never refused for traffic walgit did not serve.
     expect(seen[1]?.WALGIT_REFUSE).toContain('1000 bytes')
     expect(seen[2]?.WALGIT_REFUSE).toBeUndefined()
+  })
+})
+
+describe('the sweep endpoint', () => {
+  const sweepHandler = (seen: SweepOptions[]) =>
+    createHttpHandler({
+      reposDir: '/srv/repos',
+      tokens: ['s3cret'],
+      ensureRepo: (repo) => repo,
+      runBackend: async () => new Response('backend ran'),
+      sweep: async (opts) => {
+        seen.push(opts)
+        return { ok: true }
+      },
+    })
+  const sweep = (query = '') =>
+    new Request(`https://walgit.test/_walgit/expire${query}`, {
+      method: 'POST',
+      headers: { [INTERNAL_HEADER]: '1' },
+    })
+
+  test('a plain sweep is a full one', async () => {
+    const seen: SweepOptions[] = []
+    expect((await sweepHandler(seen)(sweep())).status).toBe(200)
+    expect(seen).toEqual([{ collectOnly: false }])
+  })
+
+  test('?collect=only finishes deletions and starts none', async () => {
+    const seen: SweepOptions[] = []
+    expect((await sweepHandler(seen)(sweep('?collect=only'))).status).toBe(200)
+    expect(seen).toEqual([{ collectOnly: true }])
+  })
+
+  // The Worker tells the two sweeps apart by the expression it was fired
+  // with, so an expression edited in one place and not the other would turn
+  // the collect-only sweep into a second full one, or never fire it at all.
+  test('wrangler.jsonc lists exactly the two expressions the Worker knows', () => {
+    const config = fs.readFileSync(new URL('../wrangler.jsonc', import.meta.url), 'utf8')
+    const crons = config.match(/"crons":\s*(\[[^\]]*\])/)?.[1]
+    expect(crons && JSON.parse(crons)).toEqual([SWEEP_CRON, COLLECT_CRON])
   })
 })

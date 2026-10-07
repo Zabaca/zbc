@@ -398,14 +398,34 @@ is not "long ago", and one in the future is clock skew rather than staleness.
 Over-retaining costs storage; under-retaining deletes somebody's work with no
 error anywhere.
 
+A **claimed** repository — one with a Signer List — can be given a longer
+window: `WALGIT_CLAIMED_RETENTION_HOURS`. It applies only where names can be
+claimed (`WALGIT_SIGNER_LISTS` and `WALGIT_PUSH_CERT_SEED`), only with
+`WALGIT_RETENTION_HOURS` set, and only when it is longer than that window;
+otherwise it is read as unset. It is a capability like the base window, so
+`GET /`, `/llms.txt`, the landing page and the browse pages state it from the
+same reading the sweeper collects by. `walgit expire --claimed-after <hours>`
+overrides it.
+
 Collection is delegated to `delete-repo.ts`, so an expired repository is
 tombstoned and collected a grace period later exactly like one deleted by hand.
 Dry run is the default; `--yes` acts.
 
+A push lifts expiry's tombstone — it was written because nobody pushed, and
+somebody just did — so a push inside the grace period is kept, not acknowledged
+and then collected. An operator's tombstone (`walgit delete`) stays. Both ends
+of that window are compare-and-swaps on `index.json`: the tombstone is
+re-judged on the Index it lands on, and the collection marks the Index
+`collecting_at` before deleting anything, after which a push is refused with
+"this repository is being deleted".
+
 What runs it on a timer is the **deployment's** business. On Cloudflare that is
-a Cron Trigger (`wrangler.jsonc` → `triggers.crons`, hourly) firing the Worker's
-`scheduled` handler, which POSTs `/_walgit/expire` to the container and logs the
-report. The timer lives out there rather than as an interval inside the
+two daily Cron Triggers (`wrangler.jsonc` → `triggers.crons`) firing the
+Worker's `scheduled` handler, which POSTs `/_walgit/expire` to the container and
+logs the report. The 04:00 sweep tombstones what has gone idle; the 05:15 one
+(`?collect=only`, `walgit expire --collect-only`) collects what the first
+tombstoned, a grace period later, and tombstones nothing itself. With one daily
+sweep a tombstoned repository waited a whole day for the next. The timer lives out there rather than as an interval inside the
 container because the container SLEEPS when idle — an internal timer would stop
 firing at exactly the moment nothing is keeping it awake, which is precisely the
 state a repository has to be in to be collectable.
@@ -663,7 +683,7 @@ Optional instance configuration (plain env, not secrets): `WALGIT_APPEND_ONLY`,
 `WALGIT_MAX_PUSH_BYTES`, `WALGIT_MAX_REPO_BYTES`,
 `WALGIT_MAX_NEW_REPOS_PER_SOURCE`, `WALGIT_MAX_PUSHES_PER_SOURCE`,
 `WALGIT_MAX_PUSH_BYTES_PER_SOURCE`, `WALGIT_RATE_WINDOW_SECONDS`,
-`WALGIT_RETENTION_HOURS`,
+`WALGIT_RETENTION_HOURS`, `WALGIT_CLAIMED_RETENTION_HOURS`,
 `WALGIT_PUBLIC`, `WALGIT_SIGNER_LISTS`, `WALGIT_WEB` (the web view above) —
 each unset means the behaviour is off
 and `GET /` does not claim it. `WALGIT_EVENTS_URL` and `WALGIT_EVENTS_TOKEN` (a
