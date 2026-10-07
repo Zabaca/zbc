@@ -55,6 +55,7 @@ type CapabilityVar = Extract<
   | 'WALGIT_PUBLIC'
   | 'WALGIT_APPEND_ONLY'
   | 'WALGIT_RETENTION_HOURS'
+  | 'WALGIT_CLAIMED_RETENTION_HOURS'
   | 'WALGIT_MAX_PUSH_BYTES'
   | 'WALGIT_MAX_REPO_BYTES'
   | 'WALGIT_EVENTS_URL'
@@ -198,6 +199,19 @@ export type Capabilities = {
   web: boolean
   /** A repository is collected this many hours after its last push. */
   retentionHours: number | null
+  /**
+   * A CLAIMED repository's window instead, when it is longer — `null` means a
+   * claim buys no extra time and `retentionHours` governs every repository.
+   *
+   * Null unless names can actually be claimed and expiry is on, because the
+   * sentence it feeds is "claim a name and it is kept longer": on a deployment
+   * where nobody can claim, or nothing is collected, there is nothing to say.
+   * And null unless it is LONGER, because a claim that shortened a name's life
+   * would punish the one act this deployment asks agents to perform — a value
+   * at or below the base window is a misconfiguration, read as unset rather
+   * than enforced.
+   */
+  claimedRetentionHours: number | null
   /** Largest single push, in bytes. */
   maxPushBytes: number | null
   /** Largest total size of one repository, in bytes. */
@@ -271,6 +285,10 @@ export function capabilitiesFrom(
   const signedPushes = signedPushEnabled(env.WALGIT_PUSH_CERT_SEED)
   const publicAccess = flagEnabled(env.WALGIT_PUBLIC)
 
+  const namesCanBeClaimed = namesCanRefuse && signedPushes
+  const retentionHours = positiveNumber(env.WALGIT_RETENTION_HOURS)
+  const claimedHours = positiveNumber(env.WALGIT_CLAIMED_RETENTION_HOURS)
+
   const maxNewReposPerSource = positiveNumber(env.WALGIT_MAX_NEW_REPOS_PER_SOURCE)
   const maxPushesPerSource = positiveNumber(env.WALGIT_MAX_PUSHES_PER_SOURCE)
   const maxPushBytesPerSource = positiveNumber(env.WALGIT_MAX_PUSH_BYTES_PER_SOURCE)
@@ -284,7 +302,7 @@ export function capabilitiesFrom(
     events: nonBlank(env.WALGIT_EVENTS_URL) && nonBlank(env.WALGIT_EVENTS_TOKEN),
     signedPushes,
     namesCanRefuse,
-    namesCanBeClaimed: namesCanRefuse && signedPushes,
+    namesCanBeClaimed,
     namesCanBePrivate:
       namesCanRefuse &&
       signedPushes &&
@@ -292,7 +310,14 @@ export function capabilitiesFrom(
       seedValue(env.WALGIT_PRIVATE_REPOS) !== null,
     proposals: namesCanRefuse && signedPushes && flagEnabled(env.WALGIT_PROPOSALS),
     web: flagEnabled(env.WALGIT_WEB),
-    retentionHours: positiveNumber(env.WALGIT_RETENTION_HOURS),
+    retentionHours,
+    claimedRetentionHours:
+      namesCanBeClaimed &&
+      retentionHours !== null &&
+      claimedHours !== null &&
+      claimedHours > retentionHours
+        ? claimedHours
+        : null,
     maxPushBytes: positiveNumber(env.WALGIT_MAX_PUSH_BYTES),
     maxRepoBytes: positiveNumber(env.WALGIT_MAX_REPO_BYTES),
     sourceLimited:

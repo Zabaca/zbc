@@ -737,3 +737,33 @@ describe('the repository list, in the manual', () => {
     expect(renderLlms(HOST, caps({}))).not.toContain('/repos')
   })
 })
+
+describe('the claimed window', () => {
+  const RUN: OperatorEnv = { WALGIT_OPERATOR: 'Zabaca', WALGIT_CONTACT: 'abuse@zabaca.com' }
+  const CLAIMED = caps({
+    ...OPEN,
+    ...SEED,
+    ...GATE,
+    WALGIT_RETENTION_HOURS: '24',
+    WALGIT_CLAIMED_RETENTION_HOURS: '168',
+  })
+
+  test('is stated in the limits, the lost-key sentence and the summary', () => {
+    const doc = renderLlms(HOST, CLAIMED, operatorFrom(RUN)).replace(/\s+/g, ' ')
+    expect(doc).toContain('A claimed name (see Ownership below) is kept 7 days instead.')
+    // A lost key is a claimed name's problem, so its window is the claimed one.
+    expect(doc).toContain('7 days without a push collects the repository')
+    expect(doc).toContain('collected 24 hours after its last push (7 days once claimed)')
+    expect(doc).toContain('a repository is collected (7 days once claimed).')
+  })
+
+  test('is absent where a claim buys nothing', () => {
+    const doc = renderLlms(
+      HOST,
+      caps({ ...OPEN, ...SEED, ...GATE, WALGIT_RETENTION_HOURS: '24' }),
+      operatorFrom(RUN),
+    )
+    expect(doc).not.toContain('once claimed')
+    expect(doc).not.toContain('7 days')
+  })
+})

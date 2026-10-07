@@ -62,6 +62,7 @@ export const CONTAINER_ENV = [
   'WALGIT_PUBLIC',
   'WALGIT_APPEND_ONLY',
   'WALGIT_RETENTION_HOURS',
+  'WALGIT_CLAIMED_RETENTION_HOURS',
   'WALGIT_MAX_PUSH_BYTES',
   'WALGIT_MAX_REPO_BYTES',
   // The ref-event stream's two halves. The push path announces from inside the

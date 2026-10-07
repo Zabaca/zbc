@@ -259,8 +259,9 @@ export default cloudflareModule.instance({
       // because shared/container-env.ts names it.
       //
       // UN-CLAIMING IS IDLE EXPIRY, and only on a deployment like this one.
-      // `WALGIT_RETENTION_HOURS` below collects a repository 24 hours after
-      // its last push, so a name frees itself and a claim is a lease. On a
+      // `WALGIT_CLAIMED_RETENTION_HOURS` below collects a claimed repository 7
+      // days after its last push, so a name frees itself and a claim is a
+      // lease. On a
       // walgit with no retention window a list is permanent, and for a company
       // running its own host that is the correct answer rather than a defect —
       // which is why the package does not couple the two. The coupling belongs
@@ -268,7 +269,7 @@ export default cloudflareModule.instance({
       //
       // There is no recovery path for a lost key and none is coming. What
       // bounds it is a list naming TWO keys, revocation by a commit that
-      // removes a line, and the 24-hour window above.
+      // removes a line, and the 7-day window below.
       //
       // The one way this reaches UNCLAIMED names: a push writing an empty or
       // unreadable list is now refused everywhere, because an empty list would
@@ -375,6 +376,13 @@ export default cloudflareModule.instance({
       // needs the container restart described above to hold across a deploy;
       // it was written before the restart existed, and did not.
       { name: 'WALGIT_RETENTION_HOURS', value: '24' },
+      // A claimed name — one with a Signer List — is kept a week instead
+      // (2026-10-07). Two repositories were being pushed at the same minute
+      // every day to outlive the 24 hours; a claim is the act this host asks
+      // for, so it is the one that buys the time. The cost is the lost-key
+      // bound above, which goes from a day to a week, and a squatter holding a
+      // name a week for one signed push — the per-source limits bound how many.
+      { name: 'WALGIT_CLAIMED_RETENTION_HOURS', value: '168' },
       // ── the web view ─────────────────────────────────────────────────────
       //
       // The browser half: `/repos` lists what this deployment holds, and

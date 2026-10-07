@@ -67,6 +67,9 @@ export type BackendRequest = {
   env?: Record<string, string>
 }
 
+/** How one expiry sweep runs — see `decideExpiry`'s `collectOnly`. */
+export type SweepOptions = { collectOnly: boolean }
+
 export type HttpHandlerDeps = {
   reposDir: string
   /** Accepted credentials. A request must present one of these. */
@@ -110,7 +113,7 @@ export type HttpHandlerDeps = {
    * is exactly when there are idle repositories to collect. The deployment's
    * Cron Trigger wakes it instead (`worker/index.ts`).
    */
-  sweep?: () => Promise<unknown>
+  sweep?: (opts: SweepOptions) => Promise<unknown>
   /**
    * The Index's ref state for one repository — what a ref-event subscriber's
    * handshake is answered with (`worker/events-do.ts`).
@@ -287,6 +290,8 @@ export type BrowseReads = {
 export type BrowseIndex = {
   refs: Record<string, string>
   lastPush: string | null
+  /** The repository has a Signer List, so a claimed window may apply. */
+  claimed?: boolean
 }
 
 /** Verify a `walgit-read` signature over a message; name the key, or `null`. */
@@ -577,7 +582,13 @@ function createRouter(deps: HttpHandlerDeps): (req: Request) => Promise<Response
       .toSorted()
       .map((name) => ({ name, oid: index.refs[name]! }))
     const head = defaultBranch(index.refs)
-    const common = { repo: resolved.repoId, defaultBranch: head, refs, lastPush: index.lastPush }
+    const common = {
+      repo: resolved.repoId,
+      defaultBranch: head,
+      refs,
+      lastPush: index.lastPush,
+      claimed: index.claimed === true,
+    }
 
     const op = url.searchParams.get('op')
     if (op === 'refs') return json(common)
@@ -739,7 +750,9 @@ function createRouter(deps: HttpHandlerDeps): (req: Request) => Promise<Response
     if (url.pathname === EXPIRE_PATH) {
       if (!deps.sweep || request.method !== 'POST') return NOT_FOUND()
       if (request.headers.get(INTERNAL_HEADER) !== '1') return NOT_FOUND()
-      const report = await deps.sweep()
+      // `?collect=only` is the second daily sweep (`worker/index.ts`): finish
+      // the deletions the first one started, tombstone nothing new.
+      const report = await deps.sweep({ collectOnly: url.searchParams.get('collect') === 'only' })
       return new Response(`${JSON.stringify(report)}\n`, {
         headers: { 'content-type': 'application/json; charset=utf-8' },
       })

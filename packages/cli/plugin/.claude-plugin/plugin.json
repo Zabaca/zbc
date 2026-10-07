@@ -1,0 +1,9 @@
+{
+  "name": "zbc",
+  "description": "Operate a zbc project and write zbc modules: orient in subtree or copy mode, declare and wire instances, get secrets through the Secret Relay, run apply/destroy/list/run, and author defineModule modules with readiness, secret outputs, actions and tests.",
+  "author": { "name": "Zabaca", "url": "https://github.com/Zabaca/zbc" },
+  "homepage": "https://github.com/Zabaca/zbc",
+  "repository": "https://github.com/Zabaca/zbc",
+  "license": "MIT",
+  "keywords": ["zbc", "infrastructure", "iac", "cloudflare", "sops"]
+}

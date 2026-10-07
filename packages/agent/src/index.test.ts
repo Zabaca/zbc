@@ -2,8 +2,10 @@
 // tool schemas or settings loading costs ~20k input tokens per call and nothing
 // else in the repo would notice, so the defaults are pinned here deliberately.
 import { expect, test } from 'bun:test'
+import { existsSync } from 'node:fs'
+import { join } from 'node:path'
 import type { query } from '@anthropic-ai/claude-agent-sdk'
-import { DEFAULT_MODEL, minimalOptions, run } from './index'
+import { DEFAULT_MODEL, REMINDER_FILTER, minimalOptions, run } from './index'
 
 test('defaults strip every lever that costs tokens', () => {
   const o = minimalOptions()
@@ -149,4 +151,31 @@ test('onMessage sees every message, including the ones run ignores', async () =>
     onMessage: (m) => seen.push(m.type),
   })
   expect(seen).toEqual(['system', 'rate_limit_event', 'assistant', 'result'])
+})
+
+test('the reminder filter loads by default and keeps nothing', () => {
+  const o = minimalOptions()
+  expect(o.plugins).toEqual([{ type: 'local', path: REMINDER_FILTER }])
+  expect(existsSync(join(REMINDER_FILTER, '.claude-plugin', 'plugin.json'))).toBe(true)
+  expect(o.env?.ZBC_AGENT_KEEP_REMINDERS).toBe('')
+})
+
+test('named reminder types are kept, and an inherited list cannot widen them', () => {
+  const before = process.env.ZBC_AGENT_KEEP_REMINDERS
+  process.env.ZBC_AGENT_KEEP_REMINDERS = 'session_context'
+  try {
+    expect(minimalOptions().env?.ZBC_AGENT_KEEP_REMINDERS).toBe('')
+    expect(
+      minimalOptions({ keepReminders: ['environment', 'date'] }).env?.ZBC_AGENT_KEEP_REMINDERS,
+    ).toBe('environment,date')
+  } finally {
+    if (before === undefined) delete process.env.ZBC_AGENT_KEEP_REMINDERS
+    else process.env.ZBC_AGENT_KEEP_REMINDERS = before
+  }
+})
+
+test("keepReminders: 'all' loads no filter at all", () => {
+  const o = minimalOptions({ keepReminders: 'all' })
+  expect('plugins' in o).toBe(false)
+  expect('ZBC_AGENT_KEEP_REMINDERS' in (o.env ?? {})).toBe(false)
 })

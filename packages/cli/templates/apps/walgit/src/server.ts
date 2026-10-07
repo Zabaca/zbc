@@ -20,8 +20,8 @@ import { listCommits, listTree, readBlob, statBlob } from './browse'
 import { clearBootResidue } from './boot-residue'
 import { ensureBareRepo } from './cache'
 import { publishUploadPackAtBoot } from './edge-refs'
-import { configuredExpiryMs, expireRepos } from './expire'
-import { createHttpHandler } from './http'
+import { configuredClaimedExpiryMs, configuredExpiryMs, expireRepos } from './expire'
+import { createHttpHandler, type SweepOptions } from './http'
 import { privateReposConfigError, privateReposEnabled, privateReposSeed } from './private'
 import { gitAncestry, isProposalRef, listProposals } from './proposals'
 import { resolveRepo } from './repo'
@@ -132,6 +132,7 @@ if (privateSeed && !store) {
  * retention promise from — so the page and the sweeper can never disagree.
  */
 const expiryMs = configuredExpiryMs()
+const claimedExpiryMs = configuredClaimedExpiryMs()
 
 /**
  * What this process actually booted with, printed once.
@@ -154,6 +155,7 @@ const expiryMs = configuredExpiryMs()
 console.log(
   `walgit boot: public=${isPublic} appendOnly=${caps.appendOnly} ` +
     `retentionHours=${caps.retentionHours ?? 'off'} ` +
+    `claimedRetentionHours=${caps.claimedRetentionHours ?? 'off'} ` +
     `maxPush=${caps.maxPushBytes ?? 'unset'} maxRepo=${caps.maxRepoBytes ?? 'unset'} ` +
     `private=${caps.namesCanBePrivate} ` +
     `perSource=${
@@ -173,15 +175,24 @@ console.log(
  * too, but this line is the one that survives in the container's own log when
  * the question is what the sweeper actually did.
  */
-async function runSweep(logStore: ObjectStore, windowMs: number) {
-  const result = await expireRepos(logStore, { windowMs, dryRun: false, reposDir })
+async function runSweep(logStore: ObjectStore, windowMs: number, opts: SweepOptions) {
+  const result = await expireRepos(logStore, {
+    windowMs,
+    claimedWindowMs: claimedExpiryMs,
+    collectOnly: opts.collectOnly,
+    dryRun: false,
+    reposDir,
+  })
   console.log(
-    `walgit expire: collected ${result.collected.length}, retained ${result.retained.length}`,
+    `walgit expire${opts.collectOnly ? ' (collect only)' : ''}: ` +
+      `collected ${result.collected.length}, retained ${result.retained.length}`,
   )
   return {
     collected: result.collected.map((o) => ({ repoId: o.repoId, reason: o.decision.reason })),
     retained: result.retained.length,
     windowMs: result.windowMs,
+    claimedWindowMs: result.claimedWindowMs,
+    collectOnly: result.collectOnly,
   }
 }
 
@@ -200,7 +211,7 @@ try {
     // endpoint should not exist for it — `expireRepos` would return an empty
     // report either way, but a deployment that cannot collect anything should
     // not answer as though it might.
-    sweep: store && expiryMs !== null ? () => runSweep(store, expiryMs) : undefined,
+    sweep: store && expiryMs !== null ? (opts) => runSweep(store, expiryMs, opts) : undefined,
     // Answered from the Index, so a ref-event handshake states what is
     // published rather than what this node's disk happens to hold. Absent
     // without a store, in which case there is nothing authoritative to read
@@ -265,7 +276,13 @@ try {
       ? {
           readIndex: async (repoId) => {
             const { index, etag } = await loadIndex(store, repoId)
-            return etag === null ? null : { refs: index.refs, lastPush: lastPushOf(index) }
+            return etag === null
+              ? null
+              : {
+                  refs: index.refs,
+                  lastPush: lastPushOf(index),
+                  claimed: index.claim !== undefined,
+                }
           },
           listTree: (repo, rev, path) => listTree(repo.dir, rev, path),
           statBlob: (repo, rev, path) => statBlob(repo.dir, rev, path),

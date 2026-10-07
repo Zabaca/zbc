@@ -62,10 +62,31 @@ export interface Tombstone {
  * twice does not shorten the wait — the first request's `collect_after` stands.
  */
 export interface RepoDeletion {
-  /** ISO instant the operator asked for the repository to go. */
+  /** ISO instant the repository was asked to go — by an operator, or by expiry. */
   requested_at: string
   /** ISO instant before which nothing under the repo prefix may be deleted. */
   collect_after: string
+  /**
+   * `'expiry'` when the sweeper wrote this marker; absent when an operator did
+   * (`walgit delete`), which is also how every marker written before the field
+   * existed reads.
+   *
+   * The difference is what a push means. Expiry marks a repository because
+   * nobody pushed to it, so a push answers the question and lifts the mark
+   * (`liftExpiry`, `src/push.ts`). An operator's mark is a decision about the
+   * repository, and a push does not overrule it.
+   */
+  by?: 'expiry'
+  /**
+   * Set by the collection itself, under compare-and-swap, before it deletes
+   * anything. From then on a push is refused rather than published: deletion
+   * does not re-read the Index between removing `index.json` and removing the
+   * objects, so a push that landed in that gap would be acknowledged and then
+   * lost. The write is what turns that race into a refusal — a push reading
+   * the Index before it loses its own compare-and-swap, and one reading it
+   * after sees this field.
+   */
+  collecting_at?: string
 }
 
 export interface WalIndex {

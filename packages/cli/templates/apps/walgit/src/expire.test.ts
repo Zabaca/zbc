@@ -1,8 +1,16 @@
 import { describe, expect, test } from 'bun:test'
 
-import { configuredExpiryMs, decideExpiry, expireRepos, lastWriteAt } from './expire'
+import {
+  configuredClaimedExpiryMs,
+  configuredExpiryMs,
+  decideExpiry,
+  expireRepos,
+  lastWriteAt,
+} from './expire'
 import { MemoryStore } from '../shared/store'
-import { emptyIndex, type WalEntry, type WalIndex } from '../shared/wal-index'
+import { ZERO_OID } from '../shared/protocol'
+import { emptyIndex, loadIndex, type WalEntry, type WalIndex } from '../shared/wal-index'
+import { publishPush } from './push'
 import { commitIndex } from './wal-index'
 
 const HOUR = 3_600_000
@@ -15,6 +23,13 @@ function entry(ts: string, seq = 1): WalEntry {
 
 function indexWith(entries: WalEntry[], repoId = 'alpha'): WalIndex {
   return { ...emptyIndex(repoId), seq: entries.length, entries }
+}
+
+const WEEK = 7 * 24 * HOUR
+const CLAIM = { signers: [`SHA256:${'a'.repeat(43)}`], ts: '2026-08-20T00:00:00.000Z' }
+
+function claimedWith(entries: WalEntry[], repoId = 'alpha'): WalIndex {
+  return { ...indexWith(entries, repoId), claim: CLAIM }
 }
 
 // The predicate is tested directly, and mostly along the direction that loses
@@ -101,6 +116,86 @@ describe('decideExpiry', () => {
   })
 })
 
+// A claim buys a longer window, and only a claim does: the unclaimed repository
+// beside it, idle for the same time, still goes.
+describe('decideExpiry — the claimed window', () => {
+  const threeDaysAgo = '2026-08-26T12:00:00.000Z'
+
+  test('a claimed repository past the base window but inside its own is retained', () => {
+    const decision = decideExpiry(claimedWith([entry(threeDaysAgo)]), {
+      now: NOW,
+      windowMs: WINDOW,
+      claimedWindowMs: WEEK,
+    })
+    expect(decision.verdict).toBe('retain')
+    expect(decision.reason).toContain('inside the claimed 168h window')
+  })
+
+  test('an unclaimed repository idle as long is collected', () => {
+    const decision = decideExpiry(indexWith([entry(threeDaysAgo)]), {
+      now: NOW,
+      windowMs: WINDOW,
+      claimedWindowMs: WEEK,
+    })
+    expect(decision.verdict).toBe('collect')
+    expect(decision.reason).not.toContain('claimed')
+  })
+
+  test('a claimed repository past its own window is collected, and says which window', () => {
+    const decision = decideExpiry(claimedWith([entry('2026-08-20T00:00:00.000Z')]), {
+      now: NOW,
+      windowMs: WINDOW,
+      claimedWindowMs: WEEK,
+    })
+    expect(decision.verdict).toBe('collect')
+    expect(decision.reason).toContain('past the claimed 168h window')
+  })
+
+  test('with no claimed window, a claim changes nothing', () => {
+    const index = claimedWith([entry(threeDaysAgo)])
+    expect(decideExpiry(index, { now: NOW, windowMs: WINDOW }).verdict).toBe('collect')
+    expect(decideExpiry(index, { now: NOW, windowMs: WINDOW, claimedWindowMs: null }).verdict).toBe(
+      'collect',
+    )
+  })
+
+  test('a claimed window does not switch expiry on by itself', () => {
+    const decision = decideExpiry(claimedWith([entry('2020-01-01T00:00:00.000Z')]), {
+      now: NOW,
+      windowMs: null,
+      claimedWindowMs: WEEK,
+    })
+    expect(decision.verdict).toBe('retain')
+    expect(decision.reason).toContain('not configured')
+  })
+})
+
+// The second daily sweep finishes what the first started and starts nothing.
+describe('decideExpiry — collect only', () => {
+  test('a repository past the window is not tombstoned, and says who will', () => {
+    const decision = decideExpiry(indexWith([entry('2026-08-01T00:00:00.000Z')]), {
+      now: NOW,
+      windowMs: WINDOW,
+      collectOnly: true,
+    })
+    expect(decision.verdict).toBe('retain')
+    expect(decision.reason).toContain('next full sweep')
+  })
+
+  test('a tombstoned repository past its grace is still collected', () => {
+    const index: WalIndex = {
+      ...indexWith([entry('2026-08-01T00:00:00.000Z')]),
+      deletion: {
+        requested_at: '2026-08-29T10:00:00.000Z',
+        collect_after: '2026-08-29T11:00:00.000Z',
+      },
+    }
+    const decision = decideExpiry(index, { now: NOW, windowMs: WINDOW, collectOnly: true })
+    expect(decision.verdict).toBe('collect')
+    expect(decision.reason).toContain('grace period elapsed')
+  })
+})
+
 describe('lastWriteAt', () => {
   test('a compaction entry dates the repository when it is all that is left', () => {
     const index = indexWith([
@@ -120,8 +215,41 @@ describe('configuredExpiryMs', () => {
   })
 })
 
-async function seed(store: MemoryStore, repoId: string, ts: string): Promise<void> {
-  const index = indexWith([entry(ts)], repoId)
+describe('configuredClaimedExpiryMs', () => {
+  // The rules are capabilitiesFrom's, so only the two that matter here: it is
+  // on with everything it needs, and off without expiry.
+  const CLAIMABLE = {
+    WALGIT_SIGNER_LISTS: '1',
+    WALGIT_PUSH_CERT_SEED: 'seed',
+    WALGIT_RETENTION_HOURS: '24',
+  }
+  test('the claimed window, on a deployment where names can be claimed', () => {
+    expect(
+      configuredClaimedExpiryMs({
+        ...CLAIMABLE,
+        WALGIT_CLAIMED_RETENTION_HOURS: '168',
+      } as NodeJS.ProcessEnv),
+    ).toBe(WEEK)
+  })
+  test('off without a base window', () => {
+    expect(
+      configuredClaimedExpiryMs({
+        ...CLAIMABLE,
+        WALGIT_RETENTION_HOURS: '',
+        WALGIT_CLAIMED_RETENTION_HOURS: '168',
+      } as NodeJS.ProcessEnv),
+    ).toBeNull()
+  })
+})
+
+async function seed(
+  store: MemoryStore,
+  repoId: string,
+  ts: string,
+  claimed = false,
+): Promise<void> {
+  const base = indexWith([entry(ts)], repoId)
+  const index = claimed ? { ...base, claim: CLAIM } : base
   const committed = await commitIndex(store, index, null)
   if (!committed.ok) throw new Error(`could not seed ${repoId}`)
   await store.put(`repos/${repoId}/wal/000000000001-x.pack`, new Uint8Array([1]))
@@ -203,6 +331,100 @@ describe('expireRepos', () => {
     const result = await expireRepos(store, { now: () => NOW, windowMs: WINDOW, dryRun: false })
     expect(result.collected).toEqual([])
     expect(result.retained.map((r) => r.repoId)).toEqual(['busy'])
+  })
+
+  test('a claimed repository outlives an unclaimed one idle as long', async () => {
+    const store = new MemoryStore()
+    await seed(store, 'kept', '2026-08-26T12:00:00.000Z', true)
+    await seed(store, 'gone', '2026-08-26T12:00:00.000Z')
+
+    const result = await expireRepos(store, {
+      now: () => NOW,
+      windowMs: WINDOW,
+      claimedWindowMs: WEEK,
+      dryRun: false,
+    })
+    expect(result.collected.map((c) => c.repoId)).toEqual(['gone'])
+    expect(result.retained.map((r) => r.repoId)).toEqual(['kept'])
+    expect(result.claimedWindowMs).toBe(WEEK)
+  })
+
+  // The two daily sweeps end to end: tombstone at the first, collect at the
+  // second a grace period later — the same day, not the next one.
+  test('the collect-only sweep finishes the first one and starts nothing', async () => {
+    const store = new MemoryStore()
+    await seed(store, 'stale', '2026-08-01T00:00:00.000Z')
+
+    const first = await expireRepos(store, {
+      now: () => NOW,
+      windowMs: WINDOW,
+      dryRun: false,
+      graceMs: HOUR,
+    })
+    expect(first.collected[0]!.deletion?.status).toBe('tombstoned')
+
+    // A repository that went idle between the two sweeps.
+    await seed(store, 'late', '2026-08-28T12:30:00.000Z')
+
+    const second = await expireRepos(store, {
+      now: () => new Date(NOW.getTime() + 75 * 60_000),
+      windowMs: WINDOW,
+      collectOnly: true,
+      dryRun: false,
+      graceMs: HOUR,
+    })
+    expect(second.collectOnly).toBe(true)
+    expect(second.collected.map((c) => c.repoId)).toEqual(['stale'])
+    expect(second.collected[0]!.deletion?.status).toBe('collected')
+    expect(await store.get('repos/stale/index.json')).toBeNull()
+    // Past its window, but left untouched: no tombstone written.
+    expect(second.retained.map((r) => r.repoId)).toEqual(['late'])
+    const late = await store.get('repos/late/index.json')
+    expect(JSON.parse(new TextDecoder().decode(late!.body)).deletion).toBeUndefined()
+  })
+
+  // The bug this guards: a push between the two sweeps used to be
+  // acknowledged and then collected with the rest of the repository.
+  test('a push after the mark lifts it, and the next sweep keeps the push', async () => {
+    const store = new MemoryStore()
+    await seed(store, 'revived', '2026-08-01T00:00:00.000Z')
+
+    const first = await expireRepos(store, {
+      now: () => NOW,
+      windowMs: WINDOW,
+      dryRun: false,
+      graceMs: HOUR,
+    })
+    expect(first.collected[0]!.deletion?.status).toBe('tombstoned')
+    expect((await loadIndex(store, 'revived')).index.deletion?.by).toBe('expiry')
+
+    const pushed = await publishPush(
+      store,
+      'revived',
+      {
+        entry: {
+          key: 'repos/revived/wal/000000000002-y.pack',
+          kind: 'push',
+          size: 1,
+          sha256: 'y',
+          ts: '2026-08-29T12:30:00.000Z',
+        },
+      },
+      [{ ref: 'refs/heads/main', oldOid: ZERO_OID, newOid: 'a'.repeat(40) }],
+    )
+    expect(pushed.ok).toBe(true)
+    expect((await loadIndex(store, 'revived')).index.deletion).toBeUndefined()
+
+    const second = await expireRepos(store, {
+      now: () => new Date(NOW.getTime() + 75 * 60_000),
+      windowMs: WINDOW,
+      collectOnly: true,
+      dryRun: false,
+      graceMs: HOUR,
+    })
+    expect(second.collected).toEqual([])
+    expect(second.retained[0]!.decision.reason).toContain('inside the')
+    expect(await store.get('repos/revived/index.json')).not.toBeNull()
   })
 
   test('a repository with objects but no index is left to the orphan collector', async () => {

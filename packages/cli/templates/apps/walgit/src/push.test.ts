@@ -14,7 +14,8 @@ import {
 import { establishSigner, parseRefChanges, preReceive, publishPush } from './push'
 import { describeSigner, type PushSigner } from './signers'
 import { SIGNERS_REF, ZERO_OID } from '../shared/protocol'
-import { loadIndex, type RefChange } from '../shared/wal-index'
+import { loadIndex, type RefChange, type WalIndex } from '../shared/wal-index'
+import { commitIndex } from './wal-index'
 
 /**
  * The two answers `pre-receive` reaches in this file, spelled once. The third —
@@ -961,5 +962,72 @@ describe('ownership is re-asked at publish', () => {
     })
     expect(readPending(plain)!.signer).toEqual({ kind: 'unverified' })
     expect(readPending(plain)!.provenance).toBeUndefined()
+  })
+})
+
+/**
+ * What a push does to a repository already marked for deletion. Expiry marked
+ * it for want of a push, so a push lifts the mark; an operator's mark stands;
+ * and once the collection has begun, the push is refused rather than
+ * acknowledged and then deleted.
+ */
+const mark = (extra: Record<string, string> = {}) => ({
+  requested_at: '2026-08-22T04:00:00.000Z',
+  collect_after: '2026-08-22T05:00:00.000Z',
+  ...extra,
+})
+
+describe('a push to a repository marked for deletion', () => {
+  async function marked(store: MemoryStore, deletion: ReturnType<typeof mark>) {
+    await publishPush(store, 'r', pending(), [change('refs/heads/main', ZERO_OID, OID_A)])
+    const { index, etag } = await loadIndex(store, 'r')
+    await commitIndex(store, { ...index, deletion } as WalIndex, etag)
+  }
+
+  test('lifts an expiry mark', async () => {
+    const store = new MemoryStore()
+    await marked(store, mark({ by: 'expiry' }))
+
+    const result = await publishPush(store, 'r', pending('repos/r/wal/000000000002-Y.pack'), [
+      change('refs/heads/main', OID_A, OID_B),
+    ])
+    expect(result.ok).toBe(true)
+    const { index } = await loadIndex(store, 'r')
+    expect(index.deletion).toBeUndefined()
+    expect(index.refs['refs/heads/main']).toBe(OID_B)
+  })
+
+  test('lifts it on a ref-only push too', async () => {
+    const store = new MemoryStore()
+    await marked(store, mark({ by: 'expiry' }))
+
+    const result = await publishPush(store, 'r', { entry: null }, [
+      change('refs/heads/topic', ZERO_OID, OID_A),
+    ])
+    expect(result.ok).toBe(true)
+    expect((await loadIndex(store, 'r')).index.deletion).toBeUndefined()
+  })
+
+  test("leaves an operator's mark where it is", async () => {
+    const store = new MemoryStore()
+    await marked(store, mark())
+
+    const result = await publishPush(store, 'r', pending('repos/r/wal/000000000002-Y.pack'), [
+      change('refs/heads/main', OID_A, OID_B),
+    ])
+    expect(result.ok).toBe(true)
+    expect((await loadIndex(store, 'r')).index.deletion).toEqual(mark())
+  })
+
+  test('is refused once the collection has begun, and changes nothing', async () => {
+    const store = new MemoryStore()
+    await marked(store, mark({ by: 'expiry', collecting_at: '2026-08-22T05:15:00.000Z' }))
+    const before = await loadIndex(store, 'r')
+
+    const result = await publishPush(store, 'r', pending('repos/r/wal/000000000002-Y.pack'), [
+      change('refs/heads/main', OID_A, OID_B),
+    ])
+    expect(result).toEqual({ ok: false, reason: 'deleting' })
+    expect((await loadIndex(store, 'r')).etag).toBe(before.etag)
   })
 })

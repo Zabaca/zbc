@@ -23,6 +23,7 @@ import { chmod, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { promisify } from 'node:util'
+import { REMINDER_FILTER } from './index'
 
 const execFile = promisify(execFileCb)
 
@@ -197,6 +198,11 @@ export function srtSettings(
         // node_modules, which is under $HOME and therefore denied with it.
         dirname(claudeExecutable()),
         dirname(dirname(srtExecutable())),
+        // The plugin minimalOptions() loads to keep Claude Code's own reminders
+        // out of every request. It sits beside the package's code, under the
+        // same denied $HOME; unreadable, it fails open and every reminder
+        // (the operator's email address among them) goes out again.
+        REMINDER_FILTER,
         targets.dir,
         targets.home,
         ...allowRead,

@@ -60,6 +60,7 @@ import {
   COLD_HEADER,
   EVENTS_PATH,
   BROWSE_PATH,
+  COLLECT_CRON,
   containerRoutes,
   EXPIRE_PATH,
   INTERNAL_HEADER,
@@ -131,6 +132,7 @@ export interface Env extends ContainerBindings {
    */
   WALGIT_WEB?: string
   WALGIT_RETENTION_HOURS?: string
+  WALGIT_CLAIMED_RETENTION_HOURS?: string
   WALGIT_MAX_PUSH_BYTES?: string
   WALGIT_MAX_REPO_BYTES?: string
   /**
@@ -1140,7 +1142,8 @@ async function events(request: Request, url: URL, env: Env, caps: Capabilities):
 }
 
 async function sweep(event: ScheduledController, env: Env): Promise<void> {
-  const request = new Request(`https://walgit.internal${EXPIRE_PATH}`, {
+  const mode = event.cron === COLLECT_CRON ? '?collect=only' : ''
+  const request = new Request(`https://walgit.internal${EXPIRE_PATH}${mode}`, {
     method: 'POST',
     headers: { [INTERNAL_HEADER]: '1' },
   })
