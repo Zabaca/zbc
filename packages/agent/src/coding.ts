@@ -68,6 +68,9 @@ export const coding = {
     preset: 'claude_code',
     excludeDynamicSections: true,
   },
+  // The working directory arrives in the `environment` reminder and CLAUDE.md in
+  // `instructions`; the filter drops both unless named. The account email stays out.
+  keepReminders: ['environment', 'instructions'],
 } as const satisfies SandboxedProfile
 
 export type CodeOptions = RunOptions
