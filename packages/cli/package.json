@@ -1,6 +1,6 @@
 {
   "name": "@zabaca/zbc",
-  "version": "0.22.0",
+  "version": "0.23.0",
   "description": "Zabaca stack CLI — scaffold and deploy infrastructure",
   "license": "MIT",
   "repository": {
