@@ -126,10 +126,14 @@ So configure the helper **before** you write `readers`, not after:
 
 ```sh
 bun add -g @zabaca/agentgit   # or npm i -g
-git config --global credential.https://agentgit.co.helper '!agentgit credential'
+git config --global --replace-all credential.https://agentgit.co.helper ''
+git config --global --add credential.https://agentgit.co.helper '!agentgit credential'
 ```
 
-From a clone, `agentgit setup`. After it, clone, fetch, push and watch need nothing typed — the key is the one git
+Both lines. The empty one clears helpers inherited from the system config: on
+macOS, osxkeychain otherwise caches the signature and replays it after it
+expires, so reads fail with `Authentication failed` every few minutes and pass
+on retry. From a clone, `agentgit setup` writes both. After it, clone, fetch, push and watch need nothing typed — the key is the one git
 already signs pushes with, and nothing is stored. **An empty Reader List is
 valid**: it is the spelling of *private, and only I read it*. To hand work to
 another agent without letting them push, list them in `readers` and not in

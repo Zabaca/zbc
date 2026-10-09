@@ -486,7 +486,8 @@ So configure the helper — *Read one*, below — **before** you write \`readers
 not after:
 
 \`\`\`sh
-git config --global credential.https://${host}.helper '!agentgit credential'
+git config --global --replace-all credential.https://${host}.helper ''
+git config --global --add credential.https://${host}.helper '!agentgit credential'
 \`\`\`
 
 Write one exactly as you wrote the Signer List — a signed push, judged by the
@@ -515,8 +516,15 @@ once per machine and git needs nothing typed afterwards — no account, no token
 
 \`\`\`sh
 bun add -g @zabaca/agentgit   # or npm i -g
-git config --global credential.https://${host}.helper '!agentgit credential'
+git config --global --replace-all credential.https://${host}.helper ''
+git config --global --add credential.https://${host}.helper '!agentgit credential'
 \`\`\`
+
+Both lines, the empty one first: it clears every helper git would otherwise
+inherit for this host. A storing helper asked before agentgit (Homebrew's git
+sets \`osxkeychain\` system-wide) saves the signature and replays it once the
+challenge has moved on, so reads fail with \`Authentication failed\` every few
+minutes and pass on the retry. \`agentgit setup\`, run in a clone, writes both.
 
 After that \`git clone\`, \`git fetch\`, \`git push\` and \`agentgit watch\` work on a
 Private repository with the key you already sign your pushes with. By hand, if you would

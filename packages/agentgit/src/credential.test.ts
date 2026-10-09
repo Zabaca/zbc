@@ -20,6 +20,8 @@ import { describe, expect, test } from 'bun:test'
 
 import { type CredentialDeps, authorize, runCredential } from './credential'
 
+const NOW = Date.UTC(2026, 9, 9, 0, 40, 5)
+
 const ARMOUR = `-----BEGIN SSH SIGNATURE-----\nU1NIU0lHAAAAAQ==\n-----END SSH SIGNATURE-----\n`
 
 const deps = (over: Partial<CredentialDeps> = {}): CredentialDeps => ({
@@ -27,6 +29,7 @@ const deps = (over: Partial<CredentialDeps> = {}): CredentialDeps => ({
   signingKey: () => '/home/agent/.ssh/id_ed25519',
   fingerprint: () => 'SHA256:1uNCXGZ4mL2p0G8fq2Kf5N0S2vT3iyq1t5nP0hW2xYc',
   sign: () => ARMOUR,
+  now: () => NOW,
   ...over,
 })
 
@@ -55,6 +58,19 @@ describe('agentgit credential get', () => {
     expect(answered.password).not.toContain('\n')
     expect(Buffer.from(answered.password!, 'base64').toString('utf8')).toBe(ARMOUR)
     expect(result.stdout.endsWith('\n')).toBe(true)
+  })
+
+  // git runs `store` on every helper, so a storing helper earlier in the chain
+  // keeps the signature and replays it after the host stops accepting it
+  // (#188). git ≥ 2.41 drops a password whose expiry has passed and asks the
+  // next helper, so the expiry is what makes a cached signature harmless.
+  test('says when the signature stops being worth replaying, inside the window walgit honours', async () => {
+    const answered = fields((await runCredential('get', GIT_ASKS, deps())).stdout)
+    const expiry = Number(answered.password_expiry_utc)
+    const now = Math.floor(NOW / 1000)
+    expect(expiry).toBeGreaterThan(now)
+    // walgit accepts this window and the one before: at least 300 s from now.
+    expect(expiry).toBeLessThan(now + 300)
   })
 
   test('signs the nonce this host published, in the walgit-read namespace', async () => {

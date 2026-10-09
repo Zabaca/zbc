@@ -11,6 +11,14 @@
  * machine already signs pushes with, and hand git a username and a password.
  * There is nothing to store, so `store` and `erase` do nothing.
  *
+ * Doing nothing is not enough to keep it unstored, because git runs `store` on
+ * EVERY helper in the chain. A storing helper asked before this one (macOS's
+ * Homebrew git puts osxkeychain in the system config) saves the signature and
+ * answers `get` with it from then on, so this helper is never asked again and
+ * the replay fails once the host stops accepting that window. `agentgit setup`
+ * clears the chain for the origin; the expiry below covers a chain it did not
+ * write.
+ *
  * Three details are not negotiable, because walgit's reader is on the other
  * side of them:
  *
@@ -46,6 +54,17 @@ const CHALLENGE_PATH = '/_walgit/challenge'
  */
 const READ_CHALLENGE_NAMESPACE = 'walgit-read'
 
+/**
+ * How long git may treat a signature as good, as `password_expiry_utc`.
+ *
+ * walgit accepts a signature over this window's nonce and the one before, so
+ * one signed now stands for at least five minutes. A minute is taken off for
+ * a nonce fetched just before a boundary and for clock skew: an early expiry
+ * costs one more signature, a late one is the stale replay git fails on. git
+ * ≥ 2.41 drops an expired password from any helper and asks the next one.
+ */
+const CREDENTIAL_LIFETIME_SECONDS = 240
+
 export interface CredentialDeps {
   /** This host's current nonce, or `null` if it publishes none (most hosts). */
   challenge(origin: string): Promise<string | null>
@@ -55,6 +74,8 @@ export interface CredentialDeps {
   fingerprint(key: string): string | null
   /** The armoured signature over `nonce`, or `null` when signing failed. */
   sign(key: string, nonce: string): string | null
+  /** Milliseconds since the epoch, for the expiry git is told. */
+  now(): number
 }
 
 export interface CredentialResult {
@@ -225,6 +246,7 @@ export async function runCredential(
     stdout: formatCredentialOutput({
       username: signed.username,
       password: signed.password,
+      password_expiry_utc: String(Math.floor(deps.now() / 1000) + CREDENTIAL_LIFETIME_SECONDS),
     }),
     stderr: '',
     code: 0,
@@ -321,6 +343,7 @@ export function realCredentialDeps(cwd: string = process.cwd()): CredentialDeps 
       )
       return armour && armour.includes('BEGIN SSH SIGNATURE') ? armour : null
     },
+    now: () => Date.now(),
   }
 }
 

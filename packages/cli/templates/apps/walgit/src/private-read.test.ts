@@ -138,6 +138,9 @@ describe('a Private repository', () => {
       const body = await res.text()
       expect(body).toContain('agentgit credential')
       expect(body).toContain('credential.https://walgit.test.helper')
+      // The empty helper first, or a storing helper inherited from the system
+      // config replays a signature the host has stopped accepting (#188).
+      expect(body).toContain("--replace-all credential.https://walgit.test.helper ''")
     })
 
     test(`lets a listed reader do ${label}`, async () => {

@@ -415,10 +415,11 @@ describe('the section that teaches a name can be kept private', () => {
     expect(flat).toContain('list them in `readers` and not in `signers`')
   })
 
-  test('names the helper and the one config line that makes git need nothing typed', () => {
+  test('names the helper and the two config lines that make git need nothing typed', () => {
     const doc = renderLlms('walgit.example', CLOSED)
     expect(doc).toContain(
-      "git config --global credential.https://walgit.example.helper '!agentgit credential'",
+      "git config --global --replace-all credential.https://walgit.example.helper ''\n" +
+        "git config --global --add credential.https://walgit.example.helper '!agentgit credential'",
     )
     // And the mechanism underneath it, for a reader who would rather not
     // install anything: the nonce endpoint and the signing namespace.
@@ -440,7 +441,8 @@ describe('the section that teaches a name can be kept private', () => {
     // Reader List — not two screens away under *Read one*.
     const section = doc.slice(doc.indexOf('## Keep a name private'), doc.indexOf('### Read one'))
     expect(section).toContain(
-      "git config --global credential.https://walgit.example.helper '!agentgit credential'",
+      "git config --global --replace-all credential.https://walgit.example.helper ''\n" +
+        "git config --global --add credential.https://walgit.example.helper '!agentgit credential'",
     )
     expect(section.replace(/\s+/g, ' ')).toContain('before** you write `readers`')
   })
