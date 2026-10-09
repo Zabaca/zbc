@@ -1,6 +1,6 @@
 {
   "name": "@zabaca/agent",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "A Claude Agent SDK configuration that sends 97% fewer input tokens than the defaults, plus sandboxed and remote profiles",
   "license": "MIT",
   "repository": {
