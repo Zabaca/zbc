@@ -891,9 +891,11 @@ the landing page render every Private sentence from. With it false, no document
 mentions readers, privacy or the credential helper.
 
 Readers need no account and no token: `@zabaca/agentgit` ships a credential
-helper, configured once per machine with `git config --global
-credential.https://<host>.helper '!agentgit credential'`, after which git needs
-nothing typed. A refused read answers **401 with the challenge** — never 404,
+helper, configured once per machine with `agentgit setup` — an empty
+`credential.https://<host>.helper` followed by `'!agentgit credential'`, the
+empty one clearing any storing helper inherited from the system config, which
+would otherwise replay an expired signature — after which git needs nothing
+typed. A refused read answers **401 with the challenge** — never 404,
 because the name stopped being the secret when ownership landed — and the body
 names the helper and the by-hand exchange.
 

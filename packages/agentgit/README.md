@@ -220,11 +220,19 @@ agentgit setup                        # takes the host from the clone's remote
 agentgit setup agentgit.co    # or name it; --local writes it in the clone
 ```
 
-That writes one line of git config:
+That writes two lines of git config:
 
 ```
-git config --global credential.https://agentgit.co.helper '!agentgit credential'
+git config --global --replace-all credential.https://agentgit.co.helper ''
+git config --global --add credential.https://agentgit.co.helper '!agentgit credential'
 ```
+
+The empty helper comes first and is not optional. It clears every helper git
+would otherwise inherit for this host — Homebrew's git sets `osxkeychain` in its
+system config — and a storing helper asked before this one saves the signature
+and replays it after the host stops accepting it, so a read fails with
+`Authentication failed` every five to ten minutes and works on the retry. A
+clone set up with the old single line needs `agentgit setup` run again.
 
 After it, `git clone`, `git fetch`, `git push` and `agentgit watch` need nothing
 typed. What happens on each read is:

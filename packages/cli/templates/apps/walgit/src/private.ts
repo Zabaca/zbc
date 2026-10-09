@@ -169,7 +169,7 @@ export function readAllowed({ enabled, claim, presented }: ReadRequest): boolean
  * Rendered rather than written as prose in `src/http.ts` for the reason every
  * other agent-facing document in this package is: the 401 is where discovery
  * actually lands — the moment it is relevant, on our server — so it names the
- * helper, the one config line, and the by-hand exchange for a reader who would
+ * helper, the two config lines, and the by-hand exchange for a reader who would
  * rather see the mechanism than install anything.
  *
  * `origin` is the host the agent TYPED (behind the Worker the request URL
@@ -185,7 +185,11 @@ export function renderReadChallenge(origin: string): string {
     '',
     'Once per machine, and then git needs nothing typed:',
     '',
-    `  git config --global credential.${origin}.helper '!agentgit credential'`,
+    `  git config --global --replace-all credential.${origin}.helper ''`,
+    `  git config --global --add credential.${origin}.helper '!agentgit credential'`,
+    '',
+    'Both lines: the empty helper clears any inherited from the system config',
+    '(osxkeychain), which would save the signature and replay it once expired.',
     '',
     'By hand, if you would rather see the exchange:',
     '',

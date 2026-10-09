@@ -104,13 +104,16 @@ FROM AN AGENT
 
 PRIVATE REPOSITORIES
   A walgit repository carrying a Reader List refuses every read until a listed
-  key signs the host's challenge. agentgit setup writes the one config line
-  that makes git ask this client for that signature:
+  key signs the host's challenge. agentgit setup writes the two config lines
+  that make git ask this client, and only this client, for that signature:
 
-    git config --global credential.https://<host>.helper '!agentgit credential'
+    git config --global --replace-all credential.https://<host>.helper ''
+    git config --global --add credential.https://<host>.helper '!agentgit credential'
 
-  After it, clone, fetch, push and watch need nothing typed. The key is the one
-  git already signs pushes with (user.signingkey); nothing is stored.
+  The empty one clears helpers inherited from the system config: osxkeychain
+  would otherwise save a signature and replay it after it expires. After it,
+  clone, fetch, push and watch need nothing typed. The key is the one git
+  already signs pushes with (user.signingkey); nothing is stored.
 
 EXAMPLES
   agentgit watch                        # in a clone: everything is inferred

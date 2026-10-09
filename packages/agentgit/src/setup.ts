@@ -1,11 +1,19 @@
 /**
- * `agentgit setup` — turning the helper on, which is one line of git config.
+ * `agentgit setup` — turning the helper on, which is two lines of git config.
  *
- * It exists because that line is easy to get subtly wrong: the config key
+ * It exists because those lines are easy to get subtly wrong: the config key
  * carries the whole ORIGIN (`credential.https://host.helper`), not the
  * hostname, and a key that is off by a scheme is a helper git silently never
  * calls. The symptom of getting it wrong is a password prompt, which on a
  * machine with no human at it is a hang.
+ *
+ * The first line is an EMPTY helper, which git reads as "forget every helper
+ * configured so far" — for this origin only, as `gh auth setup-git` does for
+ * github.com. Without it a storing helper from the system config (osxkeychain,
+ * on Homebrew's git) is asked first, saves the signature this helper hands
+ * out, and replays it after the host has stopped accepting it: a push that
+ * fails with "Authentication failed" every five to ten minutes and works on
+ * the retry (Zabaca/zbc#188).
  */
 
 import { type CloneDiscovery, discoverClone } from './clone'
@@ -56,22 +64,42 @@ export async function runSetup(request: SetupRequest, deps: SetupDeps): Promise<
 
   const key = helperConfigKey(origin)
   const scope = request.global ? '--global' : '--local'
-  const written = deps.writeConfig(['config', scope, key, HELPER_COMMAND])
-  if (written.code !== 0) {
-    return {
-      stdout: '',
-      stderr: `agentgit: git config ${scope} ${key} failed (${written.code}): ${written.stderr.trim()}\n`,
-      code: 1,
+  // `--replace-all` then `--add`, never a plain set: once the key holds two
+  // values a plain `git config key value` refuses to overwrite them, so a
+  // second run of setup would fail where the first succeeded.
+  const writes = [
+    ['config', scope, '--replace-all', key, ''],
+    ['config', scope, '--add', key, HELPER_COMMAND],
+  ]
+  for (const args of writes) {
+    const written = deps.writeConfig(args)
+    if (written.code !== 0) {
+      return {
+        stdout: '',
+        stderr: `agentgit: git ${args.slice(0, -1).join(' ')} failed (${written.code}): ${written.stderr.trim()}\n`,
+        code: 1,
+      }
     }
   }
 
   return {
     stdout:
-      `${scope === '--global' ? 'git config --global' : 'git config'} ${key} '${HELPER_COMMAND}'\n` +
+      `${helperConfigLines(origin, request.global).join('\n')}\n` +
       `agentgit now answers ${origin} for git — clone, fetch and push need nothing typed.\n`,
     stderr: '',
     code: 0,
   }
+}
+
+/**
+ * The two config lines, as a person would type them. The empty one comes
+ * first and is the one that matters: it is what keeps a storing helper from
+ * the system config from replaying a stale signature.
+ */
+export function helperConfigLines(origin: string, global = true): string[] {
+  const scope = global ? 'git config --global' : 'git config'
+  const key = helperConfigKey(origin)
+  return [`${scope} --replace-all ${key} ''`, `${scope} --add ${key} '${HELPER_COMMAND}'`]
 }
 
 /** Every refusal here ends the same way, because every one of them has the same fix. */
