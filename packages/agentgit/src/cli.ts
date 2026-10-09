@@ -36,7 +36,7 @@ import { watch } from './watch'
 /** The four variables this client reads, taken once so every path agrees. */
 const ENV = agentgitEnv(process.env)
 
-const VERSION = '0.5.0'
+const VERSION = '0.5.1'
 
 const HELP = `agentgit — watch a walgit repository and keep a clone current
 
