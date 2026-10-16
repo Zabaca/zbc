@@ -113,7 +113,9 @@ PRIVATE REPOSITORIES
   The empty one clears helpers inherited from the system config: osxkeychain
   would otherwise save a signature and replay it after it expires. After it,
   clone, fetch, push and watch need nothing typed. The key is the one git
-  already signs pushes with (user.signingkey); nothing is stored.
+  already signs pushes with (user.signingkey); nothing is stored, unless
+  agentgit.credentialCache is true: then each signature is kept in
+  ~/.cache/agentgit until its expiry, which saves the host a round trip.
 
 EXAMPLES
   agentgit watch                        # in a clone: everything is inferred

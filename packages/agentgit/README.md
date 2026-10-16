@@ -261,6 +261,30 @@ that went stale mid-operation costs one extra 401 and a re-sign. Removing the
 `readers` file makes the repository world-readable again; nothing is
 retroactive in either direction.
 
+### Keeping the signature between operations
+
+Signing is cheap (about 10 ms); fetching the nonce is a round trip to the host
+on every clone, fetch, push and `ls-remote`. A machine that would rather keep
+the signature can opt in:
+
+```bash
+git config --global agentgit.credentialCache true
+```
+
+Then `get` writes its answer to `$XDG_CACHE_HOME/agentgit/credentials/` (else
+`~/.cache/agentgit/credentials/`), one file per host and signing key, readable
+by you only, and hands it back until the `password_expiry_utc` it gave git:
+four minutes, a minute inside the five walgit accepts. `erase`, which git sends
+after a 401, deletes it. Against agentgit.co that saved a median 0.3 s per
+`ls-remote` (10 interleaved pairs, about 2.2 s each).
+
+What it costs: for those four minutes the file is a read credential for every
+repository the key may read, and a signature the host refuses before its
+expiry (a clock more than a minute off, or a key just taken off a Reader List)
+fails one operation before `erase` clears it. It is off by default for both
+reasons. It is set where `user.signingkey` is, so `--local` in one clone works
+too. The watcher always signs afresh.
+
 ### When there is no credential to present
 
 A machine that cannot sign — no `user.signingkey`, no fingerprint for the one

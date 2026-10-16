@@ -9,7 +9,16 @@
  *
  * That is all this is: fetch the host's nonce, sign it with the key this
  * machine already signs pushes with, and hand git a username and a password.
- * There is nothing to store, so `store` and `erase` do nothing.
+ * There is nothing to store, so `store` does nothing.
+ *
+ * Unless the machine opts in (`git config agentgit.credentialCache true`), in
+ * which case `get` keeps its answer in a file until the expiry it gave git and
+ * hands it back to the next `get` instead of fetching another nonce. A fetch
+ * is one round trip to the host on every git operation, and a signature that
+ * walgit still accepts proves the same thing a fresh one would. `erase`, which
+ * git sends after a 401, deletes the file. It is off by default because a
+ * kept signature is a read credential for as long as it lasts, and the
+ * default promise is that nothing is kept.
  *
  * Doing nothing is not enough to keep it unstored, because git runs `store` on
  * EVERY helper in the chain. A storing helper asked before this one (macOS's
@@ -40,6 +49,9 @@
  */
 
 import { spawnSync } from 'node:child_process'
+import { createHash } from 'node:crypto'
+import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
+import { join } from 'node:path'
 
 import type { CredentialOperation } from './args'
 import { git } from './git'
@@ -76,6 +88,26 @@ export interface CredentialDeps {
   sign(key: string, nonce: string): string | null
   /** Milliseconds since the epoch, for the expiry git is told. */
   now(): number
+  /** Where answers are kept between invocations, or `null` when they are not. */
+  cache?(): CredentialCache | null
+}
+
+/** One answer as git was given it; `expiry` is its `password_expiry_utc`. */
+export interface CachedCredential {
+  username: string
+  password: string
+  expiry: number
+}
+
+/**
+ * Answers kept per origin and signing key. Keyed by the key too, so a clone
+ * whose `user.signingkey` differs from the global one never borrows the
+ * global key's signature.
+ */
+export interface CredentialCache {
+  read(origin: string, key: string): CachedCredential | null
+  write(origin: string, key: string, credential: CachedCredential): void
+  remove(origin: string, key: string): void
 }
 
 export interface CredentialResult {
@@ -229,28 +261,50 @@ export async function runCredential(
   // Read even for store/erase: git writes the request either way, and a helper
   // that never drains the pipe can leave git writing into a closed one.
   const request = parseCredentialInput(stdin)
-  if (operation !== 'get') return { stdout: '', stderr: '', code: 0 }
+  const nothing = { stdout: '', stderr: '', code: 0 }
+  if (operation === 'store') return nothing
 
   const protocol = request.protocol ?? ''
   const host = request.host ?? ''
-  if ((protocol !== 'https' && protocol !== 'http') || host === '') {
-    return { stdout: '', stderr: '', code: 0 }
+  if ((protocol !== 'https' && protocol !== 'http') || host === '') return nothing
+  const origin = `${protocol}://${host}`
+
+  const cache = deps.cache?.() ?? null
+  const key = cache ? deps.signingKey() : null
+  const kept = cache && key !== null ? cache.read(origin, key) : null
+
+  if (operation === 'erase') {
+    // Only the answer git is erasing: another invocation may already have
+    // replaced it with a fresh one, and that one is still good.
+    if (cache && key !== null && kept && (request.password ?? kept.password) === kept.password) {
+      cache.remove(origin, key)
+    }
+    return nothing
   }
 
-  const signed = await signChallenge(`${protocol}://${host}`, deps)
-  if (signed.kind === 'none') return { stdout: '', stderr: '', code: 0 }
+  const now = Math.floor(deps.now() / 1000)
+  if (kept && kept.expiry > now) return { ...nothing, stdout: answer(kept) }
+
+  const signed = await signChallenge(origin, deps)
+  if (signed.kind === 'none') return nothing
   if (signed.kind === 'problem') {
     return { stdout: '', stderr: `agentgit: ${signed.message}\n`, code: 1 }
   }
-  return {
-    stdout: formatCredentialOutput({
-      username: signed.username,
-      password: signed.password,
-      password_expiry_utc: String(Math.floor(deps.now() / 1000) + CREDENTIAL_LIFETIME_SECONDS),
-    }),
-    stderr: '',
-    code: 0,
+  const fresh = {
+    username: signed.username,
+    password: signed.password,
+    expiry: now + CREDENTIAL_LIFETIME_SECONDS,
   }
+  if (cache && key !== null) cache.write(origin, key, fresh)
+  return { ...nothing, stdout: answer(fresh) }
+}
+
+function answer(credential: CachedCredential): string {
+  return formatCredentialOutput({
+    username: credential.username,
+    password: credential.password,
+    password_expiry_utc: String(credential.expiry),
+  })
 }
 
 /**
@@ -301,6 +355,67 @@ function sshKeygen(args: string[], input?: string): string | null {
 }
 
 /**
+ * Answers kept as one file each under `dir`, readable by this user only.
+ *
+ * Never throws: a cache that cannot be read is a miss, and one that cannot be
+ * written costs the next invocation a signature, never this one its answer.
+ * The write goes to a temporary file renamed into place, so two git processes
+ * signing at once leave one whole answer and never half of each.
+ */
+export function fileCredentialCache(dir: string): CredentialCache {
+  const file = (origin: string, key: string) =>
+    join(dir, `${createHash('sha256').update(`${origin}\n${key}`).digest('hex')}.json`)
+  return {
+    read(origin, key) {
+      try {
+        const kept = JSON.parse(
+          readFileSync(file(origin, key), 'utf8'),
+        ) as Partial<CachedCredential>
+        return typeof kept.username === 'string' &&
+          typeof kept.password === 'string' &&
+          typeof kept.expiry === 'number'
+          ? { username: kept.username, password: kept.password, expiry: kept.expiry }
+          : null
+      } catch {
+        return null
+      }
+    },
+    write(origin, key, credential) {
+      const path = file(origin, key)
+      const temporary = `${path}.${process.pid}.tmp`
+      try {
+        mkdirSync(dir, { recursive: true, mode: 0o700 })
+        writeFileSync(temporary, JSON.stringify(credential), { mode: 0o600 })
+        renameSync(temporary, path)
+      } catch {
+        try {
+          rmSync(temporary, { force: true })
+        } catch {
+          // A stray temporary file is named for a pid and never read.
+        }
+      }
+    },
+    remove(origin, key) {
+      try {
+        rmSync(file(origin, key), { force: true })
+      } catch {
+        // Left in place, it is refused once and erased again.
+      }
+    },
+  }
+}
+
+/**
+ * `$XDG_CACHE_HOME/agentgit/credentials`, else under `~/.cache`, else none: a
+ * relative path would put a credential in whatever directory git ran in.
+ */
+function credentialCacheDir(): string | null {
+  const base =
+    process.env.XDG_CACHE_HOME || (process.env.HOME ? join(process.env.HOME, '.cache') : '')
+  return base.startsWith('/') ? join(base, 'agentgit', 'credentials') : null
+}
+
+/**
  * The deps as they are on a real machine.
  *
  * `cwd` is where git config is read from, so a repository-local
@@ -344,6 +459,13 @@ export function realCredentialDeps(cwd: string = process.cwd()): CredentialDeps 
       return armour && armour.includes('BEGIN SSH SIGNATURE') ? armour : null
     },
     now: () => Date.now(),
+    cache() {
+      // Opt-in, read where `user.signingkey` is, so one clone can keep answers
+      // and another not.
+      const on = git(cwd, ['config', '--type=bool', '--get', 'agentgit.credentialCache'])
+      const dir = on.stdout.trim() === 'true' ? credentialCacheDir() : null
+      return dir === null ? null : fileCredentialCache(dir)
+    },
   }
 }
 
