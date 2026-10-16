@@ -17,8 +17,18 @@
  */
 
 import { describe, expect, test } from 'bun:test'
+import { mkdtempSync, readdirSync, statSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 
-import { type CredentialDeps, authorize, runCredential } from './credential'
+import {
+  type CachedCredential,
+  type CredentialCache,
+  type CredentialDeps,
+  authorize,
+  fileCredentialCache,
+  runCredential,
+} from './credential'
 
 const NOW = Date.UTC(2026, 9, 9, 0, 40, 5)
 
@@ -177,6 +187,159 @@ describe('agentgit credential store and erase', () => {
       expect(result).toMatchObject({ code: 0, stdout: '' })
       expect(signed).toEqual([])
     }
+  })
+})
+
+const memoryCache = () => {
+  const kept = new Map<string, CachedCredential>()
+  const cache: CredentialCache = {
+    read: (origin, key) => kept.get(`${origin} ${key}`) ?? null,
+    write: (origin, key, credential) => void kept.set(`${origin} ${key}`, credential),
+    remove: (origin, key) => void kept.delete(`${origin} ${key}`),
+  }
+  return { cache, kept }
+}
+
+/** A deps whose challenge fetches are counted, at a clock the test moves. */
+const counted = (cache: CredentialCache | null) => {
+  const state = { now: NOW, fetches: 0, key: '/home/agent/.ssh/id_ed25519' }
+  const d = deps({
+    challenge: async () => {
+      state.fetches++
+      return `nonce-${state.fetches}`
+    },
+    // A different signature per nonce, so a kept answer is told from a new one.
+    sign: (_key, nonce) =>
+      ARMOUR.replace('U1NIU0lHAAAAAQ==', Buffer.from(nonce).toString('base64')),
+    signingKey: () => state.key,
+    now: () => state.now,
+    cache: () => cache,
+  })
+  return { d, state }
+}
+
+describe('agentgit credential with agentgit.credentialCache', () => {
+  test('a second get inside the expiry is the first answer, with no round trip to the host', async () => {
+    const { cache } = memoryCache()
+    const { d, state } = counted(cache)
+    const first = fields((await runCredential('get', GIT_ASKS, d)).stdout)
+    state.now += 60_000
+    const second = fields((await runCredential('get', GIT_ASKS, d)).stdout)
+
+    expect(state.fetches).toBe(1)
+    expect(second).toEqual(first)
+  })
+
+  test("a kept answer starts no operation past its first two minutes, so each keeps three of walgit's five", async () => {
+    const { cache } = memoryCache()
+    const { d, state } = counted(cache)
+    const first = fields((await runCredential('get', GIT_ASKS, d)).stdout)
+    state.now = NOW + 119_000
+    expect(fields((await runCredential('get', GIT_ASKS, d)).stdout)).toEqual(first)
+    state.now = NOW + 120_000
+    const second = fields((await runCredential('get', GIT_ASKS, d)).stdout)
+
+    expect(state.fetches).toBe(2)
+    expect(second.password).not.toBe(first.password)
+    expect(Number(second.password_expiry_utc)).toBe(Math.floor(NOW / 1000) + 120 + 240)
+  })
+
+  test('once the expiry git was given has passed, it signs again', async () => {
+    const { cache } = memoryCache()
+    const { d, state } = counted(cache)
+    const first = fields((await runCredential('get', GIT_ASKS, d)).stdout)
+    state.now = (Number(first.password_expiry_utc) + 1) * 1000
+    const second = fields((await runCredential('get', GIT_ASKS, d)).stdout)
+
+    expect(state.fetches).toBe(2)
+    expect(second.password).not.toBe(first.password)
+  })
+
+  test('erase of the kept answer drops it, so the retry after a 401 signs afresh', async () => {
+    const { cache, kept } = memoryCache()
+    const { d, state } = counted(cache)
+    const first = fields((await runCredential('get', GIT_ASKS, d)).stdout)
+    await runCredential(
+      'erase',
+      `${GIT_ASKS}username=${first.username}\npassword=${first.password}\n\n`,
+      d,
+    )
+    expect(kept.size).toBe(0)
+    await runCredential('get', GIT_ASKS, d)
+    expect(state.fetches).toBe(2)
+  })
+
+  test('erase of an older answer leaves a newer one alone', async () => {
+    const { cache, kept } = memoryCache()
+    const { d } = counted(cache)
+    await runCredential('get', GIT_ASKS, d)
+    await runCredential('erase', `${GIT_ASKS}username=SHA256:x\npassword=b2xkZXI=\n\n`, d)
+    expect(kept.size).toBe(1)
+  })
+
+  test('another signing key is another entry', async () => {
+    const { cache } = memoryCache()
+    const { d, state } = counted(cache)
+    await runCredential('get', GIT_ASKS, d)
+    state.key = '/home/agent/.ssh/id_ed25519_backup'
+    await runCredential('get', GIT_ASKS, d)
+    expect(state.fetches).toBe(2)
+  })
+
+  test('store still keeps nothing, and a problem is never kept', async () => {
+    const { cache, kept } = memoryCache()
+    await runCredential(
+      'store',
+      `${GIT_ASKS}username=SHA256:x\npassword=cGFzcw==\n\n`,
+      deps({ cache: () => cache }),
+    )
+    const refused = await runCredential(
+      'get',
+      GIT_ASKS,
+      deps({ sign: () => null, cache: () => cache }),
+    )
+    expect(refused.code).not.toBe(0)
+    expect(kept.size).toBe(0)
+  })
+
+  test('without it, every get signs', async () => {
+    const { d, state } = counted(null)
+    await runCredential('get', GIT_ASKS, d)
+    await runCredential('get', GIT_ASKS, d)
+    expect(state.fetches).toBe(2)
+  })
+})
+
+describe('fileCredentialCache', () => {
+  const ORIGIN = 'https://agentgit.zabaca.com'
+  const KEY = '/home/agent/.ssh/id_ed25519'
+  const KEPT = { username: 'SHA256:abc', password: 'cGFzcw==', expiry: 1_791_000_000 }
+
+  test('keeps one answer per origin and key, readable by this user only', () => {
+    const dir = join(mkdtempSync(join(tmpdir(), 'agentgit-cache-')), 'credentials')
+    const cache = fileCredentialCache(dir)
+    cache.write(ORIGIN, KEY, KEPT)
+
+    expect(cache.read(ORIGIN, KEY)).toEqual(KEPT)
+    expect(cache.read(ORIGIN, '/other/key')).toBeNull()
+    expect(statSync(dir).mode & 0o777).toBe(0o700)
+    const [only, ...rest] = readdirSync(dir)
+    expect(rest).toEqual([])
+    expect(statSync(join(dir, only!)).mode & 0o777).toBe(0o600)
+
+    cache.remove(ORIGIN, KEY)
+    expect(cache.read(ORIGIN, KEY)).toBeNull()
+  })
+
+  test('a file that is not a kept answer is a miss, not a throw', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'agentgit-cache-'))
+    const cache = fileCredentialCache(dir)
+    cache.write(ORIGIN, KEY, KEPT)
+    const [only] = readdirSync(dir)
+    writeFileSync(join(dir, only!), '{"username":')
+    expect(cache.read(ORIGIN, KEY)).toBeNull()
+    cache.remove(ORIGIN, KEY)
+    cache.remove(ORIGIN, KEY)
   })
 })
 
