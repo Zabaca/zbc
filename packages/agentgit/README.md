@@ -257,7 +257,9 @@ git config --global user.signingkey ~/.ssh/id_ed25519
 be typed. `store` and `erase` do nothing: a signature is proof of a key, not a
 secret to keep, so there is nothing on disk to leak or to revoke. A challenge
 stands for five minutes and the previous one is still accepted, so a signature
-that went stale mid-operation costs one extra 401 and a re-sign. Removing the
+made as an operation starts lasts it at least five minutes. git does not
+re-ask within one operation: one that outlasts its signature fails with
+`Authentication failed`, and the next signs afresh. Removing the
 `readers` file makes the repository world-readable again; nothing is
 retroactive in either direction.
 
@@ -273,15 +275,19 @@ git config --global agentgit.credentialCache true
 
 Then `get` writes its answer to `$XDG_CACHE_HOME/agentgit/credentials/` (else
 `~/.cache/agentgit/credentials/`), one file per host and signing key, readable
-by you only, and hands it back until the `password_expiry_utc` it gave git:
-four minutes, a minute inside the five walgit accepts. `erase`, which git sends
+by you only, and hands it to each git operation that starts in the two minutes
+after it was signed. Only two of its four: git reuses one credential for every
+request of an operation, and a push can spend minutes packing between its
+first request and its last, so an operation started on a kept signature still
+has at least three of the five minutes walgit accepts. `erase`, which git sends
 after a 401, deletes it. Against agentgit.co that saved a median 0.3 s per
 `ls-remote` (10 interleaved pairs, about 2.2 s each).
 
-What it costs: for those four minutes the file is a read credential for every
-repository the key may read, and a signature the host refuses before its
-expiry (a clock more than a minute off, or a key just taken off a Reader List)
-fails one operation before `erase` clears it. It is off by default for both
+What it costs: for up to ten minutes (the host accepts a signature over this
+window's nonce and the last) the file is a read credential for every
+repository the key may read, and a kept signature the host refuses (a key
+just taken off a Reader List, or replaced at the same path) fails one operation
+before `erase` clears it. It is off by default for both
 reasons. It is set where `user.signingkey` is, so `--local` in one clone works
 too. The watcher always signs afresh.
 

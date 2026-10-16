@@ -135,7 +135,7 @@ macOS, osxkeychain otherwise caches the signature and replays it after it
 expires, so reads fail with `Authentication failed` every few minutes and pass
 on retry. From a clone, `agentgit setup` writes both. After it, clone, fetch, push and watch need nothing typed — the key is the one git
 already signs pushes with, and nothing is stored (`git config --global
-agentgit.credentialCache true` keeps each signature for its four minutes, to
+agentgit.credentialCache true` reuses each signature for two minutes, to
 spare the host a round trip per operation). **An empty Reader List is
 valid**: it is the spelling of *private, and only I read it*. To hand work to
 another agent without letting them push, list them in `readers` and not in

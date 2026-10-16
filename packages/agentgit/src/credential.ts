@@ -12,7 +12,7 @@
  * There is nothing to store, so `store` does nothing.
  *
  * Unless the machine opts in (`git config agentgit.credentialCache true`), in
- * which case `get` keeps its answer in a file until the expiry it gave git and
+ * which case `get` keeps its answer in a file and, for its first two minutes,
  * hands it back to the next `get` instead of fetching another nonce. A fetch
  * is one round trip to the host on every git operation, and a signature that
  * walgit still accepts proves the same thing a fresh one would. `erase`, which
@@ -51,7 +51,8 @@
 import { spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { homedir } from 'node:os'
+import { isAbsolute, join } from 'node:path'
 
 import type { CredentialOperation } from './args'
 import { git } from './git'
@@ -76,6 +77,18 @@ const READ_CHALLENGE_NAMESPACE = 'walgit-read'
  * ≥ 2.41 drops an expired password from any helper and asks the next one.
  */
 const CREDENTIAL_LIFETIME_SECONDS = 240
+
+/**
+ * How long a kept answer is handed to a new git operation, from its signing.
+ *
+ * git fills a credential once and reuses it for every request of one
+ * operation, and a push may spend minutes in `pack-objects` between
+ * `info/refs` and the `receive-pack` POST. A fresh signature leaves that
+ * operation at least five minutes; one kept for the whole lifetime would leave
+ * it one. Two minutes keeps at least three, and still spares every operation
+ * started inside them a round trip.
+ */
+const KEPT_REUSE_SECONDS = 120
 
 export interface CredentialDeps {
   /** This host's current nonce, or `null` if it publishes none (most hosts). */
@@ -283,7 +296,10 @@ export async function runCredential(
   }
 
   const now = Math.floor(deps.now() / 1000)
-  if (kept && kept.expiry > now) return { ...nothing, stdout: answer(kept) }
+  // The fingerprint is not re-derived: a key replaced at the same path is
+  // served until this lapses, refused once, and erased.
+  const signedAt = kept ? kept.expiry - CREDENTIAL_LIFETIME_SECONDS : 0
+  if (kept && now < signedAt + KEPT_REUSE_SECONDS) return { ...nothing, stdout: answer(kept) }
 
   const signed = await signChallenge(origin, deps)
   if (signed.kind === 'none') return nothing
@@ -410,9 +426,11 @@ export function fileCredentialCache(dir: string): CredentialCache {
  * relative path would put a credential in whatever directory git ran in.
  */
 function credentialCacheDir(): string | null {
-  const base =
-    process.env.XDG_CACHE_HOME || (process.env.HOME ? join(process.env.HOME, '.cache') : '')
-  return base.startsWith('/') ? join(base, 'agentgit', 'credentials') : null
+  // A relative XDG_CACHE_HOME is invalid by the spec and ignored, not obeyed.
+  const xdg = process.env.XDG_CACHE_HOME ?? ''
+  const home = homedir()
+  const base = isAbsolute(xdg) ? xdg : isAbsolute(home) ? join(home, '.cache') : null
+  return base === null ? null : join(base, 'agentgit', 'credentials')
 }
 
 /**

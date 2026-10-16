@@ -115,7 +115,7 @@ PRIVATE REPOSITORIES
   clone, fetch, push and watch need nothing typed. The key is the one git
   already signs pushes with (user.signingkey); nothing is stored, unless
   agentgit.credentialCache is true: then each signature is kept in
-  ~/.cache/agentgit until its expiry, which saves the host a round trip.
+  ~/.cache/agentgit and reused for two minutes, saving the host a round trip.
 
 EXAMPLES
   agentgit watch                        # in a clone: everything is inferred

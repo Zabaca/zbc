@@ -230,6 +230,20 @@ describe('agentgit credential with agentgit.credentialCache', () => {
     expect(second).toEqual(first)
   })
 
+  test("a kept answer starts no operation past its first two minutes, so each keeps three of walgit's five", async () => {
+    const { cache } = memoryCache()
+    const { d, state } = counted(cache)
+    const first = fields((await runCredential('get', GIT_ASKS, d)).stdout)
+    state.now = NOW + 119_000
+    expect(fields((await runCredential('get', GIT_ASKS, d)).stdout)).toEqual(first)
+    state.now = NOW + 120_000
+    const second = fields((await runCredential('get', GIT_ASKS, d)).stdout)
+
+    expect(state.fetches).toBe(2)
+    expect(second.password).not.toBe(first.password)
+    expect(Number(second.password_expiry_utc)).toBe(Math.floor(NOW / 1000) + 120 + 240)
+  })
+
   test('once the expiry git was given has passed, it signs again', async () => {
     const { cache } = memoryCache()
     const { d, state } = counted(cache)
