@@ -3,11 +3,15 @@
   "repo": "Zabaca/games",
   "mode": "subtree",
   "tier": "consumer",
-  "ref": "f9a62d7ac93b4833c5013ff6b5c714b93979f37a",
-  "surveyedAt": "2026-09-03T02:56:10.952Z",
+  "ref": "fa79fc286ff6ce91595bef498ca44d96f90c8a76",
+  "surveyedAt": "2026-10-19T14:12:21.822Z",
   "environments": {
     "production": [
-      "railmid"
+      "games-db",
+      "games-access",
+      "games-access-token",
+      "games",
+      "games-deploy-token"
     ],
     "preview": []
   },
@@ -28,8 +32,10 @@
         "owner",
         "changed"
       ],
+      "upstreamFirstSeen": "2026-08-18",
       "verdict": "current",
-      "matchedRev": "aefae2833a07124a1c6831a4c2c0ee8e4e920b68"
+      "matchedRev": "aefae2833a07124a1c6831a4c2c0ee8e4e920b68",
+      "matchedPath": "packages/cli/templates/infra/modules/host-dir/index.ts"
     },
     {
       "name": "host-exec",
@@ -38,24 +44,50 @@
       "lines": 193,
       "configKeys": [],
       "outputKeys": [],
+      "upstreamFirstSeen": "2026-08-18",
       "verdict": "current",
-      "matchedRev": "aefae2833a07124a1c6831a4c2c0ee8e4e920b68"
+      "matchedRev": "aefae2833a07124a1c6831a4c2c0ee8e4e920b68",
+      "matchedPath": "packages/cli/templates/infra/modules/host-exec/index.ts"
     },
     {
       "name": "provision-core",
       "location": "vendored",
       "path": "vendor/zbc/modules/provision-core/index.ts",
-      "lines": 147,
+      "lines": 153,
       "configKeys": [],
       "outputKeys": [],
-      "verdict": "stale",
-      "matchedRev": "b2491039df1760ef4c046ec2a412f5a663440438"
+      "upstreamFirstSeen": "2026-08-19",
+      "verdict": "current",
+      "matchedRev": "736f8d472a381ce42b6ee18e3d8fdf371f4703bc",
+      "matchedPath": "packages/cli/templates/infra/modules/provision-core/index.ts"
+    },
+    {
+      "name": "d1",
+      "location": "vendored",
+      "path": "vendor/zbc/modules/d1/index.ts",
+      "lines": 280,
+      "configKeys": [
+        "accountId",
+        "apiToken",
+        "databaseName",
+        "primaryLocationHint",
+        "statements",
+        "additiveColumns"
+      ],
+      "outputKeys": [
+        "databaseName",
+        "databaseId"
+      ],
+      "upstreamFirstSeen": "2026-09-08",
+      "verdict": "current",
+      "matchedRev": "30815b1435dcd65d02bee748c69dd1bc013c92d1",
+      "matchedPath": "packages/cli/templates/infra/modules/d1/index.ts"
     },
     {
       "name": "fly",
       "location": "vendored",
       "path": "vendor/zbc/modules/fly/index.ts",
-      "lines": 317,
+      "lines": 432,
       "configKeys": [
         "workdir",
         "appName",
@@ -66,7 +98,7 @@
         "ipv6",
         "highAvailability",
         "localBuild",
-        "ephemeral"
+        "certs"
       ],
       "outputKeys": [
         "appName",
@@ -74,8 +106,10 @@
         "ipv4",
         "ipv6"
       ],
-      "verdict": "stale",
-      "matchedRev": "ca81b9e508508835bd2bff092b1f6bc88a05fad7"
+      "upstreamFirstSeen": "2026-08-21",
+      "verdict": "current",
+      "matchedRev": "83740ac179b111ef98708a5a16eed4ccaf85698f",
+      "matchedPath": "packages/cli/templates/infra/modules/fly/index.ts"
     },
     {
       "name": "docker-compose-stack",
@@ -87,18 +121,22 @@
         "services"
       ],
       "outputKeys": [],
+      "upstreamFirstSeen": "2026-08-03",
       "verdict": "current",
-      "matchedRev": "58d32bc00d7cca46c6e1f7f2f707653c6566a5db"
+      "matchedRev": "58d32bc00d7cca46c6e1f7f2f707653c6566a5db",
+      "matchedPath": "packages/cli/templates/infra/modules/docker-compose-stack/index.ts"
     },
     {
       "name": "cloudflare-api",
       "location": "vendored",
       "path": "vendor/zbc/modules/cloudflare-api/index.ts",
-      "lines": 181,
+      "lines": 293,
       "configKeys": [],
       "outputKeys": [],
-      "verdict": "stale",
-      "matchedRev": "76007535ed540c63a8caaccf274bb170c9f6db62"
+      "upstreamFirstSeen": "2026-08-19",
+      "verdict": "current",
+      "matchedRev": "736f8d472a381ce42b6ee18e3d8fdf371f4703bc",
+      "matchedPath": "packages/cli/templates/infra/modules/cloudflare-api/index.ts"
     },
     {
       "name": "incus-core",
@@ -107,8 +145,10 @@
       "lines": 197,
       "configKeys": [],
       "outputKeys": [],
+      "upstreamFirstSeen": "2026-08-19",
       "verdict": "current",
-      "matchedRev": "aefae2833a07124a1c6831a4c2c0ee8e4e920b68"
+      "matchedRev": "aefae2833a07124a1c6831a4c2c0ee8e4e920b68",
+      "matchedPath": "packages/cli/templates/infra/modules/incus-core/index.ts"
     },
     {
       "name": "systemd-mask",
@@ -120,14 +160,16 @@
         "reason"
       ],
       "outputKeys": [],
+      "upstreamFirstSeen": "2026-08-18",
       "verdict": "current",
-      "matchedRev": "aefae2833a07124a1c6831a4c2c0ee8e4e920b68"
+      "matchedRev": "aefae2833a07124a1c6831a4c2c0ee8e4e920b68",
+      "matchedPath": "packages/cli/templates/infra/modules/systemd-mask/index.ts"
     },
     {
       "name": "cloudflare",
       "location": "vendored",
       "path": "vendor/zbc/modules/cloudflare/index.ts",
-      "lines": 548,
+      "lines": 826,
       "configKeys": [
         "workdir",
         "accountId",
@@ -136,36 +178,42 @@
         "workerSecrets",
         "workerVars",
         "r2Bindings",
+        "bindings",
+        "deployIdVar",
         "immediateContainerRollout",
         "wranglerEnv",
-        "workerName"
+        "workerName",
+        "routes"
       ],
       "outputKeys": [
         "deployUrl",
         "workerName"
       ],
+      "upstreamFirstSeen": "2026-06-23",
       "verdict": "stale",
-      "matchedRev": "f06480507c37cb07f3868a004b17913c46bf9ed9"
+      "matchedRev": "b72a35cc3e0bf4b4509728b8cd331d8343ada100",
+      "matchedPath": "packages/cli/templates/infra/modules/cloudflare/index.ts"
     },
     {
       "name": "turso",
       "location": "vendored",
       "path": "vendor/zbc/modules/turso/index.ts",
-      "lines": 187,
+      "lines": 214,
       "configKeys": [
         "orgName",
         "dbName",
         "group",
         "primaryLocation",
-        "ephemeral",
         "migrationsDir"
       ],
       "outputKeys": [
         "databaseUrl",
         "authToken"
       ],
-      "verdict": "stale",
-      "matchedRev": "8a558a40b3e380f813ab6a275f9587a5a286475e"
+      "upstreamFirstSeen": "2026-04-24",
+      "verdict": "current",
+      "matchedRev": "83740ac179b111ef98708a5a16eed4ccaf85698f",
+      "matchedPath": "packages/cli/templates/infra/modules/turso/index.ts"
     },
     {
       "name": "cloudflare-tunnel",
@@ -180,8 +228,10 @@
         "createdTunnel",
         "changed"
       ],
-      "verdict": "stale",
-      "matchedRev": "aefae2833a07124a1c6831a4c2c0ee8e4e920b68"
+      "upstreamFirstSeen": "2026-08-19",
+      "verdict": "current",
+      "matchedRev": "736f8d472a381ce42b6ee18e3d8fdf371f4703bc",
+      "matchedPath": "packages/cli/templates/infra/modules/cloudflare-tunnel/index.ts"
     },
     {
       "name": "host-symlink",
@@ -193,14 +243,16 @@
         "target"
       ],
       "outputKeys": [],
+      "upstreamFirstSeen": "2026-08-18",
       "verdict": "current",
-      "matchedRev": "aefae2833a07124a1c6831a4c2c0ee8e4e920b68"
+      "matchedRev": "aefae2833a07124a1c6831a4c2c0ee8e4e920b68",
+      "matchedPath": "packages/cli/templates/infra/modules/host-symlink/index.ts"
     },
     {
       "name": "cloudflare-email",
       "location": "vendored",
       "path": "vendor/zbc/modules/cloudflare-email/index.ts",
-      "lines": 574,
+      "lines": 533,
       "configKeys": [
         "accountId",
         "zoneId",
@@ -218,8 +270,10 @@
         "accountId",
         "domain"
       ],
-      "verdict": "stale",
-      "matchedRev": "9224fda0145efb52698995ec1006dd4e69ca163c"
+      "upstreamFirstSeen": "2026-07-15",
+      "verdict": "current",
+      "matchedRev": "736f8d472a381ce42b6ee18e3d8fdf371f4703bc",
+      "matchedPath": "packages/cli/templates/infra/modules/cloudflare-email/index.ts"
     },
     {
       "name": "incus-storage-pool",
@@ -233,20 +287,34 @@
         "created",
         "changed"
       ],
+      "upstreamFirstSeen": "2026-08-19",
       "verdict": "current",
-      "matchedRev": "aefae2833a07124a1c6831a4c2c0ee8e4e920b68"
+      "matchedRev": "aefae2833a07124a1c6831a4c2c0ee8e4e920b68",
+      "matchedPath": "packages/cli/templates/infra/modules/incus-storage-pool/index.ts"
+    },
+    {
+      "name": "gcp-api",
+      "location": "vendored",
+      "path": "vendor/zbc/modules/gcp-api/index.ts",
+      "lines": 200,
+      "configKeys": [],
+      "outputKeys": [],
+      "upstreamFirstSeen": "2026-09-08",
+      "verdict": "current",
+      "matchedRev": "5b8d0114cb05ca312449a977c9ba483fa1ea0840",
+      "matchedPath": "packages/cli/templates/infra/modules/gcp-api/index.ts"
     },
     {
       "name": "cloudflare-token",
       "location": "vendored",
       "path": "vendor/zbc/modules/cloudflare-token/index.ts",
-      "lines": 265,
+      "lines": 363,
       "configKeys": [
         "accountId",
         "tokenName",
         "permissions",
         "zones",
-        "ephemeral"
+        "rootTokenSecret"
       ],
       "outputKeys": [
         "tokenId",
@@ -254,8 +322,10 @@
         "s3AccessKeyId",
         "s3SecretAccessKey"
       ],
-      "verdict": "stale",
-      "matchedRev": "ec24ecb833461ee66cc57ba685ef0236bc82572a"
+      "upstreamFirstSeen": "2026-08-03",
+      "verdict": "current",
+      "matchedRev": "40ef70650c1260a43fc32336580eb522647f32b8",
+      "matchedPath": "packages/cli/templates/infra/modules/cloudflare-token/index.ts"
     },
     {
       "name": "vm",
@@ -272,14 +342,16 @@
         "created",
         "changed"
       ],
+      "upstreamFirstSeen": "2026-08-19",
       "verdict": "current",
-      "matchedRev": "aefae2833a07124a1c6831a4c2c0ee8e4e920b68"
+      "matchedRev": "aefae2833a07124a1c6831a4c2c0ee8e4e920b68",
+      "matchedPath": "packages/cli/templates/infra/modules/vm/index.ts"
     },
     {
       "name": "vm-provision",
       "location": "vendored",
       "path": "vendor/zbc/modules/vm-provision/index.ts",
-      "lines": 174,
+      "lines": 181,
       "configKeys": [
         "instance",
         "packages",
@@ -295,24 +367,28 @@
         "digest",
         "changed"
       ],
-      "verdict": "stale",
-      "matchedRev": "aefae2833a07124a1c6831a4c2c0ee8e4e920b68"
+      "upstreamFirstSeen": "2026-08-19",
+      "verdict": "current",
+      "matchedRev": "736f8d472a381ce42b6ee18e3d8fdf371f4703bc",
+      "matchedPath": "packages/cli/templates/infra/modules/vm-provision/index.ts"
     },
     {
       "name": "host-file",
       "location": "vendored",
       "path": "vendor/zbc/modules/host-file/index.ts",
-      "lines": 47,
+      "lines": 46,
       "configKeys": [],
       "outputKeys": [],
-      "verdict": "stale",
-      "matchedRev": "58d32bc00d7cca46c6e1f7f2f707653c6566a5db"
+      "upstreamFirstSeen": "2026-08-03",
+      "verdict": "current",
+      "matchedRev": "736f8d472a381ce42b6ee18e3d8fdf371f4703bc",
+      "matchedPath": "packages/cli/templates/infra/modules/host-file/index.ts"
     },
     {
       "name": "cloudflare-zone",
       "location": "vendored",
       "path": "vendor/zbc/modules/cloudflare-zone/index.ts",
-      "lines": 559,
+      "lines": 813,
       "configKeys": [],
       "outputKeys": [
         "zoneId",
@@ -323,10 +399,35 @@
         "deleted",
         "undeclared",
         "emailProvisioned",
+        "settingsChanged",
         "changed"
       ],
-      "verdict": "stale",
-      "matchedRev": "aefae2833a07124a1c6831a4c2c0ee8e4e920b68"
+      "upstreamFirstSeen": "2026-08-19",
+      "verdict": "current",
+      "matchedRev": "eb1770cc0d04fb2b02bd13cdebf2fc0228817845",
+      "matchedPath": "packages/cli/templates/infra/modules/cloudflare-zone/index.ts"
+    },
+    {
+      "name": "gcp-service-account",
+      "location": "vendored",
+      "path": "vendor/zbc/modules/gcp-service-account/index.ts",
+      "lines": 316,
+      "configKeys": [
+        "projectId",
+        "serviceAccountId",
+        "displayName",
+        "maxKeys",
+        "credentialSecret"
+      ],
+      "outputKeys": [
+        "saEmail",
+        "saKey",
+        "saKeyId"
+      ],
+      "upstreamFirstSeen": "2026-09-08",
+      "verdict": "current",
+      "matchedRev": "5b8d0114cb05ca312449a977c9ba483fa1ea0840",
+      "matchedPath": "packages/cli/templates/infra/modules/gcp-service-account/index.ts"
     },
     {
       "name": "cloudflare-access",
@@ -354,8 +455,10 @@
         "undeclared",
         "changed"
       ],
-      "verdict": "stale",
-      "matchedRev": "c96dd453ab3676ac89eb4648fb513e52242e0fb9"
+      "upstreamFirstSeen": "2026-08-19",
+      "verdict": "current",
+      "matchedRev": "736f8d472a381ce42b6ee18e3d8fdf371f4703bc",
+      "matchedPath": "packages/cli/templates/infra/modules/cloudflare-access/index.ts"
     },
     {
       "name": "systemd-unit",
@@ -369,14 +472,16 @@
         "enableNow"
       ],
       "outputKeys": [],
+      "upstreamFirstSeen": "2026-08-03",
       "verdict": "current",
-      "matchedRev": "aefae2833a07124a1c6831a4c2c0ee8e4e920b68"
+      "matchedRev": "aefae2833a07124a1c6831a4c2c0ee8e4e920b68",
+      "matchedPath": "packages/cli/templates/infra/modules/systemd-unit/index.ts"
     },
     {
       "name": "remote-provision",
       "location": "vendored",
       "path": "vendor/zbc/modules/remote-provision/index.ts",
-      "lines": 166,
+      "lines": 164,
       "configKeys": [
         "hosts",
         "user",
@@ -395,99 +500,186 @@
         "digest",
         "changed"
       ],
-      "verdict": "stale",
-      "matchedRev": "aefae2833a07124a1c6831a4c2c0ee8e4e920b68"
+      "upstreamFirstSeen": "2026-08-19",
+      "verdict": "current",
+      "matchedRev": "736f8d472a381ce42b6ee18e3d8fdf371f4703bc",
+      "matchedPath": "packages/cli/templates/infra/modules/remote-provision/index.ts"
     },
     {
       "name": "r2",
       "location": "vendored",
       "path": "vendor/zbc/modules/r2/index.ts",
-      "lines": 138,
+      "lines": 107,
       "configKeys": [
         "accountId",
         "bucketName",
-        "locationHint",
-        "ephemeral"
+        "locationHint"
       ],
       "outputKeys": [
         "bucketName"
       ],
-      "verdict": "stale",
-      "matchedRev": "9f1326815be69993c85ba94340fbf2e591c695fa"
+      "upstreamFirstSeen": "2026-07-16",
+      "verdict": "current",
+      "matchedRev": "83740ac179b111ef98708a5a16eed4ccaf85698f",
+      "matchedPath": "packages/cli/templates/infra/modules/r2/index.ts"
     }
   ],
   "escapeHatches": [
     {
-      "file": "packages/infra/package.json",
-      "line": 13,
+      "file": "scripts/release.mjs",
+      "line": 491,
       "tool": "wrangler",
-      "snippet": "\"wrangler\": \"^4.0.0\""
+      "snippet": "`${short(HEAD)}'s wrangler.jsonc has.`,"
     },
     {
-      "file": ".github/workflows/ci.yml",
-      "line": 15,
+      "file": "scripts/online/smoke.mjs",
+      "line": 37,
       "tool": "wrangler",
-      "snippet": "#   runtime    the ones that build the client, stand a real `wrangler dev` up,"
+      "snippet": "wranglerDev,"
     },
     {
-      "file": ".github/workflows/ci.yml",
-      "line": 84,
+      "file": "scripts/online/smoke.mjs",
+      "line": 53,
       "tool": "wrangler",
-      "snippet": "# `wrangler dev` is local workerd and wants nothing from the network. Saying"
+      "snippet": "if (values.local) base = (await wranglerDev({ vars: DEV_VARS })).base"
     },
     {
-      "file": ".github/workflows/ci.yml",
-      "line": 308,
+      "file": "scripts/online/smoke.mjs",
+      "line": 63,
       "tool": "wrangler",
-      "snippet": "# wrangler refuses to start on anything below node 22, so this one is load"
+      "snippet": "if (local && !values.deploy) report.note('site', 'deploy', deploy ?? 'none (no DEPLOY_ID under wrangler dev)')"
     },
     {
-      "file": ".github/workflows/ci.yml",
-      "line": 330,
+      "file": "scripts/online/lib.mjs",
+      "line": 432,
       "tool": "wrangler",
-      "snippet": "# First, and not only for its own sake: `wrangler dev` serves"
+      "snippet": "const WRANGLER = `${MARKETPLACE}/node_modules/wrangler/bin/wrangler.js`"
     },
     {
-      "file": ".github/workflows/ci.yml",
-      "line": 336,
+      "file": "scripts/online/lib.mjs",
+      "line": 441,
       "tool": "wrangler",
-      "snippet": "# Starts its own two `wrangler dev`s on :3111 and :3112. The one suite the"
+      "snippet": "export async function wranglerDev({ vars = {}, dist = DIST, build = false, schema = false, main = null } = {}) {"
     },
     {
-      "file": ".github/workflows/ci.yml",
-      "line": 357,
+      "file": "scripts/online/lib.mjs",
+      "line": 444,
       "tool": "wrangler",
-      "snippet": "log=\"$RUNNER_TEMP/wrangler-e2e.log\""
+      "snippet": "const persist = scratch('wrangler')"
     },
     {
-      "file": ".github/workflows/ci.yml",
-      "line": 359,
+      "file": "scripts/online/lib.mjs",
+      "line": 463,
       "tool": "wrangler",
-      "snippet": "bunx wrangler dev --port 3099 --ip 127.0.0.1 --var SPEED:25 > \"$log\" 2>&1 &"
+      "snippet": "const flags = main ? [main, '--config', 'wrangler.jsonc'] : []"
     },
     {
-      "file": ".github/workflows/ci.yml",
-      "line": 361,
+      "file": "scripts/online/lib.mjs",
+      "line": 497,
       "tool": "wrangler",
-      "snippet": "# That output is the only place a wrangler failure explains itself, so"
+      "snippet": "if (exited !== null && up) console.error(`wrangler dev exited (${exited}) mid-run:\\n${output.join('\\n')}`)"
     },
     {
-      "file": ".github/workflows/ci.yml",
-      "line": 367,
+      "file": "scripts/online/lib.mjs",
+      "line": 526,
       "tool": "wrangler",
-      "snippet": "echo \"--- wrangler dev said ---\"; cat \"$log\";"
+      "snippet": "`wrangler dev ${health === 'exited' ? `exited (${exited})` : 'never answered /api/health'}:\\n${output.join('\\n')}`,"
     },
     {
-      "file": ".github/workflows/ci.yml",
-      "line": 371,
+      "file": "scripts/online/lib.mjs",
+      "line": 561,
       "tool": "wrangler",
-      "snippet": "# Stop waiting on something that has already exited: a wrangler that"
+      "snippet": "if (!res.ok || !body?.success) throw new Error(`wrangler's local store of the logs answered ${res.status}`)"
     },
     {
-      "file": ".github/workflows/ci.yml",
-      "line": 378,
+      "file": "scripts/online/boot.mjs",
+      "line": 35,
       "tool": "wrangler",
-      "snippet": "echo \"the sped-up wrangler dev never served /health.\""
+      "snippet": "wranglerDev,"
+    },
+    {
+      "file": "scripts/online/boot.mjs",
+      "line": 131,
+      "tool": "wrangler",
+      "snippet": "await gate('boot', 'online:boot: every local game’s page, from the built site under wrangler dev', async (report) => {"
+    },
+    {
+      "file": "scripts/online/boot.mjs",
+      "line": 147,
+      "tool": "wrangler",
+      "snippet": "const server = await wranglerDev({ dist: site, schema: true })"
+    },
+    {
+      "file": "scripts/online/browser.mjs",
+      "line": 63,
+      "tool": "wrangler",
+      "snippet": "wranglerDev,"
+    },
+    {
+      "file": "scripts/online/browser.mjs",
+      "line": 120,
+      "tool": "wrangler",
+      "snippet": "'online:browser: today’s pages, as production serves them (wrangler dev), in headless Chromium',"
+    },
+    {
+      "file": "scripts/online/browser.mjs",
+      "line": 124,
+      "tool": "wrangler",
+      "snippet": "const server = await wranglerDev({ dist: site, schema: true })"
+    },
+    {
+      "file": "scripts/online/browser.mjs",
+      "line": 399,
+      "tool": "wrangler",
+      "snippet": "const server = await wranglerDev({ dist: site, schema: true, vars: DEV_VARS })"
+    },
+    {
+      "file": "scripts/online/legacy.mjs",
+      "line": 43,
+      "tool": "wrangler",
+      "snippet": "wranglerDev,"
+    },
+    {
+      "file": "scripts/online/legacy.mjs",
+      "line": 68,
+      "tool": "wrangler",
+      "snippet": "`online:legacy: Roadkill’s itch build ${commit}, as itch serves it, against ${local ? 'wrangler dev' : 'production'}`,"
+    },
+    {
+      "file": "scripts/online/legacy.mjs",
+      "line": 73,
+      "tool": "wrangler",
+      "snippet": "const server = local ? await wranglerDev({ vars: DEV_VARS }) : null"
+    },
+    {
+      "file": "scripts/online/e2e.mjs",
+      "line": 85,
+      "tool": "wrangler",
+      "snippet": "wranglerDev,"
+    },
+    {
+      "file": "scripts/online/e2e.mjs",
+      "line": 140,
+      "tool": "wrangler",
+      "snippet": "'online:e2e: real workerd (wrangler dev), the games’ own clients over Node’s WebSocket',"
+    },
+    {
+      "file": "scripts/online/e2e.mjs",
+      "line": 144,
+      "tool": "wrangler",
+      "snippet": "const [server, test] = await Promise.all([wranglerDev({ vars: DEV_VARS }), wranglerDev({ main: TEST_WORKER })])"
+    },
+    {
+      "file": "scripts/online/e2e.mjs",
+      "line": 237,
+      "tool": "aws",
+      "snippet": "[a, b].map((p) => `${p.picked?.draws ?? 0} route(s), best ${p.picked?.ms?.toFixed(0) ?? '?'} ms`).join('; '),"
+    },
+    {
+      "file": "scripts/online/e2e.mjs",
+      "line": 1119,
+      "tool": "wrangler",
+      "snippet": ".join(', ')}); deploy ${said?.deploy ?? 'none, as under wrangler dev'}; live ${said?.live}`,"
     }
   ]
 }

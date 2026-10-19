@@ -4,7 +4,7 @@
   "mode": "copy",
   "tier": "consumer",
   "ref": "e5da706fc9f613a2d9f0391336603517e27e42b6",
-  "surveyedAt": "2026-09-03T02:56:12.111Z",
+  "surveyedAt": "2026-10-19T14:12:23.145Z",
   "environments": {
     "production": [
       "web"
@@ -32,8 +32,10 @@
         "deployUrl",
         "workerName"
       ],
+      "upstreamFirstSeen": "2026-06-23",
       "verdict": "stale",
-      "matchedRev": "9f1326815be69993c85ba94340fbf2e591c695fa"
+      "matchedRev": "9f1326815be69993c85ba94340fbf2e591c695fa",
+      "matchedPath": "packages/cli/templates/infra/modules/cloudflare/index.ts"
     }
   ],
   "escapeHatches": [

@@ -2,9 +2,29 @@
   "cases": [
     {
       "module": "d1",
-      "kind": "new",
-      "consumers": 2,
+      "kind": "upgrade",
+      "consumers": 7,
       "implementations": [
+        {
+          "consumer": "ceo",
+          "name": "d1",
+          "location": "own",
+          "path": "packages/infra/modules/d1/index.ts",
+          "lines": 111,
+          "configKeys": [
+            "accountId",
+            "databaseName"
+          ],
+          "outputKeys": [
+            "databaseName",
+            "databaseId"
+          ],
+          "upstreamFirstSeen": "2026-09-08",
+          "verdict": "divergent",
+          "nearestRev": "7e3ba650a45aa36c6d9b74d029bf59f152361cb7",
+          "nearestPath": "packages/cli/templates/infra/modules/d1/index.ts",
+          "similarity": 0.126
+        },
         {
           "consumer": "leeandco",
           "name": "d1",
@@ -20,7 +40,51 @@
             "databaseName",
             "databaseId"
           ],
-          "verdict": "novel"
+          "upstreamFirstSeen": "2026-09-08",
+          "verdict": "divergent",
+          "nearestRev": "30815b1435dcd65d02bee748c69dd1bc013c92d1",
+          "nearestPath": "packages/cli/templates/infra/modules/d1/index.ts",
+          "similarity": 0.069
+        },
+        {
+          "consumer": "foothill-metabolic",
+          "name": "d1",
+          "location": "own",
+          "path": "packages/infra/modules/d1/index.ts",
+          "lines": 111,
+          "configKeys": [
+            "accountId",
+            "databaseName"
+          ],
+          "outputKeys": [
+            "databaseName",
+            "databaseId"
+          ],
+          "upstreamFirstSeen": "2026-09-08",
+          "verdict": "divergent",
+          "nearestRev": "7e3ba650a45aa36c6d9b74d029bf59f152361cb7",
+          "nearestPath": "packages/cli/templates/infra/modules/d1/index.ts",
+          "similarity": 0.126
+        },
+        {
+          "consumer": "web",
+          "name": "d1",
+          "location": "own",
+          "path": "packages/infra/modules/d1/index.ts",
+          "lines": 119,
+          "configKeys": [
+            "accountId",
+            "databaseName"
+          ],
+          "outputKeys": [
+            "databaseName",
+            "databaseId"
+          ],
+          "upstreamFirstSeen": "2026-09-08",
+          "verdict": "divergent",
+          "nearestRev": "7e3ba650a45aa36c6d9b74d029bf59f152361cb7",
+          "nearestPath": "packages/cli/templates/infra/modules/d1/index.ts",
+          "similarity": 0.113
         },
         {
           "consumer": "crux",
@@ -37,6 +101,676 @@
           "outputKeys": [
             "databaseName",
             "databaseId"
+          ],
+          "upstreamFirstSeen": "2026-09-08",
+          "verdict": "divergent",
+          "nearestRev": "7e3ba650a45aa36c6d9b74d029bf59f152361cb7",
+          "nearestPath": "packages/cli/templates/infra/modules/d1/index.ts",
+          "similarity": 0.104
+        },
+        {
+          "consumer": "qom",
+          "name": "d1",
+          "location": "own",
+          "path": "packages/infra/modules/d1/index.ts",
+          "lines": 312,
+          "configKeys": [
+            "accountId",
+            "databaseName",
+            "apiToken"
+          ],
+          "outputKeys": [
+            "databaseName",
+            "databaseId"
+          ],
+          "upstreamFirstSeen": "2026-09-08",
+          "verdict": "divergent",
+          "nearestRev": "30815b1435dcd65d02bee748c69dd1bc013c92d1",
+          "nearestPath": "packages/cli/templates/infra/modules/d1/index.ts",
+          "similarity": 0.069
+        },
+        {
+          "consumer": "railmid",
+          "name": "d1",
+          "location": "vendored",
+          "path": "vendor/zbc/modules/d1/index.ts",
+          "lines": 164,
+          "configKeys": [
+            "accountId",
+            "databaseName",
+            "locationHint"
+          ],
+          "outputKeys": [
+            "databaseId",
+            "databaseName"
+          ],
+          "upstreamFirstSeen": "2026-09-08",
+          "verdict": "divergent",
+          "nearestRev": "7e3ba650a45aa36c6d9b74d029bf59f152361cb7",
+          "nearestPath": "packages/cli/templates/infra/modules/d1/index.ts",
+          "similarity": 0.139
+        }
+      ]
+    },
+    {
+      "module": "cloudflare",
+      "kind": "upgrade",
+      "consumers": 3,
+      "implementations": [
+        {
+          "consumer": "ceo",
+          "name": "cloudflare",
+          "location": "own",
+          "path": "packages/infra/modules/cloudflare/index.ts",
+          "lines": 607,
+          "configKeys": [
+            "workdir",
+            "accountId",
+            "build",
+            "workerSecrets",
+            "r2Buckets",
+            "d1Databases",
+            "immediateContainerRollout",
+            "wranglerEnv",
+            "workerName",
+            "zoneSettings",
+            "zoneName",
+            "accessOrganization",
+            "access"
+          ],
+          "outputKeys": [
+            "deployUrl"
+          ],
+          "upstreamFirstSeen": "2026-06-23",
+          "verdict": "divergent",
+          "nearestRev": "e83bf83b5c86328409ff17c9feaa5a085fc4759e",
+          "nearestPath": "packages/cli/templates/infra/modules/cloudflare/index.ts",
+          "similarity": 0.382
+        },
+        {
+          "consumer": "foothill-metabolic",
+          "name": "cloudflare",
+          "location": "own",
+          "path": "packages/infra/modules/cloudflare/index.ts",
+          "lines": 250,
+          "configKeys": [
+            "workdir",
+            "accountId",
+            "build",
+            "workerSecrets",
+            "immediateContainerRollout",
+            "wranglerEnv",
+            "workerName"
+          ],
+          "outputKeys": [
+            "deployUrl"
+          ],
+          "upstreamFirstSeen": "2026-06-23",
+          "verdict": "divergent",
+          "nearestRev": "e83bf83b5c86328409ff17c9feaa5a085fc4759e",
+          "nearestPath": "packages/cli/templates/infra/modules/cloudflare/index.ts",
+          "similarity": 0.953
+        },
+        {
+          "consumer": "railmid",
+          "name": "cloudflare",
+          "location": "vendored",
+          "path": "vendor/zbc/modules/cloudflare/index.ts",
+          "lines": 791,
+          "configKeys": [
+            "workdir",
+            "accountId",
+            "apiToken",
+            "build",
+            "workerSecrets",
+            "workerVars",
+            "r2Bindings",
+            "d1Bindings",
+            "pruneCustomDomains",
+            "immediateContainerRollout",
+            "wranglerEnv",
+            "workerName"
+          ],
+          "outputKeys": [
+            "deployUrl",
+            "workerName"
+          ],
+          "upstreamFirstSeen": "2026-06-23",
+          "verdict": "divergent",
+          "nearestRev": "f06480507c37cb07f3868a004b17913c46bf9ed9",
+          "nearestPath": "packages/cli/templates/infra/modules/cloudflare/index.ts",
+          "similarity": 0.664
+        }
+      ]
+    },
+    {
+      "module": "cloudflare-email",
+      "kind": "upgrade",
+      "consumers": 3,
+      "implementations": [
+        {
+          "consumer": "leeandco",
+          "name": "cloudflare-email",
+          "location": "own",
+          "path": "packages/infra/modules/cloudflare-email/index.ts",
+          "lines": 719,
+          "configKeys": [
+            "accountId",
+            "zoneId",
+            "apiToken",
+            "domain",
+            "enableSending",
+            "enableRouting",
+            "catchAll",
+            "addresses"
+          ],
+          "outputKeys": [
+            "sendingEnabled",
+            "routingEnabled",
+            "dnsStatus",
+            "addresses",
+            "accountId",
+            "domain"
+          ],
+          "upstreamFirstSeen": "2026-07-15",
+          "verdict": "divergent",
+          "nearestRev": "74c795d37e0743b224263d7df19a949a0efb4e8a",
+          "nearestPath": "packages/cli/templates/infra/modules/cloudflare-email/index.ts",
+          "similarity": 0.653
+        },
+        {
+          "consumer": "qom",
+          "name": "cloudflare-email",
+          "location": "own",
+          "path": "packages/infra/modules/cloudflare-email/index.ts",
+          "lines": 719,
+          "configKeys": [
+            "accountId",
+            "zoneId",
+            "apiToken",
+            "domain",
+            "enableSending",
+            "enableRouting",
+            "catchAll",
+            "addresses"
+          ],
+          "outputKeys": [
+            "sendingEnabled",
+            "routingEnabled",
+            "dnsStatus",
+            "addresses",
+            "accountId",
+            "domain"
+          ],
+          "upstreamFirstSeen": "2026-07-15",
+          "verdict": "divergent",
+          "nearestRev": "74c795d37e0743b224263d7df19a949a0efb4e8a",
+          "nearestPath": "packages/cli/templates/infra/modules/cloudflare-email/index.ts",
+          "similarity": 0.597
+        },
+        {
+          "consumer": "railmid",
+          "name": "cloudflare-email",
+          "location": "vendored",
+          "path": "vendor/zbc/modules/cloudflare-email/index.ts",
+          "lines": 650,
+          "configKeys": [],
+          "outputKeys": [
+            "sendingEnabled",
+            "routingEnabled",
+            "dnsStatus",
+            "addresses",
+            "accountId",
+            "domain"
+          ],
+          "upstreamFirstSeen": "2026-07-15",
+          "verdict": "divergent",
+          "nearestRev": "9224fda0145efb52698995ec1006dd4e69ca163c",
+          "nearestPath": "packages/cli/templates/infra/modules/cloudflare-email/index.ts",
+          "similarity": 0.853
+        }
+      ]
+    },
+    {
+      "module": "gcp",
+      "kind": "new",
+      "consumers": 2,
+      "implementations": [
+        {
+          "consumer": "ceo",
+          "name": "gcp",
+          "location": "own",
+          "path": "packages/infra/modules/gcp/index.ts",
+          "lines": 182,
+          "configKeys": [
+            "projectId",
+            "serviceAccountId",
+            "displayName",
+            "calendarSummary",
+            "calendarTimeZone",
+            "maxKeys"
+          ],
+          "outputKeys": [
+            "saKey",
+            "saEmail",
+            "calendarId"
+          ],
+          "verdict": "novel"
+        },
+        {
+          "consumer": "foothill-metabolic",
+          "name": "gcp",
+          "location": "own",
+          "path": "packages/infra/modules/gcp/index.ts",
+          "lines": 182,
+          "configKeys": [
+            "projectId",
+            "serviceAccountId",
+            "displayName",
+            "calendarSummary",
+            "calendarTimeZone",
+            "maxKeys"
+          ],
+          "outputKeys": [
+            "saKey",
+            "saEmail",
+            "calendarId"
+          ],
+          "verdict": "novel"
+        }
+      ]
+    },
+    {
+      "module": "r2",
+      "kind": "upgrade",
+      "consumers": 2,
+      "implementations": [
+        {
+          "consumer": "leeandco",
+          "name": "r2",
+          "location": "own",
+          "path": "packages/infra/modules/r2/index.ts",
+          "lines": 236,
+          "configKeys": [
+            "accountId",
+            "bucketName",
+            "locationHint",
+            "apiToken"
+          ],
+          "outputKeys": [
+            "bucketName"
+          ],
+          "upstreamFirstSeen": "2026-07-16",
+          "verdict": "divergent",
+          "nearestRev": "83740ac179b111ef98708a5a16eed4ccaf85698f",
+          "nearestPath": "packages/cli/templates/infra/modules/r2/index.ts",
+          "similarity": 0.402
+        },
+        {
+          "consumer": "railmid",
+          "name": "r2",
+          "location": "vendored",
+          "path": "vendor/zbc/modules/r2/index.ts",
+          "lines": 222,
+          "configKeys": [
+            "accountId",
+            "bucketName",
+            "locationHint",
+            "lifecycle",
+            "ephemeral"
+          ],
+          "outputKeys": [
+            "bucketName"
+          ],
+          "upstreamFirstSeen": "2026-07-16",
+          "verdict": "divergent",
+          "nearestRev": "9f1326815be69993c85ba94340fbf2e591c695fa",
+          "nearestPath": "packages/cli/templates/infra/modules/r2/index.ts",
+          "similarity": 0.602
+        }
+      ]
+    },
+    {
+      "module": "github-runner",
+      "kind": "new",
+      "consumers": 1,
+      "implementations": [
+        {
+          "consumer": "foundry",
+          "name": "github-runner",
+          "location": "own",
+          "path": "packages/infra/modules/github-runner/index.ts",
+          "lines": 579,
+          "configKeys": [
+            "repo",
+            "runnerName",
+            "installDir",
+            "workDir",
+            "labels",
+            "patSecretKey",
+            "count",
+            "memoryHigh",
+            "memoryMax",
+            "instance",
+            "user"
+          ],
+          "outputKeys": [],
+          "verdict": "novel"
+        }
+      ]
+    },
+    {
+      "module": "tailscale-authkey",
+      "kind": "new",
+      "consumers": 1,
+      "implementations": [
+        {
+          "consumer": "foundry",
+          "name": "tailscale-authkey",
+          "location": "own",
+          "path": "packages/infra/modules/tailscale-authkey/index.ts",
+          "lines": 226,
+          "configKeys": [
+            "tags",
+            "checkHostname",
+            "description",
+            "expirySeconds",
+            "reusable",
+            "ephemeral",
+            "preauthorized"
+          ],
+          "outputKeys": [
+            "key",
+            "minted",
+            "tags",
+            "reason"
+          ],
+          "verdict": "novel"
+        }
+      ]
+    },
+    {
+      "module": "prometheus-reload",
+      "kind": "new",
+      "consumers": 1,
+      "implementations": [
+        {
+          "consumer": "foundry",
+          "name": "prometheus-reload",
+          "location": "own",
+          "path": "packages/infra/modules/prometheus-reload/index.ts",
+          "lines": 206,
+          "configKeys": [
+            "url",
+            "dir"
+          ],
+          "outputKeys": [],
+          "verdict": "novel"
+        }
+      ]
+    },
+    {
+      "module": "tailscale-serve",
+      "kind": "new",
+      "consumers": 1,
+      "implementations": [
+        {
+          "consumer": "foundry",
+          "name": "tailscale-serve",
+          "location": "own",
+          "path": "packages/infra/modules/tailscale-serve/index.ts",
+          "lines": 179,
+          "configKeys": [
+            "port",
+            "target",
+            "path"
+          ],
+          "outputKeys": [
+            "port",
+            "url",
+            "changed"
+          ],
+          "verdict": "novel"
+        }
+      ]
+    },
+    {
+      "module": "incus-project",
+      "kind": "new",
+      "consumers": 1,
+      "implementations": [
+        {
+          "consumer": "foundry",
+          "name": "incus-project",
+          "location": "own",
+          "path": "packages/infra/modules/incus-project/index.ts",
+          "lines": 154,
+          "configKeys": [
+            "name",
+            "config"
+          ],
+          "outputKeys": [
+            "name",
+            "created",
+            "changed"
+          ],
+          "verdict": "novel"
+        }
+      ]
+    },
+    {
+      "module": "git-worktree",
+      "kind": "new",
+      "consumers": 1,
+      "implementations": [
+        {
+          "consumer": "foundry",
+          "name": "git-worktree",
+          "location": "own",
+          "path": "packages/infra/modules/git-worktree/index.ts",
+          "lines": 215,
+          "configKeys": [
+            "repo",
+            "path",
+            "branch",
+            "hooksPath"
+          ],
+          "outputKeys": [
+            "path",
+            "branch",
+            "created",
+            "changed",
+            "hooksPath"
+          ],
+          "verdict": "novel"
+        }
+      ]
+    },
+    {
+      "module": "claude-settings",
+      "kind": "new",
+      "consumers": 1,
+      "implementations": [
+        {
+          "consumer": "foundry",
+          "name": "claude-settings",
+          "location": "own",
+          "path": "packages/infra/modules/claude-settings/index.ts",
+          "lines": 233,
+          "configKeys": [
+            "settingsPath",
+            "owner",
+            "entries",
+            "settings"
+          ],
+          "outputKeys": [],
+          "verdict": "novel"
+        }
+      ]
+    },
+    {
+      "module": "apt-packages",
+      "kind": "new",
+      "consumers": 1,
+      "implementations": [
+        {
+          "consumer": "foundry",
+          "name": "apt-packages",
+          "location": "own",
+          "path": "packages/infra/modules/apt-packages/index.ts",
+          "lines": 133,
+          "configKeys": [
+            "packages",
+            "updateTimeoutMs",
+            "installTimeoutMs"
+          ],
+          "outputKeys": [
+            "packages",
+            "installed",
+            "changed"
+          ],
+          "verdict": "novel"
+        }
+      ]
+    },
+    {
+      "module": "tailscale-acl",
+      "kind": "new",
+      "consumers": 1,
+      "implementations": [
+        {
+          "consumer": "foundry",
+          "name": "tailscale-acl",
+          "location": "own",
+          "path": "packages/infra/modules/tailscale-acl/index.ts",
+          "lines": 212,
+          "configKeys": [
+            "policyPath"
+          ],
+          "outputKeys": [
+            "tailnet",
+            "sshActions",
+            "changed"
+          ],
+          "verdict": "novel"
+        }
+      ]
+    },
+    {
+      "module": "tailscale-core",
+      "kind": "new",
+      "consumers": 1,
+      "implementations": [
+        {
+          "consumer": "foundry",
+          "name": "tailscale-core",
+          "location": "own",
+          "path": "packages/infra/modules/tailscale-core/index.ts",
+          "lines": 93,
+          "configKeys": [],
+          "outputKeys": [],
+          "verdict": "novel"
+        }
+      ]
+    },
+    {
+      "module": "incus-trust",
+      "kind": "new",
+      "consumers": 1,
+      "implementations": [
+        {
+          "consumer": "foundry",
+          "name": "incus-trust",
+          "location": "own",
+          "path": "packages/infra/modules/incus-trust/index.ts",
+          "lines": 337,
+          "configKeys": [
+            "name",
+            "projects"
+          ],
+          "outputKeys": [
+            "name",
+            "projects",
+            "state",
+            "changed"
+          ],
+          "verdict": "novel"
+        }
+      ]
+    },
+    {
+      "module": "incus-listener",
+      "kind": "new",
+      "consumers": 1,
+      "implementations": [
+        {
+          "consumer": "foundry",
+          "name": "incus-listener",
+          "location": "own",
+          "path": "packages/infra/modules/incus-listener/index.ts",
+          "lines": 204,
+          "configKeys": [
+            "port",
+            "tokenExpiry"
+          ],
+          "outputKeys": [
+            "address",
+            "tokenExpiry",
+            "changed"
+          ],
+          "verdict": "novel"
+        }
+      ]
+    },
+    {
+      "module": "obs",
+      "kind": "new",
+      "consumers": 1,
+      "implementations": [
+        {
+          "consumer": "ceo",
+          "name": "obs",
+          "location": "own",
+          "path": "packages/infra/modules/obs/index.ts",
+          "lines": 769,
+          "configKeys": [
+            "host",
+            "port",
+            "configPath",
+            "scenes",
+            "video",
+            "currentScene",
+            "recordDirectory",
+            "profileParameters",
+            "prune"
+          ],
+          "outputKeys": [
+            "url",
+            "scenes"
+          ],
+          "verdict": "novel"
+        }
+      ]
+    },
+    {
+      "module": "posthog",
+      "kind": "new",
+      "consumers": 1,
+      "implementations": [
+        {
+          "consumer": "ceo",
+          "name": "posthog",
+          "location": "own",
+          "path": "packages/infra/modules/posthog/index.ts",
+          "lines": 120,
+          "configKeys": [
+            "projectId",
+            "host",
+            "dashboards",
+            "insights"
+          ],
+          "outputKeys": [
+            "dashboardUrls"
           ],
           "verdict": "novel"
         }
@@ -91,42 +825,6 @@
       ]
     },
     {
-      "module": "cloudflare-email",
-      "kind": "upgrade",
-      "consumers": 1,
-      "implementations": [
-        {
-          "consumer": "leeandco",
-          "name": "cloudflare-email",
-          "location": "own",
-          "path": "packages/infra/modules/cloudflare-email/index.ts",
-          "lines": 719,
-          "configKeys": [
-            "accountId",
-            "zoneId",
-            "apiToken",
-            "domain",
-            "enableSending",
-            "enableRouting",
-            "catchAll",
-            "addresses"
-          ],
-          "outputKeys": [
-            "sendingEnabled",
-            "routingEnabled",
-            "dnsStatus",
-            "addresses",
-            "accountId",
-            "domain"
-          ],
-          "upstreamFirstSeen": "2026-07-15",
-          "verdict": "divergent",
-          "nearestRev": "74c795d37e0743b224263d7df19a949a0efb4e8a",
-          "similarity": 0.653
-        }
-      ]
-    },
-    {
       "module": "cloudflare-token",
       "kind": "upgrade",
       "consumers": 1,
@@ -155,6 +853,7 @@
           "upstreamFirstSeen": "2026-08-03",
           "verdict": "divergent",
           "nearestRev": "3a5bf8543be321c406987289c591fed632b381fb",
+          "nearestPath": "packages/cli/templates/infra/modules/cloudflare-token/index.ts",
           "similarity": 0.294
         }
       ]
@@ -187,6 +886,7 @@
           "upstreamFirstSeen": "2026-08-19",
           "verdict": "divergent",
           "nearestRev": "aefae2833a07124a1c6831a4c2c0ee8e4e920b68",
+          "nearestPath": "packages/cli/templates/infra/modules/cloudflare-zone/index.ts",
           "similarity": 0.592
         }
       ]
@@ -201,7 +901,7 @@
           "name": "cloudflare-access",
           "location": "own",
           "path": "packages/infra/modules/cloudflare-access/index.ts",
-          "lines": 932,
+          "lines": 979,
           "configKeys": [],
           "outputKeys": [
             "appId",
@@ -211,6 +911,7 @@
             "identityProviders",
             "undeclaredIdentityProviders",
             "appDomain",
+            "appDomains",
             "emails",
             "policyId",
             "policyIds",
@@ -222,7 +923,214 @@
           "upstreamFirstSeen": "2026-08-19",
           "verdict": "divergent",
           "nearestRev": "76007535ed540c63a8caaccf274bb170c9f6db62",
-          "similarity": 0.35
+          "nearestPath": "packages/cli/templates/infra/modules/cloudflare-access/index.ts",
+          "similarity": 0.34
+        }
+      ]
+    },
+    {
+      "module": "stored-token",
+      "kind": "new",
+      "consumers": 1,
+      "implementations": [
+        {
+          "consumer": "agent-lab",
+          "name": "stored-token",
+          "location": "own",
+          "path": "packages/infra/modules/stored-token/index.ts",
+          "lines": 250,
+          "configKeys": [],
+          "outputKeys": [],
+          "verdict": "novel"
+        }
+      ]
+    },
+    {
+      "module": "client-account",
+      "kind": "new",
+      "consumers": 1,
+      "implementations": [
+        {
+          "consumer": "varnick",
+          "name": "client-account",
+          "location": "own",
+          "path": "packages/infra/modules/client-account/index.ts",
+          "lines": 523,
+          "configKeys": [],
+          "outputKeys": [
+            "accountId",
+            "accountName",
+            "zoneId",
+            "nameServers",
+            "created",
+            "drift",
+            "ownerEmail",
+            "ownerHoldsAccount",
+            "changed"
+          ],
+          "verdict": "novel"
+        }
+      ]
+    },
+    {
+      "module": "client-domain",
+      "kind": "new",
+      "consumers": 1,
+      "implementations": [
+        {
+          "consumer": "varnick",
+          "name": "client-domain",
+          "location": "own",
+          "path": "packages/infra/modules/client-domain/index.ts",
+          "lines": 277,
+          "configKeys": [],
+          "outputKeys": [
+            "domain",
+            "accountId",
+            "registered",
+            "expiresAt",
+            "locked",
+            "currentRegistrar",
+            "registryStatuses",
+            "maxPriceUsd",
+            "changed"
+          ],
+          "verdict": "novel"
+        }
+      ]
+    },
+    {
+      "module": "client-preview",
+      "kind": "new",
+      "consumers": 1,
+      "implementations": [
+        {
+          "consumer": "varnick",
+          "name": "client-preview",
+          "location": "own",
+          "path": "packages/infra/modules/client-preview/index.ts",
+          "lines": 829,
+          "configKeys": [],
+          "outputKeys": [
+            "accountId",
+            "accountName",
+            "zoneId",
+            "hostname",
+            "tryPath",
+            "deployed",
+            "tornDown",
+            "routesCreated",
+            "routesRepointed",
+            "routesRemoved",
+            "changed"
+          ],
+          "verdict": "novel"
+        }
+      ]
+    },
+    {
+      "module": "client-core",
+      "kind": "new",
+      "consumers": 1,
+      "implementations": [
+        {
+          "consumer": "varnick",
+          "name": "client-core",
+          "location": "own",
+          "path": "packages/infra/modules/client-core/index.ts",
+          "lines": 155,
+          "configKeys": [],
+          "outputKeys": [],
+          "verdict": "novel"
+        }
+      ]
+    },
+    {
+      "module": "cloudflare-redirect-rules",
+      "kind": "new",
+      "consumers": 1,
+      "implementations": [
+        {
+          "consumer": "qom",
+          "name": "cloudflare-redirect-rules",
+          "location": "own",
+          "path": "packages/infra/modules/cloudflare-redirect-rules/index.ts",
+          "lines": 415,
+          "configKeys": [],
+          "outputKeys": [
+            "rulesetId",
+            "ruleIds",
+            "created",
+            "updated",
+            "deleted",
+            "undeclared",
+            "changed"
+          ],
+          "verdict": "novel"
+        }
+      ]
+    },
+    {
+      "module": "cloudflare-redirect",
+      "kind": "new",
+      "consumers": 1,
+      "implementations": [
+        {
+          "consumer": "railmid",
+          "name": "cloudflare-redirect",
+          "location": "vendored",
+          "path": "vendor/zbc/modules/cloudflare-redirect/index.ts",
+          "lines": 170,
+          "configKeys": [
+            "accountId",
+            "zone",
+            "apiToken"
+          ],
+          "outputKeys": [
+            "zoneId",
+            "zoneName",
+            "rulesetId",
+            "rules"
+          ],
+          "verdict": "novel"
+        }
+      ]
+    },
+    {
+      "module": "access-managed-oauth",
+      "kind": "new",
+      "consumers": 1,
+      "implementations": [
+        {
+          "consumer": "lov",
+          "name": "access-managed-oauth",
+          "location": "own",
+          "path": "packages/infra/modules/access-managed-oauth/index.ts",
+          "lines": 63,
+          "configKeys": [
+            "accountId",
+            "apiToken",
+            "appId"
+          ],
+          "outputKeys": [],
+          "verdict": "novel"
+        }
+      ]
+    },
+    {
+      "module": "secret-token",
+      "kind": "new",
+      "consumers": 1,
+      "implementations": [
+        {
+          "consumer": "lov",
+          "name": "secret-token",
+          "location": "own",
+          "path": "packages/infra/modules/secret-token/index.ts",
+          "lines": 20,
+          "configKeys": [],
+          "outputKeys": [],
+          "verdict": "novel"
         }
       ]
     }

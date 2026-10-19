@@ -27,6 +27,14 @@ revision** of the template of the same name. Verbatim match at any revision →
 `stale`, dropped, no case, no zbc change. On the first three repos surveyed
 that alone dropped `stiqr/cloudflare` and `leeandco/cloudflare` — the two
 loudest "forks" — while keeping `crux/cloudflare`, which is genuinely edited.
+"Every revision" includes modules main has since deleted, and every path a
+module has lived at: until 2026-10-18 the index read only what main ships
+today, so ceo's byte-identical copy of our deleted `vercel` came back `novel`.
+
+`stale` means "nothing here we did not have"; it does not say who wrote it
+first. youbuzz is where zbc's CLI and module system began, two weeks before
+zbc's first commit, so its "stale" `turso` and `vercel` are the originals ours
+were taken from. The dates settle direction, as they do for `divergent`.
 
 Matching is done twice: on the file, and on a **normalised** form with quote
 style, trailing punctuation, indentation and blank lines stripped. A consumer
@@ -48,10 +56,20 @@ bun scripts/consumer-survey.ts            # every consumer in the registry
 bun scripts/consumer-survey.ts crux ceo   # or named ones, while iterating
 ```
 
-Writes to `.consumer-survey/` (gitignored): `<id>.json` per consumer, plus
+Writes to `.consumer-survey/` (checked in; only the `repos/` clones are gitignored): `<id>.json` per consumer, plus
 `index.json` — the same findings regrouped by module name, which is the shape
-the rest of this works from. GitHub consumers are cloned shallow; the two with
-no remote are read over ssh, straight off the machine named in the registry.
+the rest of this works from. GitHub consumers are cloned shallow; the ones with
+no readable remote are archived at HEAD, over ssh or off this machine, as the
+registry's `access` says.
+
+Escape hatches are a regex over `scripts/`, `packages/infra/` and `.github/`
+(and a `root` consumer's own `scripts/` and `packages/infra/`): provider CLIs
+and `gh api`, plus `sops` calls matched by shape, in `.ts`/`.js`/`.mjs`/`.cjs`
+(and `.mts`/`.cts`), JSON, YAML and shell. Comments are skipped, and so is any
+`.github/` line zbc's own workflows have ever had — `zbc init --ci github`
+copied it there, the same rule as for modules. It is still noisy and blind to
+anything elsewhere in the tree; the per-consumer agents grep the rest. Paths in
+the survey are relative to the checkout, `.consumer-survey/repos/<id>/`.
 
 Each module carries a verdict:
 
@@ -72,13 +90,15 @@ hatches. Give each agent its own `.consumer-survey/<id>.json` and this brief:
 > `novel`, and for the escape hatches, report what capability the consumer
 > needed and what evidence proves it. Do not propose zbc changes and do not
 > compare against other consumers — you cannot see them. Report only what this
-> repo shows.
+> repo shows. The collector's hatch scan covers only `scripts/`,
+> `packages/infra/` and `.github/`: grep the rest of the checkout for provider
+> CLI calls too.
 
 For a `divergent` module, the agent diffs against the revision the consumer
 actually forked, never against `main`:
 
 ```bash
-git show <nearestRev>:packages/cli/templates/infra/modules/<name>/index.ts > /tmp/base.ts
+git show <nearestRev>:<nearestPath> > /tmp/base.ts
 diff /tmp/base.ts .consumer-survey/repos/<id>/<path>
 ```
 
@@ -114,6 +134,17 @@ Fixed report schema per finding, so the synthesis step can merge them:
 - **deployed?** — is it wired into an instance in a `production` environment,
   or does it sit unapplied? Production means evidence; unapplied means opinion.
 
+Then give each report to a second agent whose only job is to break it: re-check
+every "missing on main" in code, every fork against the consumer's dates, every
+production claim against an instance file, and look for material the first one
+skipped. On 2026-10-18 that amended 91 of 124 findings and added 9 — mostly
+gaps main had already closed, and convergences read as forks.
+
+Separately, audit the previous run's cases against `main` before synthesising:
+every gap they named is now closed, partly closed, open or obsolete. A closed
+one becomes a line in the README; a case whose gaps all closed is retired, and
+its remainders move to the case that now owns them.
+
 ## Synthesise per module
 
 One pass over all the reports, grouped by module name. This step is the only
@@ -143,7 +174,7 @@ One file per module at `docs/consumers/cases/<module>.md`, overwritten each run
 from:
 
 ```markdown
-# <module> — <new | upgrade>
+# <module> — <new | upgrade | deleted-upstream>
 
 **Consumers:** <ids>  ·  **Deployed in production by:** <ids>
 
@@ -160,8 +191,22 @@ from:
 <file:line per consumer, and the nearestRev each divergent one forked from>
 ```
 
+`deleted-upstream` is an edited copy of a built-in `main` has since deleted
+(`index.json` kind `deleted-upstream`, `upstreamDeleted` on the finding): the
+question is whether deleting it was right, not what to add to it.
+
 Then a rollup at `docs/consumers/cases/README.md`: every case, one line each,
 ordered by consumer count, `new` and `upgrade` split apart.
+
+Each finding belongs to exactly one case, and the others link to it. Cases are
+written in parallel, so decide before writing which case carries each topic two
+of them touch; otherwise each defers to the other and neither carries it.
+
+Keep a case to about 700 words before its Evidence heading — 1,100 when it
+bundles several needs. Agents that verify everything write four to eight times
+that; tighten the draft against itself rather than shipping it. Cut the
+verification narration and the repetition, never a consumer, a main file:line
+behind a gap, or an open question.
 
 ## Where this stops
 
@@ -174,3 +219,8 @@ call is easy.
 Registry maintenance is manual: a new consumer means a new entry in
 `docs/consumers/registry.json`. The collector will not discover one on its own,
 by design — `access` and `tier` are facts no script can derive.
+`access` is `github`, `local:<path>` (a repo on this machine, archived at HEAD
+— pull it first) or `ssh:<host>:<path>`; set `root` when `zbc.config.ts` is not
+at the repo root. To find unregistered ones, look for `zbc.config.ts` /
+`.zbc-vendor.json` under `~/Projects` and on ryzen-9, and skip worktrees
+(`.git` is a file) — most of the hits are worktrees of a registered repo.

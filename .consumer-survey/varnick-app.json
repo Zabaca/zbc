@@ -1,0 +1,53 @@
+{
+  "id": "varnick-app",
+  "repo": "Zabaca/varnick",
+  "root": "deploy",
+  "mode": "copy",
+  "tier": "consumer",
+  "ref": "68236a6dc2c479eb9eced5d35887b8d65d31ce32",
+  "surveyedAt": "2026-10-19T14:12:30.502Z",
+  "environments": {
+    "production": [
+      "varnick-site"
+    ]
+  },
+  "modules": [
+    {
+      "name": "cloudflare",
+      "location": "own",
+      "path": "deploy/packages/infra/modules/cloudflare/index.ts",
+      "lines": 835,
+      "configKeys": [
+        "workdir",
+        "accountId",
+        "apiToken",
+        "build",
+        "workerSecrets",
+        "workerVars",
+        "r2Bindings",
+        "bindings",
+        "deployIdVar",
+        "immediateContainerRollout",
+        "wranglerEnv",
+        "workerName",
+        "routes"
+      ],
+      "outputKeys": [
+        "deployUrl",
+        "workerName"
+      ],
+      "upstreamFirstSeen": "2026-06-23",
+      "verdict": "current",
+      "matchedRev": "3f30e5fede7b5a6300bbe7dd3656b6276740839b",
+      "matchedPath": "packages/cli/templates/infra/modules/cloudflare/index.ts"
+    }
+  ],
+  "escapeHatches": [
+    {
+      "file": "deploy/packages/infra/package.json",
+      "line": 16,
+      "tool": "wrangler",
+      "snippet": "\"wrangler\": \"^4.0.0\""
+    }
+  ]
+}

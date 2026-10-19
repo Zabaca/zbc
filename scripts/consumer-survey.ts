@@ -43,6 +43,8 @@ export type Verdict = 'current' | 'stale' | 'divergent' | 'novel'
 /** One historical revision of one upstream module file. */
 export interface Revision {
   rev: string
+  /** Where the file lived at `rev` — modules moved, so `git show <rev>:<file>` needs both. */
+  file?: string
   /** Author date, YYYY-MM-DD. Only the oldest one is used, and see below. */
   date: string
   hash: string
@@ -77,8 +79,11 @@ export interface Classification {
   formattingOnly?: boolean
   /** Set when `stale`: the upstream revision this is a verbatim copy of. */
   matchedRev?: string
+  matchedPath?: string
   /** Set when `divergent`: the revision to diff against, i.e. the closest one. */
   nearestRev?: string
+  /** Where that revision's file lived: `git show <nearestRev>:<nearestPath>`. */
+  nearestPath?: string
   /** Set when `divergent`: 0..1 line overlap with `nearestRev`. */
   similarity?: number
 }
@@ -87,8 +92,15 @@ export function hash(content: string): string {
   return crypto.createHash('sha256').update(content).digest('hex')
 }
 
-export function revision(rev: string, content: string, date = ''): Revision {
-  return { rev, date, hash: hash(content), normalizedHash: hash(normalize(content)), content }
+export function revision(rev: string, content: string, date = '', file?: string): Revision {
+  return {
+    rev,
+    file,
+    date,
+    hash: hash(content),
+    normalizedHash: hash(normalize(content)),
+    content,
+  }
 }
 
 /**
@@ -118,17 +130,23 @@ export function similarity(a: string, b: string): number {
 /**
  * Where does one consumer module sit relative to the upstream module of the
  * same name? `history` is every revision of that upstream file, newest first;
- * an empty history means no such built-in has ever existed.
+ * an empty history means no such built-in has ever existed. `shipped` is false
+ * when main has since deleted the module, so even its last revision is stale.
  */
-export function classify(content: string, history: Revision[]): Classification {
+export function classify(content: string, history: Revision[], shipped = true): Classification {
   if (history.length === 0) return { verdict: 'novel' }
+  const isNewest = (r: Revision) => shipped && r.rev === history[0].rev
 
   const h = hash(content)
   const exact = history.find((r) => r.hash === h)
   if (exact) {
     // Verbatim either way — but a copy of the newest revision is up to date,
     // while a copy of an older one is upgrade debt on the consumer's side.
-    return { verdict: exact.rev === history[0].rev ? 'current' : 'stale', matchedRev: exact.rev }
+    return {
+      verdict: isNewest(exact) ? 'current' : 'stale',
+      matchedRev: exact.rev,
+      matchedPath: exact.file,
+    }
   }
 
   // Not byte-identical, but a reformat is not an edit.
@@ -136,8 +154,9 @@ export function classify(content: string, history: Revision[]): Classification {
   const reformatted = history.find((r) => r.normalizedHash === nh)
   if (reformatted) {
     return {
-      verdict: reformatted.rev === history[0].rev ? 'current' : 'stale',
+      verdict: isNewest(reformatted) ? 'current' : 'stale',
       matchedRev: reformatted.rev,
+      matchedPath: reformatted.file,
       formattingOnly: true,
     }
   }
@@ -151,7 +170,12 @@ export function classify(content: string, history: Revision[]): Classification {
       nearest = rev
     }
   }
-  return { verdict: 'divergent', nearestRev: nearest.rev, similarity: Number(best.toFixed(3)) }
+  return {
+    verdict: 'divergent',
+    nearestRev: nearest.rev,
+    nearestPath: nearest.file,
+    similarity: Number(best.toFixed(3)),
+  }
 }
 
 /**
@@ -200,7 +224,18 @@ const PROVIDER_CLIS = [
   'vercel ',
   'aws ',
   'incus ',
+  // Not a provider, but a resource no module declares.
+  'gh api',
 ]
+
+/**
+ * A `sops` call, which `zbc secret get` replaces: `sops` then any option but
+ * --version/--help, a subcommand, or a `\` continuation; or 'sops' as argv[0].
+ * Matched by shape, not by the word, which is mostly error text and
+ * `command -v` guards.
+ */
+export const SOPS_CALL =
+  /\bsops(?:\s+(?:-{1,2}(?!(?:version|help|v|h)\b)[A-Za-z]|(?:decrypt|encrypt|exec-env|exec-file|set|unset|edit|updatekeys|rotate|filestatus|publish|keyservice|groups)\b)|\s*\\\s*$)|\[\s*['"]sops['"]\s*,|\b(?:spawn|exec)\w*\(\s*['"]sops['"]/
 
 export interface EscapeHatch {
   file: string
@@ -215,15 +250,25 @@ export interface EscapeHatch {
  * The rarest and most valuable finding: not "the built-in was wrong" but
  * "nobody tried to write a module at all". That points at `defineModule`
  * rather than at any one module.
+ *
+ * `ours` is every line zbc's own workflows have had: `zbc init --ci github`
+ * copies them into a consumer's .github/, so a call there can be our code —
+ * the same rule the module index applies.
  */
-export function findEscapeHatches(files: { path: string; content: string }[]): EscapeHatch[] {
+export function findEscapeHatches(
+  files: { path: string; content: string }[],
+  ours: Set<string> = new Set(),
+): EscapeHatch[] {
   const hatches: EscapeHatch[] = []
   for (const file of files) {
     if (file.path.includes('/modules/') || file.path.includes('node_modules')) continue
+    const hashComments = /\.(sh|ya?ml)$/.test(file.path)
     file.content.split('\n').forEach((text, idx) => {
-      const tool = PROVIDER_CLIS.find((t) => text.includes(t))
+      const tool = PROVIDER_CLIS.find((t) => text.includes(t)) ?? (SOPS_CALL.test(text) && 'sops')
       if (!tool) return
-      if (text.trim().startsWith('*') || text.trim().startsWith('//')) return
+      const t = text.trim()
+      if (t.startsWith('*') || t.startsWith('//') || (hashComments && t.startsWith('#'))) return
+      if (file.path.startsWith('.github/') && ours.has(t)) return
       hatches.push({
         file: file.path,
         line: idx + 1,
@@ -254,29 +299,104 @@ function tryRun(cmd: string, args: string[], cwd?: string): string | null {
   return r.status === 0 ? r.stdout : null
 }
 
-/** Every revision of every built-in module's `index.ts`, newest first. */
-export function buildAncestorIndex(repoRoot = REPO_ROOT): Record<string, Revision[]> {
-  const names = fs
-    .readdirSync(path.join(repoRoot, TEMPLATE_MODULES), { withFileTypes: true })
-    .filter((e) => e.isDirectory())
-    .map((e) => e.name)
+/**
+ * Everywhere a built-in's source has lived. Modules sat in packages/infra/ and
+ * packages/cli/modules/ before settling under templates/ (d82840f), and some
+ * were deleted outright (vercel in feee322, nats-server). A consumer's copy of
+ * either is still our code: indexing only what main ships today reported ceo's
+ * byte-identical `vercel` as a consumer idea.
+ */
+const MODULE_HOMES = [TEMPLATE_MODULES, 'packages/cli/modules', 'packages/infra/modules']
+const MODULE_FILE = new RegExp(`^(?:${MODULE_HOMES.join('|')})/([^/]+)/index\\.ts$`)
 
+/** `git log --format='@%H %ad' --name-only` → one entry per module file per commit. */
+export function parseModuleLog(
+  log: string,
+): { rev: string; date: string; file: string; name: string }[] {
+  const entries: { rev: string; date: string; file: string; name: string }[] = []
+  let rev = ''
+  let date = ''
+  for (const line of log.split('\n')) {
+    if (line.startsWith('@')) {
+      ;[rev, date] = line.slice(1).split(' ')
+      continue
+    }
+    const m = line.match(MODULE_FILE)
+    if (m && rev) entries.push({ rev, date, file: line, name: m[1] })
+  }
+  return entries
+}
+
+/** Every revision of every built-in module's `index.ts` main has ever had, newest first. */
+export function buildAncestorIndex(repoRoot = REPO_ROOT): Record<string, Revision[]> {
+  const log = run(
+    'git',
+    [
+      'log',
+      '--format=@%H %ad',
+      '--date=short',
+      '--name-only',
+      // Without this a merge lists no files, and a blob only a merge produced
+      // (two clean edits to one index.ts) is never indexed. `combined` lists a
+      // path only when it differs from every parent, so a merge that just
+      // carries a branch's blob over is not indexed a second time under its own rev.
+      '--diff-merges=combined',
+      '--',
+      ...MODULE_HOMES.map((home) => `${home}/*/index.ts`),
+    ],
+    repoRoot,
+  )
   const index: Record<string, Revision[]> = {}
-  for (const name of names) {
-    const file = `${TEMPLATE_MODULES}/${name}/index.ts`
-    const revs = run('git', ['log', '--format=%H', '--follow', '--', file], repoRoot)
-      .split('\n')
-      .filter(Boolean)
-    index[name] = revs.flatMap((rev) => {
-      const content = tryRun('git', ['show', `${rev}:${file}`], repoRoot)
-      if (content === null) return []
-      const date = (
-        tryRun('git', ['log', '-1', '--format=%ad', '--date=short', rev], repoRoot) ?? ''
-      ).trim()
-      return [revision(rev, content, date)]
-    })
+  for (const { rev, date, file, name } of parseModuleLog(log)) {
+    const content = tryRun('git', ['show', `${rev}:${file}`], repoRoot)
+    if (content === null)
+      continue // the commit that deleted it, or moved it away
+    ;(index[name] ??= []).push(revision(rev, content, date, file))
   }
   return index
+}
+
+/** The built-ins HEAD ships. The ancestor index also holds ones it has deleted. */
+export function shippedModules(repoRoot = REPO_ROOT): Set<string> {
+  // From HEAD, not the worktree: git leaves a deleted module's directory behind
+  // while it still holds an ignored file (.DS_Store, node_modules).
+  const files = run(
+    'git',
+    ['ls-tree', '-r', '--name-only', 'HEAD', '--', TEMPLATE_MODULES],
+    repoRoot,
+  )
+  return new Set(files.split('\n').flatMap((f) => f.match(MODULE_FILE)?.[1] ?? []))
+}
+
+/**
+ * Every line zbc's own workflows have ever had — the templates `zbc init --ci
+ * github` copies, and this repo's workflows they were drawn from.
+ */
+export function workflowLines(repoRoot = REPO_ROOT): Set<string> {
+  const log = run(
+    'git',
+    [
+      'log',
+      '--format=@%H',
+      '--name-only',
+      '--diff-merges=combined',
+      '--',
+      'packages/cli/templates/workflows/*.yml',
+      '.github/workflows/*.yml',
+    ],
+    repoRoot,
+  )
+  const lines = new Set<string>()
+  let rev = ''
+  for (const line of log.split('\n')) {
+    if (line.startsWith('@')) rev = line.slice(1)
+    else if (line && rev) {
+      for (const l of tryRun('git', ['show', `${rev}:${line}`], repoRoot)?.split('\n') ?? []) {
+        if (l.trim()) lines.add(l.trim())
+      }
+    }
+  }
+  return lines
 }
 
 interface Consumer {
@@ -285,41 +405,91 @@ interface Consumer {
   access: string
   mode: string
   tier: string
+  /** Where zbc.config.ts sits, when it is not the repo root (varnick keeps it in `deploy/`). */
+  root?: string
 }
 
-/** Get a consumer's tree on disk at its default branch. Returns the checkout dir. */
-function fetchConsumer(c: Consumer): { dir: string; ref: string } {
+/** Get a consumer's tree on disk at its default branch: `checkout` is the repo, `dir` the zbc project. */
+function fetchConsumer(c: Consumer): { checkout: string; dir: string; ref: string } {
+  const { dir: checkout, ref } = fetchCheckout(c)
+  return { checkout, ref, dir: path.join(checkout, c.root ?? '') }
+}
+
+/** Where escape hatches are looked for: the zbc project's, and the repo's own scripts and workflows. */
+export function hatchDirs(root = ''): string[] {
+  const inRoot = (sub: string) => path.posix.join(root, sub)
+  return [...new Set(['scripts', inRoot('scripts'), inRoot('packages/infra'), '.github'])]
+}
+
+/** Run `cmd` with its stdout written to `file`: binary-safe, and its exit status checked. */
+function runToFile(cmd: string, args: string[], file: string): void {
+  const fd = fs.openSync(file, 'w')
+  try {
+    const r = spawnSync(cmd, args, { stdio: ['ignore', fd, 'pipe'], encoding: 'utf8' })
+    if (r.status !== 0) throw new Error(`${cmd} ${args.join(' ')} failed: ${r.stderr?.trim()}`)
+  } finally {
+    fs.closeSync(fd)
+  }
+}
+
+/**
+ * Unpack a git archive into `dir`. Through a file, not a shell pipe: a pipe
+ * hides git's exit status, and bsdtar exits 0 on empty input.
+ */
+function extractArchive(dir: string, archive: (tarPath: string) => void): void {
+  fs.rmSync(dir, { recursive: true, force: true })
+  fs.mkdirSync(dir, { recursive: true })
+  const tarPath = `${dir}.tar` // beside the checkout, under the gitignored repos/
+  try {
+    archive(tarPath)
+    run('tar', ['-xf', tarPath, '-C', dir])
+  } finally {
+    fs.rmSync(tarPath, { force: true })
+  }
+}
+
+function fetchCheckout(c: Consumer): { dir: string; ref: string } {
   const dir = path.join(WORK, 'repos', c.id)
   fs.mkdirSync(path.dirname(dir), { recursive: true })
 
   if (c.access === 'github') {
     if (!c.repo) throw new Error(`${c.id}: access is github but no repo`)
+    const url = `git@github.com:${c.repo}.git`
     if (fs.existsSync(path.join(dir, '.git'))) {
+      // A consumer that moved host keeps its old clone here; follow the registry, not the cache.
+      run('git', ['remote', 'set-url', 'origin', url], dir)
       run('git', ['fetch', '--depth', '1', 'origin', 'HEAD'], dir)
       run('git', ['reset', '--hard', 'FETCH_HEAD'], dir)
     } else {
-      run('git', ['clone', '--depth', '1', `git@github.com:${c.repo}.git`, dir])
+      // A consumer that was local: or ssh: before leaves an archive here, and
+      // clone refuses a directory that is not empty.
+      fs.rmSync(dir, { recursive: true, force: true })
+      run('git', ['clone', '--depth', '1', url, dir])
     }
     return { dir, ref: run('git', ['rev-parse', 'HEAD'], dir).trim() }
+  }
+
+  // local:<path> — a repo on this machine with no remote we can clone. agent-lab's
+  // agentgit.co credential helper lives in its checkout's own git config, so a fresh
+  // clone cannot authenticate.
+  if (c.access.startsWith('local:')) {
+    const local = c.access.slice('local:'.length).replace(/^~(?=\/|$)/, process.env.HOME ?? '~')
+    // Resolve HEAD once and archive that commit, so the recorded ref is the tree surveyed.
+    const ref = run('git', ['-C', local, 'rev-parse', 'HEAD']).trim()
+    extractArchive(dir, (tar) =>
+      run('git', ['-C', local, 'archive', '--format=tar', '-o', tar, ref]),
+    )
+    return { dir, ref }
   }
 
   // ssh:<host>:<path> — a repo with no remote, read straight off the machine.
   const m = c.access.match(/^ssh:([^:]+):(.+)$/)
   if (!m) throw new Error(`${c.id}: unrecognised access ${c.access}`)
   const [, host, remotePath] = m
-  fs.rmSync(dir, { recursive: true, force: true })
-  fs.mkdirSync(dir, { recursive: true })
-  const tar = spawnSync(
-    'sh',
-    ['-c', `ssh ${host} 'cd ${remotePath} && git archive HEAD' | tar -x -C ${dir}`],
-    {
-      encoding: 'utf8',
-    },
+  const ref = run('ssh', [host, `git -C ${remotePath} rev-parse HEAD`]).trim()
+  extractArchive(dir, (tar) =>
+    runToFile('ssh', [host, `git -C ${remotePath} archive --format=tar ${ref}`], tar),
   )
-  if (tar.status !== 0) throw new Error(`${c.id}: ssh archive failed: ${tar.stderr}`)
-  const ref = spawnSync('ssh', [host, `git -C ${remotePath} rev-parse HEAD`], {
-    encoding: 'utf8',
-  }).stdout.trim()
   return { dir, ref }
 }
 
@@ -332,7 +502,7 @@ function readTextFiles(root: string, subdirs: string[]): { path: string; content
       if (entry.isDirectory()) {
         if (entry.name === 'node_modules' || entry.name === '.git') continue
         walk(full)
-      } else if (/\.(ts|js|json|ya?ml|sh)$/.test(entry.name)) {
+      } else if (/\.([cm]?[tj]s|json|ya?ml|sh)$/.test(entry.name)) {
         out.push({ path: path.relative(root, full), content: fs.readFileSync(full, 'utf8') })
       }
     }
@@ -362,12 +532,20 @@ export interface ModuleFinding {
    * other. Surfacing the date is what lets a reviewer catch that.
    */
   upstreamFirstSeen?: string
+  /** Set when main once shipped a module of this name and has since deleted it. */
+  upstreamDeleted?: true
   matchedRev?: string
+  matchedPath?: string
   nearestRev?: string
+  nearestPath?: string
   similarity?: number
 }
 
-function surveyModules(dir: string, index: Record<string, Revision[]>): ModuleFinding[] {
+function surveyModules(
+  dir: string,
+  index: Record<string, Revision[]>,
+  shipped: Set<string>,
+): ModuleFinding[] {
   const roots: [string, 'own' | 'vendored'][] = [
     ['packages/infra/modules', 'own'],
     ['vendor/zbc/modules', 'vendored'],
@@ -389,7 +567,8 @@ function surveyModules(dir: string, index: Record<string, Revision[]>): ModuleFi
         configKeys: schemaKeys(content, 'configSchema'),
         outputKeys: schemaKeys(content, 'outputs'),
         upstreamFirstSeen: index[entry.name]?.at(-1)?.date,
-        ...classify(content, index[entry.name] ?? []),
+        ...(index[entry.name] && !shipped.has(entry.name) && { upstreamDeleted: true }),
+        ...classify(content, index[entry.name] ?? [], shipped.has(entry.name)),
       })
     }
   }
@@ -422,26 +601,31 @@ function main() {
   fs.mkdirSync(WORK, { recursive: true })
   console.error('indexing template history…')
   const index = buildAncestorIndex()
+  const shipped = shippedModules()
+  const ours = workflowLines()
 
   const rollup: Record<string, unknown>[] = []
   for (const c of consumers) {
     console.error(`surveying ${c.id}…`)
     let survey: Record<string, unknown>
     try {
-      const { dir, ref } = fetchConsumer(c)
-      const modules = surveyModules(dir, index)
+      const { checkout, dir, ref } = fetchConsumer(c)
+      // Paths are reported from the checkout root, where the skill and the cases resolve them.
+      const modules = surveyModules(dir, index, shipped).map((m) => ({
+        ...m,
+        path: path.posix.join(c.root ?? '', m.path),
+      }))
       survey = {
         id: c.id,
         repo: c.repo,
+        root: c.root,
         mode: c.mode,
         tier: c.tier,
         ref,
         surveyedAt: new Date().toISOString(),
         environments: surveyEnvironments(dir),
         modules,
-        escapeHatches: findEscapeHatches(
-          readTextFiles(dir, ['scripts', 'packages/infra', '.github']),
-        ),
+        escapeHatches: findEscapeHatches(readTextFiles(checkout, hatchDirs(c.root)), ours),
       }
     } catch (err) {
       survey = { id: c.id, error: String(err instanceof Error ? err.message : err) }
@@ -458,11 +642,10 @@ function main() {
       ;(byModule[m.name] ??= []).push({ consumer: s.id, ...m })
     }
   }
-  const upstream = new Set(Object.keys(index))
   const cases = Object.entries(byModule)
     .map(([name, impls]) => ({
       module: name,
-      kind: upstream.has(name) ? 'upgrade' : 'new',
+      kind: shipped.has(name) ? 'upgrade' : index[name] ? 'deleted-upstream' : 'new',
       consumers: impls.length,
       implementations: impls,
     }))

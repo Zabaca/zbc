@@ -1,0 +1,62 @@
+{
+  "id": "youbuzz",
+  "repo": null,
+  "mode": "copy",
+  "tier": "consumer",
+  "ref": "f3e9bac50ea8bfdc9f84fa46f15854aa9c06ccf2",
+  "surveyedAt": "2026-10-19T14:12:30.669Z",
+  "environments": {
+    "production": [
+      "main-db",
+      "web"
+    ],
+    "preview": [
+      "main-db",
+      "web"
+    ]
+  },
+  "modules": [
+    {
+      "name": "vercel",
+      "location": "own",
+      "path": "packages/infra/modules/vercel/index.ts",
+      "lines": 359,
+      "configKeys": [],
+      "outputKeys": [
+        "projectUrl",
+        "projectId",
+        "deployUrl"
+      ],
+      "upstreamFirstSeen": "2026-04-24",
+      "upstreamDeleted": true,
+      "verdict": "stale",
+      "matchedRev": "d82840f5c111a64e31fa3e82799a9f86df1ab806",
+      "matchedPath": "packages/cli/templates/infra/modules/vercel/index.ts",
+      "formattingOnly": true
+    },
+    {
+      "name": "turso",
+      "location": "own",
+      "path": "packages/infra/modules/turso/index.ts",
+      "lines": 119,
+      "configKeys": [
+        "orgName",
+        "dbName",
+        "group",
+        "primaryLocation",
+        "ephemeral",
+        "migrationsDir"
+      ],
+      "outputKeys": [
+        "databaseUrl",
+        "authToken"
+      ],
+      "upstreamFirstSeen": "2026-04-24",
+      "verdict": "stale",
+      "matchedRev": "d82840f5c111a64e31fa3e82799a9f86df1ab806",
+      "matchedPath": "packages/cli/templates/infra/modules/turso/index.ts",
+      "formattingOnly": true
+    }
+  ],
+  "escapeHatches": []
+}

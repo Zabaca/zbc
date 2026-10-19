@@ -3,21 +3,25 @@
   "repo": "Zabaca/leeandco",
   "mode": "copy",
   "tier": "consumer",
-  "ref": "835f8f0525b7a6b81d796e01c3442130ae0264ca",
-  "surveyedAt": "2026-09-03T03:02:28.709Z",
+  "ref": "6dca2d21f5d69f4dfa93300849fafef710ed2d1d",
+  "surveyedAt": "2026-10-19T14:12:16.274Z",
   "environments": {
     "production": [
       "leeandcoconstruction-zone",
+      "leeandcoconstruction-inbound",
+      "leeandco-mail-bucket",
       "leeandcoconstruction-email-token",
       "leeandco-auth-db",
       "leeandco-members",
       "leeandco",
       "leeandco-deploy-token",
       "leeandcoconstruction-email",
+      "leeandco-mail-token",
       "leeandco-access",
       "leeandco-members-token",
       "leeandcoconstruction-dns-token",
       "leeandco-access-token",
+      "leeandcoconstruction-inbound-token",
       "leeandco-cli-service-token"
     ]
   },
@@ -36,7 +40,23 @@
         "databaseName",
         "databaseId"
       ],
-      "verdict": "novel"
+      "upstreamFirstSeen": "2026-09-08",
+      "verdict": "divergent",
+      "nearestRev": "30815b1435dcd65d02bee748c69dd1bc013c92d1",
+      "nearestPath": "packages/cli/templates/infra/modules/d1/index.ts",
+      "similarity": 0.069
+    },
+    {
+      "name": "cloudflare-api",
+      "location": "own",
+      "path": "packages/infra/modules/cloudflare-api/index.ts",
+      "lines": 293,
+      "configKeys": [],
+      "outputKeys": [],
+      "upstreamFirstSeen": "2026-08-19",
+      "verdict": "current",
+      "matchedRev": "736f8d472a381ce42b6ee18e3d8fdf371f4703bc",
+      "matchedPath": "packages/cli/templates/infra/modules/cloudflare-api/index.ts"
     },
     {
       "name": "cloudflare-access-service-token",
@@ -93,7 +113,8 @@
       ],
       "upstreamFirstSeen": "2026-06-23",
       "verdict": "stale",
-      "matchedRev": "f06480507c37cb07f3868a004b17913c46bf9ed9"
+      "matchedRev": "f06480507c37cb07f3868a004b17913c46bf9ed9",
+      "matchedPath": "packages/cli/templates/infra/modules/cloudflare/index.ts"
     },
     {
       "name": "cloudflare-email",
@@ -121,6 +142,7 @@
       "upstreamFirstSeen": "2026-07-15",
       "verdict": "divergent",
       "nearestRev": "74c795d37e0743b224263d7df19a949a0efb4e8a",
+      "nearestPath": "packages/cli/templates/infra/modules/cloudflare-email/index.ts",
       "similarity": 0.653
     },
     {
@@ -146,6 +168,7 @@
       "upstreamFirstSeen": "2026-08-03",
       "verdict": "divergent",
       "nearestRev": "3a5bf8543be321c406987289c591fed632b381fb",
+      "nearestPath": "packages/cli/templates/infra/modules/cloudflare-token/index.ts",
       "similarity": 0.294
     },
     {
@@ -170,13 +193,14 @@
       "upstreamFirstSeen": "2026-08-19",
       "verdict": "divergent",
       "nearestRev": "aefae2833a07124a1c6831a4c2c0ee8e4e920b68",
+      "nearestPath": "packages/cli/templates/infra/modules/cloudflare-zone/index.ts",
       "similarity": 0.592
     },
     {
       "name": "cloudflare-access",
       "location": "own",
       "path": "packages/infra/modules/cloudflare-access/index.ts",
-      "lines": 932,
+      "lines": 979,
       "configKeys": [],
       "outputKeys": [
         "appId",
@@ -186,6 +210,7 @@
         "identityProviders",
         "undeclaredIdentityProviders",
         "appDomain",
+        "appDomains",
         "emails",
         "policyId",
         "policyIds",
@@ -197,123 +222,168 @@
       "upstreamFirstSeen": "2026-08-19",
       "verdict": "divergent",
       "nearestRev": "76007535ed540c63a8caaccf274bb170c9f6db62",
-      "similarity": 0.35
+      "nearestPath": "packages/cli/templates/infra/modules/cloudflare-access/index.ts",
+      "similarity": 0.34
+    },
+    {
+      "name": "r2",
+      "location": "own",
+      "path": "packages/infra/modules/r2/index.ts",
+      "lines": 236,
+      "configKeys": [
+        "accountId",
+        "bucketName",
+        "locationHint",
+        "apiToken"
+      ],
+      "outputKeys": [
+        "bucketName"
+      ],
+      "upstreamFirstSeen": "2026-07-16",
+      "verdict": "divergent",
+      "nearestRev": "83740ac179b111ef98708a5a16eed4ccaf85698f",
+      "nearestPath": "packages/cli/templates/infra/modules/r2/index.ts",
+      "similarity": 0.402
     }
   ],
   "escapeHatches": [
     {
       "file": "packages/infra/tests/production-instances.test.ts",
-      "line": 630,
+      "line": 604,
       "tool": "wrangler",
       "snippet": "const wranglerText = readFileSync("
     },
     {
       "file": "packages/infra/tests/production-instances.test.ts",
-      "line": 631,
+      "line": 605,
       "tool": "wrangler",
       "snippet": "new URL('../leeandco/wrangler.jsonc', packageDir).pathname,"
     },
     {
       "file": "packages/infra/tests/production-instances.test.ts",
-      "line": 634,
+      "line": 608,
       "tool": "wrangler",
       "snippet": "const wranglerConfig = JSON.parse("
     },
     {
       "file": "packages/infra/tests/production-instances.test.ts",
-      "line": 635,
+      "line": 609,
       "tool": "wrangler",
       "snippet": "wranglerText"
     },
     {
       "file": "packages/infra/tests/production-instances.test.ts",
-      "line": 648,
+      "line": 623,
       "tool": "wrangler",
       "snippet": "describe('the Worker configuration wrangler deploys', () => {"
     },
     {
       "file": "packages/infra/tests/production-instances.test.ts",
-      "line": 650,
+      "line": 625,
       "tool": "wrangler",
       "snippet": "expect(wranglerConfig.name).toBe('leeandco')"
     },
     {
       "file": "packages/infra/tests/production-instances.test.ts",
-      "line": 660,
+      "line": 635,
       "tool": "wrangler",
       "snippet": "expect(wranglerConfig.compatibility_date >= '2026-02-19').toBe(true)"
     },
     {
       "file": "packages/infra/tests/production-instances.test.ts",
-      "line": 669,
+      "line": 644,
       "tool": "wrangler",
       "snippet": "for (const route of wranglerConfig.routes ?? []) {"
     },
     {
       "file": "packages/infra/tests/production-instances.test.ts",
-      "line": 680,
+      "line": 654,
       "tool": "wrangler",
       "snippet": "expect(wranglerConfig.routes).toEqual(["
     },
     {
       "file": "packages/infra/tests/production-instances.test.ts",
-      "line": 683,
+      "line": 659,
       "tool": "wrangler",
       "snippet": "for (const route of wranglerConfig.routes ?? []) expect(route.pattern).not.toContain('*.')"
     },
     {
       "file": "packages/infra/tests/production-instances.test.ts",
-      "line": 691,
+      "line": 667,
       "tool": "wrangler",
       "snippet": "for (const route of wranglerConfig.routes ?? []) {"
     },
     {
       "file": "packages/infra/tests/production-instances.test.ts",
-      "line": 700,
+      "line": 676,
       "tool": "wrangler",
       "snippet": "for (const route of wranglerConfig.routes ?? []) {"
     },
     {
       "file": "packages/infra/tests/production-instances.test.ts",
-      "line": 707,
+      "line": 683,
       "tool": "wrangler",
       "snippet": "expect(wranglerConfig.d1_databases).toHaveLength(1)"
     },
     {
       "file": "packages/infra/tests/production-instances.test.ts",
-      "line": 708,
+      "line": 684,
       "tool": "wrangler",
       "snippet": "const [binding] = wranglerConfig.d1_databases"
     },
     {
       "file": "packages/infra/tests/production-instances.test.ts",
-      "line": 720,
+      "line": 696,
       "tool": "wrangler",
       "snippet": "expect(wranglerConfig.d1_databases[0]!.database_id).not.toBe("
     },
     {
       "file": "packages/infra/tests/production-instances.test.ts",
-      "line": 906,
+      "line": 889,
       "tool": "wrangler",
-      "snippet": "expect((wranglerConfig.routes ?? []).map((route) => route.pattern.split('/')[0])).toContain(host)"
+      "snippet": "const routed = (wranglerConfig.routes ?? []).map((route) => route.pattern.split('/')[0])"
     },
     {
       "file": "packages/infra/tests/production-instances.test.ts",
-      "line": 1155,
+      "line": 1142,
       "tool": "wrangler",
       "snippet": "test('neither is written down a second time in wrangler.jsonc', () => {"
     },
     {
       "file": "packages/infra/tests/production-instances.test.ts",
-      "line": 1159,
+      "line": 1157,
       "tool": "wrangler",
-      "snippet": "expect(wranglerConfig.vars).toEqual({ CF_ACCESS_TEAM_DOMAIN: '', CF_ACCESS_AUD: '' })"
+      "snippet": "expect(wranglerConfig.vars).toEqual({"
+    },
+    {
+      "file": "packages/infra/tests/production-instances.test.ts",
+      "line": 1483,
+      "tool": "wrangler",
+      "snippet": "expect(inboundConfig.catchAll!.workerName).toBe(wranglerConfig.name)"
+    },
+    {
+      "file": "packages/infra/tests/production-instances.test.ts",
+      "line": 1636,
+      "tool": "wrangler",
+      "snippet": "const mail = wranglerConfig.r2_buckets?.find((b) => b.binding === 'MAIL')"
+    },
+    {
+      "file": "packages/infra/tests/production-instances.test.ts",
+      "line": 1637,
+      "tool": "wrangler",
+      "snippet": "expect(mail, 'no `MAIL` entry in wrangler.jsonc r2_buckets').toBeDefined()"
     },
     {
       "file": "packages/infra/package.json",
       "line": 16,
       "tool": "wrangler",
       "snippet": "\"wrangler\": \"^4.0.0\""
+    },
+    {
+      "file": "packages/infra/scripts/with-client-d1-token.ts",
+      "line": 87,
+      "tool": "sops",
+      "snippet": "const res = spawnSync('sops', ['-d', '--output-type', 'json', secretsPath], {"
     }
   ]
 }

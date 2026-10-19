@@ -3,24 +3,26 @@
   "repo": "Zabaca/ceo",
   "mode": "copy",
   "tier": "driver",
-  "ref": "32bd3913f12fc3a01e01c0df6b0ffbb8368df166",
-  "surveyedAt": "2026-09-03T02:56:03.251Z",
+  "ref": "541bbedd46148cd76e8ce2b19cf4e88ec465041e",
+  "surveyedAt": "2026-10-19T14:12:14.816Z",
   "environments": {
     "workstation": [
       "obs"
     ],
     "production": [
       "recon",
-      "qom",
+      "lantern",
+      "hikaru",
       "roamside-analytics",
       "ceo",
-      "lov",
       "campkit",
       "roamside-email",
       "household-ledger",
+      "glcpa",
       "feedback",
       "tour-guide",
       "tour-guide-cache",
+      "tax",
       "claude-sandbox"
     ]
   },
@@ -36,7 +38,11 @@
         "projectId",
         "deployUrl"
       ],
-      "verdict": "novel"
+      "upstreamFirstSeen": "2026-04-24",
+      "upstreamDeleted": true,
+      "verdict": "stale",
+      "matchedRev": "d82840f5c111a64e31fa3e82799a9f86df1ab806",
+      "matchedPath": "packages/cli/templates/infra/modules/vercel/index.ts"
     },
     {
       "name": "d1",
@@ -51,19 +57,24 @@
         "databaseName",
         "databaseId"
       ],
-      "verdict": "novel"
+      "upstreamFirstSeen": "2026-09-08",
+      "verdict": "divergent",
+      "nearestRev": "7e3ba650a45aa36c6d9b74d029bf59f152361cb7",
+      "nearestPath": "packages/cli/templates/infra/modules/d1/index.ts",
+      "similarity": 0.126
     },
     {
       "name": "cloudflare",
       "location": "own",
       "path": "packages/infra/modules/cloudflare/index.ts",
-      "lines": 545,
+      "lines": 607,
       "configKeys": [
         "workdir",
         "accountId",
         "build",
         "workerSecrets",
         "r2Buckets",
+        "d1Databases",
         "immediateContainerRollout",
         "wranglerEnv",
         "workerName",
@@ -75,9 +86,11 @@
       "outputKeys": [
         "deployUrl"
       ],
+      "upstreamFirstSeen": "2026-06-23",
       "verdict": "divergent",
       "nearestRev": "e83bf83b5c86328409ff17c9feaa5a085fc4759e",
-      "similarity": 0.433
+      "nearestPath": "packages/cli/templates/infra/modules/cloudflare/index.ts",
+      "similarity": 0.382
     },
     {
       "name": "turso",
@@ -96,8 +109,10 @@
         "databaseUrl",
         "authToken"
       ],
+      "upstreamFirstSeen": "2026-04-24",
       "verdict": "stale",
-      "matchedRev": "a5a089bf20e6109114fe1b490c9c18e31254e4e8"
+      "matchedRev": "a5a089bf20e6109114fe1b490c9c18e31254e4e8",
+      "matchedPath": "packages/cli/templates/infra/modules/turso/index.ts"
     },
     {
       "name": "gcp",
@@ -141,8 +156,10 @@
         "accountId",
         "domain"
       ],
+      "upstreamFirstSeen": "2026-07-15",
       "verdict": "stale",
-      "matchedRev": "74c795d37e0743b224263d7df19a949a0efb4e8a"
+      "matchedRev": "74c795d37e0743b224263d7df19a949a0efb4e8a",
+      "matchedPath": "packages/cli/templates/infra/modules/cloudflare-email/index.ts"
     },
     {
       "name": "obs",
@@ -196,9 +213,30 @@
       "outputKeys": [
         "bucketName"
       ],
+      "upstreamFirstSeen": "2026-07-16",
       "verdict": "stale",
-      "matchedRev": "9f1326815be69993c85ba94340fbf2e591c695fa"
+      "matchedRev": "9f1326815be69993c85ba94340fbf2e591c695fa",
+      "matchedPath": "packages/cli/templates/infra/modules/r2/index.ts"
     }
   ],
-  "escapeHatches": []
+  "escapeHatches": [
+    {
+      "file": "scripts/gmail-draft.ts",
+      "line": 26,
+      "tool": "sops",
+      "snippet": "const p = Bun.spawnSync(['sops', '-d', '--extract', `[\"${key}\"]`, SECRETS])"
+    },
+    {
+      "file": "packages/infra/scripts/ph.ts",
+      "line": 29,
+      "tool": "sops",
+      "snippet": "const sops = Bun.spawnSync(['sops', '-d', new URL('../environments/production/secrets.yaml', import.meta.url).pathname])"
+    },
+    {
+      "file": "packages/infra/scripts/ph.ts",
+      "line": 31,
+      "tool": "sops",
+      "snippet": "console.error('sops decrypt failed:', sops.stderr.toString().trim())"
+    }
+  ]
 }
