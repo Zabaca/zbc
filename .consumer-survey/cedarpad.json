@@ -3,8 +3,8 @@
   "repo": "Zabaca/cedarpad",
   "mode": "subtree",
   "tier": "driver",
-  "ref": "4b26d9cf5f469ff2fb4e4ae345ed2b186ae98688",
-  "surveyedAt": "2026-09-03T02:56:02.129Z",
+  "ref": "f95b302ab3d71d5a0c146c9e0d687f53c81072d0",
+  "surveyedAt": "2026-10-19T14:12:13.435Z",
   "environments": {
     "workspace": [
       "ws-tunnel-run",
@@ -19,7 +19,9 @@
     "production": [
       "canvas",
       "canvas-email",
-      "www"
+      "www",
+      "admin-access",
+      "admin-access-token"
     ],
     "preview": [
       "canvas",
@@ -43,8 +45,10 @@
         "owner",
         "changed"
       ],
+      "upstreamFirstSeen": "2026-08-18",
       "verdict": "current",
-      "matchedRev": "aefae2833a07124a1c6831a4c2c0ee8e4e920b68"
+      "matchedRev": "aefae2833a07124a1c6831a4c2c0ee8e4e920b68",
+      "matchedPath": "packages/cli/templates/infra/modules/host-dir/index.ts"
     },
     {
       "name": "host-exec",
@@ -53,8 +57,10 @@
       "lines": 193,
       "configKeys": [],
       "outputKeys": [],
+      "upstreamFirstSeen": "2026-08-18",
       "verdict": "current",
-      "matchedRev": "aefae2833a07124a1c6831a4c2c0ee8e4e920b68"
+      "matchedRev": "aefae2833a07124a1c6831a4c2c0ee8e4e920b68",
+      "matchedPath": "packages/cli/templates/infra/modules/host-exec/index.ts"
     },
     {
       "name": "provision-core",
@@ -63,8 +69,10 @@
       "lines": 147,
       "configKeys": [],
       "outputKeys": [],
+      "upstreamFirstSeen": "2026-08-19",
       "verdict": "stale",
-      "matchedRev": "b2491039df1760ef4c046ec2a412f5a663440438"
+      "matchedRev": "b2491039df1760ef4c046ec2a412f5a663440438",
+      "matchedPath": "packages/cli/templates/infra/modules/provision-core/index.ts"
     },
     {
       "name": "fly",
@@ -89,8 +97,10 @@
         "ipv4",
         "ipv6"
       ],
+      "upstreamFirstSeen": "2026-08-21",
       "verdict": "stale",
-      "matchedRev": "ca81b9e508508835bd2bff092b1f6bc88a05fad7"
+      "matchedRev": "ca81b9e508508835bd2bff092b1f6bc88a05fad7",
+      "matchedPath": "packages/cli/templates/infra/modules/fly/index.ts"
     },
     {
       "name": "docker-compose-stack",
@@ -102,8 +112,10 @@
         "services"
       ],
       "outputKeys": [],
+      "upstreamFirstSeen": "2026-08-03",
       "verdict": "current",
-      "matchedRev": "58d32bc00d7cca46c6e1f7f2f707653c6566a5db"
+      "matchedRev": "58d32bc00d7cca46c6e1f7f2f707653c6566a5db",
+      "matchedPath": "packages/cli/templates/infra/modules/docker-compose-stack/index.ts"
     },
     {
       "name": "cloudflare-api",
@@ -112,8 +124,10 @@
       "lines": 181,
       "configKeys": [],
       "outputKeys": [],
+      "upstreamFirstSeen": "2026-08-19",
       "verdict": "stale",
-      "matchedRev": "76007535ed540c63a8caaccf274bb170c9f6db62"
+      "matchedRev": "76007535ed540c63a8caaccf274bb170c9f6db62",
+      "matchedPath": "packages/cli/templates/infra/modules/cloudflare-api/index.ts"
     },
     {
       "name": "incus-core",
@@ -122,8 +136,10 @@
       "lines": 197,
       "configKeys": [],
       "outputKeys": [],
+      "upstreamFirstSeen": "2026-08-19",
       "verdict": "current",
-      "matchedRev": "aefae2833a07124a1c6831a4c2c0ee8e4e920b68"
+      "matchedRev": "aefae2833a07124a1c6831a4c2c0ee8e4e920b68",
+      "matchedPath": "packages/cli/templates/infra/modules/incus-core/index.ts"
     },
     {
       "name": "systemd-mask",
@@ -135,8 +151,10 @@
         "reason"
       ],
       "outputKeys": [],
+      "upstreamFirstSeen": "2026-08-18",
       "verdict": "current",
-      "matchedRev": "aefae2833a07124a1c6831a4c2c0ee8e4e920b68"
+      "matchedRev": "aefae2833a07124a1c6831a4c2c0ee8e4e920b68",
+      "matchedPath": "packages/cli/templates/infra/modules/systemd-mask/index.ts"
     },
     {
       "name": "cloudflare",
@@ -159,8 +177,10 @@
         "deployUrl",
         "workerName"
       ],
+      "upstreamFirstSeen": "2026-06-23",
       "verdict": "stale",
-      "matchedRev": "f06480507c37cb07f3868a004b17913c46bf9ed9"
+      "matchedRev": "f06480507c37cb07f3868a004b17913c46bf9ed9",
+      "matchedPath": "packages/cli/templates/infra/modules/cloudflare/index.ts"
     },
     {
       "name": "turso",
@@ -179,8 +199,10 @@
         "databaseUrl",
         "authToken"
       ],
+      "upstreamFirstSeen": "2026-04-24",
       "verdict": "stale",
-      "matchedRev": "8a558a40b3e380f813ab6a275f9587a5a286475e"
+      "matchedRev": "8a558a40b3e380f813ab6a275f9587a5a286475e",
+      "matchedPath": "packages/cli/templates/infra/modules/turso/index.ts"
     },
     {
       "name": "cloudflare-tunnel",
@@ -195,8 +217,10 @@
         "createdTunnel",
         "changed"
       ],
+      "upstreamFirstSeen": "2026-08-19",
       "verdict": "stale",
-      "matchedRev": "aefae2833a07124a1c6831a4c2c0ee8e4e920b68"
+      "matchedRev": "aefae2833a07124a1c6831a4c2c0ee8e4e920b68",
+      "matchedPath": "packages/cli/templates/infra/modules/cloudflare-tunnel/index.ts"
     },
     {
       "name": "host-symlink",
@@ -208,8 +232,10 @@
         "target"
       ],
       "outputKeys": [],
+      "upstreamFirstSeen": "2026-08-18",
       "verdict": "current",
-      "matchedRev": "aefae2833a07124a1c6831a4c2c0ee8e4e920b68"
+      "matchedRev": "aefae2833a07124a1c6831a4c2c0ee8e4e920b68",
+      "matchedPath": "packages/cli/templates/infra/modules/host-symlink/index.ts"
     },
     {
       "name": "cloudflare-email",
@@ -233,8 +259,10 @@
         "accountId",
         "domain"
       ],
+      "upstreamFirstSeen": "2026-07-15",
       "verdict": "stale",
-      "matchedRev": "9224fda0145efb52698995ec1006dd4e69ca163c"
+      "matchedRev": "9224fda0145efb52698995ec1006dd4e69ca163c",
+      "matchedPath": "packages/cli/templates/infra/modules/cloudflare-email/index.ts"
     },
     {
       "name": "incus-storage-pool",
@@ -248,8 +276,10 @@
         "created",
         "changed"
       ],
+      "upstreamFirstSeen": "2026-08-19",
       "verdict": "current",
-      "matchedRev": "aefae2833a07124a1c6831a4c2c0ee8e4e920b68"
+      "matchedRev": "aefae2833a07124a1c6831a4c2c0ee8e4e920b68",
+      "matchedPath": "packages/cli/templates/infra/modules/incus-storage-pool/index.ts"
     },
     {
       "name": "cloudflare-token",
@@ -269,8 +299,10 @@
         "s3AccessKeyId",
         "s3SecretAccessKey"
       ],
+      "upstreamFirstSeen": "2026-08-03",
       "verdict": "stale",
-      "matchedRev": "ec24ecb833461ee66cc57ba685ef0236bc82572a"
+      "matchedRev": "ec24ecb833461ee66cc57ba685ef0236bc82572a",
+      "matchedPath": "packages/cli/templates/infra/modules/cloudflare-token/index.ts"
     },
     {
       "name": "vm",
@@ -287,8 +319,10 @@
         "created",
         "changed"
       ],
+      "upstreamFirstSeen": "2026-08-19",
       "verdict": "current",
-      "matchedRev": "aefae2833a07124a1c6831a4c2c0ee8e4e920b68"
+      "matchedRev": "aefae2833a07124a1c6831a4c2c0ee8e4e920b68",
+      "matchedPath": "packages/cli/templates/infra/modules/vm/index.ts"
     },
     {
       "name": "vm-provision",
@@ -310,8 +344,10 @@
         "digest",
         "changed"
       ],
+      "upstreamFirstSeen": "2026-08-19",
       "verdict": "stale",
-      "matchedRev": "aefae2833a07124a1c6831a4c2c0ee8e4e920b68"
+      "matchedRev": "aefae2833a07124a1c6831a4c2c0ee8e4e920b68",
+      "matchedPath": "packages/cli/templates/infra/modules/vm-provision/index.ts"
     },
     {
       "name": "host-file",
@@ -320,8 +356,10 @@
       "lines": 47,
       "configKeys": [],
       "outputKeys": [],
+      "upstreamFirstSeen": "2026-08-03",
       "verdict": "stale",
-      "matchedRev": "58d32bc00d7cca46c6e1f7f2f707653c6566a5db"
+      "matchedRev": "58d32bc00d7cca46c6e1f7f2f707653c6566a5db",
+      "matchedPath": "packages/cli/templates/infra/modules/host-file/index.ts"
     },
     {
       "name": "cloudflare-zone",
@@ -340,8 +378,10 @@
         "emailProvisioned",
         "changed"
       ],
+      "upstreamFirstSeen": "2026-08-19",
       "verdict": "stale",
-      "matchedRev": "aefae2833a07124a1c6831a4c2c0ee8e4e920b68"
+      "matchedRev": "aefae2833a07124a1c6831a4c2c0ee8e4e920b68",
+      "matchedPath": "packages/cli/templates/infra/modules/cloudflare-zone/index.ts"
     },
     {
       "name": "cloudflare-access",
@@ -369,8 +409,10 @@
         "undeclared",
         "changed"
       ],
+      "upstreamFirstSeen": "2026-08-19",
       "verdict": "stale",
-      "matchedRev": "c96dd453ab3676ac89eb4648fb513e52242e0fb9"
+      "matchedRev": "c96dd453ab3676ac89eb4648fb513e52242e0fb9",
+      "matchedPath": "packages/cli/templates/infra/modules/cloudflare-access/index.ts"
     },
     {
       "name": "systemd-unit",
@@ -384,8 +426,10 @@
         "enableNow"
       ],
       "outputKeys": [],
+      "upstreamFirstSeen": "2026-08-03",
       "verdict": "current",
-      "matchedRev": "aefae2833a07124a1c6831a4c2c0ee8e4e920b68"
+      "matchedRev": "aefae2833a07124a1c6831a4c2c0ee8e4e920b68",
+      "matchedPath": "packages/cli/templates/infra/modules/systemd-unit/index.ts"
     },
     {
       "name": "remote-provision",
@@ -410,8 +454,10 @@
         "digest",
         "changed"
       ],
+      "upstreamFirstSeen": "2026-08-19",
       "verdict": "stale",
-      "matchedRev": "aefae2833a07124a1c6831a4c2c0ee8e4e920b68"
+      "matchedRev": "aefae2833a07124a1c6831a4c2c0ee8e4e920b68",
+      "matchedPath": "packages/cli/templates/infra/modules/remote-provision/index.ts"
     },
     {
       "name": "r2",
@@ -427,8 +473,10 @@
       "outputKeys": [
         "bucketName"
       ],
+      "upstreamFirstSeen": "2026-07-16",
       "verdict": "stale",
-      "matchedRev": "9f1326815be69993c85ba94340fbf2e591c695fa"
+      "matchedRev": "9f1326815be69993c85ba94340fbf2e591c695fa",
+      "matchedPath": "packages/cli/templates/infra/modules/r2/index.ts"
     }
   ],
   "escapeHatches": [
@@ -443,60 +491,6 @@
       "line": 24,
       "tool": "wrangler",
       "snippet": "wranglerEnv: 'preview',"
-    },
-    {
-      "file": ".github/workflows/gates.yml",
-      "line": 58,
-      "tool": "wrangler",
-      "snippet": "# wrangler refuses to run under bun and resolves `node` off PATH; pinned"
-    },
-    {
-      "file": ".github/workflows/gates.yml",
-      "line": 95,
-      "tool": "wrangler",
-      "snippet": "# `.wrangler/state` already exists because someone migrated it once, so this"
-    },
-    {
-      "file": ".github/workflows/gates.yml",
-      "line": 100,
-      "tool": "wrangler",
-      "snippet": "# Local-only: miniflare's D1 is a file under `.wrangler/state`, so this"
-    },
-    {
-      "file": ".github/workflows/e2e.yml",
-      "line": 37,
-      "tool": "wrangler",
-      "snippet": "# Playwright's webServer children (bridge, vite, `wrangler dev`) are orphaned when the"
-    },
-    {
-      "file": ".github/workflows/e2e.yml",
-      "line": 38,
-      "tool": "wrangler",
-      "snippet": "# job is killed mid-step and keep their ports; the next run's wrangler then cannot bind,"
-    },
-    {
-      "file": ".github/workflows/e2e.yml",
-      "line": 44,
-      "tool": "wrangler",
-      "snippet": "# wrangler REQUIRES node and refuses to run under bun. `scripts/wrangler-local.ts`"
-    },
-    {
-      "file": ".github/workflows/e2e.yml",
-      "line": 45,
-      "tool": "wrangler",
-      "snippet": "# spawns `node_modules/.bin/wrangler`, whose shebang resolves `node` off PATH — so when"
-    },
-    {
-      "file": ".github/workflows/e2e.yml",
-      "line": 47,
-      "tool": "wrangler",
-      "snippet": "# wrangler's inspector WebSocket died with \"Unexpected server response: 101\", the edge"
-    },
-    {
-      "file": ".github/workflows/e2e.yml",
-      "line": 50,
-      "tool": "wrangler",
-      "snippet": "# makes the runtime wrangler needs a property of the workflow, not of the box."
     }
   ]
 }

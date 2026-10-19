@@ -1,0 +1,120 @@
+{
+  "id": "lov",
+  "repo": "Zabaca/lov",
+  "mode": "copy",
+  "tier": "consumer",
+  "ref": "902dc42754331b9e45246c35435b0dd571a5422f",
+  "surveyedAt": "2026-10-19T14:12:26.803Z",
+  "environments": {
+    "production": [
+      "lov",
+      "lov-access-token",
+      "lov-access",
+      "lov-access-oauth"
+    ]
+  },
+  "modules": [
+    {
+      "name": "access-managed-oauth",
+      "location": "own",
+      "path": "packages/infra/modules/access-managed-oauth/index.ts",
+      "lines": 63,
+      "configKeys": [
+        "accountId",
+        "apiToken",
+        "appId"
+      ],
+      "outputKeys": [],
+      "verdict": "novel"
+    },
+    {
+      "name": "secret-token",
+      "location": "own",
+      "path": "packages/infra/modules/secret-token/index.ts",
+      "lines": 20,
+      "configKeys": [],
+      "outputKeys": [],
+      "verdict": "novel"
+    },
+    {
+      "name": "cloudflare-api",
+      "location": "own",
+      "path": "packages/infra/modules/cloudflare-api/index.ts",
+      "lines": 293,
+      "configKeys": [],
+      "outputKeys": [],
+      "upstreamFirstSeen": "2026-08-19",
+      "verdict": "current",
+      "matchedRev": "736f8d472a381ce42b6ee18e3d8fdf371f4703bc",
+      "matchedPath": "packages/cli/templates/infra/modules/cloudflare-api/index.ts"
+    },
+    {
+      "name": "cloudflare",
+      "location": "own",
+      "path": "packages/infra/modules/cloudflare/index.ts",
+      "lines": 835,
+      "configKeys": [
+        "workdir",
+        "accountId",
+        "apiToken",
+        "build",
+        "workerSecrets",
+        "workerVars",
+        "r2Bindings",
+        "bindings",
+        "deployIdVar",
+        "immediateContainerRollout",
+        "wranglerEnv",
+        "workerName",
+        "routes"
+      ],
+      "outputKeys": [
+        "deployUrl",
+        "workerName"
+      ],
+      "upstreamFirstSeen": "2026-06-23",
+      "verdict": "current",
+      "matchedRev": "3f30e5fede7b5a6300bbe7dd3656b6276740839b",
+      "matchedPath": "packages/cli/templates/infra/modules/cloudflare/index.ts"
+    },
+    {
+      "name": "cloudflare-access",
+      "location": "own",
+      "path": "packages/infra/modules/cloudflare-access/index.ts",
+      "lines": 1231,
+      "configKeys": [],
+      "outputKeys": [
+        "appId",
+        "aud",
+        "teamDomain",
+        "orgName",
+        "identityProviders",
+        "undeclaredIdentityProviders",
+        "appDomain",
+        "emails",
+        "policyId",
+        "policyIds",
+        "serviceTokenIds",
+        "serviceTokenId",
+        "clientId",
+        "clientSecret",
+        "created",
+        "appCreated",
+        "undeclared",
+        "changed"
+      ],
+      "upstreamFirstSeen": "2026-08-19",
+      "verdict": "current",
+      "matchedRev": "736f8d472a381ce42b6ee18e3d8fdf371f4703bc",
+      "matchedPath": "packages/cli/templates/infra/modules/cloudflare-access/index.ts"
+    }
+  ],
+  "escapeHatches": [
+    {
+      "file": "packages/infra/package.json",
+      "line": 16,
+      "tool": "wrangler",
+      "snippet": "\"wrangler\": \"^4.0.0\""
+    }
+  ]
+}

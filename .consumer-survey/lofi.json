@@ -1,0 +1,530 @@
+{
+  "id": "lofi",
+  "repo": null,
+  "mode": "subtree",
+  "tier": "consumer",
+  "ref": "814f7b07cd4339b93198c5abd5dd441cc62c378d",
+  "surveyedAt": "2026-10-19T14:12:29.303Z",
+  "environments": {
+    "production": [
+      "lofi",
+      "lofi-deploy-token"
+    ]
+  },
+  "modules": [
+    {
+      "name": "host-dir",
+      "location": "vendored",
+      "path": "vendor/zbc/modules/host-dir/index.ts",
+      "lines": 205,
+      "configKeys": [
+        "path",
+        "owner",
+        "mode"
+      ],
+      "outputKeys": [
+        "path",
+        "mode",
+        "owner",
+        "changed"
+      ],
+      "upstreamFirstSeen": "2026-08-18",
+      "verdict": "current",
+      "matchedRev": "aefae2833a07124a1c6831a4c2c0ee8e4e920b68",
+      "matchedPath": "packages/cli/templates/infra/modules/host-dir/index.ts"
+    },
+    {
+      "name": "host-exec",
+      "location": "vendored",
+      "path": "vendor/zbc/modules/host-exec/index.ts",
+      "lines": 193,
+      "configKeys": [],
+      "outputKeys": [],
+      "upstreamFirstSeen": "2026-08-18",
+      "verdict": "current",
+      "matchedRev": "aefae2833a07124a1c6831a4c2c0ee8e4e920b68",
+      "matchedPath": "packages/cli/templates/infra/modules/host-exec/index.ts"
+    },
+    {
+      "name": "provision-core",
+      "location": "vendored",
+      "path": "vendor/zbc/modules/provision-core/index.ts",
+      "lines": 153,
+      "configKeys": [],
+      "outputKeys": [],
+      "upstreamFirstSeen": "2026-08-19",
+      "verdict": "current",
+      "matchedRev": "736f8d472a381ce42b6ee18e3d8fdf371f4703bc",
+      "matchedPath": "packages/cli/templates/infra/modules/provision-core/index.ts"
+    },
+    {
+      "name": "d1",
+      "location": "vendored",
+      "path": "vendor/zbc/modules/d1/index.ts",
+      "lines": 254,
+      "configKeys": [
+        "accountId",
+        "databaseName",
+        "primaryLocationHint",
+        "statements",
+        "additiveColumns"
+      ],
+      "outputKeys": [
+        "databaseName",
+        "databaseId"
+      ],
+      "upstreamFirstSeen": "2026-09-08",
+      "verdict": "stale",
+      "matchedRev": "7e3ba650a45aa36c6d9b74d029bf59f152361cb7",
+      "matchedPath": "packages/cli/templates/infra/modules/d1/index.ts"
+    },
+    {
+      "name": "fly",
+      "location": "vendored",
+      "path": "vendor/zbc/modules/fly/index.ts",
+      "lines": 432,
+      "configKeys": [
+        "workdir",
+        "appName",
+        "org",
+        "build",
+        "flySecrets",
+        "ipv4",
+        "ipv6",
+        "highAvailability",
+        "localBuild",
+        "certs"
+      ],
+      "outputKeys": [
+        "appName",
+        "hostname",
+        "ipv4",
+        "ipv6"
+      ],
+      "upstreamFirstSeen": "2026-08-21",
+      "verdict": "current",
+      "matchedRev": "83740ac179b111ef98708a5a16eed4ccaf85698f",
+      "matchedPath": "packages/cli/templates/infra/modules/fly/index.ts"
+    },
+    {
+      "name": "docker-compose-stack",
+      "location": "vendored",
+      "path": "vendor/zbc/modules/docker-compose-stack/index.ts",
+      "lines": 31,
+      "configKeys": [
+        "dir",
+        "services"
+      ],
+      "outputKeys": [],
+      "upstreamFirstSeen": "2026-08-03",
+      "verdict": "current",
+      "matchedRev": "58d32bc00d7cca46c6e1f7f2f707653c6566a5db",
+      "matchedPath": "packages/cli/templates/infra/modules/docker-compose-stack/index.ts"
+    },
+    {
+      "name": "cloudflare-api",
+      "location": "vendored",
+      "path": "vendor/zbc/modules/cloudflare-api/index.ts",
+      "lines": 293,
+      "configKeys": [],
+      "outputKeys": [],
+      "upstreamFirstSeen": "2026-08-19",
+      "verdict": "current",
+      "matchedRev": "736f8d472a381ce42b6ee18e3d8fdf371f4703bc",
+      "matchedPath": "packages/cli/templates/infra/modules/cloudflare-api/index.ts"
+    },
+    {
+      "name": "incus-core",
+      "location": "vendored",
+      "path": "vendor/zbc/modules/incus-core/index.ts",
+      "lines": 197,
+      "configKeys": [],
+      "outputKeys": [],
+      "upstreamFirstSeen": "2026-08-19",
+      "verdict": "current",
+      "matchedRev": "aefae2833a07124a1c6831a4c2c0ee8e4e920b68",
+      "matchedPath": "packages/cli/templates/infra/modules/incus-core/index.ts"
+    },
+    {
+      "name": "systemd-mask",
+      "location": "vendored",
+      "path": "vendor/zbc/modules/systemd-mask/index.ts",
+      "lines": 150,
+      "configKeys": [
+        "unit",
+        "reason"
+      ],
+      "outputKeys": [],
+      "upstreamFirstSeen": "2026-08-18",
+      "verdict": "current",
+      "matchedRev": "aefae2833a07124a1c6831a4c2c0ee8e4e920b68",
+      "matchedPath": "packages/cli/templates/infra/modules/systemd-mask/index.ts"
+    },
+    {
+      "name": "cloudflare",
+      "location": "vendored",
+      "path": "vendor/zbc/modules/cloudflare/index.ts",
+      "lines": 826,
+      "configKeys": [
+        "workdir",
+        "accountId",
+        "apiToken",
+        "build",
+        "workerSecrets",
+        "workerVars",
+        "r2Bindings",
+        "bindings",
+        "deployIdVar",
+        "immediateContainerRollout",
+        "wranglerEnv",
+        "workerName",
+        "routes"
+      ],
+      "outputKeys": [
+        "deployUrl",
+        "workerName"
+      ],
+      "upstreamFirstSeen": "2026-06-23",
+      "verdict": "stale",
+      "matchedRev": "b72a35cc3e0bf4b4509728b8cd331d8343ada100",
+      "matchedPath": "packages/cli/templates/infra/modules/cloudflare/index.ts"
+    },
+    {
+      "name": "turso",
+      "location": "vendored",
+      "path": "vendor/zbc/modules/turso/index.ts",
+      "lines": 214,
+      "configKeys": [
+        "orgName",
+        "dbName",
+        "group",
+        "primaryLocation",
+        "migrationsDir"
+      ],
+      "outputKeys": [
+        "databaseUrl",
+        "authToken"
+      ],
+      "upstreamFirstSeen": "2026-04-24",
+      "verdict": "current",
+      "matchedRev": "83740ac179b111ef98708a5a16eed4ccaf85698f",
+      "matchedPath": "packages/cli/templates/infra/modules/turso/index.ts"
+    },
+    {
+      "name": "cloudflare-tunnel",
+      "location": "vendored",
+      "path": "vendor/zbc/modules/cloudflare-tunnel/index.ts",
+      "lines": 442,
+      "configKeys": [],
+      "outputKeys": [
+        "tunnelId",
+        "runToken",
+        "hostnames",
+        "createdTunnel",
+        "changed"
+      ],
+      "upstreamFirstSeen": "2026-08-19",
+      "verdict": "current",
+      "matchedRev": "736f8d472a381ce42b6ee18e3d8fdf371f4703bc",
+      "matchedPath": "packages/cli/templates/infra/modules/cloudflare-tunnel/index.ts"
+    },
+    {
+      "name": "host-symlink",
+      "location": "vendored",
+      "path": "vendor/zbc/modules/host-symlink/index.ts",
+      "lines": 121,
+      "configKeys": [
+        "path",
+        "target"
+      ],
+      "outputKeys": [],
+      "upstreamFirstSeen": "2026-08-18",
+      "verdict": "current",
+      "matchedRev": "aefae2833a07124a1c6831a4c2c0ee8e4e920b68",
+      "matchedPath": "packages/cli/templates/infra/modules/host-symlink/index.ts"
+    },
+    {
+      "name": "cloudflare-email",
+      "location": "vendored",
+      "path": "vendor/zbc/modules/cloudflare-email/index.ts",
+      "lines": 533,
+      "configKeys": [
+        "accountId",
+        "zoneId",
+        "domain",
+        "enableSending",
+        "enableRouting",
+        "catchAll",
+        "addresses"
+      ],
+      "outputKeys": [
+        "sendingEnabled",
+        "routingEnabled",
+        "dnsStatus",
+        "addresses",
+        "accountId",
+        "domain"
+      ],
+      "upstreamFirstSeen": "2026-07-15",
+      "verdict": "current",
+      "matchedRev": "736f8d472a381ce42b6ee18e3d8fdf371f4703bc",
+      "matchedPath": "packages/cli/templates/infra/modules/cloudflare-email/index.ts"
+    },
+    {
+      "name": "incus-storage-pool",
+      "location": "vendored",
+      "path": "vendor/zbc/modules/incus-storage-pool/index.ts",
+      "lines": 157,
+      "configKeys": [],
+      "outputKeys": [
+        "name",
+        "driver",
+        "created",
+        "changed"
+      ],
+      "upstreamFirstSeen": "2026-08-19",
+      "verdict": "current",
+      "matchedRev": "aefae2833a07124a1c6831a4c2c0ee8e4e920b68",
+      "matchedPath": "packages/cli/templates/infra/modules/incus-storage-pool/index.ts"
+    },
+    {
+      "name": "gcp-api",
+      "location": "vendored",
+      "path": "vendor/zbc/modules/gcp-api/index.ts",
+      "lines": 200,
+      "configKeys": [],
+      "outputKeys": [],
+      "upstreamFirstSeen": "2026-09-08",
+      "verdict": "current",
+      "matchedRev": "5b8d0114cb05ca312449a977c9ba483fa1ea0840",
+      "matchedPath": "packages/cli/templates/infra/modules/gcp-api/index.ts"
+    },
+    {
+      "name": "cloudflare-token",
+      "location": "vendored",
+      "path": "vendor/zbc/modules/cloudflare-token/index.ts",
+      "lines": 363,
+      "configKeys": [
+        "accountId",
+        "tokenName",
+        "permissions",
+        "zones",
+        "rootTokenSecret"
+      ],
+      "outputKeys": [
+        "tokenId",
+        "tokenValue",
+        "s3AccessKeyId",
+        "s3SecretAccessKey"
+      ],
+      "upstreamFirstSeen": "2026-08-03",
+      "verdict": "current",
+      "matchedRev": "40ef70650c1260a43fc32336580eb522647f32b8",
+      "matchedPath": "packages/cli/templates/infra/modules/cloudflare-token/index.ts"
+    },
+    {
+      "name": "vm",
+      "location": "vendored",
+      "path": "vendor/zbc/modules/vm/index.ts",
+      "lines": 709,
+      "configKeys": [],
+      "outputKeys": [
+        "name",
+        "type",
+        "sshUser",
+        "target",
+        "ipv4",
+        "created",
+        "changed"
+      ],
+      "upstreamFirstSeen": "2026-08-19",
+      "verdict": "current",
+      "matchedRev": "aefae2833a07124a1c6831a4c2c0ee8e4e920b68",
+      "matchedPath": "packages/cli/templates/infra/modules/vm/index.ts"
+    },
+    {
+      "name": "vm-provision",
+      "location": "vendored",
+      "path": "vendor/zbc/modules/vm-provision/index.ts",
+      "lines": 181,
+      "configKeys": [
+        "instance",
+        "packages",
+        "script",
+        "env",
+        "envSecrets",
+        "volatileEnvFrom",
+        "marker",
+        "force"
+      ],
+      "outputKeys": [
+        "instance",
+        "digest",
+        "changed"
+      ],
+      "upstreamFirstSeen": "2026-08-19",
+      "verdict": "current",
+      "matchedRev": "736f8d472a381ce42b6ee18e3d8fdf371f4703bc",
+      "matchedPath": "packages/cli/templates/infra/modules/vm-provision/index.ts"
+    },
+    {
+      "name": "host-file",
+      "location": "vendored",
+      "path": "vendor/zbc/modules/host-file/index.ts",
+      "lines": 46,
+      "configKeys": [],
+      "outputKeys": [],
+      "upstreamFirstSeen": "2026-08-03",
+      "verdict": "current",
+      "matchedRev": "736f8d472a381ce42b6ee18e3d8fdf371f4703bc",
+      "matchedPath": "packages/cli/templates/infra/modules/host-file/index.ts"
+    },
+    {
+      "name": "cloudflare-zone",
+      "location": "vendored",
+      "path": "vendor/zbc/modules/cloudflare-zone/index.ts",
+      "lines": 813,
+      "configKeys": [],
+      "outputKeys": [
+        "zoneId",
+        "zoneName",
+        "nameServers",
+        "created",
+        "updated",
+        "deleted",
+        "undeclared",
+        "emailProvisioned",
+        "settingsChanged",
+        "changed"
+      ],
+      "upstreamFirstSeen": "2026-08-19",
+      "verdict": "current",
+      "matchedRev": "eb1770cc0d04fb2b02bd13cdebf2fc0228817845",
+      "matchedPath": "packages/cli/templates/infra/modules/cloudflare-zone/index.ts"
+    },
+    {
+      "name": "gcp-service-account",
+      "location": "vendored",
+      "path": "vendor/zbc/modules/gcp-service-account/index.ts",
+      "lines": 316,
+      "configKeys": [
+        "projectId",
+        "serviceAccountId",
+        "displayName",
+        "maxKeys",
+        "credentialSecret"
+      ],
+      "outputKeys": [
+        "saEmail",
+        "saKey",
+        "saKeyId"
+      ],
+      "upstreamFirstSeen": "2026-09-08",
+      "verdict": "current",
+      "matchedRev": "5b8d0114cb05ca312449a977c9ba483fa1ea0840",
+      "matchedPath": "packages/cli/templates/infra/modules/gcp-service-account/index.ts"
+    },
+    {
+      "name": "cloudflare-access",
+      "location": "vendored",
+      "path": "vendor/zbc/modules/cloudflare-access/index.ts",
+      "lines": 1231,
+      "configKeys": [],
+      "outputKeys": [
+        "appId",
+        "aud",
+        "teamDomain",
+        "orgName",
+        "identityProviders",
+        "undeclaredIdentityProviders",
+        "appDomain",
+        "emails",
+        "policyId",
+        "policyIds",
+        "serviceTokenIds",
+        "serviceTokenId",
+        "clientId",
+        "clientSecret",
+        "created",
+        "appCreated",
+        "undeclared",
+        "changed"
+      ],
+      "upstreamFirstSeen": "2026-08-19",
+      "verdict": "current",
+      "matchedRev": "736f8d472a381ce42b6ee18e3d8fdf371f4703bc",
+      "matchedPath": "packages/cli/templates/infra/modules/cloudflare-access/index.ts"
+    },
+    {
+      "name": "systemd-unit",
+      "location": "vendored",
+      "path": "vendor/zbc/modules/systemd-unit/index.ts",
+      "lines": 66,
+      "configKeys": [
+        "unit",
+        "content",
+        "scope",
+        "enableNow"
+      ],
+      "outputKeys": [],
+      "upstreamFirstSeen": "2026-08-03",
+      "verdict": "current",
+      "matchedRev": "aefae2833a07124a1c6831a4c2c0ee8e4e920b68",
+      "matchedPath": "packages/cli/templates/infra/modules/systemd-unit/index.ts"
+    },
+    {
+      "name": "remote-provision",
+      "location": "vendored",
+      "path": "vendor/zbc/modules/remote-provision/index.ts",
+      "lines": 164,
+      "configKeys": [
+        "hosts",
+        "user",
+        "connectTimeout",
+        "packages",
+        "script",
+        "env",
+        "envSecrets",
+        "volatileEnvFrom",
+        "marker",
+        "force"
+      ],
+      "outputKeys": [
+        "host",
+        "fallback",
+        "digest",
+        "changed"
+      ],
+      "upstreamFirstSeen": "2026-08-19",
+      "verdict": "current",
+      "matchedRev": "736f8d472a381ce42b6ee18e3d8fdf371f4703bc",
+      "matchedPath": "packages/cli/templates/infra/modules/remote-provision/index.ts"
+    },
+    {
+      "name": "r2",
+      "location": "vendored",
+      "path": "vendor/zbc/modules/r2/index.ts",
+      "lines": 107,
+      "configKeys": [
+        "accountId",
+        "bucketName",
+        "locationHint"
+      ],
+      "outputKeys": [
+        "bucketName"
+      ],
+      "upstreamFirstSeen": "2026-07-16",
+      "verdict": "current",
+      "matchedRev": "83740ac179b111ef98708a5a16eed4ccaf85698f",
+      "matchedPath": "packages/cli/templates/infra/modules/r2/index.ts"
+    }
+  ],
+  "escapeHatches": [
+    {
+      "file": "packages/infra/package.json",
+      "line": 13,
+      "tool": "wrangler",
+      "snippet": "\"wrangler\": \"^4.0.0\""
+    }
+  ]
+}

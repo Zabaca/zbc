@@ -3,12 +3,13 @@
   "repo": "Zabaca/web",
   "mode": "copy",
   "tier": "consumer",
-  "ref": "33117a937996c7be5f0afe35d1715a1a558642fe",
-  "surveyedAt": "2026-09-03T02:56:06.808Z",
+  "ref": "834406e7b660a6040c94383824aec4e69b1a7370",
+  "surveyedAt": "2026-10-19T14:12:18.665Z",
   "environments": {
     "production": [
       "web-contracts-db",
       "web-access-token",
+      "web-email",
       "web-access",
       "web"
     ],
@@ -28,7 +29,11 @@
         "databaseName",
         "databaseId"
       ],
-      "verdict": "novel"
+      "upstreamFirstSeen": "2026-09-08",
+      "verdict": "divergent",
+      "nearestRev": "7e3ba650a45aa36c6d9b74d029bf59f152361cb7",
+      "nearestPath": "packages/cli/templates/infra/modules/d1/index.ts",
+      "similarity": 0.113
     },
     {
       "name": "cloudflare-api",
@@ -37,8 +42,10 @@
       "lines": 181,
       "configKeys": [],
       "outputKeys": [],
+      "upstreamFirstSeen": "2026-08-19",
       "verdict": "stale",
-      "matchedRev": "76007535ed540c63a8caaccf274bb170c9f6db62"
+      "matchedRev": "76007535ed540c63a8caaccf274bb170c9f6db62",
+      "matchedPath": "packages/cli/templates/infra/modules/cloudflare-api/index.ts"
     },
     {
       "name": "cloudflare",
@@ -60,8 +67,37 @@
         "deployUrl",
         "workerName"
       ],
+      "upstreamFirstSeen": "2026-06-23",
       "verdict": "stale",
-      "matchedRev": "9f1326815be69993c85ba94340fbf2e591c695fa"
+      "matchedRev": "9f1326815be69993c85ba94340fbf2e591c695fa",
+      "matchedPath": "packages/cli/templates/infra/modules/cloudflare/index.ts"
+    },
+    {
+      "name": "cloudflare-email",
+      "location": "own",
+      "path": "packages/infra/modules/cloudflare-email/index.ts",
+      "lines": 513,
+      "configKeys": [
+        "accountId",
+        "zoneId",
+        "domain",
+        "enableSending",
+        "enableRouting",
+        "catchAll",
+        "addresses"
+      ],
+      "outputKeys": [
+        "sendingEnabled",
+        "routingEnabled",
+        "dnsStatus",
+        "addresses",
+        "accountId",
+        "domain"
+      ],
+      "upstreamFirstSeen": "2026-07-15",
+      "verdict": "stale",
+      "matchedRev": "74c795d37e0743b224263d7df19a949a0efb4e8a",
+      "matchedPath": "packages/cli/templates/infra/modules/cloudflare-email/index.ts"
     },
     {
       "name": "cloudflare-token",
@@ -81,8 +117,10 @@
         "s3AccessKeyId",
         "s3SecretAccessKey"
       ],
+      "upstreamFirstSeen": "2026-08-03",
       "verdict": "stale",
-      "matchedRev": "ec24ecb833461ee66cc57ba685ef0236bc82572a"
+      "matchedRev": "ec24ecb833461ee66cc57ba685ef0236bc82572a",
+      "matchedPath": "packages/cli/templates/infra/modules/cloudflare-token/index.ts"
     },
     {
       "name": "cloudflare-access",
@@ -110,8 +148,10 @@
         "undeclared",
         "changed"
       ],
+      "upstreamFirstSeen": "2026-08-19",
       "verdict": "stale",
-      "matchedRev": "c96dd453ab3676ac89eb4648fb513e52242e0fb9"
+      "matchedRev": "c96dd453ab3676ac89eb4648fb513e52242e0fb9",
+      "matchedPath": "packages/cli/templates/infra/modules/cloudflare-access/index.ts"
     }
   ],
   "escapeHatches": [
@@ -120,12 +160,6 @@
       "line": 14,
       "tool": "wrangler",
       "snippet": "\"wrangler\": \"^4.0.0\""
-    },
-    {
-      "file": ".github/workflows/ci.yml",
-      "line": 86,
-      "tool": "wrangler",
-      "snippet": "# changed what wrangler's `main` points at, and added a generated"
     }
   ]
 }

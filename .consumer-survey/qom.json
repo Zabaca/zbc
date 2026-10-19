@@ -1,0 +1,313 @@
+{
+  "id": "qom",
+  "repo": "Zabaca/qom",
+  "mode": "copy",
+  "tier": "consumer",
+  "ref": "278e20721cd862ca9b82ad825eee1741a4349123",
+  "surveyedAt": "2026-10-19T14:12:24.397Z",
+  "environments": {
+    "production": [
+      "qom",
+      "qualityom-redirects",
+      "qualityom-email",
+      "qom-access",
+      "qom-access-token",
+      "qualityom-dns-token",
+      "qom-requests-db",
+      "qom-access-apex",
+      "qom-deploy-token",
+      "qualityom-zone",
+      "qualityom-email-token",
+      "qualityom-redirect-token"
+    ]
+  },
+  "modules": [
+    {
+      "name": "d1",
+      "location": "own",
+      "path": "packages/infra/modules/d1/index.ts",
+      "lines": 312,
+      "configKeys": [
+        "accountId",
+        "databaseName",
+        "apiToken"
+      ],
+      "outputKeys": [
+        "databaseName",
+        "databaseId"
+      ],
+      "upstreamFirstSeen": "2026-09-08",
+      "verdict": "divergent",
+      "nearestRev": "30815b1435dcd65d02bee748c69dd1bc013c92d1",
+      "nearestPath": "packages/cli/templates/infra/modules/d1/index.ts",
+      "similarity": 0.069
+    },
+    {
+      "name": "cloudflare-api",
+      "location": "own",
+      "path": "packages/infra/modules/cloudflare-api/index.ts",
+      "lines": 293,
+      "configKeys": [],
+      "outputKeys": [],
+      "upstreamFirstSeen": "2026-08-19",
+      "verdict": "current",
+      "matchedRev": "736f8d472a381ce42b6ee18e3d8fdf371f4703bc",
+      "matchedPath": "packages/cli/templates/infra/modules/cloudflare-api/index.ts"
+    },
+    {
+      "name": "cloudflare-redirect-rules",
+      "location": "own",
+      "path": "packages/infra/modules/cloudflare-redirect-rules/index.ts",
+      "lines": 415,
+      "configKeys": [],
+      "outputKeys": [
+        "rulesetId",
+        "ruleIds",
+        "created",
+        "updated",
+        "deleted",
+        "undeclared",
+        "changed"
+      ],
+      "verdict": "novel"
+    },
+    {
+      "name": "cloudflare",
+      "location": "own",
+      "path": "packages/infra/modules/cloudflare/index.ts",
+      "lines": 726,
+      "configKeys": [
+        "workdir",
+        "accountId",
+        "apiToken",
+        "build",
+        "workerSecrets",
+        "workerVars",
+        "r2Bindings",
+        "bindings",
+        "immediateContainerRollout",
+        "wranglerEnv",
+        "workerName",
+        "routes"
+      ],
+      "outputKeys": [
+        "deployUrl",
+        "workerName"
+      ],
+      "upstreamFirstSeen": "2026-06-23",
+      "verdict": "stale",
+      "matchedRev": "946d0bd848477231a167a8bf83398f1e40d708ab",
+      "matchedPath": "packages/cli/templates/infra/modules/cloudflare/index.ts"
+    },
+    {
+      "name": "cloudflare-email",
+      "location": "own",
+      "path": "packages/infra/modules/cloudflare-email/index.ts",
+      "lines": 719,
+      "configKeys": [
+        "accountId",
+        "zoneId",
+        "apiToken",
+        "domain",
+        "enableSending",
+        "enableRouting",
+        "catchAll",
+        "addresses"
+      ],
+      "outputKeys": [
+        "sendingEnabled",
+        "routingEnabled",
+        "dnsStatus",
+        "addresses",
+        "accountId",
+        "domain"
+      ],
+      "upstreamFirstSeen": "2026-07-15",
+      "verdict": "divergent",
+      "nearestRev": "74c795d37e0743b224263d7df19a949a0efb4e8a",
+      "nearestPath": "packages/cli/templates/infra/modules/cloudflare-email/index.ts",
+      "similarity": 0.597
+    },
+    {
+      "name": "cloudflare-token",
+      "location": "own",
+      "path": "packages/infra/modules/cloudflare-token/index.ts",
+      "lines": 363,
+      "configKeys": [
+        "accountId",
+        "tokenName",
+        "permissions",
+        "zones",
+        "rootTokenSecret"
+      ],
+      "outputKeys": [
+        "tokenId",
+        "tokenValue",
+        "s3AccessKeyId",
+        "s3SecretAccessKey"
+      ],
+      "upstreamFirstSeen": "2026-08-03",
+      "verdict": "current",
+      "matchedRev": "40ef70650c1260a43fc32336580eb522647f32b8",
+      "matchedPath": "packages/cli/templates/infra/modules/cloudflare-token/index.ts"
+    },
+    {
+      "name": "cloudflare-zone",
+      "location": "own",
+      "path": "packages/infra/modules/cloudflare-zone/index.ts",
+      "lines": 813,
+      "configKeys": [],
+      "outputKeys": [
+        "zoneId",
+        "zoneName",
+        "nameServers",
+        "created",
+        "updated",
+        "deleted",
+        "undeclared",
+        "emailProvisioned",
+        "settingsChanged",
+        "changed"
+      ],
+      "upstreamFirstSeen": "2026-08-19",
+      "verdict": "current",
+      "matchedRev": "eb1770cc0d04fb2b02bd13cdebf2fc0228817845",
+      "matchedPath": "packages/cli/templates/infra/modules/cloudflare-zone/index.ts"
+    },
+    {
+      "name": "cloudflare-access",
+      "location": "own",
+      "path": "packages/infra/modules/cloudflare-access/index.ts",
+      "lines": 1231,
+      "configKeys": [],
+      "outputKeys": [
+        "appId",
+        "aud",
+        "teamDomain",
+        "orgName",
+        "identityProviders",
+        "undeclaredIdentityProviders",
+        "appDomain",
+        "emails",
+        "policyId",
+        "policyIds",
+        "serviceTokenIds",
+        "serviceTokenId",
+        "clientId",
+        "clientSecret",
+        "created",
+        "appCreated",
+        "undeclared",
+        "changed"
+      ],
+      "upstreamFirstSeen": "2026-08-19",
+      "verdict": "current",
+      "matchedRev": "736f8d472a381ce42b6ee18e3d8fdf371f4703bc",
+      "matchedPath": "packages/cli/templates/infra/modules/cloudflare-access/index.ts"
+    }
+  ],
+  "escapeHatches": [
+    {
+      "file": "packages/infra/tests/qom-site.test.ts",
+      "line": 46,
+      "tool": "wrangler",
+      "snippet": "const wrangler = JSON.parse("
+    },
+    {
+      "file": "packages/infra/tests/qom-site.test.ts",
+      "line": 47,
+      "tool": "wrangler",
+      "snippet": "read('wrangler.jsonc')"
+    },
+    {
+      "file": "packages/infra/tests/qom-site.test.ts",
+      "line": 108,
+      "tool": "wrangler",
+      "snippet": "expect(wrangler.d1_databases).toEqual([{ binding: 'DB', database_name: dbConfig.databaseName, migrations_dir: 'migrations' }])"
+    },
+    {
+      "file": "packages/infra/tests/qom-site.test.ts",
+      "line": 118,
+      "tool": "wrangler",
+      "snippet": "`bun ../infra/scripts/with-client-d1-token.ts bunx wrangler d1 migrations apply ${dbConfig.databaseName} --remote`,"
+    },
+    {
+      "file": "packages/infra/tests/qom-site.test.ts",
+      "line": 139,
+      "tool": "wrangler",
+      "snippet": "test('are declared empty in wrangler.jsonc, so nothing but zbc fills them', () => {"
+    },
+    {
+      "file": "packages/infra/tests/qom-site.test.ts",
+      "line": 140,
+      "tool": "wrangler",
+      "snippet": "expect(wrangler.vars?.CF_ACCESS_TEAM_DOMAIN).toBe('')"
+    },
+    {
+      "file": "packages/infra/tests/qom-site.test.ts",
+      "line": 141,
+      "tool": "wrangler",
+      "snippet": "expect(wrangler.vars?.CF_ACCESS_AUD).toBe('')"
+    },
+    {
+      "file": "packages/infra/tests/qom-site.test.ts",
+      "line": 142,
+      "tool": "wrangler",
+      "snippet": "expect(wrangler.vars?.CF_ACCESS_AUD_APEX).toBe('')"
+    },
+    {
+      "file": "packages/infra/tests/qom-site.test.ts",
+      "line": 148,
+      "tool": "wrangler",
+      "snippet": "expect(wrangler.routes).toEqual(["
+    },
+    {
+      "file": "packages/infra/tests/qom-site.test.ts",
+      "line": 155,
+      "tool": "wrangler",
+      "snippet": "for (const route of wrangler.routes ?? []) {"
+    },
+    {
+      "file": "packages/infra/tests/qom-site.test.ts",
+      "line": 170,
+      "tool": "wrangler",
+      "snippet": "expect(wrangler.assets?.run_worker_first).toEqual(['/api/*', '/admin', '/admin/*'])"
+    },
+    {
+      "file": "packages/infra/tests/qom-site.test.ts",
+      "line": 174,
+      "tool": "wrangler",
+      "snippet": "expect(wrangler.workers_dev).toBe(false)"
+    },
+    {
+      "file": "packages/infra/tests/qom-site.test.ts",
+      "line": 185,
+      "tool": "wrangler",
+      "snippet": "for (const route of wrangler.routes ?? []) {"
+    },
+    {
+      "file": "packages/infra/tests/qualityom-email.test.ts",
+      "line": 54,
+      "tool": "wrangler",
+      "snippet": "const wrangler = readFileSync(new URL('../../qom/wrangler.jsonc', import.meta.url), 'utf8')"
+    },
+    {
+      "file": "packages/infra/tests/qualityom-email.test.ts",
+      "line": 55,
+      "tool": "wrangler",
+      "snippet": "const from = wrangler.match(/\"NOTIFY_FROM\":\\s*\"([^\"]+)\"/)?.[1]"
+    },
+    {
+      "file": "packages/infra/package.json",
+      "line": 16,
+      "tool": "wrangler",
+      "snippet": "\"wrangler\": \"^4.0.0\""
+    },
+    {
+      "file": "packages/infra/scripts/with-client-d1-token.ts",
+      "line": 69,
+      "tool": "sops",
+      "snippet": "const res = spawnSync('sops', ['-d', '--output-type', 'json', secretsPath], { encoding: 'utf8' })"
+    }
+  ]
+}

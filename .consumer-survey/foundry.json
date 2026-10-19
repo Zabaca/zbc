@@ -3,40 +3,28 @@
   "repo": null,
   "mode": "subtree",
   "tier": "driver",
-  "ref": "98861e9fb7ab39690b40c3dff9cefa7cdd9602f1",
-  "surveyedAt": "2026-09-03T02:56:00.898Z",
+  "ref": "ef1d3e14b39b8907794919c3fee585d51a00534e",
+  "surveyedAt": "2026-10-19T14:12:12.180Z",
   "environments": {
     "ryzen-9": [
-      "assay-solve-timer",
-      "forge-preview-watch",
       "hardening",
       "incus-trust-cedarpad",
       "claude-sync",
       "claude-sync-timer",
-      "assay-triage-timer",
-      "assay-solve",
       "gh-runner-foothill-metabolic",
       "xdg-portal-gtk-mask",
       "hardening-script",
-      "assay-dedupe-timer",
-      "assay-triage",
       "vultr-authkey",
       "deadman-probe",
+      "gh-runner-leeandco",
       "watchdog-timer",
       "ci-fredrin",
       "deadman-heartbeat",
-      "ci-ceo",
-      "agent-net",
-      "assay-observe",
-      "agent-host",
-      "agent-host-env",
       "ntfy-topic",
-      "varnick-zone",
       "gh-runner-ceo",
       "rclone",
       "monitoring-env",
       "ci-fredrin-provision",
-      "transcribe",
       "backup-r2-env",
       "pipeline-timer",
       "pipeline",
@@ -45,78 +33,46 @@
       "deadman-probe-timer",
       "incus-project-zabaca",
       "ducklake-maintenance",
+      "embeddings",
       "claude-code-settings",
       "incus-trust-agent-lab",
-      "agent-vm-provision",
       "ducklake-env",
       "claude-agent-foundry",
       "monitoring-reload",
-      "voice-log",
       "access-token",
-      "varnick-site",
       "deadman-heartbeat-timer",
       "tmux-conf",
-      "agent-proxy",
       "gpu-metrics",
-      "agent-vm",
       "ci-shared",
-      "ci-ceo-provision",
-      "agent-base",
       "ci-shared-provision",
-      "assay-settle-timer",
-      "assay-observe-timer",
-      "headroom-env",
-      "dream",
       "claude-skill-mermaid-validator",
-      "agent-vm-authkey",
       "xdg-portal-mask",
-      "assay-morning",
       "backup-timer",
       "ticket-store-dir",
       "tmux",
-      "forge-preview-serve",
       "gh-runner-cedarpad",
       "cloudflared",
-      "agent-base-provision",
+      "gh-runner-games",
       "monitoring",
       "claude-agent-diagram-generator",
       "ducklake",
-      "varnick-deploy-token",
-      "dream-timer",
-      "agent-net-script",
-      "forge-preview",
-      "assay-canary",
-      "headroom",
+      "gh-runner-web",
       "watchdog",
-      "forge-serve",
       "claude-skill-ship",
-      "varnick-dns-token",
       "incus-packages",
-      "assay-morning-timer",
-      "assay-settle",
       "tailscale-acl",
       "pipeline-env",
       "incus-pool",
-      "forge-preview-worktree",
       "ducklake-maintenance-timer",
       "gh-runner-fredrin",
-      "agent-host-access",
-      "assay-dedupe",
       "backup",
-      "assay-canary-timer",
-      "agent-tunnel",
       "incus-docker-forward",
       "agent-cap-limit",
       "incus-trust-cedarpad-mac",
-      "forge-release",
       "vultr",
-      "assay-records-worktree",
       "backup-env",
-      "agent-tunnel-env",
-      "ntfy-bridge",
-      "forge",
-      "assay-audit-timer",
-      "assay-audit"
+      "gh-runner-zbc",
+      "ntfy-bridge"
     ]
   },
   "modules": [
@@ -284,24 +240,6 @@
       "verdict": "novel"
     },
     {
-      "name": "forge-release",
-      "location": "own",
-      "path": "packages/infra/modules/forge-release/index.ts",
-      "lines": 111,
-      "configKeys": [
-        "repo",
-        "current",
-        "script",
-        "revision"
-      ],
-      "outputKeys": [
-        "current",
-        "created",
-        "changed"
-      ],
-      "verdict": "novel"
-    },
-    {
       "name": "incus-trust",
       "location": "own",
       "path": "packages/infra/modules/incus-trust/index.ts",
@@ -350,8 +288,10 @@
         "owner",
         "changed"
       ],
+      "upstreamFirstSeen": "2026-08-18",
       "verdict": "current",
-      "matchedRev": "aefae2833a07124a1c6831a4c2c0ee8e4e920b68"
+      "matchedRev": "aefae2833a07124a1c6831a4c2c0ee8e4e920b68",
+      "matchedPath": "packages/cli/templates/infra/modules/host-dir/index.ts"
     },
     {
       "name": "host-exec",
@@ -360,8 +300,10 @@
       "lines": 193,
       "configKeys": [],
       "outputKeys": [],
+      "upstreamFirstSeen": "2026-08-18",
       "verdict": "current",
-      "matchedRev": "aefae2833a07124a1c6831a4c2c0ee8e4e920b68"
+      "matchedRev": "aefae2833a07124a1c6831a4c2c0ee8e4e920b68",
+      "matchedPath": "packages/cli/templates/infra/modules/host-exec/index.ts"
     },
     {
       "name": "provision-core",
@@ -370,8 +312,10 @@
       "lines": 147,
       "configKeys": [],
       "outputKeys": [],
+      "upstreamFirstSeen": "2026-08-19",
       "verdict": "stale",
-      "matchedRev": "b2491039df1760ef4c046ec2a412f5a663440438"
+      "matchedRev": "b2491039df1760ef4c046ec2a412f5a663440438",
+      "matchedPath": "packages/cli/templates/infra/modules/provision-core/index.ts"
     },
     {
       "name": "fly",
@@ -396,8 +340,10 @@
         "ipv4",
         "ipv6"
       ],
+      "upstreamFirstSeen": "2026-08-21",
       "verdict": "stale",
-      "matchedRev": "ca81b9e508508835bd2bff092b1f6bc88a05fad7"
+      "matchedRev": "ca81b9e508508835bd2bff092b1f6bc88a05fad7",
+      "matchedPath": "packages/cli/templates/infra/modules/fly/index.ts"
     },
     {
       "name": "docker-compose-stack",
@@ -409,8 +355,10 @@
         "services"
       ],
       "outputKeys": [],
+      "upstreamFirstSeen": "2026-08-03",
       "verdict": "current",
-      "matchedRev": "58d32bc00d7cca46c6e1f7f2f707653c6566a5db"
+      "matchedRev": "58d32bc00d7cca46c6e1f7f2f707653c6566a5db",
+      "matchedPath": "packages/cli/templates/infra/modules/docker-compose-stack/index.ts"
     },
     {
       "name": "cloudflare-api",
@@ -419,8 +367,10 @@
       "lines": 181,
       "configKeys": [],
       "outputKeys": [],
+      "upstreamFirstSeen": "2026-08-19",
       "verdict": "stale",
-      "matchedRev": "76007535ed540c63a8caaccf274bb170c9f6db62"
+      "matchedRev": "76007535ed540c63a8caaccf274bb170c9f6db62",
+      "matchedPath": "packages/cli/templates/infra/modules/cloudflare-api/index.ts"
     },
     {
       "name": "incus-core",
@@ -429,8 +379,10 @@
       "lines": 197,
       "configKeys": [],
       "outputKeys": [],
+      "upstreamFirstSeen": "2026-08-19",
       "verdict": "current",
-      "matchedRev": "aefae2833a07124a1c6831a4c2c0ee8e4e920b68"
+      "matchedRev": "aefae2833a07124a1c6831a4c2c0ee8e4e920b68",
+      "matchedPath": "packages/cli/templates/infra/modules/incus-core/index.ts"
     },
     {
       "name": "systemd-mask",
@@ -442,8 +394,10 @@
         "reason"
       ],
       "outputKeys": [],
+      "upstreamFirstSeen": "2026-08-18",
       "verdict": "current",
-      "matchedRev": "aefae2833a07124a1c6831a4c2c0ee8e4e920b68"
+      "matchedRev": "aefae2833a07124a1c6831a4c2c0ee8e4e920b68",
+      "matchedPath": "packages/cli/templates/infra/modules/systemd-mask/index.ts"
     },
     {
       "name": "cloudflare",
@@ -466,8 +420,10 @@
         "deployUrl",
         "workerName"
       ],
+      "upstreamFirstSeen": "2026-06-23",
       "verdict": "stale",
-      "matchedRev": "f06480507c37cb07f3868a004b17913c46bf9ed9"
+      "matchedRev": "f06480507c37cb07f3868a004b17913c46bf9ed9",
+      "matchedPath": "packages/cli/templates/infra/modules/cloudflare/index.ts"
     },
     {
       "name": "turso",
@@ -486,8 +442,10 @@
         "databaseUrl",
         "authToken"
       ],
+      "upstreamFirstSeen": "2026-04-24",
       "verdict": "stale",
-      "matchedRev": "8a558a40b3e380f813ab6a275f9587a5a286475e"
+      "matchedRev": "8a558a40b3e380f813ab6a275f9587a5a286475e",
+      "matchedPath": "packages/cli/templates/infra/modules/turso/index.ts"
     },
     {
       "name": "cloudflare-tunnel",
@@ -502,8 +460,10 @@
         "createdTunnel",
         "changed"
       ],
+      "upstreamFirstSeen": "2026-08-19",
       "verdict": "stale",
-      "matchedRev": "aefae2833a07124a1c6831a4c2c0ee8e4e920b68"
+      "matchedRev": "aefae2833a07124a1c6831a4c2c0ee8e4e920b68",
+      "matchedPath": "packages/cli/templates/infra/modules/cloudflare-tunnel/index.ts"
     },
     {
       "name": "host-symlink",
@@ -515,8 +475,10 @@
         "target"
       ],
       "outputKeys": [],
+      "upstreamFirstSeen": "2026-08-18",
       "verdict": "current",
-      "matchedRev": "aefae2833a07124a1c6831a4c2c0ee8e4e920b68"
+      "matchedRev": "aefae2833a07124a1c6831a4c2c0ee8e4e920b68",
+      "matchedPath": "packages/cli/templates/infra/modules/host-symlink/index.ts"
     },
     {
       "name": "cloudflare-email",
@@ -540,8 +502,10 @@
         "accountId",
         "domain"
       ],
+      "upstreamFirstSeen": "2026-07-15",
       "verdict": "stale",
-      "matchedRev": "9224fda0145efb52698995ec1006dd4e69ca163c"
+      "matchedRev": "9224fda0145efb52698995ec1006dd4e69ca163c",
+      "matchedPath": "packages/cli/templates/infra/modules/cloudflare-email/index.ts"
     },
     {
       "name": "incus-storage-pool",
@@ -555,8 +519,10 @@
         "created",
         "changed"
       ],
+      "upstreamFirstSeen": "2026-08-19",
       "verdict": "current",
-      "matchedRev": "aefae2833a07124a1c6831a4c2c0ee8e4e920b68"
+      "matchedRev": "aefae2833a07124a1c6831a4c2c0ee8e4e920b68",
+      "matchedPath": "packages/cli/templates/infra/modules/incus-storage-pool/index.ts"
     },
     {
       "name": "cloudflare-token",
@@ -576,8 +542,10 @@
         "s3AccessKeyId",
         "s3SecretAccessKey"
       ],
+      "upstreamFirstSeen": "2026-08-03",
       "verdict": "stale",
-      "matchedRev": "ec24ecb833461ee66cc57ba685ef0236bc82572a"
+      "matchedRev": "ec24ecb833461ee66cc57ba685ef0236bc82572a",
+      "matchedPath": "packages/cli/templates/infra/modules/cloudflare-token/index.ts"
     },
     {
       "name": "vm",
@@ -594,8 +562,10 @@
         "created",
         "changed"
       ],
+      "upstreamFirstSeen": "2026-08-19",
       "verdict": "current",
-      "matchedRev": "aefae2833a07124a1c6831a4c2c0ee8e4e920b68"
+      "matchedRev": "aefae2833a07124a1c6831a4c2c0ee8e4e920b68",
+      "matchedPath": "packages/cli/templates/infra/modules/vm/index.ts"
     },
     {
       "name": "vm-provision",
@@ -617,8 +587,10 @@
         "digest",
         "changed"
       ],
+      "upstreamFirstSeen": "2026-08-19",
       "verdict": "stale",
-      "matchedRev": "aefae2833a07124a1c6831a4c2c0ee8e4e920b68"
+      "matchedRev": "aefae2833a07124a1c6831a4c2c0ee8e4e920b68",
+      "matchedPath": "packages/cli/templates/infra/modules/vm-provision/index.ts"
     },
     {
       "name": "host-file",
@@ -627,8 +599,10 @@
       "lines": 47,
       "configKeys": [],
       "outputKeys": [],
+      "upstreamFirstSeen": "2026-08-03",
       "verdict": "stale",
-      "matchedRev": "58d32bc00d7cca46c6e1f7f2f707653c6566a5db"
+      "matchedRev": "58d32bc00d7cca46c6e1f7f2f707653c6566a5db",
+      "matchedPath": "packages/cli/templates/infra/modules/host-file/index.ts"
     },
     {
       "name": "cloudflare-zone",
@@ -647,8 +621,10 @@
         "emailProvisioned",
         "changed"
       ],
+      "upstreamFirstSeen": "2026-08-19",
       "verdict": "stale",
-      "matchedRev": "aefae2833a07124a1c6831a4c2c0ee8e4e920b68"
+      "matchedRev": "aefae2833a07124a1c6831a4c2c0ee8e4e920b68",
+      "matchedPath": "packages/cli/templates/infra/modules/cloudflare-zone/index.ts"
     },
     {
       "name": "cloudflare-access",
@@ -676,8 +652,10 @@
         "undeclared",
         "changed"
       ],
+      "upstreamFirstSeen": "2026-08-19",
       "verdict": "stale",
-      "matchedRev": "c96dd453ab3676ac89eb4648fb513e52242e0fb9"
+      "matchedRev": "c96dd453ab3676ac89eb4648fb513e52242e0fb9",
+      "matchedPath": "packages/cli/templates/infra/modules/cloudflare-access/index.ts"
     },
     {
       "name": "systemd-unit",
@@ -691,8 +669,10 @@
         "enableNow"
       ],
       "outputKeys": [],
+      "upstreamFirstSeen": "2026-08-03",
       "verdict": "current",
-      "matchedRev": "aefae2833a07124a1c6831a4c2c0ee8e4e920b68"
+      "matchedRev": "aefae2833a07124a1c6831a4c2c0ee8e4e920b68",
+      "matchedPath": "packages/cli/templates/infra/modules/systemd-unit/index.ts"
     },
     {
       "name": "remote-provision",
@@ -717,8 +697,10 @@
         "digest",
         "changed"
       ],
+      "upstreamFirstSeen": "2026-08-19",
       "verdict": "stale",
-      "matchedRev": "aefae2833a07124a1c6831a4c2c0ee8e4e920b68"
+      "matchedRev": "aefae2833a07124a1c6831a4c2c0ee8e4e920b68",
+      "matchedPath": "packages/cli/templates/infra/modules/remote-provision/index.ts"
     },
     {
       "name": "r2",
@@ -734,8 +716,10 @@
       "outputKeys": [
         "bucketName"
       ],
+      "upstreamFirstSeen": "2026-07-16",
       "verdict": "stale",
-      "matchedRev": "9f1326815be69993c85ba94340fbf2e591c695fa"
+      "matchedRev": "9f1326815be69993c85ba94340fbf2e591c695fa",
+      "matchedPath": "packages/cli/templates/infra/modules/r2/index.ts"
     }
   ],
   "escapeHatches": [
@@ -878,16 +862,28 @@
       "snippet": "`reached somewhere it should not have, \\`sudo incus config trust revoke-token ${name}\\` kills it now.`,"
     },
     {
-      "file": "scripts/forge-prove-link.ts",
-      "line": 177,
-      "tool": "aws",
-      "snippet": "/** What the indicator says, straight off the element that draws it. */"
+      "file": "packages/infra/environments/guests-registered.test.ts",
+      "line": 127,
+      "tool": "incus",
+      "snippet": "'declared by cedarpad and converged from there over the incus remote (ADR-0026, remote-guests/09) — it runs on this box, so a reader of this README must still see it, and this repo no longer says what"
     },
     {
       "file": "packages/infra/environments/guests-registered.test.ts",
-      "line": 123,
+      "line": 230,
       "tool": "incus",
-      "snippet": "'declared by cedarpad and converged from there over the incus remote (ADR-0026, remote-guests/09) — it runs on this box, so a reader of this README must still see it, and this repo no longer says what"
+      "snippet": "const shipped = 'sudo incus delete --force ci-shared         # destroy; re-apply rebuilds it'"
+    },
+    {
+      "file": "packages/infra/environments/guests-registered.test.ts",
+      "line": 237,
+      "tool": "incus",
+      "snippet": "'sudo incus list                             # state + IP',"
+    },
+    {
+      "file": "packages/infra/environments/guests-registered.test.ts",
+      "line": 238,
+      "tool": "incus",
+      "snippet": "'sudo incus stop ci-shared                   # stop / start / restart',"
     },
     {
       "file": "packages/infra/environments/ryzen-9/hardening.ts",
@@ -897,75 +893,39 @@
     },
     {
       "file": "packages/infra/environments/ryzen-9/hardening-script.ts",
-      "line": 57,
+      "line": 91,
       "tool": "incus",
       "snippet": "# Everything here coexists with docker/incus tables: any drop wins, so no"
     },
     {
       "file": "packages/infra/environments/ryzen-9/hardening-script.ts",
-      "line": 299,
+      "line": 347,
       "tool": "incus",
       "snippet": "# --- incus metrics endpoint + client cert for prometheus -------------------"
     },
     {
       "file": "packages/infra/environments/ryzen-9/hardening-script.ts",
-      "line": 301,
+      "line": 349,
       "tool": "incus",
       "snippet": "incus config get core.metrics_address | grep -q 8444 || \\\\"
     },
     {
       "file": "packages/infra/environments/ryzen-9/hardening-script.ts",
-      "line": 302,
+      "line": 350,
       "tool": "incus",
       "snippet": "incus config set core.metrics_address=127.0.0.1:8444"
     },
     {
       "file": "packages/infra/environments/ryzen-9/hardening-script.ts",
-      "line": 311,
+      "line": 359,
       "tool": "incus",
       "snippet": "incus config trust list --format csv | grep -q foundry-metrics || \\\\"
     },
     {
       "file": "packages/infra/environments/ryzen-9/hardening-script.ts",
-      "line": 312,
+      "line": 360,
       "tool": "incus",
       "snippet": "incus config trust add-certificate \"$dir/metrics.crt\" --name foundry-metrics --type=metrics"
-    },
-    {
-      "file": "packages/infra/environments/ryzen-9/agent-host.ts",
-      "line": 41,
-      "tool": "incus",
-      "snippet": "# Supervisor + broker only; sessions are incus containers accounted separately."
-    },
-    {
-      "file": "packages/infra/environments/ryzen-9/agent-base-provision.ts",
-      "line": 54,
-      "tool": "incus",
-      "snippet": "# which is what makes claude --resume survive incus stop/start."
-    },
-    {
-      "file": "packages/infra/environments/ryzen-9/agent-net-script.ts",
-      "line": 36,
-      "tool": "incus",
-      "snippet": "if ! incus network show ${AGENT_NET.bridge} >/dev/null 2>&1; then"
-    },
-    {
-      "file": "packages/infra/environments/ryzen-9/agent-net-script.ts",
-      "line": 37,
-      "tool": "incus",
-      "snippet": "incus network create ${AGENT_NET.bridge} \\\\"
-    },
-    {
-      "file": "packages/infra/environments/ryzen-9/agent-net-script.ts",
-      "line": 41,
-      "tool": "incus",
-      "snippet": "incus network set ${AGENT_NET.bridge} ipv4.nat false"
-    },
-    {
-      "file": "packages/infra/environments/ryzen-9/agent-net-script.ts",
-      "line": 42,
-      "tool": "incus",
-      "snippet": "incus network set ${AGENT_NET.bridge} ipv4.firewall false"
     },
     {
       "file": "packages/infra/environments/machine-asserted.test.ts",
@@ -975,147 +935,147 @@
     },
     {
       "file": "packages/infra/environments/ryzen-9-live-guest-owners.test.ts",
-      "line": 174,
+      "line": 178,
       "tool": "incus",
       "snippet": "why: 'incus reports `Server version: unreachable` — no daemon reachable here',"
     },
     {
       "file": "packages/infra/environments/ryzen-9-live-guest-owners.test.ts",
-      "line": 202,
+      "line": 206,
       "tool": "incus",
       "snippet": "`\\`sudo -n incus ${PROBE_ARGV.join(' ')}\\` failed, and this incus does not understand ` +"
     },
     {
       "file": "packages/infra/environments/ryzen-9-live-guest-owners.test.ts",
-      "line": 210,
+      "line": 214,
       "tool": "incus",
       "snippet": "why: '`sudo -n incus version` failed; treating as no reachable incus here',"
     },
     {
       "file": "packages/infra/environments/ryzen-9-live-guest-owners.test.ts",
-      "line": 218,
+      "line": 222,
       "tool": "incus",
       "snippet": "why: `\\`sudo -n incus version\\` exited 0 without a Server version line: ${result.stdout.trim().slice(0, 200)}`,"
     },
     {
       "file": "packages/infra/environments/ryzen-9-live-guest-owners.test.ts",
-      "line": 276,
+      "line": 280,
       "tool": "incus",
       "snippet": "`\\`sudo incus config set ${guest.name} user.owner=${SCRATCH_PREFIX}<reason> --project ${guest.project}\\` ` +"
     },
     {
       "file": "packages/infra/environments/ryzen-9-live-guest-owners.test.ts",
-      "line": 287,
+      "line": 291,
       "tool": "incus",
       "snippet": "findings.push(`${where} sits in incus project \\`${guest.project}\\`, which this repo does not declare`)"
     },
     {
       "file": "packages/infra/environments/ryzen-9-live-guest-owners.test.ts",
-      "line": 298,
+      "line": 302,
       "tool": "incus",
       "snippet": "`incus project \\`${project}\\` exists on this daemon and is declared by no instance file`,"
     },
     {
       "file": "packages/infra/environments/ryzen-9-live-guest-owners.test.ts",
-      "line": 350,
+      "line": 354,
       "tool": "incus",
       "snippet": "/** The incus projects the repo declares — computed, never a pinned list. */"
     },
     {
       "file": "packages/infra/environments/ryzen-9-live-guest-owners.test.ts",
-      "line": 430,
+      "line": 434,
       "tool": "incus",
       "snippet": "test('the repo declares at least one incus project (guards a vacuous sweep)', () => {"
     },
     {
       "file": "packages/infra/environments/ryzen-9-live-guest-owners.test.ts",
-      "line": 456,
+      "line": 460,
       "tool": "incus",
       "snippet": "'every guest on this box names its Owner repo and sits in a declared incus project',"
     },
     {
       "file": "packages/infra/environments/ryzen-9-live-guest-owners.test.ts",
-      "line": 522,
+      "line": 531,
       "tool": "incus",
       "snippet": "'every incus project on this daemon is one this repo declares',"
     },
     {
       "file": "packages/infra/environments/ryzen-9-live-guest-owners.test.ts",
-      "line": 542,
+      "line": 551,
       "tool": "incus",
       "snippet": "test('no incus binary skips — this must run on a laptop', () => {"
     },
     {
       "file": "packages/infra/environments/ryzen-9-live-guest-owners.test.ts",
-      "line": 575,
+      "line": 584,
       "tool": "incus",
       "snippet": "expect(classifyProbe({ found: true, exitCode: 0, stdout: 'incus is up.' }, understood).kind).toBe("
     },
     {
       "file": "packages/infra/environments/ryzen-9-live-guest-owners.test.ts",
-      "line": 706,
+      "line": 715,
       "tool": "incus",
       "snippet": "'`sudo incus config set agent-vm user.owner=scratch:<reason> --project default` ' +"
     },
     {
       "file": "packages/infra/environments/ryzen-9-live-guest-owners.test.ts",
-      "line": 742,
+      "line": 751,
       "tool": "incus",
       "snippet": ").toEqual(['skunkworks/bench sits in incus project `skunkworks`, which this repo does not declare'])"
     },
     {
       "file": "packages/infra/environments/ryzen-9-live-guest-owners.test.ts",
-      "line": 774,
+      "line": 783,
       "tool": "incus",
       "snippet": "test('a guest in an undeclared incus project is a finding', () => {"
     },
     {
       "file": "packages/infra/environments/ryzen-9-live-guest-owners.test.ts",
-      "line": 776,
+      "line": 785,
       "tool": "incus",
       "snippet": "'skunkworks/x sits in incus project `skunkworks`, which this repo does not declare',"
     },
     {
       "file": "packages/infra/environments/ryzen-9-live-guest-owners.test.ts",
-      "line": 784,
+      "line": 793,
       "tool": "incus",
       "snippet": "test('an incus project nothing declares is a finding even with no guests in it', () => {"
     },
     {
       "file": "packages/infra/environments/ryzen-9-live-guest-owners.test.ts",
-      "line": 789,
+      "line": 798,
       "tool": "incus",
       "snippet": "'incus project `skunkworks` exists on this daemon and is declared by no instance file',"
     },
     {
       "file": "packages/infra/environments/ryzen-9-live-guest-owners.test.ts",
-      "line": 834,
+      "line": 843,
       "tool": "incus",
       "snippet": "name: 'every guest on this box names its Owner repo and sits in a declared incus project',"
     },
     {
       "file": "packages/infra/environments/ryzen-9-live-guest-owners.test.ts",
-      "line": 838,
+      "line": 847,
       "tool": "incus",
       "snippet": "name: 'every incus project on this daemon is one this repo declares',"
     },
     {
-      "file": "packages/infra/environments/ryzen-9-agent-network.test.ts",
-      "line": 33,
-      "tool": "incus",
-      "snippet": "expect(script).toContain(`incus network create ${AGENT_NET.bridge}`)"
-    },
-    {
       "file": "packages/infra/environments/ryzen-9-resource-limits.test.ts",
-      "line": 69,
+      "line": 76,
       "tool": "incus",
       "snippet": "if (!match) throw new Error(`unparseable incus memory value: ${value}`)"
     },
     {
       "file": "packages/infra/environments/ryzen-9-resource-limits.test.ts",
-      "line": 129,
+      "line": 122,
       "tool": "incus",
       "snippet": "if (!match) throw new Error(`unparseable incus memory value: ${value}`)"
+    },
+    {
+      "file": "packages/infra/environments/ryzen-9-live-access-applications.test.ts",
+      "line": 189,
+      "tool": "sops",
+      "snippet": "const root = (await Bun.$`sops -d --extract '[\"CLOUDFLARE_ROOT_TOKEN\"]' ${secrets}`"
     },
     {
       "file": "packages/infra/environments/ryzen-9-incus-remote.test.ts",
@@ -1155,73 +1115,73 @@
     },
     {
       "file": "packages/infra/environments/ryzen-9-incus-remote.test.ts",
-      "line": 281,
+      "line": 294,
       "tool": "incus",
       "snippet": "test('and every incus project a guest does name is one this repo declares', () => {"
     },
     {
       "file": "packages/infra/environments/ryzen-9-incus-remote.test.ts",
-      "line": 303,
+      "line": 316,
       "tool": "incus",
       "snippet": "expect(projected.length, 'guests naming an incus project').toBe(0)"
     },
     {
       "file": "packages/infra/environments/ryzen-9-incus-remote.test.ts",
-      "line": 306,
+      "line": 319,
       "tool": "incus",
       "snippet": "expect(declaredProjects, `${guest.name} sits in incus project ${project}`).toContain(project!)"
     },
     {
       "file": "packages/infra/environments/guest-owner.ts",
-      "line": 35,
+      "line": 36,
       "tool": "incus",
       "snippet": "/** RFC3339, nanosecond precision, stamped by incus at creation. */"
     },
     {
       "file": "packages/infra/environments/guest-owner.ts",
-      "line": 74,
+      "line": 75,
       "tool": "incus",
       "snippet": "return spelledArray('incus list --all-projects --format json', result).map((entry, index) => {"
     },
     {
       "file": "packages/infra/environments/guest-owner.ts",
-      "line": 78,
+      "line": 79,
       "tool": "incus",
       "snippet": "throw new Error(`incus list: ${where} has no name — the JSON shape has moved`)"
     },
     {
       "file": "packages/infra/environments/guest-owner.ts",
-      "line": 80,
+      "line": 81,
       "tool": "incus",
       "snippet": "throw new Error(`incus list: ${row.name} names no incus project — the JSON shape has moved`)"
     },
     {
       "file": "packages/infra/environments/guest-owner.ts",
-      "line": 82,
+      "line": 83,
       "tool": "incus",
       "snippet": "throw new Error(`incus list: ${row.name} carries no config map — the JSON shape has moved`)"
     },
     {
       "file": "packages/infra/environments/guest-owner.ts",
-      "line": 85,
+      "line": 86,
       "tool": "incus",
       "snippet": "`incus list: ${row.name} carries no readable created_at (${String(row.created_at)}) — ` +"
     },
     {
       "file": "packages/infra/environments/guest-owner.ts",
-      "line": 106,
+      "line": 107,
       "tool": "incus",
       "snippet": "const names = spelledArray('incus project list --format json', result).map((entry, index) => {"
     },
     {
       "file": "packages/infra/environments/guest-owner.ts",
-      "line": 109,
+      "line": 110,
       "tool": "incus",
       "snippet": "throw new Error(`incus project list: entry ${index} has no name — the JSON shape has moved`)"
     },
     {
       "file": "packages/infra/environments/guest-owner.ts",
-      "line": 114,
+      "line": 115,
       "tool": "incus",
       "snippet": "`incus project list reported ${names.length} projects and no \\`default\\`: ${names.join(', ')}. ` +"
     }

@@ -3,8 +3,8 @@
   "repo": "Zabaca/crux",
   "mode": "copy",
   "tier": "consumer",
-  "ref": "9f72d9c8ee7727ec8ac259196e750b0e6c7fe6ba",
-  "surveyedAt": "2026-09-03T03:02:30.236Z",
+  "ref": "dabea8bc5b81d607a175899044568484d668222f",
+  "surveyedAt": "2026-10-19T14:12:20.609Z",
   "environments": {
     "production": [
       "cloud",
@@ -27,7 +27,11 @@
         "databaseName",
         "databaseId"
       ],
-      "verdict": "novel"
+      "upstreamFirstSeen": "2026-09-08",
+      "verdict": "divergent",
+      "nearestRev": "7e3ba650a45aa36c6d9b74d029bf59f152361cb7",
+      "nearestPath": "packages/cli/templates/infra/modules/d1/index.ts",
+      "similarity": 0.104
     },
     {
       "name": "cloudflare",
@@ -52,27 +56,22 @@
       "upstreamFirstSeen": "2026-06-23",
       "verdict": "stale",
       "matchedRev": "9f1326815be69993c85ba94340fbf2e591c695fa",
+      "matchedPath": "packages/cli/templates/infra/modules/cloudflare/index.ts",
       "formattingOnly": true
     }
   ],
   "escapeHatches": [
     {
+      "file": "scripts/rebuild-production-db.ts",
+      "line": 96,
+      "tool": "sops",
+      "snippet": "\"  export CLOUDFLARE_API_TOKEN=$(sops -d packages/infra/environments/production/secrets.yaml | grep '^CLOUDFLARE_API_TOKEN:' | cut -d' ' -f2)\","
+    },
+    {
       "file": "packages/infra/package.json",
       "line": 14,
       "tool": "wrangler",
       "snippet": "\"wrangler\": \"^4.0.0\""
-    },
-    {
-      "file": ".github/workflows/production.yml",
-      "line": 53,
-      "tool": "wrangler",
-      "snippet": "# listed in .sops.yaml. Deliberately `bunx`, never `bunx --bun`: wrangler"
-    },
-    {
-      "file": ".github/workflows/production.yml",
-      "line": 55,
-      "tool": "wrangler",
-      "snippet": "# skipping the deploy. zbc's cloudflare module fails unless wrangler"
     }
   ]
 }

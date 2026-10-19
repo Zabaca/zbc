@@ -3,8 +3,8 @@
   "repo": "Zabaca/foothill-metabolic",
   "mode": "copy",
   "tier": "consumer",
-  "ref": "add6541c633fdd7600f2370e1d14a3bd5588ee55",
-  "surveyedAt": "2026-09-03T02:56:05.611Z",
+  "ref": "1e391b904a740e53aa3be496eaecf45621aba136",
+  "surveyedAt": "2026-10-19T14:12:17.474Z",
   "environments": {
     "production": [
       "gcal",
@@ -35,7 +35,11 @@
         "databaseName",
         "databaseId"
       ],
-      "verdict": "novel"
+      "upstreamFirstSeen": "2026-09-08",
+      "verdict": "divergent",
+      "nearestRev": "7e3ba650a45aa36c6d9b74d029bf59f152361cb7",
+      "nearestPath": "packages/cli/templates/infra/modules/d1/index.ts",
+      "similarity": 0.126
     },
     {
       "name": "cloudflare",
@@ -54,8 +58,10 @@
       "outputKeys": [
         "deployUrl"
       ],
+      "upstreamFirstSeen": "2026-06-23",
       "verdict": "divergent",
       "nearestRev": "e83bf83b5c86328409ff17c9feaa5a085fc4759e",
+      "nearestPath": "packages/cli/templates/infra/modules/cloudflare/index.ts",
       "similarity": 0.953
     },
     {
@@ -75,8 +81,10 @@
         "databaseUrl",
         "authToken"
       ],
+      "upstreamFirstSeen": "2026-04-24",
       "verdict": "stale",
-      "matchedRev": "d82840f5c111a64e31fa3e82799a9f86df1ab806"
+      "matchedRev": "d82840f5c111a64e31fa3e82799a9f86df1ab806",
+      "matchedPath": "packages/cli/templates/infra/modules/turso/index.ts"
     },
     {
       "name": "gcp",
@@ -120,8 +128,10 @@
         "accountId",
         "domain"
       ],
+      "upstreamFirstSeen": "2026-07-15",
       "verdict": "stale",
-      "matchedRev": "74c795d37e0743b224263d7df19a949a0efb4e8a"
+      "matchedRev": "74c795d37e0743b224263d7df19a949a0efb4e8a",
+      "matchedPath": "packages/cli/templates/infra/modules/cloudflare-email/index.ts"
     },
     {
       "name": "r2",
@@ -137,16 +147,24 @@
       "outputKeys": [
         "bucketName"
       ],
+      "upstreamFirstSeen": "2026-07-16",
       "verdict": "stale",
-      "matchedRev": "9f1326815be69993c85ba94340fbf2e591c695fa"
+      "matchedRev": "9f1326815be69993c85ba94340fbf2e591c695fa",
+      "matchedPath": "packages/cli/templates/infra/modules/r2/index.ts"
     }
   ],
   "escapeHatches": [
     {
       "file": "scripts/check-orphan-previews.sh",
-      "line": 12,
-      "tool": "turso",
-      "snippet": "# the gh CLI (authed), turso CLI, python3. Reads tokens from the SOPS-encrypted"
+      "line": 24,
+      "tool": "sops",
+      "snippet": "CFTOKEN=\"$(sops -d \"$PREVIEW_SECRETS\" 2>/dev/null | sed -n 's/^CLOUDFLARE_API_TOKEN: //p' | tr -d \"'\\\" \")\""
+    },
+    {
+      "file": "scripts/check-orphan-previews.sh",
+      "line": 25,
+      "tool": "sops",
+      "snippet": "TTOKEN=\"$(sops -d \"$PREVIEW_SECRETS\" 2>/dev/null | sed -n 's/^TURSO_API_TOKEN: //p' | tr -d \"'\\\" \")\""
     },
     {
       "file": "scripts/check-orphan-previews.sh",
@@ -168,12 +186,6 @@
     },
     {
       "file": "scripts/with-worktree-db.sh",
-      "line": 19,
-      "tool": "turso",
-      "snippet": "# `turso dev` on a derived port, and exports that http:// URL as"
-    },
-    {
-      "file": "scripts/with-worktree-db.sh",
       "line": 39,
       "tool": "turso",
       "snippet": "if ! command -v turso >/dev/null 2>&1; then"
@@ -189,12 +201,6 @@
       "line": 95,
       "tool": "turso",
       "snippet": "turso dev --db-file \"$DB_FILE\" --port \"$DB_PORT\" >/tmp/worktree-db-${DB_PORT}.log 2>&1 &"
-    },
-    {
-      "file": "scripts/with-worktree-db.sh",
-      "line": 116,
-      "tool": "turso",
-      "snippet": "# `turso dev` runs the actual listener as a child `sqld`, which does not"
     },
     {
       "file": "packages/infra/environments/production/foothill-metabolic-cf.ts",
@@ -213,18 +219,6 @@
       "line": 2,
       "tool": "turso",
       "snippet": "import turso from './turso'"
-    },
-    {
-      "file": ".github/workflows/preview.yml",
-      "line": 9,
-      "tool": "turso",
-      "snippet": "# per-PR worker + workers.dev URL, turso import = per-PR DB). No path filter:"
-    },
-    {
-      "file": ".github/workflows/e2e.yml",
-      "line": 30,
-      "tool": "turso",
-      "snippet": "# scripts/with-worktree-db.sh serves leads-local.db through `turso dev`,"
     },
     {
       "file": ".github/workflows/e2e.yml",

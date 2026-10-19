@@ -1,0 +1,656 @@
+{
+  "id": "railmid",
+  "repo": "Zabaca/railmid",
+  "mode": "subtree",
+  "tier": "consumer",
+  "ref": "2216089ecf84384d69ae593dbd65c63721b5284a",
+  "surveyedAt": "2026-10-19T14:12:25.622Z",
+  "environments": {
+    "production": [
+      "railmid-sponsors",
+      "railmid-access",
+      "railmid-analytics-token",
+      "railmid-redirect",
+      "railmid-accounts",
+      "railmid-email",
+      "railmid-redirect-token",
+      "railmid",
+      "railmid-access-token",
+      "railmid-tapes"
+    ],
+    "preview": []
+  },
+  "modules": [
+    {
+      "name": "host-dir",
+      "location": "vendored",
+      "path": "vendor/zbc/modules/host-dir/index.ts",
+      "lines": 205,
+      "configKeys": [
+        "path",
+        "owner",
+        "mode"
+      ],
+      "outputKeys": [
+        "path",
+        "mode",
+        "owner",
+        "changed"
+      ],
+      "upstreamFirstSeen": "2026-08-18",
+      "verdict": "current",
+      "matchedRev": "aefae2833a07124a1c6831a4c2c0ee8e4e920b68",
+      "matchedPath": "packages/cli/templates/infra/modules/host-dir/index.ts"
+    },
+    {
+      "name": "host-exec",
+      "location": "vendored",
+      "path": "vendor/zbc/modules/host-exec/index.ts",
+      "lines": 193,
+      "configKeys": [],
+      "outputKeys": [],
+      "upstreamFirstSeen": "2026-08-18",
+      "verdict": "current",
+      "matchedRev": "aefae2833a07124a1c6831a4c2c0ee8e4e920b68",
+      "matchedPath": "packages/cli/templates/infra/modules/host-exec/index.ts"
+    },
+    {
+      "name": "provision-core",
+      "location": "vendored",
+      "path": "vendor/zbc/modules/provision-core/index.ts",
+      "lines": 147,
+      "configKeys": [],
+      "outputKeys": [],
+      "upstreamFirstSeen": "2026-08-19",
+      "verdict": "stale",
+      "matchedRev": "b2491039df1760ef4c046ec2a412f5a663440438",
+      "matchedPath": "packages/cli/templates/infra/modules/provision-core/index.ts"
+    },
+    {
+      "name": "d1",
+      "location": "vendored",
+      "path": "vendor/zbc/modules/d1/index.ts",
+      "lines": 164,
+      "configKeys": [
+        "accountId",
+        "databaseName",
+        "locationHint"
+      ],
+      "outputKeys": [
+        "databaseId",
+        "databaseName"
+      ],
+      "upstreamFirstSeen": "2026-09-08",
+      "verdict": "divergent",
+      "nearestRev": "7e3ba650a45aa36c6d9b74d029bf59f152361cb7",
+      "nearestPath": "packages/cli/templates/infra/modules/d1/index.ts",
+      "similarity": 0.139
+    },
+    {
+      "name": "fly",
+      "location": "vendored",
+      "path": "vendor/zbc/modules/fly/index.ts",
+      "lines": 317,
+      "configKeys": [
+        "workdir",
+        "appName",
+        "org",
+        "build",
+        "flySecrets",
+        "ipv4",
+        "ipv6",
+        "highAvailability",
+        "localBuild",
+        "ephemeral"
+      ],
+      "outputKeys": [
+        "appName",
+        "hostname",
+        "ipv4",
+        "ipv6"
+      ],
+      "upstreamFirstSeen": "2026-08-21",
+      "verdict": "stale",
+      "matchedRev": "ca81b9e508508835bd2bff092b1f6bc88a05fad7",
+      "matchedPath": "packages/cli/templates/infra/modules/fly/index.ts"
+    },
+    {
+      "name": "docker-compose-stack",
+      "location": "vendored",
+      "path": "vendor/zbc/modules/docker-compose-stack/index.ts",
+      "lines": 31,
+      "configKeys": [
+        "dir",
+        "services"
+      ],
+      "outputKeys": [],
+      "upstreamFirstSeen": "2026-08-03",
+      "verdict": "current",
+      "matchedRev": "58d32bc00d7cca46c6e1f7f2f707653c6566a5db",
+      "matchedPath": "packages/cli/templates/infra/modules/docker-compose-stack/index.ts"
+    },
+    {
+      "name": "cloudflare-api",
+      "location": "vendored",
+      "path": "vendor/zbc/modules/cloudflare-api/index.ts",
+      "lines": 181,
+      "configKeys": [],
+      "outputKeys": [],
+      "upstreamFirstSeen": "2026-08-19",
+      "verdict": "stale",
+      "matchedRev": "76007535ed540c63a8caaccf274bb170c9f6db62",
+      "matchedPath": "packages/cli/templates/infra/modules/cloudflare-api/index.ts"
+    },
+    {
+      "name": "incus-core",
+      "location": "vendored",
+      "path": "vendor/zbc/modules/incus-core/index.ts",
+      "lines": 197,
+      "configKeys": [],
+      "outputKeys": [],
+      "upstreamFirstSeen": "2026-08-19",
+      "verdict": "current",
+      "matchedRev": "aefae2833a07124a1c6831a4c2c0ee8e4e920b68",
+      "matchedPath": "packages/cli/templates/infra/modules/incus-core/index.ts"
+    },
+    {
+      "name": "systemd-mask",
+      "location": "vendored",
+      "path": "vendor/zbc/modules/systemd-mask/index.ts",
+      "lines": 150,
+      "configKeys": [
+        "unit",
+        "reason"
+      ],
+      "outputKeys": [],
+      "upstreamFirstSeen": "2026-08-18",
+      "verdict": "current",
+      "matchedRev": "aefae2833a07124a1c6831a4c2c0ee8e4e920b68",
+      "matchedPath": "packages/cli/templates/infra/modules/systemd-mask/index.ts"
+    },
+    {
+      "name": "cloudflare-redirect",
+      "location": "vendored",
+      "path": "vendor/zbc/modules/cloudflare-redirect/index.ts",
+      "lines": 170,
+      "configKeys": [
+        "accountId",
+        "zone",
+        "apiToken"
+      ],
+      "outputKeys": [
+        "zoneId",
+        "zoneName",
+        "rulesetId",
+        "rules"
+      ],
+      "verdict": "novel"
+    },
+    {
+      "name": "cloudflare",
+      "location": "vendored",
+      "path": "vendor/zbc/modules/cloudflare/index.ts",
+      "lines": 791,
+      "configKeys": [
+        "workdir",
+        "accountId",
+        "apiToken",
+        "build",
+        "workerSecrets",
+        "workerVars",
+        "r2Bindings",
+        "d1Bindings",
+        "pruneCustomDomains",
+        "immediateContainerRollout",
+        "wranglerEnv",
+        "workerName"
+      ],
+      "outputKeys": [
+        "deployUrl",
+        "workerName"
+      ],
+      "upstreamFirstSeen": "2026-06-23",
+      "verdict": "divergent",
+      "nearestRev": "f06480507c37cb07f3868a004b17913c46bf9ed9",
+      "nearestPath": "packages/cli/templates/infra/modules/cloudflare/index.ts",
+      "similarity": 0.664
+    },
+    {
+      "name": "turso",
+      "location": "vendored",
+      "path": "vendor/zbc/modules/turso/index.ts",
+      "lines": 187,
+      "configKeys": [
+        "orgName",
+        "dbName",
+        "group",
+        "primaryLocation",
+        "ephemeral",
+        "migrationsDir"
+      ],
+      "outputKeys": [
+        "databaseUrl",
+        "authToken"
+      ],
+      "upstreamFirstSeen": "2026-04-24",
+      "verdict": "stale",
+      "matchedRev": "8a558a40b3e380f813ab6a275f9587a5a286475e",
+      "matchedPath": "packages/cli/templates/infra/modules/turso/index.ts"
+    },
+    {
+      "name": "cloudflare-tunnel",
+      "location": "vendored",
+      "path": "vendor/zbc/modules/cloudflare-tunnel/index.ts",
+      "lines": 442,
+      "configKeys": [],
+      "outputKeys": [
+        "tunnelId",
+        "runToken",
+        "hostnames",
+        "createdTunnel",
+        "changed"
+      ],
+      "upstreamFirstSeen": "2026-08-19",
+      "verdict": "stale",
+      "matchedRev": "aefae2833a07124a1c6831a4c2c0ee8e4e920b68",
+      "matchedPath": "packages/cli/templates/infra/modules/cloudflare-tunnel/index.ts"
+    },
+    {
+      "name": "host-symlink",
+      "location": "vendored",
+      "path": "vendor/zbc/modules/host-symlink/index.ts",
+      "lines": 121,
+      "configKeys": [
+        "path",
+        "target"
+      ],
+      "outputKeys": [],
+      "upstreamFirstSeen": "2026-08-18",
+      "verdict": "current",
+      "matchedRev": "aefae2833a07124a1c6831a4c2c0ee8e4e920b68",
+      "matchedPath": "packages/cli/templates/infra/modules/host-symlink/index.ts"
+    },
+    {
+      "name": "cloudflare-email",
+      "location": "vendored",
+      "path": "vendor/zbc/modules/cloudflare-email/index.ts",
+      "lines": 650,
+      "configKeys": [],
+      "outputKeys": [
+        "sendingEnabled",
+        "routingEnabled",
+        "dnsStatus",
+        "addresses",
+        "accountId",
+        "domain"
+      ],
+      "upstreamFirstSeen": "2026-07-15",
+      "verdict": "divergent",
+      "nearestRev": "9224fda0145efb52698995ec1006dd4e69ca163c",
+      "nearestPath": "packages/cli/templates/infra/modules/cloudflare-email/index.ts",
+      "similarity": 0.853
+    },
+    {
+      "name": "incus-storage-pool",
+      "location": "vendored",
+      "path": "vendor/zbc/modules/incus-storage-pool/index.ts",
+      "lines": 157,
+      "configKeys": [],
+      "outputKeys": [
+        "name",
+        "driver",
+        "created",
+        "changed"
+      ],
+      "upstreamFirstSeen": "2026-08-19",
+      "verdict": "current",
+      "matchedRev": "aefae2833a07124a1c6831a4c2c0ee8e4e920b68",
+      "matchedPath": "packages/cli/templates/infra/modules/incus-storage-pool/index.ts"
+    },
+    {
+      "name": "cloudflare-token",
+      "location": "vendored",
+      "path": "vendor/zbc/modules/cloudflare-token/index.ts",
+      "lines": 265,
+      "configKeys": [
+        "accountId",
+        "tokenName",
+        "permissions",
+        "zones",
+        "ephemeral"
+      ],
+      "outputKeys": [
+        "tokenId",
+        "tokenValue",
+        "s3AccessKeyId",
+        "s3SecretAccessKey"
+      ],
+      "upstreamFirstSeen": "2026-08-03",
+      "verdict": "stale",
+      "matchedRev": "ec24ecb833461ee66cc57ba685ef0236bc82572a",
+      "matchedPath": "packages/cli/templates/infra/modules/cloudflare-token/index.ts"
+    },
+    {
+      "name": "vm",
+      "location": "vendored",
+      "path": "vendor/zbc/modules/vm/index.ts",
+      "lines": 709,
+      "configKeys": [],
+      "outputKeys": [
+        "name",
+        "type",
+        "sshUser",
+        "target",
+        "ipv4",
+        "created",
+        "changed"
+      ],
+      "upstreamFirstSeen": "2026-08-19",
+      "verdict": "current",
+      "matchedRev": "aefae2833a07124a1c6831a4c2c0ee8e4e920b68",
+      "matchedPath": "packages/cli/templates/infra/modules/vm/index.ts"
+    },
+    {
+      "name": "vm-provision",
+      "location": "vendored",
+      "path": "vendor/zbc/modules/vm-provision/index.ts",
+      "lines": 174,
+      "configKeys": [
+        "instance",
+        "packages",
+        "script",
+        "env",
+        "envSecrets",
+        "volatileEnvFrom",
+        "marker",
+        "force"
+      ],
+      "outputKeys": [
+        "instance",
+        "digest",
+        "changed"
+      ],
+      "upstreamFirstSeen": "2026-08-19",
+      "verdict": "stale",
+      "matchedRev": "aefae2833a07124a1c6831a4c2c0ee8e4e920b68",
+      "matchedPath": "packages/cli/templates/infra/modules/vm-provision/index.ts"
+    },
+    {
+      "name": "host-file",
+      "location": "vendored",
+      "path": "vendor/zbc/modules/host-file/index.ts",
+      "lines": 47,
+      "configKeys": [],
+      "outputKeys": [],
+      "upstreamFirstSeen": "2026-08-03",
+      "verdict": "stale",
+      "matchedRev": "58d32bc00d7cca46c6e1f7f2f707653c6566a5db",
+      "matchedPath": "packages/cli/templates/infra/modules/host-file/index.ts"
+    },
+    {
+      "name": "cloudflare-zone",
+      "location": "vendored",
+      "path": "vendor/zbc/modules/cloudflare-zone/index.ts",
+      "lines": 559,
+      "configKeys": [],
+      "outputKeys": [
+        "zoneId",
+        "zoneName",
+        "nameServers",
+        "created",
+        "updated",
+        "deleted",
+        "undeclared",
+        "emailProvisioned",
+        "changed"
+      ],
+      "upstreamFirstSeen": "2026-08-19",
+      "verdict": "stale",
+      "matchedRev": "aefae2833a07124a1c6831a4c2c0ee8e4e920b68",
+      "matchedPath": "packages/cli/templates/infra/modules/cloudflare-zone/index.ts"
+    },
+    {
+      "name": "cloudflare-access",
+      "location": "vendored",
+      "path": "vendor/zbc/modules/cloudflare-access/index.ts",
+      "lines": 1231,
+      "configKeys": [],
+      "outputKeys": [
+        "appId",
+        "aud",
+        "teamDomain",
+        "orgName",
+        "identityProviders",
+        "undeclaredIdentityProviders",
+        "appDomain",
+        "emails",
+        "policyId",
+        "policyIds",
+        "serviceTokenIds",
+        "serviceTokenId",
+        "clientId",
+        "clientSecret",
+        "created",
+        "appCreated",
+        "undeclared",
+        "changed"
+      ],
+      "upstreamFirstSeen": "2026-08-19",
+      "verdict": "stale",
+      "matchedRev": "c96dd453ab3676ac89eb4648fb513e52242e0fb9",
+      "matchedPath": "packages/cli/templates/infra/modules/cloudflare-access/index.ts"
+    },
+    {
+      "name": "systemd-unit",
+      "location": "vendored",
+      "path": "vendor/zbc/modules/systemd-unit/index.ts",
+      "lines": 66,
+      "configKeys": [
+        "unit",
+        "content",
+        "scope",
+        "enableNow"
+      ],
+      "outputKeys": [],
+      "upstreamFirstSeen": "2026-08-03",
+      "verdict": "current",
+      "matchedRev": "aefae2833a07124a1c6831a4c2c0ee8e4e920b68",
+      "matchedPath": "packages/cli/templates/infra/modules/systemd-unit/index.ts"
+    },
+    {
+      "name": "remote-provision",
+      "location": "vendored",
+      "path": "vendor/zbc/modules/remote-provision/index.ts",
+      "lines": 166,
+      "configKeys": [
+        "hosts",
+        "user",
+        "connectTimeout",
+        "packages",
+        "script",
+        "env",
+        "envSecrets",
+        "volatileEnvFrom",
+        "marker",
+        "force"
+      ],
+      "outputKeys": [
+        "host",
+        "fallback",
+        "digest",
+        "changed"
+      ],
+      "upstreamFirstSeen": "2026-08-19",
+      "verdict": "stale",
+      "matchedRev": "aefae2833a07124a1c6831a4c2c0ee8e4e920b68",
+      "matchedPath": "packages/cli/templates/infra/modules/remote-provision/index.ts"
+    },
+    {
+      "name": "r2",
+      "location": "vendored",
+      "path": "vendor/zbc/modules/r2/index.ts",
+      "lines": 222,
+      "configKeys": [
+        "accountId",
+        "bucketName",
+        "locationHint",
+        "lifecycle",
+        "ephemeral"
+      ],
+      "outputKeys": [
+        "bucketName"
+      ],
+      "upstreamFirstSeen": "2026-07-16",
+      "verdict": "divergent",
+      "nearestRev": "9f1326815be69993c85ba94340fbf2e591c695fa",
+      "nearestPath": "packages/cli/templates/infra/modules/r2/index.ts",
+      "similarity": 0.602
+    }
+  ],
+  "escapeHatches": [
+    {
+      "file": "packages/infra/test/email.ts",
+      "line": 38,
+      "tool": "wrangler",
+      "snippet": "const wranglerPath = path.join(repoRoot, 'apps/server/wrangler.jsonc')"
+    },
+    {
+      "file": "packages/infra/test/email.ts",
+      "line": 80,
+      "tool": "wrangler",
+      "snippet": "console.log('\\nwrangler.jsonc declares the binding, and the address is at that domain')"
+    },
+    {
+      "file": "packages/infra/test/email.ts",
+      "line": 81,
+      "tool": "wrangler",
+      "snippet": "const src = fs.readFileSync(wranglerPath, 'utf8')"
+    },
+    {
+      "file": "packages/infra/test/redirect.ts",
+      "line": 58,
+      "tool": "wrangler",
+      "snippet": "const wrangler = JSON.parse("
+    },
+    {
+      "file": "packages/infra/test/redirect.ts",
+      "line": 59,
+      "tool": "wrangler",
+      "snippet": "stripTrailingCommas(stripJsoncComments(read('apps/server/wrangler.jsonc'))),"
+    },
+    {
+      "file": "packages/infra/test/redirect.ts",
+      "line": 61,
+      "tool": "wrangler",
+      "snippet": "const hosts = declaredCustomDomains(wrangler)"
+    },
+    {
+      "file": "packages/infra/test/redirect.ts",
+      "line": 129,
+      "tool": "wrangler",
+      "snippet": "check(wrangler.workers_dev === false, 'workers_dev is explicitly false: no workers.dev hostname serves this Worker', JSON.stringify(wrangler.workers_dev))"
+    },
+    {
+      "file": "packages/infra/test/redirect.ts",
+      "line": 130,
+      "tool": "wrangler",
+      "snippet": "check(wrangler.preview_urls === false, 'and preview_urls is explicitly false: no preview hostname does either', JSON.stringify(wrangler.preview_urls))"
+    },
+    {
+      "file": "packages/infra/test/redirect.ts",
+      "line": 155,
+      "tool": "wrangler",
+      "snippet": "const vars = (wrangler.vars ?? {}) as Record<string, unknown>"
+    },
+    {
+      "file": "packages/infra/test/redirect.ts",
+      "line": 157,
+      "tool": "wrangler",
+      "snippet": "'and neither value is in wrangler.jsonc vars, where every wrangler dev would read it with no Access in front')"
+    },
+    {
+      "file": "packages/infra/test/tapes.ts",
+      "line": 48,
+      "tool": "wrangler",
+      "snippet": "const wranglerPath = path.join(repoRoot, 'apps/server/wrangler.jsonc')"
+    },
+    {
+      "file": "packages/infra/test/tapes.ts",
+      "line": 141,
+      "tool": "wrangler",
+      "snippet": "console.log('\\nwrangler.jsonc survives the transform a deploy puts it through')"
+    },
+    {
+      "file": "packages/infra/test/tapes.ts",
+      "line": 142,
+      "tool": "wrangler",
+      "snippet": "const src = fs.readFileSync(wranglerPath, 'utf8')"
+    },
+    {
+      "file": "packages/infra/test/d1.ts",
+      "line": 48,
+      "tool": "wrangler",
+      "snippet": "const wranglerPath = path.join(repoRoot, 'apps/server/wrangler.jsonc')"
+    },
+    {
+      "file": "packages/infra/test/d1.ts",
+      "line": 98,
+      "tool": "wrangler",
+      "snippet": "console.log('\\nwrangler.jsonc survives the transform a deploy puts it through')"
+    },
+    {
+      "file": "packages/infra/test/d1.ts",
+      "line": 99,
+      "tool": "wrangler",
+      "snippet": "const src = fs.readFileSync(wranglerPath, 'utf8')"
+    },
+    {
+      "file": "packages/infra/test/d1.ts",
+      "line": 138,
+      "tool": "wrangler",
+      "snippet": "console.log('\\nthe schema wrangler will apply')"
+    },
+    {
+      "file": "packages/infra/test/d1.ts",
+      "line": 144,
+      "tool": "wrangler",
+      "snippet": "'numbered consecutively from 0001 -- wrangler applies them in this order and remembers which ran',"
+    },
+    {
+      "file": "packages/infra/package.json",
+      "line": 13,
+      "tool": "wrangler",
+      "snippet": "\"wrangler\": \"^4.0.0\""
+    },
+    {
+      "file": "packages/infra/scripts/posthog.sh",
+      "line": 17,
+      "tool": "sops",
+      "snippet": "key=\"$(sops -d --extract '[\"POSTHOG_TOKEN\"]' \"$root/packages/infra/environments/production/secrets.yaml\")\""
+    },
+    {
+      "file": ".github/workflows/ci.yml",
+      "line": 403,
+      "tool": "wrangler",
+      "snippet": "log=\"$RUNNER_TEMP/wrangler-e2e.log\""
+    },
+    {
+      "file": ".github/workflows/ci.yml",
+      "line": 405,
+      "tool": "wrangler",
+      "snippet": "bunx wrangler dev --port 3099 --ip \"$LOOPBACK\" --var SPEED:25 > \"$log\" 2>&1 &"
+    },
+    {
+      "file": ".github/workflows/ci.yml",
+      "line": 413,
+      "tool": "wrangler",
+      "snippet": "echo \"--- wrangler dev said ---\"; cat \"$log\";"
+    },
+    {
+      "file": ".github/workflows/ci.yml",
+      "line": 424,
+      "tool": "wrangler",
+      "snippet": "echo \"the sped-up wrangler dev never served /health.\""
+    }
+  ]
+}

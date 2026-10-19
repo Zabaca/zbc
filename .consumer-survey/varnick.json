@@ -1,10 +1,10 @@
 {
   "id": "varnick",
   "repo": null,
-  "mode": "subtree",
+  "mode": "hand-copy",
   "tier": "module-author",
   "ref": "93d72432392b019abf52fa56f1758c376295aec2",
-  "surveyedAt": "2026-09-03T02:56:08.356Z",
+  "surveyedAt": "2026-10-19T14:12:19.306Z",
   "environments": {},
   "modules": [
     {
@@ -85,8 +85,10 @@
         "services"
       ],
       "outputKeys": [],
+      "upstreamFirstSeen": "2026-08-03",
       "verdict": "current",
-      "matchedRev": "58d32bc00d7cca46c6e1f7f2f707653c6566a5db"
+      "matchedRev": "58d32bc00d7cca46c6e1f7f2f707653c6566a5db",
+      "matchedPath": "packages/cli/templates/infra/modules/docker-compose-stack/index.ts"
     },
     {
       "name": "cloudflare",
@@ -109,8 +111,10 @@
         "deployUrl",
         "workerName"
       ],
+      "upstreamFirstSeen": "2026-06-23",
       "verdict": "stale",
-      "matchedRev": "f06480507c37cb07f3868a004b17913c46bf9ed9"
+      "matchedRev": "f06480507c37cb07f3868a004b17913c46bf9ed9",
+      "matchedPath": "packages/cli/templates/infra/modules/cloudflare/index.ts"
     },
     {
       "name": "turso",
@@ -129,8 +133,10 @@
         "databaseUrl",
         "authToken"
       ],
+      "upstreamFirstSeen": "2026-04-24",
       "verdict": "stale",
-      "matchedRev": "8a558a40b3e380f813ab6a275f9587a5a286475e"
+      "matchedRev": "8a558a40b3e380f813ab6a275f9587a5a286475e",
+      "matchedPath": "packages/cli/templates/infra/modules/turso/index.ts"
     },
     {
       "name": "cloudflare-email",
@@ -154,8 +160,10 @@
         "accountId",
         "domain"
       ],
+      "upstreamFirstSeen": "2026-07-15",
       "verdict": "stale",
-      "matchedRev": "74c795d37e0743b224263d7df19a949a0efb4e8a"
+      "matchedRev": "74c795d37e0743b224263d7df19a949a0efb4e8a",
+      "matchedPath": "packages/cli/templates/infra/modules/cloudflare-email/index.ts"
     },
     {
       "name": "cloudflare-token",
@@ -175,8 +183,10 @@
         "s3AccessKeyId",
         "s3SecretAccessKey"
       ],
+      "upstreamFirstSeen": "2026-08-03",
       "verdict": "stale",
-      "matchedRev": "3a5bf8543be321c406987289c591fed632b381fb"
+      "matchedRev": "3a5bf8543be321c406987289c591fed632b381fb",
+      "matchedPath": "packages/cli/templates/infra/modules/cloudflare-token/index.ts"
     },
     {
       "name": "host-file",
@@ -185,8 +195,10 @@
       "lines": 47,
       "configKeys": [],
       "outputKeys": [],
+      "upstreamFirstSeen": "2026-08-03",
       "verdict": "stale",
-      "matchedRev": "58d32bc00d7cca46c6e1f7f2f707653c6566a5db"
+      "matchedRev": "58d32bc00d7cca46c6e1f7f2f707653c6566a5db",
+      "matchedPath": "packages/cli/templates/infra/modules/host-file/index.ts"
     },
     {
       "name": "systemd-unit",
@@ -200,8 +212,10 @@
         "enableNow"
       ],
       "outputKeys": [],
+      "upstreamFirstSeen": "2026-08-03",
       "verdict": "stale",
-      "matchedRev": "58d32bc00d7cca46c6e1f7f2f707653c6566a5db"
+      "matchedRev": "58d32bc00d7cca46c6e1f7f2f707653c6566a5db",
+      "matchedPath": "packages/cli/templates/infra/modules/systemd-unit/index.ts"
     },
     {
       "name": "r2",
@@ -217,8 +231,10 @@
       "outputKeys": [
         "bucketName"
       ],
+      "upstreamFirstSeen": "2026-07-16",
       "verdict": "stale",
-      "matchedRev": "9f1326815be69993c85ba94340fbf2e591c695fa"
+      "matchedRev": "9f1326815be69993c85ba94340fbf2e591c695fa",
+      "matchedPath": "packages/cli/templates/infra/modules/r2/index.ts"
     }
   ],
   "escapeHatches": []
