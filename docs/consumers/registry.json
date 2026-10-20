@@ -34,7 +34,7 @@
       "id": "ceo",
       "repo": "Zabaca/ceo",
       "access": "github",
-      "checkouts": ["mac:~/Projects/zabaca/ceo", "ryzen-9:~/repos/ceo"],
+      "checkouts": ["mac:~/Library/Application Support/Varnick/Home", "ryzen-9:~/repos/ceo"],
       "mode": "copy",
       "environments": ["production", "workstation"],
       "instanceCount": 15,
