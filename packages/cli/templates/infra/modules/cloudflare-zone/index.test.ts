@@ -814,11 +814,35 @@ describe('cloudflare-zone apply: creating the zone', () => {
     const pending = await captureLog(() =>
       runApply({ config: { zone: NEW, createIfAbsent: true }, state: { zones: {} } }),
     )
+    expect(pending).toContain(`Created zone ${NEW}`)
     expect(pending).toContain('Nameservers (pending): ana.ns.cloudflare.com, bob.ns.cloudflare.com')
     expect(pending).toContain('registrar')
     const active = await captureLog(() => runApply({}))
     expect(active).toContain('Nameservers (active): ns1.example, ns2.example')
     expect(active).not.toContain('registrar')
+  })
+
+  test('an apply that creates the zone and then refuses still printed the pair, and says the zone exists', async () => {
+    let outcome: Awaited<ReturnType<typeof runApply>> | undefined
+    // The new zone reports no settings, so the declared one is refused in the
+    // plan, after the create and before any record is written.
+    const log = await captureLog(async () => {
+      outcome = await runApply({
+        config: {
+          zone: NEW,
+          createIfAbsent: true,
+          records: [APEX_AAAA],
+          settings: { always_use_https: 'on' },
+        },
+        state: { zones: {} },
+      })
+    })
+    expect(outcome!.error?.message).toContain('created the zone itself (pending)')
+    expect(outcome!.error?.message).not.toContain('exactly as the last apply left it')
+    expect(log).toContain('Nameservers (pending): ana.ns.cloudflare.com, bob.ns.cloudflare.com')
+    expect(
+      outcome!.calls.filter((c) => c.url.includes('/dns_records') && c.method === 'POST'),
+    ).toHaveLength(0)
   })
 })
 

@@ -1,16 +1,17 @@
 # cloudflare-zone — upgrade
 
-**Consumers:** leeandco, qom, ceo, varnick  ·  **Deployed in production by:** leeandco, qom, ceo
+**Consumers:** leeandco, qom, ceo, varnick, radiolo  ·  **Deployed in production by:** leeandco, qom, ceo, radiolo
 
 ## What they needed
 
-**Creating the zone.** Main converges only a zone that exists; an empty lookup
-throws `Zone "…" not found` (`cloudflare-zone/index.ts:680-690`). Cloudflare
+**Creating the zone.** Until #192, main converged only a zone that existed; an
+empty lookup threw `Zone "…" not found` (`cloudflare-zone/index.ts:680-690`). Cloudflare
 Registrar makes the zone for a domain bought through it; a domain registered
 elsewhere has none until someone does. leeandco's module created one for its
 client's Squarespace domain on the first apply; qom added its client's, at Network
 Solutions, in the dashboard, "the one piece of the account not created from
-this repo" (qom ADR-0007:43-45).
+this repo" (qom ADR-0007:43-45); radiolo's, at Spaceship, was one API call on
+2026-11-01.
 
 **Only in the declared account, and only when absent.** Cloudflare filters the
 zone list by token permissions rather than refusing, so "no such zone"
@@ -55,33 +56,52 @@ They differ on:
 
 ### 1. Closed: create the zone when the lookup finds none
 
-Closed in 0.24.0 (2026-11-01). A fifth consumer forced it: radiolo, whose
-client's domain is registered at Spaceship, had its zone made by a one-off API
-call that morning, the third client domain onboarded a third way.
-`createIfAbsent` on `cloudflare-zone` creates an absent zone with
+Closed in #192 (2026-11-01). A fifth consumer forced it: radiolo's zone was the
+third client domain onboarded a third way. `createIfAbsent` on
+`cloudflare-zone` creates an absent zone with
 `{ name, account: { id: accountId }, type: 'full' }`; `zoneStatus` and
 `zoneCreated` join `nameServers`, and every apply prints the pair and the
-status. The open questions, settled:
+status as soon as the zone is resolved, so an apply that fails later still
+shows it. The open questions, settled:
 
 - **The default is `false`.** An empty lookup is also a mistyped name or a
-  token that lost Zone Read, so creation is one declared line per domain, and
-  existing instances (qom's; zbc's `zabaca-zone`, `agentgit-zone`) behave
-  exactly as before. That is also why 0.24.0 has no CHANGELOG entry.
+  token that lost Zone Read, so creation is one declared line per domain.
+  Existing instances (qom's; zbc's `zabaca-zone`, `agentgit-zone`) make the
+  same calls and the same decisions as before; their log gains the nameserver
+  line and the not-found error now names the key. Nothing a consumer depends
+  on changed, so it needs no CHANGELOG entry.
 - **Creation lives in `cloudflare-zone`** (leeandco's shape), one zone per
   instance, because the instance already names the account and the zone.
-- **The guard order is leeandco's:** a zone found in another account is refused
-  before anything decides to create, and a failed create is wrapped with the
-  permission gap it most likely is.
-- **`registry.json`** names Zone Read, Zone Write (account-wide, for creation)
-  and Zone Settings Read beside its write half.
+- **The guard order is leeandco's:** a zone the token can see in another
+  account is refused before anything decides to create, and a failed create is
+  wrapped with the permission gap it most likely is.
+- **The token.** Creating needs Zone Write granted account-wide, on a token
+  minted with no `zones` restriction: `cloudflare-token` resolves `zones`
+  names at mint time and throws for one that does not exist yet
+  (`cloudflare-token/index.ts:274-286`). `registry.json` says so, and names
+  Zone Read and Zone Settings Read beside the write halves.
 
-Still unverified live: whether `POST /zones` refuses an existing name in the
-same account. Radiolo's was a fresh create, the tests stub the refusal, and no
-repo records a real one.
+Still open:
+
+- **A zone held in another account.** `cloudflare-token` mints account-owned
+  tokens, which list only their own account's zones, so a zone active
+  elsewhere reads as absent and the wrong-account refusal never fires for it.
+  Whether `POST /zones` then refuses or makes a second, pending zone is
+  unverified; the module's docstring states both outcomes.
+- **Live check:** whether `POST /zones` refuses an existing name in the same
+  account. Radiolo's was a fresh create, the tests stub the refusal, and no
+  repo records a real one.
+
+`allowDelete: false` (`:225`) keeps a first apply from deleting records
+Cloudflare imports (leeandco expected some; none arrived, and radiolo's
+API-created zone had none either).
 
 Main's other zone lookups (`cloudflare-tunnel/index.ts:335-346`,
-`cloudflare-token/index.ts:277-283`) still check no account, though neither is
-reported misfiring.
+`cloudflare-token/index.ts:277-283`) check no account, though neither is
+reported misfiring, and `cloudflare-api` has none to share; two redirect
+modules copy this one ([cloudflare-redirect](./cloudflare-redirect.md)), and
+cloudflare-email's consumers want this module's `zoneId` or a lookup by name
+([cloudflare-email](./cloudflare-email.md)).
 
 ### 2. Delete first at a blocked name
 
@@ -101,7 +121,7 @@ Nobody declares anything but `always_use_https`, which main's runs on qom's
 zone and zbc's (`agentgit-zone.ts:36`). SRV records closed in `eb1770c`
 (2026-09-30), which qom's Outlook autodiscovery record needed. Loose ends:
 
-- Closed in 0.24.0: `registry.json:10` asked for Zone Settings Edit alone, but
+- Closed in #192: `registry.json:10` asked for Zone Settings Edit alone, but
   the module first reads `/zones/:id/settings` (`:728`), which Cloudflare
   refuses with 9109 on the write group alone (zbc's `zabaca-dns-token.ts:12-16`);
   it now names Zone Settings Read too.
@@ -153,5 +173,11 @@ zone and zbc's (`agentgit-zone.ts:36`). SRV records closed in `eb1770c`
   `vm/index.ts:329-356, 572-586`. Also `packages/cli/src/engine/apply.ts:212`,
   `packages/cli/src/utils/copy-refresh.ts:158-175` and, under
   `packages/infra/environments/production/`, `zabaca-dns-token.ts:12-16`, `zabaca-zone.ts:6-8`, `agentgit-zone.ts:6-9, 36`.
-  Nothing under `packages/cli/templates` or `packages/cli/src` matches
-  `'POST', '/zones'`, `createIfAbsent` or `type: 'full'`.
+  At that commit, before #192, nothing under `packages/cli/templates` or
+  `packages/cli/src` matched `'POST', '/zones'`, `createIfAbsent` or
+  `type: 'full'`.
+- **radiolo** (main's module verbatim, subtree at `zbc-core-v0.23.1`;
+  production): `packages/infra/environments/production/zone.ts:4-7`, a
+  Spaceship domain whose zone was made by one `POST /zones` on 2026-11-01, and
+  `dns-token.ts:6-9`, the account-wide grant a root holding only Account API
+  Tokens Write/Read forces.
