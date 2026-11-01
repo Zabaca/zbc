@@ -49,7 +49,7 @@ six; qom, the same shape, in four.
 | [d1](./d1.md) | 9 | Only qom and games fill the id through `bindings`; open: migrations before the deploy, and keeping production databases out of `zbc destroy` |
 | [cloudflare-access](./cloudflare-access.md) | 4: ceo, leeandco, lov, qom | Seven repos run it unedited; built around it: several hosts per application, standalone service tokens, Managed OAuth, a bypass path |
 | [cloudflare-token](./cloudflare-token.md) | 4: agent-lab, cedarpad, leeandco, lov | Access-only tokens (8 of 11 minting repos) are proven by `/tokens/verify` alone; nothing keeps a token for a reader outside the apply |
-| [cloudflare-zone](./cloudflare-zone.md) | 4: ceo, leeandco, qom, varnick | Never creates a zone, so domains registered outside Cloudflare need one made by hand; swapping a record's type needs a manual delete |
+| [cloudflare-zone](./cloudflare-zone.md) | 5: ceo, leeandco, qom, varnick, radiolo | Creating the zone closed in #192 (`createIfAbsent`); swapping a record's type still needs a manual delete |
 | [r2](./r2.md) | 4: agent-lab, ceo, leeandco, railmid | No `apiToken` reference (a client-account bucket) or lifecycle rules (railmid's tapes); create-before-deploy is closed by composition |
 | [cloudflare-email](./cloudflare-email.md) | 3: leeandco, qom, railmid | Forked in production by all three: an imported `apiToken` and `zoneId` (leeandco, qom), a zone by name (railmid); `main` drops `apiToken` silently |
 
