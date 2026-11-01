@@ -75,13 +75,25 @@ import { cf, cfRaw } from '../cloudflare-api'
 // ── Account-parameterised ─────────────────────────────────────────────────
 // `accountId` is instance config, never a constant: each client's
 // zone in that Client's own Cloudflare account. Apply refuses outright if the
-// looked-up zone belongs to a different account than the one declared — the
+// looked-up zone belongs to a different account than the one declared, the
 // cheapest possible guard against converging the right records into the wrong
 // tenant.
 //
-// There is deliberately no `destroy`. Deleting a zone detaches a live domain
-// from its nameservers and is registrar-adjacent; it is a human action with a
-// human's attention on it, not something a converge loop should be able to do.
+// ── Creating the zone is opt-in ───────────────────────────────────────────
+// A domain registered anywhere but Cloudflare Registrar has no zone until
+// someone makes one, and before `createIfAbsent` that someone was a dashboard
+// click or a one-off API call: three consumers onboarded three client domains
+// three different ways. With `createIfAbsent: true` an absent zone is created
+// (`type: full`, in the declared account) and the next apply finds it. Every
+// apply prints the zone's nameservers and status, because the pair is what an
+// operator carries to the registrar, and a pair printed once is a pair nobody
+// can find later.
+//
+// There is deliberately no `destroy`, and the asymmetry with creation is
+// intended. A new zone answers for nothing until a registrar points at it;
+// deleting one detaches a live domain from its nameservers and is
+// registrar-adjacent, a human action with a human's attention on it, not
+// something a converge loop should be able to do.
 
 // ── Schema ────────────────────────────────────────────────────────────────
 
@@ -223,6 +235,17 @@ const configSchema = z
      * records are always reported, never removed, until an operator opts in.
      */
     allowDelete: z.boolean().default(false),
+    /**
+     * Create the zone when the lookup does not find it. Needs "Zone Write"
+     * granted account-wide on the imported token, since a grant scoped to a
+     * zone that does not exist yet cannot create it.
+     *
+     * Defaults to false, and an absent zone stays a hard error. An empty zone
+     * list is the answer to a mistyped name and to a token that lost "Zone
+     * Read" as much as to a domain nobody has added, so creation is one
+     * declared line per domain rather than what every empty lookup turns into.
+     */
+    createIfAbsent: z.boolean().default(false),
   })
   .superRefine((config, ctx) => {
     config.records.forEach((record, index) => {
@@ -655,13 +678,60 @@ function recordBody(record: DesiredRecord): Record<string, unknown> {
   return body
 }
 
+interface CfZone {
+  id: string
+  name: string
+  /** `pending` until the registrar points at `name_servers`, then `active`. */
+  status?: string
+  account?: { id: string }
+  name_servers?: string[]
+}
+
+/**
+ * Create the zone in the declared account.
+ *
+ * `type: full`, not `partial`: a full setup is the one that gets its own
+ * nameserver pair, and moving the domain onto that pair is the point. A partial
+ * (CNAME) setup leaves the nameservers where they are.
+ *
+ * A failure is wrapped rather than passed through, because the likeliest one is
+ * not what it looks like. The zone list comes back EMPTY rather than forbidden
+ * for a token that cannot read the zone, so the lookup that decided this zone
+ * was absent cannot tell "no such zone" from "no permission to see it".
+ * Cloudflare catches the difference at the create, and the message has to say
+ * so, or the next reader concludes the account is empty and makes a second one.
+ */
+async function createZone(token: string, name: string, accountId: string): Promise<CfZone> {
+  try {
+    return await cf<CfZone>(token, 'POST', '/zones', {
+      name,
+      account: { id: accountId },
+      type: 'full',
+    })
+  } catch (cause) {
+    throw new Error(
+      `refusing to apply: creating zone "${name}" in Cloudflare account ${accountId} failed: ` +
+        `${(cause as Error).message}. The lookup just before reported no such zone, but a token ` +
+        `that cannot read a zone gets an empty list rather than a refusal, so "absent" and ` +
+        `"invisible to this token" read the same. If Cloudflare says the zone already exists, it ` +
+        `exists somewhere this token cannot read: check the token holds "Zone Read" across the ` +
+        `account, and find which account holds the zone, rather than making a second one.`,
+      { cause },
+    )
+  }
+}
+
 export const cloudflareZoneModule = defineModule({
   name: 'cloudflare-zone',
   configSchema,
   outputs: z.object({
     zoneId: z.string(),
     zoneName: z.string(),
-    /** Cloudflare's assigned nameservers — what the registrar must be pointing at. */
+    /** True when this apply is the one that brought the zone into existence. */
+    zoneCreated: z.boolean(),
+    /** Cloudflare's word for the zone: `pending` until the registrar points here, then `active`. */
+    zoneStatus: z.string(),
+    /** Cloudflare's assigned nameservers, which the registrar must be pointing at. */
     nameServers: z.array(z.string()),
     created: z.number(),
     updated: z.number(),
@@ -677,23 +747,35 @@ export const cloudflareZoneModule = defineModule({
   async apply(config, ctx) {
     const token = ctx.output(config.apiToken, 'apiToken')
 
-    // 1. Resolve the zone, and refuse a zone that lives somewhere else.
-    const zones = await cf<
-      Array<{ id: string; name: string; account?: { id: string }; name_servers?: string[] }>
-    >(token, 'GET', `/zones?name=${encodeURIComponent(config.zone)}`)
-    const zone = zones.find((z) => z.name.toLowerCase() === config.zone.toLowerCase())
-    if (!zone) {
+    // 1. Resolve the zone: refuse one that lives somewhere else, and create one
+    //    that is not there at all only when the instance opts in.
+    //
+    //    The order matters. A zone found in the wrong account is refused BEFORE
+    //    anything decides whether to create, so the refusal can never turn into
+    //    a second zone for the same name beside the first. That has happened: a
+    //    zone for a client's domain made in Zabaca's account, spotted, deleted.
+    const zones = await cf<CfZone[]>(token, 'GET', `/zones?name=${encodeURIComponent(config.zone)}`)
+    const found = zones.find((each) => each.name.toLowerCase() === config.zone.toLowerCase())
+    if (found?.account && found.account.id !== config.accountId) {
       throw new Error(
-        `Zone "${config.zone}" not found — either it is not in this Cloudflare account, or the ` +
-          `imported token lacks "Zone Read".`,
-      )
-    }
-    if (zone.account && zone.account.id !== config.accountId) {
-      throw new Error(
-        `refusing to apply: zone "${config.zone}" lives in Cloudflare account ${zone.account.id}, ` +
+        `refusing to apply: zone "${config.zone}" lives in Cloudflare account ${found.account.id}, ` +
           `but this instance declares ${config.accountId}. Each zone belongs to exactly one ` +
           `account; converging the right records into the wrong tenant is not a ` +
           `mistake worth being able to make.`,
+      )
+    }
+    if (!found && !config.createIfAbsent) {
+      throw new Error(
+        `Zone "${config.zone}" not found. Either it is not in this Cloudflare account, or the ` +
+          `imported token lacks "Zone Read". Set createIfAbsent: true on this instance to create ` +
+          `it (the token then also needs "Zone Write" across the account).`,
+      )
+    }
+    const zone = found ?? (await createZone(token, config.zone, config.accountId))
+    const zoneCreated = found === undefined
+    if (zoneCreated) {
+      console.log(
+        `  Created zone ${config.zone} (${zone.id}) in Cloudflare account ${config.accountId}`,
       )
     }
 
@@ -794,10 +876,28 @@ export const cloudflareZoneModule = defineModule({
       console.log(`    = no changes`)
     }
 
+    // 7. The nameserver pair, last because it is the one thing an operator
+    //    carries out of this apply and into the registrar by hand.
+    const nameServers = zone.name_servers ?? []
+    const zoneStatus = zone.status ?? 'unknown'
+    if (nameServers.length > 0) {
+      console.log(`  Nameservers (${zoneStatus}): ${nameServers.join(', ')}`)
+      if (zoneStatus !== 'active') {
+        console.log(
+          `    ${config.zone} answers from these only once its registrar points at them; until ` +
+            `then the records above have no effect.`,
+        )
+      }
+    } else {
+      console.log(`  Cloudflare reported no nameservers for ${config.zone} (status ${zoneStatus}).`)
+    }
+
     return {
       zoneId: zone.id,
       zoneName: zone.name,
-      nameServers: zone.name_servers ?? [],
+      zoneCreated,
+      zoneStatus,
+      nameServers,
       created: plan.create.length,
       updated: plan.update.length,
       deleted,

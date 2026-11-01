@@ -53,48 +53,35 @@ They differ on:
 
 ## What it takes upstream
 
-### 1. Create the zone when the lookup finds none
+### 1. Closed: create the zone when the lookup finds none
 
-In `packages/cli/templates/infra/modules/cloudflare-zone/index.ts`, the `!zone`
-branch (`:685-690`) becomes `POST /zones` with
-`{ name, account: { id: accountId }, type: 'full' }`, behind a config key.
-`zoneStatus` and `zoneCreated` join `nameServers` (`:661-676`), which already
-reaches `zbc apply --json` (`engine/apply.ts:212`); apply prints nameservers
-and status for the operator.
+Closed in 0.24.0 (2026-11-01). A fifth consumer forced it: radiolo, whose
+client's domain is registered at Spaceship, had its zone made by a one-off API
+call that morning, the third client domain onboarded a third way.
+`createIfAbsent` on `cloudflare-zone` creates an absent zone with
+`{ name, account: { id: accountId }, type: 'full' }`; `zoneStatus` and
+`zoneCreated` join `nameServers`, and every apply prints the pair and the
+status. The open questions, settled:
 
-The guard needs no reordering: main's lookup is unfiltered (`:681-683`) and
-refuses a zone in another account (`:691-698`, `index.test.ts:700`), so a
-create there cannot duplicate one the token sees elsewhere. varnick's filtered
-lookup would read it as absent (`vm/index.ts:329-356, 572-586` guards the same
-trap). A zone the token cannot see needs leeandco's answer, varnick's, or both:
-no engine rule covers a permission gap that reads as absence (ADR-0013's
-readiness assumes the resource exists), and main's error already names both
-causes (`:686-689`).
+- **The default is `false`.** An empty lookup is also a mistyped name or a
+  token that lost Zone Read, so creation is one declared line per domain, and
+  existing instances (qom's; zbc's `zabaca-zone`, `agentgit-zone`) behave
+  exactly as before. That is also why 0.24.0 has no CHANGELOG entry.
+- **Creation lives in `cloudflare-zone`** (leeandco's shape), one zone per
+  instance, because the instance already names the account and the zone.
+- **The guard order is leeandco's:** a zone found in another account is refused
+  before anything decides to create, and a failed create is wrapped with the
+  permission gap it most likely is.
+- **`registry.json`** names Zone Read, Zone Write (account-wide, for creation)
+  and Zone Settings Read beside its write half.
+
+Still unverified live: whether `POST /zones` refuses an existing name in the
+same account. Radiolo's was a fresh create, the tests stub the refusal, and no
+repo records a real one.
 
 Main's other zone lookups (`cloudflare-tunnel/index.ts:335-346`,
-`cloudflare-token/index.ts:277-283`) check no account, though neither is
-reported misfiring, and `cloudflare-api` has none to share; two redirect
-modules copy this one ([cloudflare-redirect](./cloudflare-redirect.md)), and
-cloudflare-email's consumers want this module's `zoneId` or a lookup by name
-([cloudflare-email](./cloudflare-email.md)).
-
-Creating needs Zone Write granted account-wide, since a grant scoped to a
-missing zone cannot create it (one reason leeandco's DNS token leaves `zones`
-unset); `registry.json:10` names neither it nor the Zone Read the lookup
-already needs. `allowDelete: false` (`:225`) keeps a first apply from deleting
-records Cloudflare imports (leeandco expected some; none arrived).
-
-Left open:
-
-- **The default.** `true` (leeandco's) makes every empty lookup a create,
-  including a mistyped name or a token that lost Zone Read, which today stop at
-  the error; `false` keeps the error and makes creation one declared line.
-  Existing zones (qom's; zbc's `zabaca-zone.ts:6-8`, `agentgit-zone.ts:6-9`)
-  behave the same either way.
-- **Where creation lives:** in `cloudflare-zone`, or a zones-only module its
-  instance imports (varnick's shape).
-- **Live check:** whether `POST /zones` refuses an existing name. Both designs
-  rely on it, both tests stub it, and neither repo records a live refusal.
+`cloudflare-token/index.ts:277-283`) still check no account, though neither is
+reported misfiring.
 
 ### 2. Delete first at a blocked name
 
@@ -114,10 +101,10 @@ Nobody declares anything but `always_use_https`, which main's runs on qom's
 zone and zbc's (`agentgit-zone.ts:36`). SRV records closed in `eb1770c`
 (2026-09-30), which qom's Outlook autodiscovery record needed. Loose ends:
 
-- `registry.json:10` asks for Zone Settings Edit alone, but the module first
-  reads `/zones/:id/settings` (`:728`), which Cloudflare refuses with 9109 on
-  the write group alone (zbc's `zabaca-dns-token.ts:12-16`); qom grants Zone
-  Settings Read citing that note, not a failure of its own.
+- Closed in 0.24.0: `registry.json:10` asked for Zone Settings Edit alone, but
+  the module first reads `/zones/:id/settings` (`:728`), which Cloudflare
+  refuses with 9109 on the write group alone (zbc's `zabaca-dns-token.ts:12-16`);
+  it now names Zone Settings Read too.
 - ceo has not moved over: its fork still PATCHes `always_use_https` on
   roamside.com from the deploying instance, with no account check, on the
   standing `CLOUDFLARE_API_TOKEN`. Moving takes an imported token (`apiToken`

@@ -17,7 +17,7 @@ together with the modules it deploys through.
 | --- | --- | --- | --- | --- |
 | `cloudflare` | module | Deploys a Worker from a package's own `wrangler.jsonc` (assets, Durable Objects, Containers). The only *deploy* module. See [wiring.md](wiring.md) | `deployUrl`, `workerName` | `CLOUDFLARE_API_TOKEN`, or `apiToken: { from, output }` |
 | `cloudflare-token` | module | Mints a scoped account-owned API token from a root token. R2 S3 credentials come with it. Has a readiness probe | `tokenId`, `tokenValue`*, `s3AccessKeyId`, `s3SecretAccessKey`* | `CLOUDFLARE_ROOT_TOKEN` (`rootTokenSecret`) |
-| `cloudflare-zone` | module | A zone's DNS records (authoritative, deletes gated) and settings (forward-only) | `zoneId`, `zoneName`, `nameServers` (array), counts | `apiToken` ref, required |
+| `cloudflare-zone` | module | A zone's DNS records (authoritative, deletes gated) and settings (forward-only); creates the zone itself with `createIfAbsent` | `zoneId`, `zoneName`, `zoneStatus`, `zoneCreated`, `nameServers` (array), counts | `apiToken` ref, required |
 | `cloudflare-tunnel` | module | A remotely-managed tunnel, its ingress and DNS records | `tunnelId`, `runToken`, `hostnames` | `apiToken` ref, required |
 | `cloudflare-access` | module | A Zero Trust application and its allow / service-auth policies | `appId`, `aud`, `teamDomain`, `clientId`, `clientSecret`, … | `apiToken` ref, required |
 | `cloudflare-email` | module | Email Service for a domain (beta): sending (SPF/DKIM/DMARC) and inbound routing rules | `domain`, `addresses`, `dnsStatus`, … | `CLOUDFLARE_API_TOKEN` (extra Email scopes) |
