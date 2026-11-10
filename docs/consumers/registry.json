@@ -1,5 +1,5 @@
 {
-  "$comment": "Every known zbc consumer. Hand-maintained: location + access + tier are facts no script can derive. access is `github` (clone repo), `local:<path>` (git archive off this machine) or `ssh:<host>:<path>` (git archive off another machine); `root` is where zbc.config.ts sits when it is not the repo root. The snapshot fields (mode, environments, instanceCount, ownModules, cliPin, vintage) are point-in-time as of snapshotDate. instanceCount is `.instance(` calls in non-test files under packages/infra/environments, so a factory counts once. ownModules is every directory under packages/infra/modules — copies of our own built-ins included; the survey, not this list, decides which are stale.",
+  "$comment": "Every known zbc consumer. Hand-maintained: location + access + tier are facts no script can derive. access is `github` (clone repo), `local:<path>` (git archive off this machine) or `ssh:<host>:<path>` (git archive off another machine); `root` is where zbc.config.ts sits when it is not the repo root. The snapshot fields (mode, environments, instanceCount, ownModules, cliPin, vintage) are point-in-time as of snapshotDate. instanceCount is `.instance(` calls in non-test files under packages/infra/environments, so a factory counts once. ownModules is every directory under packages/infra/modules — copies of our own built-ins included; the survey, not this list, decides which are stale. `apps` lists the vendored apps a consumer pulls into `vendor/<app>` (the survey reads each copy file by file against every revision the app's folder has had: current, stale, edited, or the consumer's own).",
   "snapshotDate": "2026-10-18",
   "consumers": [
     {
@@ -36,6 +36,7 @@
       "access": "github",
       "checkouts": ["mac:~/Library/Application Support/Varnick/Home", "ryzen-9:~/repos/ceo"],
       "mode": "copy",
+      "apps": ["space"],
       "environments": ["production", "workstation"],
       "instanceCount": 15,
       "ownModules": ["cloudflare", "cloudflare-email", "d1", "gcp", "obs", "posthog", "r2", "turso", "vercel"],
@@ -48,11 +49,12 @@
       "access": "github",
       "checkouts": ["mac:~/Projects/zabaca/leeandco"],
       "mode": "copy",
+      "apps": ["space"],
       "environments": ["production"],
       "instanceCount": 16,
       "ownModules": ["cloudflare", "cloudflare-access", "cloudflare-access-service-token", "cloudflare-account-member", "cloudflare-api", "cloudflare-email", "cloudflare-token", "cloudflare-zone", "d1", "r2"],
       "tier": "consumer",
-      "notes": "Densest Cloudflare surface of any consumer, most of it token/zone/access plumbing. Authors two modules nothing upstream has (cloudflare-access-service-token, cloudflare-account-member). Worktree leeandco-seo on mac."
+      "notes": "Since 2026-11-10 it also holds zbc-core at vendor/zbc, for the space alone: its site keeps its own copy-mode modules, because upstream cloudflare-access has no `additionalDomains`. Densest Cloudflare surface of any consumer, most of it token/zone/access plumbing. Authors two modules nothing upstream has (cloudflare-access-service-token, cloudflare-account-member). Worktree leeandco-seo on mac."
     },
     {
       "id": "foothill-metabolic",

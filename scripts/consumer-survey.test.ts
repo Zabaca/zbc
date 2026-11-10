@@ -4,7 +4,13 @@ import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
 import {
+  appCases,
+  appPackageOf,
   buildAncestorIndex,
+  buildAppIndex,
+  classifyAppFile,
+  gitBlobHash,
+  surveyApp,
   classify,
   findEscapeHatches,
   hatchDirs,
@@ -400,5 +406,198 @@ describe('normalize', () => {
     expect(normalize('// recon was public for 20 minutes\ncode()')).toContain(
       '// recon was public for 20 minutes',
     )
+  })
+})
+
+const appFile = (rel: string) => `packages/cli/templates/apps/demo/${rel}`
+
+/** A repository that shipped an app's folder at two revisions: `a.ts` changed, `b.ts` did not, `c.ts` came second. */
+function appUpstream() {
+  const repo = scratchRepo()
+  repo.write(appFile('packages/one/a.ts'), 'export const a = 1\n')
+  repo.write(appFile('packages/one/b.ts'), 'export const b = 1\n')
+  repo.write(appFile('zbc-app.json'), '{ "name": "demo" }\n')
+  repo.git('add', '-A')
+  repo.git('commit', '-qm', 'the app')
+  repo.write(appFile('packages/one/a.ts'), 'export const a = 2\n')
+  repo.write(appFile('kit/c.ts'), 'export const c = 1\n')
+  repo.git('add', '-A')
+  repo.git('commit', '-qm', 'a newer app')
+  return repo
+}
+
+/** A consumer's copy of the app's folder, as plain files. */
+function appCopy(files: Record<string, string>): string {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'consumer-app-'))
+  for (const [rel, content] of Object.entries(files)) {
+    fs.mkdirSync(path.dirname(path.join(dir, rel)), { recursive: true })
+    fs.writeFileSync(path.join(dir, rel), content)
+  }
+  return dir
+}
+
+const NEWEST = {
+  'packages/one/a.ts': 'export const a = 2\n',
+  'packages/one/b.ts': 'export const b = 1\n',
+  'kit/c.ts': 'export const c = 1\n',
+  'zbc-app.json': '{ "name": "demo" }\n',
+}
+
+describe('gitBlobHash', () => {
+  test('is the id git gives the same bytes', () => {
+    const { dir, write } = scratchRepo()
+    try {
+      write('x.txt', 'some bytes\n')
+      const said = spawnSync('git', ['hash-object', 'x.txt'], { cwd: dir, encoding: 'utf8' })
+      expect(gitBlobHash(fs.readFileSync(path.join(dir, 'x.txt')))).toBe(said.stdout.trim())
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true })
+    }
+  })
+})
+
+describe('a vendored app, file by file', () => {
+  test('a copy of the newest revision is current, every file of it', () => {
+    const up = appUpstream()
+    const copy = appCopy(NEWEST)
+    try {
+      expect(surveyApp(copy, buildAppIndex('demo', up.dir))).toEqual({
+        verdict: 'current',
+        files: 4,
+        current: 4,
+        stale: [],
+        edited: [],
+        own: [],
+        removed: [],
+      })
+    } finally {
+      fs.rmSync(up.dir, { recursive: true, force: true })
+      fs.rmSync(copy, { recursive: true, force: true })
+    }
+  })
+
+  test('a copy of an older revision is stale: the file that moved on, and the file it never received', () => {
+    const up = appUpstream()
+    const copy = appCopy({
+      'packages/one/a.ts': 'export const a = 1\n',
+      'packages/one/b.ts': 'export const b = 1\n',
+      'zbc-app.json': '{ "name": "demo" }\n',
+    })
+    try {
+      expect(surveyApp(copy, buildAppIndex('demo', up.dir))).toMatchObject({
+        verdict: 'stale',
+        current: 2,
+        stale: ['packages/one/a.ts'],
+        edited: [],
+        own: [],
+        removed: ['kit/c.ts'],
+      })
+    } finally {
+      fs.rmSync(up.dir, { recursive: true, force: true })
+      fs.rmSync(copy, { recursive: true, force: true })
+    }
+  })
+
+  test('a file no revision shipped at that path is an edit, and a file never shipped is the consumer’s own', () => {
+    const up = appUpstream()
+    const copy = appCopy({
+      ...NEWEST,
+      'packages/one/b.ts': 'export const b = 1 // ours\n',
+      'NOTES.md': 'ours\n',
+      'node_modules/dep/index.js': 'not read\n',
+    })
+    try {
+      expect(surveyApp(copy, buildAppIndex('demo', up.dir))).toMatchObject({
+        verdict: 'edited',
+        files: 5,
+        current: 3,
+        stale: [],
+        edited: ['packages/one/b.ts'],
+        own: ['NOTES.md'],
+        removed: [],
+      })
+    } finally {
+      fs.rmSync(up.dir, { recursive: true, force: true })
+      fs.rmSync(copy, { recursive: true, force: true })
+    }
+  })
+
+  test('a reformat is an edit here: the folder is pulled, not retyped', () => {
+    const up = appUpstream()
+    try {
+      const index = buildAppIndex('demo', up.dir)
+      const reformatted = gitBlobHash(new TextEncoder().encode('export const a = 2;\n'))
+      expect(classifyAppFile('packages/one/a.ts', reformatted, index)).toBe('edited')
+      // The old content at a path it never had is an edit of that path, not a stale copy of another.
+      const old = gitBlobHash(new TextEncoder().encode('export const a = 1\n'))
+      expect(classifyAppFile('packages/one/a.ts', old, index)).toBe('stale')
+      expect(classifyAppFile('packages/one/b.ts', old, index)).toBe('edited')
+    } finally {
+      fs.rmSync(up.dir, { recursive: true, force: true })
+    }
+  })
+
+  test('an app this repository never shipped has an empty index', () => {
+    const up = appUpstream()
+    try {
+      expect(buildAppIndex('nothing', up.dir).newest.size).toBe(0)
+    } finally {
+      fs.rmSync(up.dir, { recursive: true, force: true })
+    }
+  })
+})
+
+/** One consumer's finding for an app, with what a case reads filled in. */
+const finding = (over: object) => ({
+  app: 'space',
+  verdict: 'edited' as const,
+  files: 0,
+  current: 0,
+  stale: [],
+  edited: [],
+  own: [],
+  removed: [],
+  ...over,
+})
+
+describe('app cases', () => {
+  test('a path belongs to its package, the kit, another top folder, or the root', () => {
+    expect(appPackageOf('packages/inbox/src/app.ts')).toBe('inbox')
+    expect(appPackageOf('kit/instances.ts')).toBe('kit')
+    expect(appPackageOf('docs/install.md')).toBe('docs')
+    expect(appPackageOf('README.md')).toBe('(root)')
+  })
+
+  test('edits and own files are grouped per app and package, most consumers first; a current or stale copy is no case', () => {
+    expect(
+      appCases([
+        { id: 'one', apps: [finding({ edited: ['packages/inbox/src/a.ts'], own: ['NOTES.md'] })] },
+        { id: 'two', apps: [finding({ edited: ['packages/inbox/src/b.ts', 'kit/x.ts'] })] },
+        { id: 'three', apps: [finding({ verdict: 'stale', stale: ['packages/meet/m.ts'] })] },
+        { id: 'four' },
+      ]),
+    ).toEqual([
+      {
+        app: 'space',
+        package: 'inbox',
+        consumers: 2,
+        implementations: [
+          { consumer: 'one', edited: ['packages/inbox/src/a.ts'], own: [] },
+          { consumer: 'two', edited: ['packages/inbox/src/b.ts'], own: [] },
+        ],
+      },
+      {
+        app: 'space',
+        package: '(root)',
+        consumers: 1,
+        implementations: [{ consumer: 'one', edited: [], own: ['NOTES.md'] }],
+      },
+      {
+        app: 'space',
+        package: 'kit',
+        consumers: 1,
+        implementations: [{ consumer: 'two', edited: ['kit/x.ts'], own: [] }],
+      },
+    ])
   })
 })
