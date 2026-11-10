@@ -1,0 +1,22 @@
+{
+  "company": {
+    "id": "yourcompany",
+    "name": "Your Company",
+    "legalName": "Your Company Inc.",
+    "domain": "yourcompany.example",
+    "timeZone": "America/Chicago"
+  },
+  "access": { "teamDomain": "yourcompany.cloudflareaccess.com" },
+  "space": { "host": "space.yourcompany.example", "sessionDuration": "730h" },
+  "forms": { "sessionDuration": "24h" },
+  "senders": { "forms": "forms@yourcompany.example", "meet": "meet@yourcompany.example" },
+  "formsService": {
+    "name": "Your Company Forms",
+    "contact": "office@yourcompany.example",
+    "runBy": { "mailingLine": "Your City, Your State" },
+    "ownCompanyOnly": true
+  },
+  "people": [{ "address": "owner@yourcompany.example", "name": "Owner", "role": "owner" }],
+  "businesses": [{ "id": "yourcompany", "name": "Your Company", "mailboxes": [] }],
+  "switches": { "gmail": false, "calls": false }
+}

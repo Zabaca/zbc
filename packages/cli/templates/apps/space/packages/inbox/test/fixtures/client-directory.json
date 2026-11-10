@@ -1,0 +1,20 @@
+[
+  {
+    "id": 2,
+    "name": "Bolt Machines",
+    "legalEntity": null,
+    "matchAddress": null,
+    "extra": {}
+  },
+  {
+    "id": 1,
+    "name": "Acme Legal",
+    "legalEntity": "Acme Legal LLP",
+    "matchAddress": "owner@acme.example",
+    "extra": {
+      "signInAddress": "owner@acme.example",
+      "subscriptionStatus": "active",
+      "subscriptionAt": "2026-10-01T00:00:00.000Z"
+    }
+  }
+]

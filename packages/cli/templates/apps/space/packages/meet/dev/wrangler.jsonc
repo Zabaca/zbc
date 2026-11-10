@@ -1,0 +1,40 @@
+{
+  // The LOCAL Worker of meet's guests' side (dev/worker.ts): `bun run dev` and the live browser checks (scripts/live.ts, chat.ts, audio.ts), with local Durable Objects (miniflare, under .wrangler/state).
+  // NOT DEPLOYED, and it has no address: no route, no Custom Domain, no workers.dev or preview hostname, no cron, and no project has an instance that deploys it (test/dev-worker.test.ts pins what is this folder's).
+  //
+  // Meet has no deployed Worker. Its team side runs in the space's Worker, its guests' side answers at space.northfield.example/r/ and /w/ (the
+  // space's ADR 0018), and its two stores are the space's (handed over by Cloudflare's transfer). meet.northfield.example is gone. Here the two classes are declared NEW,
+  // because a local store has nothing to receive; NEVER deploy this file (it would provision empty stores).
+  "name": "meet-dev",
+  "main": "worker.ts",
+  "compatibility_date": "2026-06-01",
+  "workers_dev": false,
+  "preview_urls": false,
+  // `run_worker_first` is not optional. With single-page-application not-found handling the asset router answers ANY unmatched path with index.html BEFORE the Worker runs, so every path the Worker owns must be
+  // listed or it silently starts returning HTML: the call API (/r/api/*), the guests' API and its socket (/w/api/*), and the development route that makes a call (/api/dev/*). /, /w and /r/* are SPA routes
+  // and want exactly that fallback.
+  "assets": {
+    "directory": "../dist/client",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/r/api/*", "/w/api/*", "/api/dev/*"],
+    "binding": "ASSETS"
+  },
+  // ROOMS: one SQLite-backed object per call. WORKSPACE: ONE object, named for Northfield Works, holding every channel and direct message (docs/adr/0003).
+  "durable_objects": {
+    "bindings": [
+      { "name": "ROOMS", "class_name": "RoomDO" },
+      { "name": "WORKSPACE", "class_name": "WorkspaceDO" }
+    ]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["RoomDO", "WorkspaceDO"] }],
+  // Locally nothing is sent: src/wiring.ts logs the guests' codes instead. The binding is declared so a local run has the same names as the space's.
+  "send_email": [{ "name": "EMAIL", "allowed_sender_addresses": ["meet@northfield.example"] }],
+  // The guests' sign-in is limited per address of the caller before it reaches the workspace object: 10 tries a minute. Locally the binding is absent from a plain run and nothing is limited.
+  "ratelimits": [{ "name": "AUTH_LIMIT", "namespace_id": "7302", "simple": { "limit": 10, "period": 60 } }],
+  // The phone's secrets (TELNYX_*) and the SFU's two secrets (MEET_REALTIME_APP_SECRET, MEET_TURN_KEY_TOKEN) come from .dev.vars (gitignored; README shows how to make it). Not secret: the ids of the SFU app
+  // and the TURN key (both named `meet`).
+  "vars": {
+    "REALTIME_APP_ID": "0000000000000000000000000000c001",
+    "TURN_KEY_ID": "0000000000000000000000000000d001"
+  }
+}

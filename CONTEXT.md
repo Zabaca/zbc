@@ -7,13 +7,13 @@ One of four contexts — see [`CONTEXT-MAP.md`](./CONTEXT-MAP.md). This glossary
 ## Principles
 
 **Single-tenant everything**:
-zbc is open source; consumers fork the repo or install just the CLI. Either way, every consumer instantiates their own copy of modules, app templates, and any supporting services (relay workers, inboxes, …). There is no centralized Zabaca-hosted service in the loop.
+zbc is open source; consumers fork the repo or install just the CLI. Either way, every consumer instantiates their own copy of modules, app templates, and any supporting services (relay workers, workspaces, …). There is no centralized Zabaca-hosted service in the loop.
 
 **Scaffold freely, deploy only through the graph**:
 CLI commands may automate as much as they like (vendor modules, copy templates, even generate instance files) — but everything they do must land as committed declarative files, and real-world convergence happens only via `zbc apply`. A fresh clone plus `zbc apply` must reproduce the world.
 
 **An app earns a template when most software companies would want it — or when the zbc workflow itself requires it**:
-`inbox` and `warehouse` are here because mail and a data warehouse are near-universal needs, not because Zabaca happened to need them. `secret-relay` is the second case: no company wants a relay for its own sake, but every zbc consumer needs one for `zbc secret request` to work at all ([ADR-0003](./docs/adr/0003-secret-request-relay.md)). Anything specific to one project belongs in that project, consuming zbc. This is the test to apply before adding a new `kind: "app"` template — the **App Template** entry below says what one *is*, not what earns one.
+`warehouse` and `space` are here because a data warehouse and a place for a company's mail, calls and documents are near-universal needs, not because Zabaca happened to need them. `secret-relay` is the second case: no company wants a relay for its own sake, but every zbc consumer needs one for `zbc secret request` to work at all ([ADR-0003](./docs/adr/0003-secret-request-relay.md)). Anything specific to one project belongs in that project, consuming zbc. This is the test to apply before adding a new `kind: "app"` template, the **App Template** entry below says what one *is*, not what earns one.
 
 ## Language
 
@@ -76,7 +76,7 @@ An Output a Module declares as a *credential* — `secretOutputs: { tokenValue: 
 _Avoid_: sensitive output (says it should be handled carefully; this says where it may go), ephemeral output (collides with the Instance-level `ephemeral`)
 
 **App Template**:
-A `kind: "app"` template that scaffolds a full package into the consumer's `packages/<name>/` — real application code (worker routes, business logic), not just a resource's config schema. Declares its module dependencies in `registry.json`, which `zbc add <app>` auto-vendors. `inbox`, `secret-relay`, and `warehouse` are app templates. What earns a template is the third principle above, not this structural definition.
+A `kind: "app"` template that scaffolds a full package into the consumer's `packages/<name>/`, real application code (worker routes, business logic), not just a resource's config schema. Declares its module dependencies in `registry.json`, which `zbc add <app>` auto-vendors. `secret-relay`, `warehouse` and `walgit` are app templates. `space` is the same idea at a larger size, distributed differently: pulled as a git subtree of its own public copy rather than copied from the npm package (`zbc add space`, `zbc update space`). What earns a template is the third principle above, not this structural definition.
 _Avoid_: app module (conflates with Provisioning/Deploy Module, which own only a resource's config, not a scaffolded package)
 
 ## Data Warehouse (ADR-0004)

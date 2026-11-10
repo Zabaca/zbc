@@ -1,0 +1,7 @@
+{
+  "_fixture": "PLACEHOLDER: shaped from Google’s documented API reference, not a captured response. Replace with a trimmed real response after Gmail is connected (packages/inbox/docs/runbooks/inbox-google-setup.md, \"After connecting\").",
+  "emailAddress": "tessa@northfield.example",
+  "messagesTotal": 41872,
+  "threadsTotal": 30514,
+  "historyId": "483011"
+}

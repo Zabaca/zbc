@@ -20,7 +20,7 @@ writing a module. `.claude/settings.json` enables it. To install it by hand, run
 ## Common commands
 
 - `bun install` — install dependencies
-- `bunx @zabaca/zbc add <module>` — vendor an infra module (`turso`, `cloudflare`, `cloudflare-email`, `r2`) or scaffold an app template (`inbox` — an agent-accessible email inbox; `secret-relay` — the browser-based secret request relay; `warehouse` — a dlt+dbt-duckdb data warehouse/BI pipeline; each auto-vendors its module dependencies)
+- `bunx @zabaca/zbc add <module>`, vendor an infra module (`turso`, `cloudflare`, `cloudflare-email`, `r2`) or scaffold an app template (`secret-relay`: the browser-based secret request relay; `warehouse`: a dlt+dbt-duckdb data warehouse/BI pipeline; each auto-vendors its module dependencies), or pull the vendored app `space` (a company's mail, chat and calls, calendar, forms and signed documents, clients and knowledge in one Worker) into `vendor/space/` as a git subtree, which `bunx @zabaca/zbc update space` later updates
 - `bunx @zabaca/zbc apply <env>` — apply infrastructure for an environment
 - `bunx @zabaca/zbc apply <env> --json <path>` — the same, plus the result (`{ env, instances: [{ name, module, outputs }] }`) written to a file. Treat that file as secret: outputs carry credentials
 - `bunx @zabaca/zbc list <env>` — what the environment declares, in dependency order (add `--json` for a machine-readable listing)

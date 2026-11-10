@@ -23,7 +23,7 @@
 # workflow, and a gate that is red on arrival is a gate people learn to ignore
 # (RULES.md in the contributing repo puts it plainly: a guard with false
 # positives gets switched off). The apps have their own workflows
-# (`inbox-tests`, `walgit-e2e`); what is left uncovered is the warehouse app,
+# (`space-tests`, `walgit-e2e`); what is left uncovered is the warehouse app,
 # and closing that is a matter of fixing those six, not of editing a path here.
 name: core-tests
 

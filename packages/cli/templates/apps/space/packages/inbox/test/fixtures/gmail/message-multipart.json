@@ -1,0 +1,119 @@
+{
+  "_fixture": "PLACEHOLDER: shaped from Google’s documented API reference, not a captured response. Replace with a trimmed real response after Gmail is connected (packages/inbox/docs/runbooks/inbox-google-setup.md, \"After connecting\").",
+  "id": "19a1f1d4c9e0a512",
+  "threadId": "19a1f0c2b7d4e801",
+  "labelIds": ["UNREAD", "CATEGORY_PERSONAL", "INBOX"],
+  "snippet": "Quote attached. Café meeting works for us.",
+  "historyId": "482977",
+  "internalDate": "1792501200000",
+  "sizeEstimate": 48210,
+  "payload": {
+    "partId": "",
+    "mimeType": "multipart/mixed",
+    "filename": "",
+    "headers": [
+      {
+        "name": "Date",
+        "value": "Mon, 20 Oct 2026 06:00:00 -0700"
+      },
+      {
+        "name": "From",
+        "value": "=?UTF-8?B?RGFuYSBTbWl0aCDwn5mC?= <dana@example.com>"
+      },
+      {
+        "name": "To",
+        "value": "Tessa Marlow <tessa@northfield.example>, \"Ortiz, Ramon\" <ramon@example.org>"
+      },
+      {
+        "name": "Cc",
+        "value": "Priya <priya@example.net>"
+      },
+      {
+        "name": "Subject",
+        "value": "=?UTF-8?Q?Re:_Revised_quote_for_the_site_=E2=80=93_caf=C3=A9?="
+      },
+      {
+        "name": "Message-ID",
+        "value": "<CAKd3x7w2@mail.example.com>"
+      },
+      {
+        "name": "In-Reply-To",
+        "value": "<CAKd3x7w1@mail.example.com>"
+      },
+      {
+        "name": "Content-Type",
+        "value": "multipart/mixed; boundary=\"000000000000a1b2c3\""
+      }
+    ],
+    "body": {
+      "size": 0
+    },
+    "parts": [
+      {
+        "partId": "0",
+        "mimeType": "multipart/alternative",
+        "filename": "",
+        "headers": [
+          {
+            "name": "Content-Type",
+            "value": "multipart/alternative; boundary=\"000000000000d4e5f6\""
+          }
+        ],
+        "body": {
+          "size": 0
+        },
+        "parts": [
+          {
+            "partId": "0.0",
+            "mimeType": "text/plain",
+            "filename": "",
+            "headers": [
+              {
+                "name": "Content-Type",
+                "value": "text/plain; charset=\"UTF-8\""
+              }
+            ],
+            "body": {
+              "size": 52,
+              "data": "UXVvdGUgYXR0YWNoZWQuIENhZsOpIG1lZXRpbmcgd29ya3MgZm9yIHVzLg0K"
+            }
+          },
+          {
+            "partId": "0.1",
+            "mimeType": "text/html",
+            "filename": "",
+            "headers": [
+              {
+                "name": "Content-Type",
+                "value": "text/html; charset=\"UTF-8\""
+              }
+            ],
+            "body": {
+              "size": 92,
+              "data": "PGRpdiBkaXI9Imx0ciI-UXVvdGUgYXR0YWNoZWQuIENhZsOpIG1lZXRpbmcgd29ya3MgZm9yIHVzLjwvZGl2Pg"
+            }
+          }
+        ]
+      },
+      {
+        "partId": "1",
+        "mimeType": "application/pdf",
+        "filename": "Quote 2026-10.pdf",
+        "headers": [
+          {
+            "name": "Content-Type",
+            "value": "application/pdf; name=\"Quote 2026-10.pdf\""
+          },
+          {
+            "name": "Content-Disposition",
+            "value": "attachment; filename=\"Quote 2026-10.pdf\""
+          }
+        ],
+        "body": {
+          "attachmentId": "ANGjdJ8w",
+          "size": 40213
+        }
+      }
+    ]
+  }
+}

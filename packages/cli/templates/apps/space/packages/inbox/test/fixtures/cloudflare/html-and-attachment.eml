@@ -1,0 +1,31 @@
+Return-Path: <tessa@northfield.example>
+Received: from mail.example.net (mail.example.net [192.0.2.43])
+	by mx.cloudflare.net with ESMTPS id 0a4d7c1e3b5f9a22
+	for <test@ridgewaycycles.example>; Tue, 27 Oct 2026 09:00:00 +0000 (UTC)
+MIME-Version: 1.0
+From: "Lane, Tessa" <tessa@northfield.example>
+Date: Tue, 27 Oct 2026 02:00:00 -0700
+Message-ID: <CAF3b9xVv9aq0d1Zw4pVhE5nT7yUo6Lr0aJdG9sXm1BvNc2Hq4Wj@mail.gmail.com>
+Reply-To: "Lane, Tessa" <reply@northfield.example>
+Subject: =?UTF-8?B?UmVzdWx0cyBhbmQgY2Fmw6k=?=
+To: Ridgeway Test <test@ridgewaycycles.example>
+Cc: Someone Else <else@example.com>
+Content-Type: multipart/mixed; boundary="000000000000a11c0a06a3f2b7e9"
+
+--000000000000a11c0a06a3f2b7e9
+Content-Type: multipart/alternative; boundary="000000000000a11c0906a3f2b7e7"
+
+--000000000000a11c0906a3f2b7e7
+Content-Type: text/html; charset="UTF-8"
+
+<div dir="ltr">Here are my results.<br>Line two &amp; three.<script>alert(1)</script></div>
+
+--000000000000a11c0906a3f2b7e7--
+--000000000000a11c0a06a3f2b7e9
+Content-Type: application/pdf; name="invoice.pdf"
+Content-Disposition: attachment; filename="invoice.pdf"
+Content-Transfer-Encoding: base64
+
+JVBERi0xLjQKJcfsj6IKNSAwIG9iago8PC9MZW5ndGggNiAwIFI+PgplbmRvYmoK
+
+--000000000000a11c0a06a3f2b7e9--

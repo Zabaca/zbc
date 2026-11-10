@@ -1,0 +1,184 @@
+/* A new email (NewEmail.tsx) and a draft's editor (DraftEdit.tsx): the box takes the whole detail column and scrolls in it, as a person's page does. Dark only, with the rest of the space. */
+
+.detail:has(.newmail) {
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: flex-start;
+  padding: 0;
+  overflow-y: auto;
+}
+.newmail {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: 760px;
+}
+.newmail-body {
+  display: grid;
+  gap: 10px;
+  padding: 16px 22px 40px;
+}
+.nm-field {
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1fr);
+  gap: 8px;
+  align-items: center;
+}
+.nm-label {
+  color: var(--mute);
+  font-size: 12px;
+}
+.nm-field input,
+.nm-field select,
+.newmail textarea,
+.de-field input,
+.de-field textarea {
+  display: block;
+  width: 100%;
+  min-height: 34px;
+  padding: 7px 10px;
+  border: 1px solid var(--line2);
+  border-radius: 8px;
+  background: var(--panel);
+  color: var(--text);
+  font: inherit;
+  outline: none;
+}
+.newmail textarea,
+.de-field textarea {
+  resize: vertical;
+  min-height: 150px;
+}
+.nm-field input:focus,
+.nm-field select:focus,
+.newmail textarea:focus,
+.de-field input:focus,
+.de-field textarea:focus {
+  border-color: var(--accent);
+}
+.nm-field input[readonly],
+.newmail textarea[readonly] {
+  color: var(--mute);
+}
+.nm-known {
+  margin: -4px 0 0 72px;
+}
+.newmail .composer-bar {
+  margin-top: 0;
+}
+
+/* Two buttons beside the list's title (New email, New call) stay on one line each: the list's column is narrow. */
+.list-head .btn {
+  white-space: nowrap;
+  padding-left: 9px;
+  padding-right: 9px;
+}
+
+/* Editing a draft in its card (DraftEdit.tsx). */
+.de {
+  display: grid;
+  gap: 8px;
+  margin-top: 6px;
+}
+.de-field {
+  display: grid;
+  gap: 4px;
+}
+.de-field .nm-label {
+  font-size: 11px;
+}
+.de-moved {
+  display: grid;
+  gap: 6px;
+  padding: 8px 10px;
+  border: 1px dashed rgba(106, 164, 255, 0.5);
+  border-radius: 8px;
+  font-size: 12px;
+}
+.de-moved blockquote {
+  margin: 0;
+  max-height: 160px;
+  overflow: auto;
+  padding: 6px 8px;
+  border-radius: 6px;
+  background: var(--panel);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.de-copy {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  font-size: 12px;
+}
+.de-bar {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+/* The picture a Telegram draft carries: on the card, and in the editor beside its Take out and Attach. Fixed height so the card does not jump as it loads. */
+.draft-picture {
+  margin: 8px 0 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-width: 100%;
+}
+.draft-picture img {
+  display: block;
+  height: 140px;
+  max-width: 100%;
+  object-fit: contain;
+  object-position: left;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel);
+}
+.draft-picture figcaption {
+  font-size: 12px;
+  color: var(--mute);
+}
+.de-picture {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.de-picture-had {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+}
+
+/* The spam control over an email thread, on its heading line. */
+.srchead .spam {
+  flex: none;
+  order: 2;
+  min-height: 22px;
+  padding: 1px 8px;
+  font-size: 11px;
+}
+
+@media (max-width: 760px) {
+  .detail:has(.newmail) {
+    display: flex;
+  }
+  .newmail-body {
+    padding: 14px max(14px, env(safe-area-inset-right)) 40px max(14px, env(safe-area-inset-left));
+  }
+  .nm-field {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 4px;
+  }
+  .nm-known {
+    margin-left: 0;
+  }
+  /* 16px keeps a phone's browser from zooming in on a box when it is touched. */
+  .nm-field input,
+  .nm-field select,
+  .newmail textarea,
+  .de-field input,
+  .de-field textarea {
+    font-size: 16px;
+  }
+}

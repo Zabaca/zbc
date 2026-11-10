@@ -1,0 +1,8 @@
+import { spaceInstance } from '../../space/{{ENV}}'
+
+/**
+ * The open path a document's signers use (`/s/*`): no sign-in at Access, and the Worker checks every request there itself. One line, made by the space's kit (vendor/space/kit/instances.ts) from this environment's declaration and install file.
+ *
+ * Deploy just this one: bunx @zabaca/zbc apply {{ENV}} space-guest-signing
+ */
+export default spaceInstance('guestSigning')

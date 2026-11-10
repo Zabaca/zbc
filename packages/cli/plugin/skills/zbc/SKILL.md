@@ -53,8 +53,10 @@ disagree.
    disk and this installs its npm dependencies. In copy mode it copies the
    module in. Either way it installs the libraries the module imports and
    prints the secrets the module reads plus any setup instructions — read them.
-   For an app template (`inbox`, `secret-relay`, `warehouse`, `walgit`) it
-   scaffolds the whole package into `packages/<name>/`.
+   For an app template (`secret-relay`, `warehouse`, `walgit`) it
+   scaffolds the whole package into `packages/<name>/`. For the vendored app
+   `space` it pulls the app's public copy into `vendor/space/` as a git
+   subtree (see **modules.md**, "The vendored app").
 3. **Write the instance file** — `packages/infra/environments/<env>/<instance>.ts`:
 
    ```ts

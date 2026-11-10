@@ -70,7 +70,6 @@ trigger a restart.
 
 | Name | What it scaffolds | Deploys through |
 | --- | --- | --- |
-| `inbox` | Agent-accessible email inbox Worker: JSON API, an MCP server at `/mcp`, web UI | `cloudflare`, `cloudflare-email`, `r2` |
 | `secret-relay` | The project's own Secret Relay, which `zbc secret request` / `edit` need | `cloudflare` |
 | `warehouse` | dlt + dbt-duckdb data warehouse on a Container, with parquet marts in R2 | `cloudflare`, `r2` |
 | `walgit` | A git host whose source of truth is a write-ahead log in object storage | `cloudflare`, `r2` |
@@ -78,3 +77,26 @@ trigger a restart.
 An app template has no placeholders. Its per-project identity (`workerName`,
 bucket bindings, vars) lives in the instance files you write for it, and
 `zbc add <app>` prints them.
+
+## The vendored app
+
+`space` is a small company's whole workspace in one Worker: mail, chat and
+calls, a calendar, forms and signed documents, clients and knowledge. It is not
+in the npm package. It is pulled from its own public copy as a git subtree, on
+its own version tags:
+
+- `bunx @zabaca/zbc add space [--env <env>] [--ref <ref>]` pulls it into
+  `vendor/space/` at the newest version tag (`--ref main`: the newest commit),
+  adds the folder to the root workspace, installs the modules its deploy uses
+  (`cloudflare`, `cloudflare-access`, `queue`, `r2`, `d1`), and writes the files
+  a new install starts from in `packages/infra/environments/<env>/` and
+  `packages/infra/space/`, each only when absent. It needs a clean git tree, and
+  leaves the workspace entry, the starting files and `.zbc-vendor.json` in the
+  working tree to be read and committed.
+- `bunx @zabaca/zbc update space [--ref <ref>]` pulls a newer copy over it.
+  The project's own edits are kept (a conflict is git's, resolved as any merge
+  is), and the command names the files under `vendor/space/` the copy does not
+  ship and the files that differ from the commit pulled.
+- What to fill in before the first apply is `vendor/space/docs/install.md`.
+  The install's declaration, install file and secrets are the project's own and
+  stay outside `vendor/space/`.

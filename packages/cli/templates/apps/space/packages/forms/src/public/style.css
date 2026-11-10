@@ -1,0 +1,54 @@
+/* Tailwind v4, for the signer's page. A signer reads it on a phone, so the brief is legibility, not personality: the npo palette,
+   neutral and quiet, with each client's own accent color shown only where a signer will see it. (The operator's screens are the
+   space's, with their own theme over the space's colours: packages/space/src/client/forms/forms.css.) */
+@import 'tailwindcss';
+
+@theme {
+  --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+
+  --color-background: oklch(0.99 0 0);
+  --color-foreground: oklch(0.22 0 0);
+  --color-muted: oklch(0.96 0 0);
+  --color-muted-foreground: oklch(0.48 0 0);
+  --color-border: oklch(0.9 0 0);
+  --color-input: oklch(0.82 0 0);
+  --color-ring: oklch(0.55 0.13 250);
+  --color-card: oklch(1 0 0);
+
+  --color-primary: oklch(0.28 0 0);
+  --color-primary-hi: oklch(0.38 0 0);
+  --color-primary-foreground: oklch(0.99 0 0);
+  --color-accent: oklch(0.94 0 0);
+  --color-destructive: oklch(0.52 0.19 27);
+
+  --color-pos: oklch(0.45 0.13 150);
+  --color-pos-bg: oklch(0.96 0.04 150);
+  --color-warn: oklch(0.5 0.13 70);
+  --color-warn-bg: oklch(0.97 0.05 90);
+  --color-neg-bg: oklch(0.96 0.03 27);
+}
+
+@layer base {
+  body {
+    background: var(--color-background);
+    color: var(--color-foreground);
+    font-family: var(--font-sans);
+    -webkit-text-size-adjust: 100%;
+  }
+  button {
+    cursor: pointer;
+  }
+  button:disabled {
+    cursor: default;
+  }
+  button:focus-visible,
+  a:focus-visible,
+  input:focus-visible,
+  select:focus-visible,
+  textarea:focus-visible,
+  [tabindex]:focus-visible {
+    outline: 2px solid var(--color-ring);
+    outline-offset: 2px;
+  }
+}

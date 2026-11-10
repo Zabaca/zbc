@@ -2,8 +2,7 @@
 // implement `timingSafeEqual` — verified against this package's own Bun (`'timingSafeEqual'
 // in crypto.subtle` is false; calling it throws "is not a function"). It's a workerd-runtime
 // extension to SubtleCrypto, not part of the Web Crypto standard, so it's only real under
-// wrangler dev/deploy. router.ts's `authorized()` calls it exactly as the inbox app
-// template's worker/index.ts does — this shim exists purely so `bun test worker` can
+// wrangler dev/deploy. router.ts's `authorized()` calls it, and this shim exists purely so `bun test worker` can
 // exercise authorized()'s true/false outcomes locally; it changes nothing about the code
 // under test, and is never loaded outside the test runner.
 import { timingSafeEqual as nodeTimingSafeEqual } from 'node:crypto'

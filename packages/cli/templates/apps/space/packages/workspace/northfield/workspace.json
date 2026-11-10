@@ -1,0 +1,62 @@
+{
+  "company": {
+    "id": "northfield",
+    "name": "Northfield Works",
+    "legalName": "Northfield Works LLC",
+    "domain": "northfield.example",
+    "timeZone": "America/Los_Angeles"
+  },
+  "access": { "teamDomain": "northfield.cloudflareaccess.com" },
+  "space": { "host": "space.northfield.example", "sessionDuration": "730h" },
+  "forms": { "sessionDuration": "24h" },
+  "senders": { "forms": "forms@northfield.example", "meet": "meet@northfield.example" },
+  "formsService": {
+    "name": "Northfield Forms",
+    "contact": "info@northfield.example",
+    "runBy": { "name": "Northfield Works", "legalName": "Northfield Works LLC", "mailingLine": "Alder Bend, Oregon", "site": "northfield.example" }
+  },
+  "gmailPush": { "host": "inbox-push.northfield.example" },
+  "googleApp": {
+    "clientId": "000000000000-northfieldexample.apps.googleusercontent.com",
+    "pushTopic": "projects/northfield-mail-000000/topics/inbox-gmail"
+  },
+  "hostedMailboxes": [
+    { "address": "test@harborline.example", "name": "harborline", "door": "https://jmap-test.harborline.example", "secret": "INBOX_JMAP_HARBORLINE_TEST" }
+  ],
+  "cloudflareMailboxes": [
+    { "address": "info@ridgewaycycles.example", "name": "Ridgeway Cycles", "short": "Ridgeway", "spamCheck": true },
+    { "address": "hello@shiftlantern.example", "name": "ShiftLantern" },
+    { "address": "hello@quill.example", "name": "quill.example" }
+  ],
+  "phone": { "people": { "tessa@northfield.example": { "emergencyNumber": "line" } } },
+  "agent": { "path": "/agent/inbox" },
+  "telegram": { "path": "/agent/telegram" },
+  "clientsDoor": {
+    "path": "/agent/clients",
+    "source": "northfield.example",
+    "suggestByAddressKey": "signInAddress",
+    "fields": {
+      "signInAddress": { "label": "Client Portal sign-in" },
+      "subscriptionStatus": { "label": "Subscription", "list": true },
+      "subscriptionAt": { "label": "Subscription said", "kind": "time" }
+    }
+  },
+  "people": [{ "address": "tessa@northfield.example", "name": "Tessa", "mailName": "Tessa Marlow", "role": "owner" }],
+  "businesses": [
+    { "id": "northfield", "name": "Northfield Works", "mailboxes": ["tessa@northfield.example"] },
+    { "id": "ridgeway-cycles", "name": "Ridgeway Cycles", "mailboxes": ["info@ridgewaycycles.example"] },
+    { "id": "shiftlantern", "name": "ShiftLantern", "mailboxes": ["hello@shiftlantern.example"] },
+    { "id": "quill", "name": "quill.example", "mailboxes": ["hello@quill.example"] }
+  ],
+  "switches": {
+    "gmail": true,
+    "hostedMailboxes": true,
+    "clientDirectory": true,
+    "claudeScript": true,
+    "assistant": true,
+    "phone": true,
+    "manyClients": true,
+    "calls": true,
+    "telegram": true
+  }
+}

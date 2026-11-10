@@ -1,0 +1,11 @@
+{
+  "_fixture": "PLACEHOLDER: shaped from Google’s documented API reference, not a captured response. Replace with a trimmed real response after Gmail is connected (packages/inbox/docs/runbooks/inbox-google-setup.md, \"After connecting\").",
+  "message": {
+    "data": "eyJlbWFpbEFkZHJlc3MiOiJ0ZXNzYUBub3J0aGZpZWxkLmV4YW1wbGUiLCJoaXN0b3J5SWQiOjQ4MzAxMX0",
+    "messageId": "2070443601311540",
+    "message_id": "2070443601311540",
+    "publishTime": "2026-10-20T19:00:01.123Z",
+    "publish_time": "2026-10-20T19:00:01.123Z"
+  },
+  "subscription": "projects/northfield-mail-000000/subscriptions/inbox-gmail-push"
+}

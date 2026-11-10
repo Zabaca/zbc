@@ -1,0 +1,23 @@
+Return-Path: <tessa@northfield.example>
+Received: from mail.example.net (mail.example.net [192.0.2.43])
+	by mx.cloudflare.net with ESMTPS id 8d1e44b0a7c2f915
+	for <test@ridgewaycycles.example>; Mon, 26 Oct 2026 18:09:40 +0000 (UTC)
+DKIM-Signature: v=1; a=rsa-sha256; c=relaxed/relaxed;
+        d=northfield.example; s=20251104; t=1793038180; x=1793642980; darn=ridgewaycycles.example;
+        h=to:subject:message-id:references:in-reply-to:date:from:mime-version;
+        bh=Zk3m9nW8sQhJmV3m5c3q9mP0r8y3k8nD1rQeX3o6x7A=;
+        b=Rm4oXx9d0VJmWk8uJm4kR5hZ6Zc0m3pQ2rS1tUvWxYzAbCdEfGhIjKlMnOpQrStUv
+MIME-Version: 1.0
+References: <CAF3b9xR1kq2c8Zw4pVhE5nT7yUo6Lr0aJdG9sXm1BvNc2Hq4Wg@mail.gmail.com>
+In-Reply-To: <CAF3b9xR1kq2c8Zw4pVhE5nT7yUo6Lr0aJdG9sXm1BvNc2Hq4Wg@mail.gmail.com>
+From: Tessa Marlow <tessa@northfield.example>
+Date: Mon, 26 Oct 2026 11:09:30 -0700
+Message-ID: <CAF3b9xTt7yq0d1Zw4pVhE5nT7yUo6Lr0aJdG9sXm1BvNc2Hq4Wh@mail.gmail.com>
+Subject: Re: Hours question
+To: Ridgeway Test <test@ridgewaycycles.example>
+Content-Type: text/plain; charset="UTF-8"
+
+Following up: also, is parking free?
+
+On Mon, Oct 26, 2026 at 11:02 AM Tessa Marlow <tessa@northfield.example> wrote:
+> Hi, what are your hours on Saturdays?

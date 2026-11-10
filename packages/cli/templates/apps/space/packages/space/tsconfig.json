@@ -1,0 +1,18 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "jsx": "react-jsx",
+    "types": ["@cloudflare/workers-types", "@types/bun"],
+    "strict": true,
+    "resolveJsonModule": true,
+    "paths": { "@calendar/declaration": ["../workspace/northfield/workspace.json"], "@clients/declaration": ["../workspace/northfield/workspace.json"], "@knowledge/declaration": ["../workspace/northfield/workspace.json"],  "@space/declaration": ["../workspace/northfield/workspace.json"], "@forms/declaration": ["../workspace/northfield/workspace.json"], "@meet/declaration": ["../workspace/northfield/workspace.json"], "@inbox/declaration": ["../workspace/northfield/workspace.json"], "@inbox/content": ["../workspace/northfield/workspace-content.json"] },
+    "noEmit": true,
+    "skipLibCheck": true,
+    "isolatedModules": true,
+    "forceConsistentCasingInFileNames": true
+  },
+  "include": ["src", "test", "e2e", "vite.config.ts", "build-install.ts", "guest-bundle.ts", "vite.guest-meet.config.ts", "vite.guest-forms.config.ts"]
+}

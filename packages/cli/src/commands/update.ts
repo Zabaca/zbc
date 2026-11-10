@@ -12,6 +12,7 @@ import {
   subtreePull,
   VENDOR_PREFIX,
 } from '../utils/subtree'
+import { describeAppAudit, updateVendoredApp, VENDORED_APPS } from '../utils/vendored-app'
 import pkg from '../../package.json' with { type: 'json' }
 
 export const updateCommand = defineCommand({
@@ -20,6 +21,20 @@ export const updateCommand = defineCommand({
     description: `Bring the vendored zbc engine + built-in modules up to this CLI's version`,
   },
   args: {
+    app: {
+      type: 'positional',
+      description: `A vendored app to update instead of the engine (${Object.keys(VENDORED_APPS).join(', ')})`,
+      required: false,
+    },
+    ref: {
+      type: 'string',
+      description:
+        'With an app: the ref to pull (default: the newest version tag; a branch pulls the newest commit)',
+    },
+    'app-url': {
+      type: 'string',
+      description: 'With an app: pull from this repository instead (a fork)',
+    },
     'core-url': {
       type: 'string',
       description: `zbc-core repository (default: ${DEFAULT_CORE_URL})`,
@@ -36,6 +51,33 @@ export const updateCommand = defineCommand({
   },
   async run({ args }) {
     const projectRoot = await findProjectRoot()
+
+    // A vendored app is updated by name, and only it: the engine's vintage is a
+    // separate pull of a separate repository, on its own versions.
+    if (args.app !== undefined) {
+      const app = VENDORED_APPS[args.app]
+      if (!app) {
+        console.error(
+          `✗ "${args.app}" is not a vendored app. Available: ${Object.keys(VENDORED_APPS).join(', ')}. Run \`zbc update\` alone for the engine and modules.`,
+        )
+        process.exit(1)
+      }
+      console.log(`zbc update: ${app.name} → ${app.prefix}`)
+      let result: Awaited<ReturnType<typeof updateVendoredApp>>
+      try {
+        result = await updateVendoredApp(projectRoot, app, { ref: args.ref, url: args['app-url'] })
+      } catch (err) {
+        console.error(`✗ ${(err as Error).message}`)
+        process.exit(1)
+      }
+      console.log(`✓ ${app.prefix} is on ${result.ref} (${result.commit.slice(0, 12)})`)
+      for (const pattern of result.workspacesAdded) console.log(`  workspace added: ${pattern}`)
+      for (const line of describeAppAudit(app, result.audit)) console.log(line)
+      console.log(
+        '  Review the squash merge commit, commit .zbc-vendor.json, and run `bun install`.',
+      )
+      return
+    }
 
     // Copy mode used to be a dead end here — the only way to receive an engine
     // fix was a hand diff, which is how consumers ended up reimplementing what

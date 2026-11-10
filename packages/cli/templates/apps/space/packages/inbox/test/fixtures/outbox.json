@@ -1,0 +1,68 @@
+[
+  {
+    "id": "2026-10-19-dana-card-declined",
+    "to": "Dana Reyes",
+    "channel": "Email",
+    "address": "Dana@Cafe.Example",
+    "subject": "Your card was declined",
+    "why": "Her April payment failed and she may not know.",
+    "body": "Hi Dana,\n\nYour card was declined on the 3rd. Could you update it from your portal when you have a minute?\n\nTessa",
+    "created": "2026-10-19T17:04:11.000Z",
+    "sentAt": null
+  },
+  {
+    "id": "2026-10-18-dana-hello",
+    "to": "Dana Reyes",
+    "channel": "Email",
+    "address": "dana@cafe.example",
+    "subject": "Welcome aboard",
+    "why": "First note after she signed.",
+    "body": "Hi Dana,\n\nWelcome. Your site goes live this week.\n\nTessa",
+    "created": "2026-10-18T15:30:00.000Z",
+    "sentAt": "2026-10-18T16:02:40.000Z"
+  },
+  {
+    "id": "2026-10-17-marcus-sms-intro",
+    "to": "Marcus Webb",
+    "channel": "SMS",
+    "address": "(626) 555-0142",
+    "subject": "",
+    "why": "Texting is how he answers.",
+    "body": "Hi Marcus, it's Tessa from Northfield Works. Do you have ten minutes Thursday?",
+    "created": "2026-10-17T20:11:09.000Z",
+    "sentAt": "2026-10-17T20:15:00.000Z"
+  },
+  {
+    "id": "2026-10-19-marcus-sms-followup",
+    "to": "Marcus Webb",
+    "channel": "SMS",
+    "address": "+16265550142",
+    "subject": "",
+    "why": "No reply after two days.",
+    "body": "Following up on Thursday. Still good?",
+    "created": "2026-10-19T18:00:00.000Z",
+    "sentAt": null
+  },
+  {
+    "id": "2026-10-19-priya-dm",
+    "to": "Priya Nair",
+    "channel": "DM",
+    "address": "@priya_n",
+    "subject": "",
+    "why": "She only reads Instagram.",
+    "body": "Hi Priya, saw the new menu. Want a page for it?",
+    "created": "2026-10-19T19:20:00.000Z",
+    "sentAt": null
+  },
+  {
+    "id": "2026-10-16-abel-no-address",
+    "to": "Abel at the print shop",
+    "channel": "In person",
+    "address": "",
+    "subject": "",
+    "why": "Said at the counter.",
+    "body": "Tell Abel the proofs are approved.",
+    "created": "2026-10-16T21:00:00.000Z",
+    "sentAt": "2026-10-16T21:30:00.000Z"
+  }
+]

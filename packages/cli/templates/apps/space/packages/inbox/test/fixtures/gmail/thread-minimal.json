@@ -1,0 +1,25 @@
+{
+  "_fixture": "PLACEHOLDER: shaped from Google’s documented API reference, not a captured response. Replace with a trimmed real response after Gmail is connected (packages/inbox/docs/runbooks/inbox-google-setup.md, \"After connecting\").",
+  "id": "19a1f0c2b7d4e801",
+  "historyId": "483010",
+  "messages": [
+    {
+      "id": "19a1f0c2b7d4e801",
+      "threadId": "19a1f0c2b7d4e801",
+      "labelIds": ["CATEGORY_PERSONAL", "INBOX"],
+      "snippet": "Hi Tessa",
+      "historyId": "482950",
+      "internalDate": "1792497600000",
+      "sizeEstimate": 2231
+    },
+    {
+      "id": "19a1f2e6d0f1b623",
+      "threadId": "19a1f0c2b7d4e801",
+      "labelIds": ["SENT"],
+      "snippet": "Sending",
+      "historyId": "483010",
+      "internalDate": "1792504800000",
+      "sizeEstimate": 1904
+    }
+  ]
+}

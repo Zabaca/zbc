@@ -1,0 +1,21 @@
+{
+  "account": { "id": "00000000000000000000000000000000" },
+  "worker": "yourcompany-space",
+  "stores": {
+    "formsBucket": "yourcompany-space-forms-files",
+    "formsDatabase": "yourcompany-space-forms-records"
+  },
+  "rateLimits": { "public": "7101", "auth": "7102" },
+  "access": {
+    "space": { "application": "space.yourcompany.example", "policy": "space.yourcompany.example allowed people" },
+    "forms": { "application": "space.yourcompany.example/forms", "policy": "space.yourcompany.example/forms allowed people" },
+    "guests": {
+      "chat": { "application": "space.yourcompany.example/w/*", "policy": "space.yourcompany.example/w/* anyone, no sign-in (channel guests)" },
+      "signing": { "application": "space.yourcompany.example/s/*", "policy": "space.yourcompany.example/s/* anyone, no sign-in (signers)" }
+    }
+  },
+  "secrets": {
+    "forms": { "dataKey": "FORMS_DATA_KEY", "sealKey": "FORMS_SEAL_KEY", "sealCertChain": "FORMS_SEAL_CERT_CHAIN" },
+    "notifications": { "vapidKey": "INBOX_VAPID_KEY" }
+  }
+}

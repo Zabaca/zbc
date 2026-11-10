@@ -1,0 +1,29 @@
+{
+  // The LOCAL Worker of forms (dev/worker.ts): `bun run dev` and the end-to-end suites, over a local D1 `forms-records` and R2 `forms-files` (miniflare, under .wrangler/state). NOT DEPLOYED, and it
+  // has no address: no route, no Custom Domain, no workers.dev or preview hostname, no cron, and no project has an instance that deploys it (test/dev-worker.test.ts pins what is this folder's).
+  //
+  // Forms runs inside the space's Worker: space.northfield.example/s/ for signers, the Forms tab for the team, the database and the bucket
+  // bound by name in the Worker's settings (the install kit, kit/worker-settings.ts), forms' migrations applied by the `space` instance. forms.northfield.example and the forms Worker are gone.
+  "name": "forms-dev",
+  "main": "worker.ts",
+  "compatibility_date": "2026-06-01",
+  "workers_dev": false,
+  "preview_urls": false,
+  // Only the API paths run before the asset router. With SPA not-found handling the asset router would otherwise answer an unknown /s/api path with index.html and a 200. /admin/api/* is the
+  // operator API (ALLOW_UNAUTHENTICATED in .dev.vars makes the browser the operator, on localhost only); /s/api/* is the public side, which authenticates every request itself. The signer's pages
+  // (/s/...), the landing page, the privacy notice and the signer's files (/assets/...) are ordinary assets and never run the Worker.
+  "assets": {
+    "directory": "../dist/client",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/admin/api/*", "/s/api/*"],
+    "binding": "ASSETS"
+  },
+  // The same names as the space's, so a migration written for one is the other's.
+  "d1_databases": [{ "binding": "DB", "database_name": "forms-records", "migrations_dir": "../migrations" }],
+  "r2_buckets": [{ "binding": "FILES", "bucket_name": "forms-files" }],
+  "send_email": [{ "name": "EMAIL", "allowed_sender_addresses": ["forms@northfield.example"] }],
+  "ratelimits": [{ "name": "PUBLIC_LIMIT", "namespace_id": "7301", "simple": { "limit": 120, "period": 60 } }],
+  "limits": { "cpu_ms": 10000 },
+  // No vars: the address a signing link is made on is the install's space host (the declaration the Worker is built for), not a setting.
+  // Locally the Worker secrets are in .dev.vars (gitignored): `bun run seal-certs --dev` writes a throwaway seal there, and ALLOW_UNAUTHENTICATED=1 makes the browser the operator.
+}

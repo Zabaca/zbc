@@ -1,0 +1,155 @@
+/* Channel admin (Channels.tsx): New channel and Browse channels above Meet's list, and a channel's people beside the channel. */
+
+.chan-tools {
+  padding: 8px 14px 0;
+}
+.chan-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.chan-buttons .btn[aria-pressed='true'] {
+  border-color: var(--accent);
+  background: var(--accent-bg);
+}
+.chan-card {
+  display: grid;
+  gap: 10px;
+  margin: 8px 0 4px;
+  padding: 12px 14px;
+  border: 1px solid var(--line2);
+  border-radius: 9px;
+  background: var(--panel);
+}
+.chan-card h3,
+.chan-people h3,
+.chan-people h4 {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 500;
+}
+.chan-card .field,
+.chan-form .field {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.chan-card input[type='text'],
+.chan-card input:not([type]),
+.chan-form input[type='text'],
+.chan-form input[type='email'],
+.chan-form input:not([type]),
+.chan-form select {
+  width: 100%;
+  min-height: 32px;
+  padding: 5px 8px;
+  border: 1px solid var(--line2);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+}
+.chan-choice {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.chan-choice legend {
+  padding: 0;
+  margin-bottom: 4px;
+}
+.chan-choice label {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+}
+.chan-bar {
+  display: flex;
+  gap: 8px;
+}
+.chan-list {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.chan-list li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.chan-name {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+/* the people of a channel, in the profile column */
+.chan-people {
+  display: grid;
+  gap: 12px;
+  margin-top: 16px;
+}
+.chan-members {
+  display: grid;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--panel);
+}
+.chan-member {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--line);
+}
+.chan-member:last-child {
+  border-bottom: 0;
+}
+.chan-who {
+  display: flex;
+  flex: 1 1 140px;
+  flex-direction: column;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.chan-acts {
+  display: flex;
+  flex-basis: 100%;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.chan-form {
+  display: grid;
+  gap: 8px;
+}
+.chan-form > .btn {
+  justify-self: start;
+}
+.chan-form.chan-rename {
+  grid-template-columns: 1fr auto auto;
+  align-items: center;
+}
+.chan-manage {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.chan-invite {
+  padding: 12px 14px;
+  border: 1px solid var(--line2);
+  border-radius: 9px;
+  background: var(--panel);
+}
