@@ -1,6 +1,7 @@
 name: proof-agent-ubuntu
 on:
-  pull_request:
+  push:
+    branches: [proof-agent-ubuntu]
 permissions:
   contents: read
 jobs:
