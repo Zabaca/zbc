@@ -3,7 +3,7 @@ import type { InstanceRunOptions } from './apply'
 import { discoverInstances } from './discover'
 import { withOnDemandImports } from './on-demand'
 import { createReadinessGate } from './readiness'
-import { resolveOrder } from './resolve'
+import { isRetained, resolveOrder } from './resolve'
 import { createSecretOutputRegistry, redactError } from './secret-outputs'
 import { loadSecrets } from './secrets'
 
@@ -51,6 +51,20 @@ export async function destroyInstances(
   }
 
   for (const instance of reversed) {
+    // Before the destroy lookup, because a retained instance has none: the
+    // operator is owed the reason, and a request to destroy THIS instance by
+    // name is refused rather than reported as a skip that reads like success.
+    if (isRetained(instance)) {
+      if (opts.target) {
+        throw new Error(
+          `Instance "${instance.name}" sets retain: zbc destroy never deletes it. Remove retain ` +
+            `in a reviewed change first, or delete the resource in the provider by hand.`,
+        )
+      }
+      console.log(`⊘ ${instance.moduleName}:${instance.name} is retained, left standing`)
+      continue
+    }
+
     const { destroy } = instance._definition
     if (!destroy) {
       console.log(`⊘ ${instance.moduleName}:${instance.name} has no destroy — skipping`)

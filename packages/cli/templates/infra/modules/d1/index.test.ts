@@ -393,6 +393,7 @@ describe('migrationsDir', () => {
   printf 'CALL>>>\\n'
 } >> "$STUB_LOG"
 if [ -n "$STUB_FAIL" ]; then echo "Migration 0002_bad.sql failed" >&2; exit 1; fi
+if [ -n "$STUB_UP_TO_DATE" ]; then echo "✅ No migrations to apply!"; exit 0; fi
 echo "Migrations to be applied: 0001_init.sql"
 echo "✅ 0001_init.sql"
 exit 0
@@ -402,6 +403,7 @@ exit 0
   afterEach(() => {
     delete process.env.STUB_LOG
     delete process.env.STUB_FAIL
+    delete process.env.STUB_UP_TO_DATE
     for (const root of roots.splice(0)) fs.rmSync(root, { recursive: true, force: true })
   })
 
@@ -548,6 +550,42 @@ exit 0
       )
     expect(error?.message).toContain('0002_bad.sql')
     expect(sql(calls)).toEqual([])
+  })
+
+  /**
+   * Adoption: a database made before this instance existed (by hand, by a
+   * deploy script, by another module) whose history wrangler has already
+   * applied. The instance must take it over as it is: found by name, never
+   * created, never renamed, its id the output, and the migration step a no-op
+   * that succeeds. What wrangler skips is wrangler's ledger's business; what
+   * is asserted here is that the module itself writes nothing and does not
+   * read "nothing to apply" as a failure.
+   */
+  test('an existing, already-migrated database is adopted: no create, same id, nothing applied', async () => {
+    const { root, log } = project()
+    process.env.STUB_UP_TO_DATE = '1'
+    const calls = installFetchStub({
+      databases: [
+        ['northfield-other', 'uuid-other'],
+        ['northfield-forms', 'uuid-live-forms'],
+      ],
+    })
+    const out = await d1Module.apply(
+      config({ databaseName: 'northfield-forms', migrationsDir: 'db/migrations' }),
+      createTestContext({ secrets: { CLOUDFLARE_API_TOKEN: 'tok' }, projectRoot: root }),
+    )
+
+    expect(out).toEqual({ databaseName: 'northfield-forms', databaseId: 'uuid-live-forms' })
+    // Every API call was a read: no create, no rename, no delete.
+    expect(calls.filter((c) => c.method !== 'GET')).toEqual([])
+    // Wrangler was asked once, about the live database by its live id.
+    const [run, ...rest] = runs(log)
+    expect(rest).toHaveLength(0)
+    const d1 = run!.config!.d1_databases as Array<Record<string, string>>
+    expect(d1[0]).toMatchObject({
+      database_name: 'northfield-forms',
+      database_id: 'uuid-live-forms',
+    })
   })
 
   test('unset, wrangler is never run', async () => {

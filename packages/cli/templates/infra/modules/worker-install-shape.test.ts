@@ -21,6 +21,10 @@ import { r2Module } from './r2/index'
  * instance's outputs are handed to the Worker's instance as its imports. What
  * is asserted is what reached the API and wrangler: so a module that refused,
  * or silently dropped, a field this shape relies on fails here.
+ *
+ * The forms database and its files bucket are instances of their own (`d1`
+ * with its migration history, `r2`), applied before the Worker that imports
+ * them, and retained: they hold records no teardown may delete.
  */
 
 const ACCOUNT = '0123456789abcdef0123456789abcdef'
@@ -481,5 +485,38 @@ describe('an install kit’s shapes are accepted by zbc’s modules', () => {
     await once()
     const writes = a.calls.slice(before).filter((c) => c.method === 'POST' || c.method === 'DELETE')
     expect(writes).toEqual([])
+  })
+
+  test('as instances: the records’ database and bucket are retained, and the Worker imports them', () => {
+    // The instance files a kit writes. The two stores that hold records carry
+    // `retain`, so no `zbc destroy` of the environment can delete them; the raw
+    // mail bucket, the queue and the Access applications are left as they are.
+    const files = r2Module.instance({ name: 'space-forms-files', config: formsFiles, retain: true })
+    const db = d1Module.instance({ name: 'space-forms-db', config: formsDb, retain: true })
+    const raw = r2Module.instance({ name: 'inbox-raw', config: rawMail })
+    const queue = queueModule.instance({ name: 'inbox-delivery', config: delivery })
+    const space = cloudflareModule.instance({
+      name: 'space',
+      config: worker,
+      imports: [raw, queue, files, db],
+    })
+
+    expect(files.retain).toBe(true)
+    expect(db.retain).toBe(true)
+    expect(files._definition.destroy).toBeUndefined()
+    expect(db._definition.destroy).toBeUndefined()
+    // The modules still delete for every instance that does not opt out.
+    expect(raw._definition.destroy).toBeDefined()
+    expect(space.imports.map((i) => i.name)).toEqual([
+      'inbox-raw',
+      'inbox-delivery',
+      'space-forms-files',
+      'space-forms-db',
+    ])
+    // Neither store is wired through `cloudflare`: the Worker's own settings
+    // bind both by name, which needs no key on the deploying module.
+    const parsed = cloudflareModule.configSchema.parse(worker)
+    expect(parsed.bindings).toEqual([])
+    expect(parsed.r2Bindings).toEqual([])
   })
 })

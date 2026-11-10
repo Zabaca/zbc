@@ -349,3 +349,56 @@ describe('readiness on the on-demand apply', () => {
     expect(ran).toEqual(['apply:deploy-token', 'probe:1', 'probe:2', 'probe:3', 'destroy:minted'])
   })
 })
+
+/**
+ * `retain: true`: a resource `zbc destroy` must never delete (a database of
+ * records, the bucket of their files), on an instance whose module has a
+ * deleting `destroy` for every other instance of it.
+ */
+const tracked = () => {
+  const torn: string[] = []
+  const track = (name: string) => async () => {
+    torn.push(name)
+  }
+  return { torn, track }
+}
+
+describe('a retained instance', () => {
+  test('a whole-environment destroy tears down the rest and leaves it standing', async () => {
+    const { torn, track } = tracked()
+    const records = fakeInstance('records-db', { destroy: track('records-db'), retain: true })
+    const files = fakeInstance('records-files', { destroy: track('records-files'), retain: true })
+    const web = fakeInstance('web', { imports: [records, files], destroy: track('web') })
+
+    await destroyInstances([records, files, web], opts)
+    expect(torn).toEqual(['web'])
+  })
+
+  test('naming it as the target is refused, not skipped, and nothing is destroyed', async () => {
+    const { torn, track } = tracked()
+    const records = fakeInstance('records-db', { destroy: track('records-db'), retain: true })
+
+    await expect(destroyInstances([records], { ...opts, target: 'records-db' })).rejects.toThrow(
+      /records-db.*retain/,
+    )
+    expect(torn).toEqual([])
+  })
+
+  test('the module’s destroy is not reachable from the instance at all', () => {
+    // So an engine that knows nothing of `retain` (a CLI older than the
+    // vendored engine) still has nothing to call, and skips it as it skips any
+    // module without a destroy.
+    const records = fakeInstance('records-db', { withDestroy: true, retain: true })
+    expect(records._definition.destroy).toBeUndefined()
+    expect(records.retain).toBe(true)
+    // …while another instance of the same module keeps it.
+    expect(fakeInstance('scratch-db', { withDestroy: true })._definition.destroy).toBeDefined()
+  })
+
+  test('retain and ephemeral together are refused when the instance is declared', () => {
+    // Ephemeral destroys on every apply; a retained resource is one nothing may destroy.
+    expect(() =>
+      fakeInstance('records-db', { withDestroy: true, retain: true, ephemeral: true }),
+    ).toThrow(/records-db.*retain.*ephemeral/)
+  })
+})

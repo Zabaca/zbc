@@ -2,7 +2,7 @@ import * as path from 'node:path'
 import { defineCommand } from 'citty'
 import { listActions, type ListedAction } from '../engine/actions'
 import { discoverInstances } from '../engine/discover'
-import { isEphemeral, resolveOrder } from '../engine/resolve'
+import { isEphemeral, isRetained, resolveOrder } from '../engine/resolve'
 import { findProjectRoot } from '../utils/find-project-root'
 import { loadConfig } from '../utils/load-config'
 
@@ -11,7 +11,9 @@ export interface ListedInstance {
   name: string
   module: string
   ephemeral: boolean
-  /** Whether the module defines `destroy` — i.e. whether `zbc destroy` reaches it. */
+  /** Set `retain: true`: `zbc destroy` leaves it standing. See `InstanceOptions.retain`. */
+  retain: boolean
+  /** Whether `zbc destroy` reaches it: the module defines `destroy` and the instance is not retained. */
   destroyable: boolean
   imports: string[]
   /** Operator-invoked verbs the module declares — see `zbc run`. Usually empty. */
@@ -63,6 +65,7 @@ export const listCommand = defineCommand({
       name: instance.name,
       module: instance.moduleName,
       ephemeral: isEphemeral(instance),
+      retain: isRetained(instance),
       destroyable: instance._definition.destroy !== undefined,
       imports: instance.imports.map((dep) => dep.name),
       actions: listActions(instance),
@@ -82,7 +85,7 @@ export const listCommand = defineCommand({
     for (const instance of listed) {
       const notes = [
         instance.ephemeral ? 'ephemeral' : '',
-        instance.destroyable ? 'destroyable' : 'no destroy',
+        instance.retain ? 'retain' : instance.destroyable ? 'destroyable' : 'no destroy',
         instance.imports.length > 0 ? `imports: ${instance.imports.join(', ')}` : '',
         instance.actions.length > 0
           ? `actions: ${instance.actions.map((action) => action.name).join(', ')}`

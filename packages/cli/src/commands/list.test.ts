@@ -52,6 +52,7 @@ describe('zbc list', () => {
           name: 'main-db',
           module: 'turso',
           ephemeral: true,
+          retain: false,
           destroyable: true,
           imports: [],
           actions: [],
@@ -60,6 +61,7 @@ describe('zbc list', () => {
           name: 'web',
           module: 'cloudflare',
           ephemeral: false,
+          retain: false,
           destroyable: false,
           imports: ['main-db'],
           actions: [],
@@ -79,6 +81,31 @@ describe('zbc list', () => {
     expect(result.stdout).toContain('web')
     expect(result.stdout).toContain('cloudflare')
     expect(result.stdout).toContain('ephemeral')
+  })
+
+  test('a retained instance says so, and is not destroyable though its module is', async () => {
+    const root = makeProject({
+      env: 'production',
+      instances: {
+        'records.ts': `
+          import { fakeModule } from '${FIXTURES}'
+          export default fakeModule('d1', { withDestroy: true }).instance({
+            name: 'records',
+            config: {},
+            retain: true,
+          })
+        `,
+      },
+    })
+
+    const json = await runCli(root, ['list', 'production', '--json'])
+    expect(JSON.parse(json.stdout).instances[0]).toMatchObject({
+      name: 'records',
+      retain: true,
+      destroyable: false,
+    })
+    const human = await runCli(root, ['list', 'production'])
+    expect(human.stdout).toContain('retain')
   })
 
   test('an instance whose module declares actions reports them, and never runs one', async () => {

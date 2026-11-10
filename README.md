@@ -87,7 +87,7 @@ rebuilding them in shell:
   not reach the file. Everything else is verbatim, so still treat it as
   sensitive and delete it after reading, as the workflow does.
 - **`zbc list <env> [--json]`** reports what the environment declares, in the
-  order apply would run it: module, `ephemeral`, whether the module defines a
+  order apply would run it: module, `ephemeral`, `retain`, whether the module defines a
   `destroy`, and each instance's imports. It runs no module and calls no
   provider. It answers "what should exist"; enumerating what a provider
   actually holds is not something the engine can do yet.
@@ -134,6 +134,8 @@ const outputs = await myModule.apply({ … }, ctx)
 **`apply`** is declarative and idempotent. Run it the first time — everything is provisioned and deployed. Run it again — no-op except code deploy. Config changed — it converges. Same command locally and in CI.
 
 An instance marked `ephemeral: true` is destroyed and re-applied on every run, so each run starts from a clean resource. That is the engine's rule, not a module's: `ephemeral` sits on the **instance**, any module that defines `destroy` can be ephemeral, and one that doesn't is a hard error before anything is applied. (`ephemeral` inside a module's `config` is the pre-0.14 spelling. It is still honoured — with a deprecation line on every apply — but only for the four modules that ever declared it: `turso`, `r2`, `fly`, `cloudflare-token`. Everywhere else that key was always stripped by the config schema, and it stays inert.) `zbc destroy` is separate: it tears down every instance that defines a `destroy`, ephemeral or not, in reverse dependency order, and is what cleans up when a PR is closed.
+
+An instance marked `retain: true` is the opposite: `zbc destroy <env>` leaves its resource standing and prints that it did, and `zbc destroy <env> <that instance>` is refused. It is for a resource whose loss is a loss of records (a database, the bucket of their files) on a module whose `destroy` deletes, and like `ephemeral` it sits on the instance, because the same `d1` module backs scratch databases a preview throws away. The instance carries no `destroy` at all, so an older engine that has never heard of `retain` skips it too. `retain` with `ephemeral` is refused when the instance is declared. Deleting a retained resource means removing `retain` in a reviewed change first, or deleting it in the provider by hand.
 
 ## Modules
 
