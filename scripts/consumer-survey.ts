@@ -28,6 +28,10 @@
  *
  * Only `divergent` and `novel` are material. Everything else is noise this
  * exists to remove, and on the first run it removes most of the corpus.
+ *
+ * A vendored app (`space`, pulled into `vendor/<app>`) gets the same question
+ * file by file: see "Vendored apps" below. Its material is a consumer's edits
+ * and its own files, grouped per package in `appCases`.
  */
 import { spawnSync } from 'node:child_process'
 import * as crypto from 'node:crypto'
@@ -575,6 +579,194 @@ function surveyModules(
   return findings
 }
 
+// ---------------------------------------------------------------------------
+// Vendored apps
+// ---------------------------------------------------------------------------
+
+const TEMPLATE_APPS = 'packages/cli/templates/apps'
+
+/**
+ * A vendored app (`space`) is a whole folder a consumer pulls as a subtree and
+ * may change, so the question the modules get is asked of every file in it:
+ * is this the newest copy we shipped, an older one, the consumer's edit, or a
+ * file of the consumer's own?
+ *
+ * Hashes are git's blob ids, which is what makes this cheap: `git ls-tree`
+ * names every file of every revision without reading one, and a consumer's
+ * file is hashed the same way from its bytes. No normalising here, unlike the
+ * modules: the folder is pulled, not retyped, so a reformat IS an edit.
+ */
+export type AppFileVerdict = 'current' | 'stale' | 'edited' | 'own'
+
+export interface AppIndex {
+  /** Every file HEAD ships, by its path in the app's folder, with its blob id. */
+  newest: Map<string, string>
+  /** Every blob id each path has ever had, HEAD's included. */
+  ever: Map<string, Set<string>>
+}
+
+/** The id git gives a blob with these bytes. */
+export function gitBlobHash(bytes: Uint8Array): string {
+  return crypto.createHash('sha1').update(`blob ${bytes.length}\0`).update(bytes).digest('hex')
+}
+
+/** `git ls-tree -r` of the app's folder at a revision: path in the folder → blob id. */
+function appTree(rev: string, prefix: string, repoRoot: string): Map<string, string> {
+  const listing = tryRun('git', ['ls-tree', '-r', '-z', rev, '--', prefix], repoRoot) ?? ''
+  const tree = new Map<string, string>()
+  for (const entry of listing.split('\0')) {
+    const match = /^\d+ blob ([0-9a-f]+)\t(.+)$/.exec(entry)
+    if (match) tree.set(path.posix.relative(prefix, match[2]!), match[1]!)
+  }
+  return tree
+}
+
+/** Every revision of every file the app's folder has had on this branch. */
+export function buildAppIndex(app: string, repoRoot = REPO_ROOT): AppIndex {
+  const prefix = `${TEMPLATE_APPS}/${app}`
+  const newest = appTree('HEAD', prefix, repoRoot)
+  const ever = new Map<string, Set<string>>()
+  const add = (tree: Map<string, string>) => {
+    for (const [file, blob] of tree) {
+      if (!ever.has(file)) ever.set(file, new Set())
+      ever.get(file)!.add(blob)
+    }
+  }
+  add(newest)
+  const revs = run('git', ['log', '--format=%H', '--', prefix], repoRoot).split('\n')
+  for (const rev of revs.filter(Boolean)) add(appTree(rev, prefix, repoRoot))
+  return { newest, ever }
+}
+
+export function classifyAppFile(file: string, blob: string, index: AppIndex): AppFileVerdict {
+  const shipped = index.ever.get(file)
+  if (!shipped) return 'own'
+  if (index.newest.get(file) === blob) return 'current'
+  return shipped.has(blob) ? 'stale' : 'edited'
+}
+
+/** The package a path of the app's folder belongs to: what a case is grouped by. */
+export function appPackageOf(file: string): string {
+  const [first, second] = file.split('/')
+  if (first === 'packages' && second) return second
+  return file.includes('/') ? first! : '(root)'
+}
+
+export interface AppFinding {
+  app: string
+  /** What the consumer's stamp says it pulled, when it has one. */
+  ref?: string
+  commit?: string
+  /** `edited` when any shipped file is the consumer's own version; else `stale` when any is an older copy or is gone; else `current`. */
+  verdict: 'current' | 'stale' | 'edited'
+  files: number
+  current: number
+  stale: string[]
+  edited: string[]
+  /** Files in the folder that no revision ever shipped. */
+  own: string[]
+  /** Files HEAD ships that the consumer's folder does not have. */
+  removed: string[]
+}
+
+/** Classify every file of a consumer's copy of an app against everything the app's folder ever shipped. */
+export function surveyApp(
+  appDir: string,
+  index: AppIndex,
+): Omit<AppFinding, 'app' | 'ref' | 'commit'> {
+  const seen = new Set<string>()
+  const stale: string[] = []
+  const edited: string[] = []
+  const own: string[] = []
+  let current = 0
+  const walk = (dir: string) => {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const full = path.join(dir, entry.name)
+      if (entry.isDirectory()) {
+        if (entry.name === 'node_modules' || entry.name === '.git') continue
+        walk(full)
+        continue
+      }
+      if (!entry.isFile()) continue
+      const file = path.relative(appDir, full).split(path.sep).join('/')
+      seen.add(file)
+      const verdict = classifyAppFile(file, gitBlobHash(fs.readFileSync(full)), index)
+      if (verdict === 'current') current++
+      else if (verdict === 'stale') stale.push(file)
+      else if (verdict === 'edited') edited.push(file)
+      else own.push(file)
+    }
+  }
+  walk(appDir)
+  const removed = [...index.newest.keys()].filter((file) => !seen.has(file))
+  return {
+    verdict: edited.length > 0 ? 'edited' : stale.length + removed.length > 0 ? 'stale' : 'current',
+    files: seen.size,
+    current,
+    stale: stale.toSorted(),
+    edited: edited.toSorted(),
+    own: own.toSorted(),
+    removed: removed.toSorted(),
+  }
+}
+
+/** Every app this repository ships as a vendored app that the consumer holds under `vendor/`. */
+function surveyApps(dir: string, repoRoot = REPO_ROOT): AppFinding[] {
+  const vendor = path.join(dir, 'vendor')
+  if (!fs.existsSync(vendor)) return []
+  let stamps: Record<string, { ref?: string; commit?: string }> = {}
+  try {
+    stamps = JSON.parse(fs.readFileSync(path.join(dir, '.zbc-vendor.json'), 'utf8')).apps ?? {}
+  } catch {
+    stamps = {}
+  }
+  const findings: AppFinding[] = []
+  for (const entry of fs.readdirSync(vendor, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue
+    // An app is a folder with the app's manifest; `vendor/zbc` is the engine and has none.
+    if (!fs.existsSync(path.join(vendor, entry.name, 'zbc-app.json'))) continue
+    const index = buildAppIndex(entry.name, repoRoot)
+    if (index.newest.size === 0) continue // not an app this repository ships
+    findings.push({
+      app: entry.name,
+      ...(stamps[entry.name]?.ref && { ref: stamps[entry.name]!.ref }),
+      ...(stamps[entry.name]?.commit && { commit: stamps[entry.name]!.commit }),
+      ...surveyApp(path.join(vendor, entry.name), index),
+    })
+  }
+  return findings
+}
+
+/** The material of the vendored apps, per app and package: a consumer's edits and its own files. */
+export function appCases(
+  surveys: { id: unknown; apps?: AppFinding[] }[],
+): { app: string; package: string; consumers: number; implementations: unknown[] }[] {
+  const grouped = new Map<string, { consumer: unknown; edited: string[]; own: string[] }[]>()
+  for (const survey of surveys) {
+    for (const finding of survey.apps ?? []) {
+      const byPackage = new Map<string, { edited: string[]; own: string[] }>()
+      const put = (file: string, kind: 'edited' | 'own') => {
+        const name = appPackageOf(file)
+        if (!byPackage.has(name)) byPackage.set(name, { edited: [], own: [] })
+        byPackage.get(name)![kind].push(file)
+      }
+      for (const file of finding.edited) put(file, 'edited')
+      for (const file of finding.own) put(file, 'own')
+      for (const [name, files] of byPackage) {
+        const key = `${finding.app}\0${name}`
+        if (!grouped.has(key)) grouped.set(key, [])
+        grouped.get(key)!.push({ consumer: survey.id, ...files })
+      }
+    }
+  }
+  return [...grouped]
+    .map(([key, implementations]) => {
+      const [app, name] = key.split('\0')
+      return { app: app!, package: name!, consumers: implementations.length, implementations }
+    })
+    .toSorted((a, b) => b.consumers - a.consumers || a.package.localeCompare(b.package))
+}
+
 function surveyEnvironments(dir: string): Record<string, string[]> {
   const base = path.join(dir, 'packages/infra/environments')
   if (!fs.existsSync(base)) return {}
@@ -625,6 +817,7 @@ function main() {
         surveyedAt: new Date().toISOString(),
         environments: surveyEnvironments(dir),
         modules,
+        apps: surveyApps(dir),
         escapeHatches: findEscapeHatches(readTextFiles(checkout, hatchDirs(c.root)), ours),
       }
     } catch (err) {
@@ -651,7 +844,12 @@ function main() {
     }))
     .toSorted((a, b) => b.consumers - a.consumers)
 
-  fs.writeFileSync(path.join(WORK, 'index.json'), `${JSON.stringify({ cases }, null, 2)}\n`)
+  const vendored = rollup.flatMap((s) => (s.apps as AppFinding[] | undefined) ?? [])
+  const ofApps = appCases(rollup as { id: unknown; apps?: AppFinding[] }[])
+  fs.writeFileSync(
+    path.join(WORK, 'index.json'),
+    `${JSON.stringify({ cases, appCases: ofApps }, null, 2)}\n`,
+  )
 
   const all = rollup.flatMap((s) => (s.modules as ModuleFinding[]) ?? [])
   const count = (v: Verdict) => all.filter((m) => m.verdict === v).length
@@ -659,7 +857,13 @@ function main() {
     `\n${all.length} consumer modules: ${count('current')} current, ${count('stale')} stale, ` +
       `${count('divergent')} divergent, ${count('novel')} novel`,
   )
-  console.error(`${cases.length} cases → ${path.relative(REPO_ROOT, WORK)}/index.json`)
+  const copies = (v: AppFinding['verdict']) => vendored.filter((a) => a.verdict === v).length
+  console.error(
+    `${vendored.length} vendored app copies: ${copies('current')} current, ${copies('stale')} stale, ${copies('edited')} edited`,
+  )
+  console.error(
+    `${cases.length} cases, ${ofApps.length} app cases → ${path.relative(REPO_ROOT, WORK)}/index.json`,
+  )
 }
 
 if (import.meta.main) main()
