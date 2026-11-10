@@ -53,6 +53,20 @@ describe('the folder’s packages share one copy of what they share', () => {
     expect(differing).toEqual([])
   })
 
+  test('the bundler is asked for the same way by every package that names it, so a project that holds the folder resolves one', () => {
+    // A package that asked for a newer major put a second bundler in the project's tree, and another package's plugin then resolved the wrong one.
+    const specs = new Set<string>()
+    for (const folder of readdirSync(packagesRoot)) {
+      try {
+        const spec = (JSON.parse(readFileSync(`${packagesRoot}${folder}/package.json`, 'utf8')) as { devDependencies?: Record<string, string> }).devDependencies?.vite
+        if (spec !== undefined) specs.add(spec)
+      } catch {
+        continue
+      }
+    }
+    expect([...specs]).toHaveLength(1)
+  })
+
   test('the tools that build and deploy the Worker are one exact version in every package that names them', () => {
     for (const tool of TOOLS) {
       const specs = [...(tools.get(tool)?.values() ?? [])]
