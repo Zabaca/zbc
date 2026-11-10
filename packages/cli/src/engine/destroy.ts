@@ -37,6 +37,8 @@ export async function destroyInstances(
     reversed = [found]
   }
 
+  const retained = new Set(instances.filter(isRetained).map((i) => i.name))
+
   // Outputs of instances applied on demand, shared across the whole run: a
   // credential minted for one teardown is the same credential for the next.
   const outputs = new Map<string, unknown>()
@@ -94,8 +96,13 @@ export async function destroyInstances(
             `${field} references instance "${ref.from}", whose outputs a targeted destroy will not create. ` +
             `Run \`zbc destroy <env>\` for the whole environment, which applies "${ref.from}" only to tear ` +
             `it down again, or apply "${ref.from}" yourself first.`,
+          // A retained import is applied like any other (its apply adopts the
+          // live resource), but this run will not tear it down, so the line
+          // must not say it will.
           afterApply: (name) =>
-            `✓ ${name} applied — this destroy created it; the run tears it down below`,
+            retained.has(name)
+              ? `✓ ${name} applied, because ${instance.name}'s destroy reads it; it is retained, so this run leaves it standing`
+              : `✓ ${name} applied — this destroy created it; the run tears it down below`,
         },
         (ctx) => destroy(validatedConfig, ctx),
       )

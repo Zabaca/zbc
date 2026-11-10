@@ -877,6 +877,36 @@ export function findApp<T extends { id: string; name: string; domain: string }>(
   return byName ? { app: byName, by: 'name' } : undefined
 }
 
+/** An Access application's audience tag: 64 lowercase hex characters. */
+const AUDIENCE_TAG = /^[0-9a-f]{64}$/
+
+/**
+ * Refuse an audience tag that is present and malformed. Pure; exported for
+ * tests.
+ *
+ * WHY HERE AND NOT ONLY IN THE CONSUMER. A Worker that verifies Access
+ * assertions is deployed with this instance's `aud` as a var, and the deploy
+ * only checks that the output is a non-empty string. A malformed one would be
+ * deployed as the audience every assertion is compared against, so every
+ * request, real ones included, would be refused while the apply reports
+ * success.
+ *
+ * EMPTY IS NOT REFUSED, because the `aud` output is documented as empty when
+ * Cloudflare did not return one, and an instance whose audience nothing reads
+ * (a machine door verified by its token alone) must keep applying. The apply
+ * says what an empty one means instead, and an importer that does read it is
+ * refused at its own apply by the engine's empty-output rule, before it
+ * deploys.
+ */
+export function assertAudience(aud: string | undefined, domain: string): void {
+  if (aud === undefined || aud === '' || AUDIENCE_TAG.test(aud)) return
+  throw new Error(
+    `refusing to continue: the Access application on ${domain} came back with an audience ` +
+      `tag that is not 64 hex characters ("${aud.slice(0, 12)}${aud.length > 12 ? '...' : ''}"). ` +
+      `A Worker verifying its assertions against it would refuse everyone.`,
+  )
+}
+
 /**
  * The API credential every call uses: an imported instance's output, or a key
  * of this environment's secrets.yaml. Through the engine's own rules
@@ -942,7 +972,9 @@ export const cloudflareAccessModule = defineModule({
     appId: z.string(),
     /**
      * The application's audience tag, for a Worker that verifies assertions.
-     * Empty when Cloudflare did not return one.
+     * Empty when Cloudflare did not return one; never malformed, because a
+     * present tag that is not 64 hex characters fails the apply
+     * (`assertAudience`).
      */
     aud: z.string(),
     /** Passed on so a Worker derives its issuer and JWKS URL from one value. */
@@ -1195,6 +1227,17 @@ export const cloudflareAccessModule = defineModule({
       app = await cf<CfApp>(token, 'POST', `${account}/access/apps`, body)
       appChanged = true
       console.log(`  Created Access application "${config.name}" on ${domain} (${app.id})`)
+    }
+
+    // 3b. The audience, before anything is minted or any policy written: a
+    //     malformed one stops here, and an absent one is said out loud.
+    assertAudience(app.aud, domain)
+    if (!app.aud) {
+      console.log(
+        `  ⚠️ The Access application on ${domain} came back with no audience tag. The aud ` +
+          `output is empty, and an instance that reads it (a Worker verifying assertions) ` +
+          `will be refused at its apply.`,
+      )
     }
 
     // 4. The service token this module owns, if one is declared.

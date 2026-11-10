@@ -2,6 +2,7 @@ import { afterEach, describe, expect, test } from 'bun:test'
 import {
   type AccessPolicy,
   appBody,
+  assertAudience,
   cloudflareAccessModule,
   type DeclaredPolicy,
   emailIncludes,
@@ -1786,5 +1787,67 @@ describe('bypass: an application that asks nobody to sign in', () => {
     const second = await apply(config)
     expect(second.changed).toBe(false)
     expect(world.policies).toHaveLength(1)
+  })
+})
+
+// ── The audience a verifying Worker is deployed with ────────────────────────
+
+const liveApp = (aud: string | undefined) => ({
+  id: 'app-live',
+  ...(aud === undefined ? {} : { aud }),
+  name: 'Admin',
+  domain: 'app.example.com/admin',
+  type: 'self_hosted',
+})
+
+describe('the audience tag', () => {
+  test('64 lowercase hex characters pass', () => {
+    expect(() =>
+      assertAudience('0123456789abcdef'.repeat(4), 'app.northfield.example'),
+    ).not.toThrow()
+  })
+
+  test('a non-empty audience that is not 64 lowercase hex characters is refused, naming the host', () => {
+    for (const bad of ['abc', 'g'.repeat(64), 'A'.repeat(64), `${'a'.repeat(64)}0`]) {
+      expect(() => assertAudience(bad, 'app.northfield.example')).toThrow(
+        /app\.northfield\.example/,
+      )
+    }
+  })
+
+  test('an empty or absent audience is not refused here: the output is documented as empty', () => {
+    expect(() => assertAudience('', 'app.northfield.example')).not.toThrow()
+    expect(() => assertAudience(undefined, 'app.northfield.example')).not.toThrow()
+  })
+
+  test('apply refuses a malformed audience before minting a token or writing a policy', async () => {
+    const world = emptyWorld({ apps: [liveApp('not-an-audience') as World['apps'][number]] })
+    installFetch(world)
+    const error = await apply({ emails: [], serviceTokenName: 'northfield agent' }).then(
+      () => undefined,
+      (e: Error) => e,
+    )
+    expect(error?.message).toContain('app.example.com/admin')
+    expect(error?.message).toContain('64 hex')
+    expect(world.tokens).toEqual([])
+    expect(world.policies).toEqual([])
+  })
+
+  test('apply with no audience back still succeeds, emits it empty, and says what that means', async () => {
+    const world = emptyWorld({ apps: [liveApp(undefined) as World['apps'][number]] })
+    installFetch(world)
+    const lines: string[] = []
+    const realLog = console.log
+    console.log = (...args: unknown[]) => {
+      lines.push(args.join(' '))
+    }
+    let out: Awaited<ReturnType<typeof apply>>
+    try {
+      out = await apply()
+    } finally {
+      console.log = realLog
+    }
+    expect(out.aud).toBe('')
+    expect(lines.join('\n')).toMatch(/no audience tag/)
   })
 })

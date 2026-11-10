@@ -395,6 +395,47 @@ describe('a retained instance', () => {
     expect(fakeInstance('scratch-db', { withDestroy: true })._definition.destroy).toBeDefined()
   })
 
+  test('a destroy that reads its output applies it on demand and leaves it standing, and says so', async () => {
+    // Refusing would make the importer's destroy impossible: a destroy run starts
+    // with no outputs, so the only way to read one is to apply the instance. Its
+    // apply is the ordinary idempotent one, which adopts the existing resource.
+    const { torn, track } = tracked()
+    let applies = 0
+    const records = fakeInstance('records-db', {
+      apply: async () => {
+        applies += 1
+        return { databaseId: 'db-live' }
+      },
+      destroy: track('records-db'),
+      retain: true,
+    })
+    const seen: string[] = []
+    const web = fakeInstance('web', {
+      imports: [records],
+      destroy: async (_config, ctx) => {
+        seen.push(ctx.output({ from: 'records-db', output: 'databaseId' }, 'database'))
+        torn.push('web')
+      },
+    })
+    const lines: string[] = []
+    const realLog = console.log
+    console.log = (...args: unknown[]) => {
+      lines.push(args.join(' '))
+    }
+    try {
+      await destroyInstances([records, web], opts)
+    } finally {
+      console.log = realLog
+    }
+
+    expect(seen).toEqual(['db-live'])
+    expect(applies).toBe(1)
+    expect(torn).toEqual(['web'])
+    const log = lines.join('\n')
+    expect(log).toMatch(/records-db applied.*retained.*leaves it standing/)
+    expect(log).not.toMatch(/records-db applied.*tears it down/)
+  })
+
   test('retain and ephemeral together are refused when the instance is declared', () => {
     // Ephemeral destroys on every apply; a retained resource is one nothing may destroy.
     expect(() =>

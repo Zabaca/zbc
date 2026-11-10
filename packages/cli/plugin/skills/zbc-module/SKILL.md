@@ -5,8 +5,8 @@ description: Writing or changing a zbc module — the defineModule + registry.js
 
 A module is a directory with `index.ts` (a `defineModule` call) and
 `registry.json` (its manifest for `zbc add`), plus a test beside them. The
-engine owns ordering, secrets, the imports edge, readiness, redaction and
-`ephemeral`. A module owns one resource and converges it.
+engine owns ordering, secrets, the imports edge, readiness, redaction,
+`ephemeral` and `retain`. A module owns one resource and converges it.
 
 Use the **zbc** skill for instances, wiring and running `apply`. This skill
 covers the module itself.
@@ -117,7 +117,9 @@ async destroy(config, ctx) {
 An absent resource counts as success. A destroy that needs an import calls
 `ctx.output`, and in a full-environment destroy the engine applies that import
 on demand. Only a module with `destroy` can have `ephemeral` instances or be
-cleaned up by `zbc destroy`.
+cleaned up by `zbc destroy`. Write a `destroy` that deletes even when the
+resource can hold records: an instance that must never be deleted says
+`retain: true`, and the engine then never calls it.
 
 ### 5. Declare what the engine needs to know
 

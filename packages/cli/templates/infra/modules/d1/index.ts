@@ -260,8 +260,9 @@ export const d1Module = defineModule({
      * config naming the database by the id just resolved, so the Worker's own
      * wrangler config, and whether it binds by name or by id, play no part.
      *
-     * Needs wrangler (the `cloudflare` module's devDependency; `bunx wrangler`
-     * otherwise) and a token that may read and write D1.
+     * Needs wrangler (this module's devDependency, run from the project's
+     * `node_modules/.bin`; `bunx wrangler` when it is not installed there) and
+     * a token that may read and write D1.
      */
     migrationsDir: z.string().optional(),
     /**

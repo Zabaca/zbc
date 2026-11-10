@@ -64,7 +64,7 @@ An Instance the engine destroys and re-applies on every `zbc apply`, so each run
 _Avoid_: temporary, disposable (the Agent context's Workspace owns "disposable")
 
 **Retained**:
-An Instance whose resource `zbc destroy` never deletes: a whole-environment destroy leaves it standing and says so, and naming it as the target is refused. A property of the Instance, not of the Module, for the same reason as Ephemeral: one Module backs both a scratch resource and one holding records. The Instance carries no `destroy`, so an engine that predates the key skips it too. Refused together with Ephemeral.
+An Instance whose resource `zbc destroy` never deletes: a whole-environment destroy leaves it standing and says so, and naming it as the target is refused. A property of the Instance, not of the Module, for the same reason as Ephemeral: one Module backs both a scratch resource and one holding records. The Instance carries no `destroy`, so an engine that predates the key skips it too. Refused together with Ephemeral. See [ADR-0019](./docs/adr/0019-a-retained-instance-is-never-destroyed.md).
 _Avoid_: protected, locked (both suggest a provider-side setting; this is only what zbc will do)
 
 **Shared Library**:

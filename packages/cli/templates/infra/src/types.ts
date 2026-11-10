@@ -289,7 +289,8 @@ export interface InstanceOptions<TConfig extends z.ZodType> {
    * removed), so an engine that predates this key skips it too, as it skips
    * any module without one. Refused together with `ephemeral`, which destroys
    * on every apply. To delete a retained resource, remove `retain` in a
-   * reviewed change first, or delete it in the provider by hand.
+   * reviewed change first, or delete it in the provider by hand. See
+   * docs/adr/0019-a-retained-instance-is-never-destroyed.md in zbc.
    */
   retain?: boolean
 }
