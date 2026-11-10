@@ -1386,11 +1386,11 @@ export class Inbox {
   }
 
   /** A list row's line: the newest message's words, cut to 160 characters, or, when it has none and a calendar summary, the line that summary makes on the company's clock. */
-  private listLine(body: string, stored: unknown): string {
+  private listLine(body: string, stored: unknown, from: string): string {
     const words = repairMojibake(body).replace(/\s+/g, ' ').trim().slice(0, 160)
     if (words !== '') return words
     const summary = parseCalendarSummary(stored)
-    return summary === null ? '' : safeSummaryLine(summary, this.ports.zone ?? 'UTC')
+    return summary === null ? '' : safeSummaryLine(summary, this.ports.zone ?? 'UTC', 160, from)
   }
 
   /**
@@ -1408,7 +1408,7 @@ export class Inbox {
                 c.mailbox_id, mb.kind AS mailbox_kind,
                 mb.display_name AS mailbox_name, mb.address AS mailbox_address,
                 (SELECT count(*) FROM message d WHERE d.conversation_id = c.id AND d.status IN ${PENDING}) AS drafts,
-                p.subject AS subject, p.body AS body, p.calendar AS calendar,
+                p.subject AS subject, p.body AS body, p.calendar AS calendar, p.from_header AS from_header,
                 (p.status = 'sent' AND p.direction = 'out' AND p.sent_by LIKE '${AGENT_PREFIX}%' AND p.instruction_text IS NOT NULL) AS from_claude,
                 w.created_by AS draft_by, w.updated_by AS draft_updated_by, w.rev AS draft_rev,
                 w.body AS draft_body, w.status AS draft_status
@@ -1450,7 +1450,7 @@ export class Inbox {
         subject: text(r.subject),
         // Repaired before the whitespace is collapsed and the line cut: a no-break space or a cut inside "â€™" would leave it garbled (src/charset.ts).
         // An email with no words of its own that carries a calendar summary is listed under the line the summary makes ("Ines Okafor accepted: Roadmap review, ..."), where the line would otherwise be empty.
-        snippet: this.listLine(text(r.body), r.calendar),
+        snippet: this.listLine(text(r.body), r.calendar, text(r.from_header)),
         newestFromClaude: Number(r.from_claude) === 1,
         draft:
           r.draft_by === null || r.draft_by === undefined

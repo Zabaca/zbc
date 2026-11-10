@@ -67,6 +67,10 @@ export function calendarMailFixtures(now: number, zone: string): { contacts: Sta
     mail('New time proposed: Planning check-in', summary({ kind: 'reply', answer: 'counter', by: ANA, title: 'Planning check-in', ...timed(7, 14, 30), organizer: TESSA, note: 'Friday after lunch works better for the whole team.', uid: 'planning-checkin@example.test' }), 60 * 24),
     // A bare answer: no title and no time in the part, and the event is in the owner's Calendar tab (the calendar stand-in's "Advisory intro: Maria Lopez"), which lends both and the way to open it.
     mail('Accepted: Advisory intro', summary({ kind: 'reply', answer: 'accepted', by: ANA, uid: 'advisory-intro-maria@example.test' }), 60 * 20),
+    // The part names the guest by address only (no CN); the email comes From "Ana Vidal", so the card says her name.
+    mail('Accepted: Design check-in', summary({ kind: 'reply', answer: 'accepted', by: { name: '', address: ANA.address }, title: 'Design check-in', ...timed(6, 11, 30), organizer: TESSA, uid: 'design-checkin@example.test' }), 60 * 14),
+    // Another calendar program wrote the answer into the title of its reply: the card does not say it twice.
+    mail('Declined: Budget sync', summary({ kind: 'reply', answer: 'declined', by: ANA, title: 'Declined: Budget sync', ...timed(6, 15, 30), organizer: TESSA, uid: 'budget-sync@example.test' }), 60 * 13),
     mail('Canceled event: Lunch with the Fernway crew', summary({ kind: 'cancelled', title: 'Lunch with the Fernway crew', ...timed(3, 12, 60), organizer: ANA, uid: 'fernway-lunch@example.test' }), 60 * 16),
     mail('Bike fitting confirmed', summary({ kind: 'event', title: 'Bike fitting at Ridgeway Cycles', location: '14 Mill Street, Alder Bend', ...timed(4, 9, 45), uid: 'bike-fitting@example.test' }), 60 * 12),
     mail('Invitation: Weekly planning', summary({ kind: 'invitation', title: 'Weekly planning', ...timed(1, 9, 45), organizer: ANA, guests: [TESSA, guests[0] as { name: string; address: string }], repeats: true, uid: 'weekly-planning@example.test' }), 60 * 10),

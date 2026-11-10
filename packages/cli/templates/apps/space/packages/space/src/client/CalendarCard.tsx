@@ -4,7 +4,7 @@
 //
 // The words are the workspace package's (`calendar-summary.ts`), the same ones the list's line and Claude's script use; this file only lays them out.
 import type { MouseEvent } from 'react'
-import { guestsWords, occurrenceWords, summaryHeading, summaryWhen } from '@space/workspace'
+import { forWords, guestsWords, occurrenceWords, summaryHeading, summaryWhen } from '@space/workspace'
 import type { MailCalendar } from '../history'
 import { Glyph, type GlyphName } from './icons'
 import { eventPath, follow } from './route'
@@ -26,11 +26,14 @@ function toneOf(c: MailCalendar): { tone: 'ok' | 'bad' | 'warn' | 'plain'; icon:
 }
 
 /** Every sentence a card says, or null when the summary cannot be worded on this clock (it never throws): the page then draws the email as it was, with no card. */
-function wordsOf(c: MailCalendar, zone: string) {
+function wordsOf(card: MailCalendar, zone: string, from: string) {
   try {
+    // The summary as it is worded: a guest or organizer the part gives no name takes the name the email came From, and an answer's title loses the answer another program wrote into it (`forWords`).
+    const c = forWords(card, from)
     const when = summaryWhen(c, zone)
     const counter = c.kind === 'reply' && c.answer === 'counter'
     return {
+      c,
       counter,
       when,
       // A counter proposal says its time in the heading ("Ana proposed a new time: Fri, Nov 14, 2:00 PM"); every other card says it under the title.
@@ -44,12 +47,12 @@ function wordsOf(c: MailCalendar, zone: string) {
 }
 
 /** Whether the email draws a card: it has a summary and the summary can be worded. Only then is the empty bubble left out. */
-export const showsCard = (c: MailCalendar | undefined, zone: string): c is MailCalendar => c !== undefined && wordsOf(c, zone) !== null
+export const showsCard = (c: MailCalendar | undefined, zone: string, from: string): c is MailCalendar => c !== undefined && wordsOf(c, zone, from) !== null
 
-export function CalendarCard({ calendar: c, zone, go }: { calendar: MailCalendar; zone: string; go?: ((path: string) => void) | undefined }) {
-  const words = wordsOf(c, zone)
+export function CalendarCard({ calendar, zone, from, go }: { calendar: MailCalendar; zone: string; from: string; go?: ((path: string) => void) | undefined }) {
+  const words = wordsOf(calendar, zone, from)
   if (words === null) return null
-  const { counter, when, heading, guests, occurrence } = words
+  const { c, counter, when, heading, guests, occurrence } = words
   const { tone, icon } = toneOf(c)
   const cancelled = c.kind === 'cancelled'
   const reply = c.kind === 'reply'

@@ -378,7 +378,7 @@ export function standInInbox(
       kind: t.kind ?? 'email',
       at: last.at,
       // A group's row says who wrote the newest message before its words, as the inbox's store does (`groupSnippet`).
-      snippet: t.telegramChat === 'group' && last.direction === 'in' && last.from.trim() !== '' && last.text !== '' ? `${last.from.trim().split(/\s+/)[0]}: ${last.text}` : last.text === '' && last.calendar !== undefined ? summaryLine(last.calendar, options.zone ?? 'America/Los_Angeles') : last.text,
+      snippet: t.telegramChat === 'group' && last.direction === 'in' && last.from.trim() !== '' && last.text !== '' ? `${last.from.trim().split(/\s+/)[0]}: ${last.text}` : last.text === '' && last.calendar !== undefined ? summaryLine(last.calendar, options.zone ?? 'America/Los_Angeles', 160, last.from) : last.text,
       direction: last.direction,
       unread: t.unread ?? false,
       open: t.open ?? true,

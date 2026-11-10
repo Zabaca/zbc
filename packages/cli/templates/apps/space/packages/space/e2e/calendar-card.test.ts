@@ -37,6 +37,8 @@ const KINDS: { name: string; heading: RegExp; title?: string }[] = [
   { name: 'maybe', heading: /^Ana Vidal said maybe$/ },
   { name: 'new-time-proposed', heading: /^Ana Vidal proposed a new time/ },
   { name: 'bare-answer-with-calendar-link', heading: /^Ana Vidal accepted$/, title: 'Advisory intro: Maria Lopez' },
+  { name: 'name-from-the-sender', heading: /^Ana Vidal accepted$/, title: 'Design check-in' },
+  { name: 'title-without-the-answer', heading: /^Ana Vidal declined$/, title: 'Budget sync' },
   { name: 'cancelled', heading: /^Cancelled$/ },
   { name: 'event', heading: /^Event$/, title: 'Bike fitting at Ridgeway Cycles' },
   { name: 'from-you', heading: /^Invitation$/, title: 'Brand review' },
@@ -56,9 +58,9 @@ for (const size of ['1440', '390'] as const) {
       await page.goto(`${space.base}/inbox/ana@vidalcreative.example`)
       await page.waitForSelector('[data-testid="calendar-card"]')
       const cards = page.locator('[data-testid="calendar-card"]')
-      expect(await cards.count()).toBe(15)
+      expect(await cards.count()).toBe(17)
       expect(await page.locator('[data-testid="entry"] .msg-text').count()).toBe(0)
-      expect(await page.locator('[data-testid="entry"]').count()).toBe(15)
+      expect(await page.locator('[data-testid="entry"]').count()).toBe(17)
 
       for (const kind of KINDS) {
         const named = cards.filter({ has: page.locator('[data-testid="calendar-heading"]', { hasText: kind.heading }) })
