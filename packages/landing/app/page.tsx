@@ -347,8 +347,8 @@ const SPACE_COMMANDS = [
     body: 'Pulls a newer version over it. What you changed is kept, a conflict is an ordinary git merge, and the command names the files that are yours and the files that differ from the copy you pulled.',
   },
   {
-    name: 'zbc apply production space',
-    body: 'Builds the Worker for your company and deploys it with its sign-in, its stores and its secrets, in that order, so the address is never served without its gate. Its records are marked never to be destroyed.',
+    name: 'zbc apply',
+    body: 'The space is applied like any other instance (zbc apply production space). It builds the Worker for your company and deploys it with its sign-in, its stores and its secrets, in that order, so the address is never served without its gate. Its records are marked never to be destroyed.',
   },
 ]
 
