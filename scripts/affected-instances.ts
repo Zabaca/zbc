@@ -111,9 +111,9 @@ export function affectedInstances(changed: string[], instances: InstancePaths[])
   if (owners.size === 0) return { kind: 'none' }
 
   // Walk the edges backwards. A dependency's outputs are wired into its
-  // dependents — `walgit-public` reads its bucket name out of
-  // `walgit-public-wal`, `email` its worker name out of `inbox` — so a changed
-  // dependency has to redeploy everything that reads it, not just itself.
+  // dependents (`walgit-public` reads its bucket name out of
+  // `walgit-public-wal`), so a changed dependency has to redeploy everything
+  // that reads it, not just itself.
   const importers = new Map<string, string[]>()
   for (const inst of instances) {
     for (const dep of inst.imports) {
@@ -137,8 +137,8 @@ export function affectedInstances(changed: string[], instances: InstancePaths[])
  * The I/O half: read an environment directory into the flattened map above.
  *
  * `workdir` is realpath'd because the packages the instances name are symlinks
- * — `packages/inbox` and `packages/walgit` point into
- * `packages/cli/templates/apps/`, which is where git reports the change. A map
+ * (`packages/walgit` and `packages/warehouse` point into
+ * `packages/cli/templates/apps/`), which is where git reports the change. A map
  * built on the symlink path would match nothing a push ever contains, and this
  * script would answer ALL forever without anyone noticing it had stopped
  * working.

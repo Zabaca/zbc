@@ -32,8 +32,7 @@ export interface Env extends MaterializeEnv {
 }
 
 /** Constant-time bearer check: compare SHA-256 digests via crypto.subtle.timingSafeEqual
- * so a mismatched length or value can't be distinguished by timing — ported exactly from
- * the inbox app template's `authorized()` (worker/index.ts there). */
+ * so a mismatched length or value can't be distinguished by timing. */
 export async function authorized(request: Request, env: Env): Promise<boolean> {
   if (!env.WAREHOUSE_TOKEN) return false
   const header = request.headers.get('authorization') ?? ''

@@ -84,14 +84,14 @@ export default function Page() {
               <Stack gap="md">
                 <span className="eyebrow">App templates</span>
                 <Measure size="display" as="h2">
-                  <code className="font-mono text-[0.62em]">zbc add inbox</code> is not a resource.
-                  It&rsquo;s an inbox.
+                  <code className="font-mono text-[0.62em]">zbc add warehouse</code> is not a
+                  resource. It&rsquo;s a warehouse.
                 </Measure>
                 <Measure size="wide" as="p" className="lede">
-                  A Cloudflare Worker that receives routed mail, stores raw MIME in R2, and exposes
-                  a bearer-authed JSON API, an MCP server at <code>/mcp</code>, and a web UI. Three
-                  instance files and <code>zbc apply</code>. Vendored into your repo as source: read
-                  it, change it, it&rsquo;s yours.
+                  A Container running dlt and dbt-duckdb that extracts incrementally into an
+                  append-only raw layer in R2 and materializes parquet marts on a daily Cron
+                  Trigger. Two instance files and <code>zbc apply</code>. Vendored into your repo as
+                  source: read it, change it, it&rsquo;s yours.
                 </Measure>
               </Stack>
 
@@ -187,9 +187,9 @@ export default function Page() {
                 same command. No special case.
               </Measure>
               <Measure as="p">
-                This page, that NATS server, an inbox, a warehouse and a secret relay are five
-                instances in one <code>environments/production/</code> directory. One command
-                applies all of them.
+                This page, that NATS server, a warehouse and a secret relay are four instances in
+                one <code>environments/production/</code> directory. One command applies all of
+                them.
               </Measure>
               {/* Mounted once. Renders the fixed cursor overlay for the whole
                   page plus the presence line right here. */}
@@ -301,10 +301,6 @@ const COMMANDS = [
 
 const APP_TEMPLATES = [
   {
-    name: 'inbox',
-    body: 'An agent-accessible email inbox. Routed mail lands as raw MIME in R2 with its metadata in a SQLite Durable Object; reads and sends go through a bearer-authed JSON API, an MCP server at /mcp, and a small web UI.',
-  },
-  {
     name: 'warehouse',
     body: 'A Container running dlt and dbt-duckdb. Connectors extract incrementally into a durable append-only raw layer in R2; a daily Cron Trigger materializes schema-declared parquet marts, read at the edge with no container wake.',
   },
@@ -384,11 +380,11 @@ function Terminal() {
         <span className="text-ink-3">$ </span>
         <span className="text-paper-0">zbc apply production</span>
         {'\n\n'}
-        <span className="text-paper-0">→ r2:inbox-raw</span>
+        <span className="text-paper-0">→ r2:warehouse-bucket</span>
         {'\n'}
-        <span className="text-ink-4"> Bucket "myproject-inbox-raw" ready</span>
+        <span className="text-ink-4"> Bucket "myproject-warehouse" ready</span>
         {'\n'}
-        <span className="text-paper-0">✓ r2:inbox-raw applied</span>
+        <span className="text-paper-0">✓ r2:warehouse-bucket applied</span>
         {'\n\n'}
         <span className="text-paper-0">→ turso:main-db</span>
         {'\n'}

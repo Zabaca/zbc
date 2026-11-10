@@ -71,8 +71,7 @@ interface Claim {
 /**
  * Answer one MCP request.
  *
- * A fresh `McpServer` per request, like the inbox's endpoint and for the same
- * reason: a Workers isolate is per-request and holds no session, so there is no
+ * A fresh `McpServer` per request: a Workers isolate is per-request and holds no session, so there is no
  * long-lived server to keep. `app.all` because Streamable HTTP puts client
  * messages on POST and the server-to-client stream on GET, and a transport
  * mounted for one of them is a client that connects and then hears nothing.
