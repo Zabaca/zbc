@@ -126,7 +126,20 @@ test('collect fetches the branch into the real repository without merging', asyn
   const ws = await workspace({ branch: 'agent/collect-me' })
   await writeFile(join(ws.dir, 'README.md'), '# fixture\nfrom the agent\n')
   await git(['-C', ws.dir, 'add', '-A'])
-  await git(['-C', ws.dir, 'commit', '--quiet', '-m', 'agent: a change'])
+  // The identity the agent commits with, stated here: this process does not read
+  // the workspace's redirected gitconfig, and a CI runner has no global one.
+  await git([
+    '-C',
+    ws.dir,
+    '-c',
+    `user.name=${AGENT_IDENTITY.name}`,
+    '-c',
+    `user.email=${AGENT_IDENTITY.email}`,
+    'commit',
+    '--quiet',
+    '-m',
+    'agent: a change',
+  ])
 
   const result = await collect(ws)
   expect(result.commits).toHaveLength(1)
