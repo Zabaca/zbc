@@ -64,7 +64,98 @@ export async function writeStamp(
     ...(stamp.coreRef ? { coreRef: stamp.coreRef } : {}),
     vendoredAt: stamp.vendoredAt ?? new Date().toISOString(),
   }
-  await Bun.write(stampPath(projectRoot), `${JSON.stringify(body, null, 2)}\n`)
+  // The engine's stamp and the vendored apps' share the file, and each writer
+  // owns only its half: an `update` of the engine must not forget which apps
+  // the project pulled.
+  const apps = await readAppStamps(projectRoot)
+  const whole = Object.keys(apps).length > 0 ? { ...body, apps } : body
+  await Bun.write(stampPath(projectRoot), `${JSON.stringify(whole, null, 2)}\n`)
+}
+
+/**
+ * What one vendored app is on: an app (`space`) is pulled as a subtree of its
+ * own public copy at its own prefix, on its own versions, so it has a vintage
+ * the engine's stamp cannot say. `commit` is the upstream commit, which is what
+ * tells a tag pull from a pull of the newest commit and what a survey compares
+ * a consumer's files against.
+ */
+export interface AppStamp {
+  /** The repository pulled from. */
+  url: string
+  /** The ref asked for: a tag, or a branch for the newest commit. */
+  ref: string
+  /** The upstream commit that ref resolved to. */
+  commit: string
+  /** ISO timestamp of the pull. */
+  vendoredAt: string
+}
+
+/** Every vendored app's stamp, by app name. A missing or unreadable file is none. */
+export async function readAppStamps(projectRoot: string): Promise<Record<string, AppStamp>> {
+  const file = Bun.file(stampPath(projectRoot))
+  if (!(await file.exists())) return {}
+  try {
+    const raw = (await file.json()) as { apps?: Record<string, Partial<AppStamp>> }
+    const out: Record<string, AppStamp> = {}
+    for (const [name, app] of Object.entries(raw.apps ?? {})) {
+      if (typeof app?.ref !== 'string' || typeof app.commit !== 'string') continue
+      out[name] = {
+        url: typeof app.url === 'string' ? app.url : '',
+        ref: app.ref,
+        commit: app.commit,
+        vendoredAt: typeof app.vendoredAt === 'string' ? app.vendoredAt : '',
+      }
+    }
+    return out
+  } catch {
+    return {}
+  }
+}
+
+/**
+ * Refuse a stamp file that is there and cannot be read, BEFORE a pull: found after it, the pull is already a commit
+ * and the project is left half way. A missing file is fine; it is written whole.
+ */
+export async function assertStampReadable(projectRoot: string): Promise<void> {
+  const file = Bun.file(stampPath(projectRoot))
+  if (!(await file.exists())) return
+  try {
+    await file.json()
+  } catch {
+    throw new Error(`${STAMP_FILE} is not valid JSON; fix or delete it, then run the command again`)
+  }
+}
+
+/**
+ * Record one app's pull, leaving the engine's stamp and the other apps' as they
+ * are. A project with no engine stamp gets a file holding only `apps`, which
+ * `readStamp` reads as "unknown", exactly as it read the missing file.
+ */
+export async function writeAppStamp(
+  projectRoot: string,
+  name: string,
+  stamp: Omit<AppStamp, 'vendoredAt'> & { vendoredAt?: string },
+): Promise<void> {
+  const file = Bun.file(stampPath(projectRoot))
+  let whole: Record<string, unknown> = {}
+  if (await file.exists()) {
+    try {
+      whole = (await file.json()) as Record<string, unknown>
+    } catch {
+      // Writing over a file that cannot be read would drop the engine's half of it without a word.
+      throw new Error(
+        `${STAMP_FILE} is not valid JSON; fix or delete it, then run the command again`,
+      )
+    }
+  }
+  const apps = await readAppStamps(projectRoot)
+  apps[name] = {
+    url: stamp.url,
+    ref: stamp.ref,
+    commit: stamp.commit,
+    vendoredAt: stamp.vendoredAt ?? new Date().toISOString(),
+  }
+  await Bun.write(stampPath(projectRoot), `${JSON.stringify({ ...whole, apps }, null, 2)}\n`)
 }
 
 function parseVersion(v: string): number[] {

@@ -23,7 +23,8 @@
     "!templates/**/node_modules",
     "!templates/**/*.test.ts",
     "!templates/**/.wrangler",
-    "!templates/**/.DS_Store"
+    "!templates/**/.DS_Store",
+    "!templates/apps/space"
   ],
   "scripts": {
     "test": "bun test",

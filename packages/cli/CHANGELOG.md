@@ -5,6 +5,34 @@ only add or fix things are described by their `release(cli): @zabaca/zbc <x.y.z>
 commit message and the PRs it names; this file exists for the ones a consumer
 has to read before upgrading.
 
+## 0.25.0
+
+### The `inbox` app template is removed
+
+`zbc add inbox` no longer resolves: the single-mailbox inbox Worker is gone from
+the templates, with no alias left behind.
+
+A project that already scaffolded it is untouched. `packages/inbox/` and its
+three instance files are that project's own code, they keep deploying as they
+did, and `zbc update` never looked at them. What ends is upstream: no fix to
+that template will arrive.
+
+What replaces it is `space`, below: a company's mail is one part of it. It is a
+different application, not a newer inbox, so there is nothing to migrate
+automatically.
+
+### `space` is pulled, not copied
+
+`zbc add space` and `zbc update space` vendor a whole application (a small
+company's mail, chat and calls, calendar, forms and signed documents, clients
+and knowledge, in one Worker) as a git subtree of its own public repository at
+`vendor/space/`, on its own version tags. It is not in this package.
+
+`.zbc-vendor.json` gains an `apps` entry recording the repository, the ref and
+the commit pulled. Commit it, as you do the engine's stamp. A project that has
+no engine stamp gets a file holding only `apps`, which `zbc apply` reads exactly
+as it read the missing file.
+
 ## 0.16.4
 
 ### The package no longer carries the publisher's `node_modules`

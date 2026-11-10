@@ -11,6 +11,7 @@ import {
   copyTemplateFile,
 } from '../utils/copy-template'
 import { isVendorMode, VENDOR_PREFIX } from '../utils/subtree'
+import { addVendoredApp, VENDORED_APPS, type VendoredApp } from '../utils/vendored-app'
 
 interface RegistryFile {
   path: string
@@ -66,7 +67,7 @@ interface RegistryManifest {
    *  packages/infra/modules/. 'library': code the modules beside it import and
    *  that defines no module — same directory shape, same install path, but
    *  nothing to write an instance file for. 'app': a full package scaffolded
-   *  into targetDir (e.g. packages/inbox). */
+   *  into targetDir (e.g. packages/warehouse). */
   kind?: RegistryKind
   description?: string
   files?: RegistryFile[]
@@ -306,9 +307,8 @@ async function installApp(
   console.log(`zbc add: ${registry.name} (app)`)
 
   // 1. Auto-vendor the infra modules this app depends on. One seen-set across
-  //    the whole list: `inbox` names `cloudflare-email` and `r2`, and both of
-  //    those now name `cloudflare-api` — a fresh walk per entry would install
-  //    it twice.
+  //    the whole list: two of an app's modules routinely name the same library
+  //    (`cloudflare-api`), and a fresh walk per entry would install it twice.
   const seen = new Set<string>()
   for (const dep of registry.modules ?? []) {
     if (seen.has(dep)) continue
@@ -394,7 +394,7 @@ export const addCommand = defineCommand({
     module: {
       type: 'positional',
       description:
-        'Module or app name (e.g. turso, cloudflare, cloudflare-email, r2, inbox, secret-relay, warehouse)',
+        'Module or app name (e.g. turso, cloudflare, cloudflare-email, r2, secret-relay, warehouse, space)',
       required: true,
     },
     'account-id': {
@@ -411,6 +411,14 @@ export const addCommand = defineCommand({
       description: 'Collect missing registry-declared secrets via a Secret Request (default: true)',
       default: true,
     },
+    ref: {
+      type: 'string',
+      description: 'Vendored apps (space): the ref to pull (default: the newest version tag)',
+    },
+    'app-url': {
+      type: 'string',
+      description: 'Vendored apps (space): pull from this repository instead (a fork)',
+    },
   },
   async run({ args }) {
     const name = args.module
@@ -420,6 +428,18 @@ export const addCommand = defineCommand({
     if (!(await Bun.file(path.join(infraDir, 'package.json')).exists())) {
       console.error('✗ packages/infra/ not found. Run `zbc init` first.')
       process.exit(1)
+    }
+
+    // A vendored app is not in this package: it is pulled from its own public
+    // copy, so it is looked for by name before the bundled registry is.
+    const vendoredApp = VENDORED_APPS[name]
+    if (vendoredApp) {
+      await addVendored(vendoredApp, projectRoot, infraDir, {
+        ref: args.ref,
+        url: args['app-url'],
+        env: args.env,
+      })
+      return
     }
 
     const source = await resolveModuleSource(projectRoot, name)
@@ -457,6 +477,59 @@ export const addCommand = defineCommand({
     await collectDeclaredSecrets(registry, projectRoot, args.env, args.prompt)
   },
 })
+
+/**
+ * `zbc add <vendored app>`: pull the app's public copy into the project as a
+ * subtree, then install the zbc modules its deploy builds from. Files only, as
+ * every `add` is: nothing is deployed, and what the pull left in the working
+ * tree (the workspace entry, the starting files, the stamp) is the operator's
+ * to read and commit.
+ */
+async function addVendored(
+  app: VendoredApp,
+  projectRoot: string,
+  infraDir: string,
+  opts: { ref?: string; url?: string; env: string },
+): Promise<void> {
+  console.log(`zbc add: ${app.name} (vendored app, pulled into ${app.prefix}/)`)
+  let result: Awaited<ReturnType<typeof addVendoredApp>>
+  try {
+    result = await addVendoredApp(projectRoot, app, opts)
+  } catch (err) {
+    console.error(`✗ ${(err as Error).message}`)
+    process.exit(1)
+  }
+  console.log(`  pulled ${result.ref} (${result.commit.slice(0, 12)}) as one squashed commit`)
+  for (const pattern of result.workspacesAdded) console.log(`  workspace: ${pattern}`)
+
+  // The modules the app's deploy builds its instances from. One seen-set, as an
+  // app template's dependencies get.
+  const seen = new Set<string>()
+  for (const dep of result.manifest.modules ?? []) {
+    if (seen.has(dep)) continue
+    const depRegistry = await installModule(dep, projectRoot, infraDir, {
+      quietSkip: true,
+      seen,
+      asDependency: true,
+    })
+    if (depRegistry) console.log(`  ↳ module its deploy uses: ${dep}`)
+  }
+
+  await run(projectRoot, 'bun', ['install'])
+
+  console.log('')
+  console.log(`✓ ${app.name} is at ${app.prefix}/, recorded in .zbc-vendor.json`)
+  if (result.starter.written.length > 0) {
+    console.log(
+      `  Starting files for the "${opts.env}" environment were written; they are yours to edit.`,
+    )
+  }
+  console.log(`  Read ${app.prefix}/docs/install.md for what to fill in before the first apply.`)
+  console.log('  Review what the pull left in the working tree, and commit it.')
+  console.log(
+    `  Later: \`zbc update ${app.name}\` pulls a newer copy over it and keeps your edits.`,
+  )
+}
 
 /** Post-install: collect the registry's declared secrets via a Secret Request.
  *  A missing relay downgrades to instructions — `add` itself still succeeds. */
