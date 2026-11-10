@@ -6,7 +6,15 @@
 // stops yesterday, with the chat between missing. The merge therefore shows only as far back as every source that has more has been read
 // (`cutoff`): what is older stays held, and appears when the source that stopped first is paged. The rule is one line to say and one test.
 
-import type { InboxAttachment, InboxDeliveryNote, InboxRead } from '@space/workspace'
+import type { InboxAttachment, InboxCalendar, InboxDeliveryNote, InboxRead } from '@space/workspace'
+
+/**
+ * An email's calendar summary as the page draws it: the inbox's (`InboxCalendar`, read once when the mail arrived) and, for the OWNER where the Calendar tab exists, the Calendar tab's copy of the event it is about
+ * (`eventId`, the card's address in the tab), which has also lent a title or a time the part itself left out (a bare "accepted"). A teammate's never has `eventId`, and nothing of the owner's calendar is in it.
+ */
+export interface MailCalendar extends InboxCalendar {
+  eventId?: string
+}
 
 /** One email, or a text or note the inbox logged, as the page draws it: the contract's `InboxMessage` without what the page does not use. */
 export interface MailMessage {
@@ -24,6 +32,8 @@ export interface MailMessage {
   to?: string
   /** The files on it. Absent when there are none and from an inbox that predates them: draw no files. */
   attachments?: InboxAttachment[]
+  /** What the email's calendar part says, drawn as a card in place of the empty bubble when the email has no words. Absent on an email with none and from an inbox that predates it: no card. */
+  calendar?: MailCalendar
   /** How Cloudflare says a message sent as a business mailbox went, one note per recipient reported. Absent when nothing was reported and from an inbox that predates it: say nothing. */
   delivery?: InboxDeliveryNote[]
   /** A text or a direct message the owner marked sent by hand: the page offers "Not sent after all" on it. Absent from an inbox that predates it: no way back is offered. */

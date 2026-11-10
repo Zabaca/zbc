@@ -19,6 +19,7 @@ import {
   type InboxDraftAt,
   type InboxHandSent,
   type InboxHistory,
+  isInboxCalendar,
   type InboxMerged,
   type InboxPeople,
   type InboxReadResult,
@@ -352,6 +353,8 @@ export function isInboxHistory(v: unknown): v is InboxHistory {
         (m.read === undefined || (isRecord(m.read) && isText(m.read.visible) && isText(m.read.quoted))) &&
         (m.to === undefined || isText(m.to)) &&
         (m.attachments === undefined || (isList(m.attachments) && m.attachments.every(isAttachment))) &&
+        // Additive: an inbox that predates it leaves it out, and the page then draws no card. What is there is the summary the inbox read when the mail arrived, text and numbers only.
+        (m.calendar === undefined || isInboxCalendar(m.calendar)) &&
         (m.delivery === undefined || (isList(m.delivery) && m.delivery.every(isDeliveryNote))) &&
         (m.sentByHand === undefined || typeof m.sentByHand === 'boolean') &&
         (m.edited === undefined || typeof m.edited === 'boolean') &&

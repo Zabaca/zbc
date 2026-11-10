@@ -6,7 +6,7 @@
  * A notification (`receivePush`) is one write and an alarm, and answers at once: a slow Google must never make Google's own push wait.
  */
 
-import { CALENDAR_WINDOW_MAX_MS, type CalendarAccountView, type CalendarAgenda, type CalendarEvent, type CalendarView, type RefusalReason } from '@space/workspace'
+import { CALENDAR_BY_UID_MOST, CALENDAR_UID_MAX, CALENDAR_WINDOW_MAX_MS, type CalendarAccountView, type CalendarAgenda, type CalendarEvent, type CalendarEventAsk, type CalendarView, type RefusalReason } from '@space/workspace'
 import { CalendarSync, type PushHeaders, type SyncDeps } from './sync'
 
 export type Result<T> = { ok: true; value: T } | { ok: false; reason: RefusalReason; error: string }
@@ -64,6 +64,22 @@ export class CalendarEngine {
     return found ? ok(found) : no('not-found', 'That event is gone: it was changed or removed in Google Calendar.')
   }
 
+  /** The events a conversation's calendar mail names, by iCalendar id: one answer per ask, in order. A read of the store; at most `CALENDAR_BY_UID_MOST` asks. */
+  eventsByUid(asks: readonly CalendarEventAsk[]): Result<(CalendarEvent | null)[]> {
+    if (!Array.isArray(asks) || asks.length > CALENDAR_BY_UID_MOST) return no('bad-request', `Ask for at most ${CALENDAR_BY_UID_MOST} events at a time.`)
+    const moment = (v: unknown): boolean => v === null || (typeof v === 'number' && Number.isSafeInteger(v))
+    const day = (v: unknown): boolean => v === null || (typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v))
+    const fine = (a: unknown): a is CalendarEventAsk => {
+      if (typeof a !== 'object' || a === null) return false
+      const { uid, occurrence } = a as Record<string, unknown>
+      if (typeof uid !== 'string' || uid.length > CALENDAR_UID_MAX) return false
+      if (occurrence === null) return true
+      return typeof occurrence === 'object' && occurrence !== undefined && moment((occurrence as Record<string, unknown>).at) && day((occurrence as Record<string, unknown>).date)
+    }
+    if (!asks.every(fine)) return no('bad-request', 'Name each event by its iCalendar id, and an occurrence by its moment or its day.')
+    return ok(this.d.store.eventsByUid(asks, this.d.now()))
+  }
+
   async setShown(calendarId: string, shown: boolean): Promise<Result<CalendarView>> {
     if (typeof calendarId !== 'string' || !CALENDAR_ID.test(calendarId)) return no('not-found', 'No such calendar.')
     if (typeof shown !== 'boolean') return no('bad-request', 'Say whether the calendar is shown.')
@@ -114,7 +130,7 @@ export class CalendarEngine {
 }
 
 /** The methods the object's `call` runs, and no others. */
-export const ENGINE_METHODS = ['calendars', 'agenda', 'event', 'setShown', 'syncNow', 'receivePush'] as const satisfies readonly (keyof CalendarEngine)[]
+export const ENGINE_METHODS = ['calendars', 'agenda', 'event', 'eventsByUid', 'setShown', 'syncNow', 'receivePush'] as const satisfies readonly (keyof CalendarEngine)[]
 export type EngineMethod = (typeof ENGINE_METHODS)[number]
 
 /** The typed face of the object's untyped `call`. */

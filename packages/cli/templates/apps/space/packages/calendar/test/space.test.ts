@@ -84,3 +84,93 @@ describe('the space’s face', () => {
     expect(logged.length).toBe(1)
   })
 })
+
+describe('the events a mail’s calendar part names, found by iCalendar id', () => {
+  const DAY = 24 * HOUR
+  const weekly = (id: string, at: number) => ({ id, summary: 'Weekly sync', iCalUID: 'weekly1@google.com', start: iso(at), end: iso(at + HOUR) })
+
+  test('the owner gets one answer per ask, in order: the event the id names, or null for one the calendar does not hold', async () => {
+    const { owner, calendar } = await world()
+    const answer = await calendar.eventsByUid(owner, [
+      { uid: 'e@google.com', occurrence: null },
+      { uid: 'nobody@google.com', occurrence: null },
+      { uid: '', occurrence: null },
+    ])
+    expect(answer.ok).toBe(true)
+    const found = answer.ok ? answer.value : []
+    expect(found).toHaveLength(3)
+    expect(found[0]).toMatchObject({ title: 'Standup', start: T0 + HOUR })
+    expect(found[0]?.id).toBe(`${Z}|${Z}|e`)
+    expect(found[1]).toBeNull()
+    expect(found[2]).toBeNull()
+    // The id is the card's address: the same event `event` gives.
+    expect(await calendar.event(owner, found[0]?.id as string)).toMatchObject({ ok: true, value: { title: 'Standup' } })
+  })
+
+  /** The owner's calendar with these events on it from the first read. */
+  async function calendarWith(seed: (h: ReturnType<typeof harness>) => void) {
+    const h = harness()
+    h.connect(Z)
+    h.google.addCalendar(Z, { id: Z, summary: 'Tessa', primary: true })
+    seed(h)
+    await h.work()
+    const owner = signedIn(person(NORTHFIELD, OWNER), exp)
+    const calendar = createSpaceCalendar({ engine: h.api, install: NORTHFIELD })
+    const ask = async (uid: string, occurrence: { at: number | null; date: string | null } | null) => {
+      const answer = await calendar.eventsByUid(owner, [{ uid, occurrence }])
+      return answer.ok ? answer.value[0] : undefined
+    }
+    return { h, owner, calendar, ask }
+  }
+
+  test('a repeating event with no occurrence named is found at its next occurrence from now; one occurrence is found by its moment', async () => {
+    const { ask } = await calendarWith((h) => {
+      for (const [id, at] of [['w1', T0 - 7 * DAY], ['w2', T0 + 2 * DAY], ['w3', T0 + 9 * DAY]] as const) h.google.setEvent(Z, Z, weekly(id, at))
+    })
+    expect((await ask('weekly1@google.com', null))?.start).toBe(T0 + 2 * DAY)
+    expect((await ask('weekly1@google.com', { at: T0 + 9 * DAY, date: null }))?.start).toBe(T0 + 9 * DAY)
+    expect((await ask('weekly1@google.com', { at: T0 - 7 * DAY, date: null }))?.start).toBe(T0 - 7 * DAY)
+    // An occurrence the calendar does not hold is not guessed at.
+    expect(await ask('weekly1@google.com', { at: T0 + 100 * DAY, date: null })).toBeNull()
+  })
+
+  test('once every occurrence is past, the latest is the one', async () => {
+    const { ask } = await calendarWith((h) => {
+      for (const [id, at] of [['w1', T0 - 9 * DAY], ['w2', T0 - 3 * DAY], ['w3', T0 - 1 * DAY]] as const) h.google.setEvent(Z, Z, weekly(id, at))
+    })
+    expect((await ask('weekly1@google.com', null))?.start).toBe(T0 - 1 * DAY)
+  })
+
+  test('an all-day occurrence is found by its day', async () => {
+    const { ask } = await calendarWith((h) => {
+      h.google.setEvent(Z, Z, { id: 'a1', iCalUID: 'offsite@google.com', summary: 'Offsite', startDate: '2026-11-13', endDate: '2026-11-14' })
+      h.google.setEvent(Z, Z, { id: 'a2', iCalUID: 'offsite@google.com', summary: 'Offsite', startDate: '2026-11-20', endDate: '2026-11-21' })
+    })
+    expect(await ask('offsite@google.com', { at: null, date: '2026-11-20' })).toMatchObject({ title: 'Offsite', allDay: true, startDate: '2026-11-20' })
+    expect(await ask('offsite@google.com', { at: null, date: '2026-12-01' })).toBeNull()
+  })
+
+  test('an event in a hidden calendar is not found, and nothing is asked of Google', async () => {
+    const { h, owner, calendar } = await world()
+    await calendar.setShown(owner, `${Z}|${Z}`, false)
+    const calls = h.google.calls.length
+    const answer = await calendar.eventsByUid(owner, [{ uid: 'e@google.com', occurrence: null }])
+    expect(answer.ok ? answer.value : 'refused').toEqual([null])
+    expect(h.google.calls.length).toBe(calls)
+  })
+
+  test('a teammate who is not an owner is admitted to none of it', async () => {
+    const { dana, teammates } = await world()
+    expect(await teammates.eventsByUid(dana, [{ uid: 'e@google.com', occurrence: null }])).toMatchObject({ ok: false, kind: 'refused', reason: 'not-admitted' })
+  })
+
+  test('too many asks, an id that is not text and a moment that is not a number are refused, and nothing is looked up', async () => {
+    const { owner, calendar } = await world()
+    const many = Array.from({ length: 51 }, () => ({ uid: 'e@google.com', occurrence: null }))
+    expect(await calendar.eventsByUid(owner, many)).toMatchObject({ ok: false, kind: 'refused', reason: 'bad-request' })
+    expect(await calendar.eventsByUid(owner, [{ uid: 5 as never, occurrence: null }])).toMatchObject({ ok: false, reason: 'bad-request' })
+    expect(await calendar.eventsByUid(owner, [{ uid: 'x'.repeat(2000), occurrence: null }])).toMatchObject({ ok: false, reason: 'bad-request' })
+    expect(await calendar.eventsByUid(owner, [{ uid: 'e@google.com', occurrence: { at: 'soon' as never, date: null } }])).toMatchObject({ ok: false, reason: 'bad-request' })
+    expect(await calendar.eventsByUid(owner, [])).toMatchObject({ ok: true, value: [] })
+  })
+})

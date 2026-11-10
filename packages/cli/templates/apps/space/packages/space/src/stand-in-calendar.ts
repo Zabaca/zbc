@@ -10,6 +10,7 @@
 
 import {
   answered,
+  CALENDAR_BY_UID_MOST,
   type CalendarAccountMark,
   type CalendarAccountView,
   type CalendarAgenda,
@@ -44,6 +45,8 @@ interface StandInCalendar {
 interface StandInEvent extends Omit<CalendarEvent, 'accounts' | 'stale' | 'readAt'> {
   /** Calendars that hold a copy (ids), the first being the one drawn. */
   on: string[]
+  /** The event's iCalendar id, which a mail's calendar card is joined to it by (`eventsByUid`); never given to the page. */
+  uid?: string
 }
 
 export interface StandInCalendarApp {
@@ -166,7 +169,7 @@ export function standInCalendar(now: number, zone: string, mode: CalendarFixture
           timed('Weekly planning', at(1, 9), 45, [Z], { response: 'accepted' }),
           timed('Fernway sync', at(1, 11, 30), 30, [H], { response: 'declined', guests: [guest('Teo Ortiz', 'teo@fernway.example', 'accepted', { organizer: true })] }),
           timed('Lunch with Dana', at(1, 12, 30), 60, [U], { status: 'tentative', location: 'Lark Cafe' }),
-          timed('Advisory intro: Maria Lopez', at(1, 16), 30, [Z], { response: 'needsAction', videoLink: 'https://meet.google.com/adv-maria-lop' }),
+          timed('Advisory intro: Maria Lopez', at(1, 16), 30, [Z], { response: 'needsAction', videoLink: 'https://meet.google.com/adv-maria-lop', uid: 'advisory-intro-maria@example.test' }),
           // The rest of the week.
           allDay('Offsite', 2, 2, [F], { location: 'Santa Barbara' }),
           timed('Harbor Dental walkthrough', at(2, 10), 90, [Z], { location: 'Harbor Dental, Alder Bend', response: 'accepted' }),
@@ -232,7 +235,7 @@ export function standInCalendar(now: number, zone: string, mode: CalendarFixture
     const held = e.on.map(shownCalendar).filter((c): c is StandInCalendar => c !== undefined)
     if (held.length === 0) return null
     const marks = [...new Map(held.map((c) => [c.account, accountOf(c.account)])).values()].filter((a): a is NonNullable<typeof a> => a !== undefined).sort((a, b) => a.hue - b.hue)
-    const { on: _on, ...rest } = e
+    const { on: _on, uid: _uid, ...rest } = e
     const lapsed = marks.every((a) => a.state === 'lapsed')
     return { ...rest, accounts: marks.map(mark), stale: lapsed, readAt: lapsed ? now - 3 * 24 * HOUR : now - 4 * MIN }
   }
@@ -269,6 +272,19 @@ export function standInCalendar(now: number, zone: string, mode: CalendarFixture
       const found = events.find((e) => e.id === id)
       const shown = found ? present(found) : null
       return shown ? answered(structuredClone(shown)) : refused('not-found', 'That event is gone: it was changed or removed in Google Calendar.')
+    },
+    async eventsByUid(a, asks) {
+      const early = await enter<(CalendarEvent | null)[]>(a, 'eventsByUid', [asks])
+      if (early) return early
+      if (!Array.isArray(asks) || asks.length > CALENDAR_BY_UID_MOST) return refused('bad-request', `Ask for at most ${CALENDAR_BY_UID_MOST} events at a time.`)
+      return answered(
+        asks.map((ask) => {
+          const held = events.filter((e) => ask.uid !== '' && e.uid === ask.uid)
+          const named = ask.occurrence?.at !== null && ask.occurrence?.at !== undefined ? held.find((e) => e.start === ask.occurrence?.at) : ask.occurrence?.date !== null && ask.occurrence?.date !== undefined ? held.find((e) => e.allDay && e.startDate === ask.occurrence?.date) : (held.find((e) => e.start >= now) ?? held[held.length - 1])
+          const shown = named ? present(named) : null
+          return shown ? structuredClone(shown) : null
+        }),
+      )
     },
     async setShown(a, calendarId, shown) {
       const early = await enter<CalendarView>(a, 'setShown', [calendarId, shown])

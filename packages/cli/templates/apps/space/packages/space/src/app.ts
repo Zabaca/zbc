@@ -126,7 +126,8 @@ async function whoIsAsking(req: Request, env: Env, deps: Deps): Promise<{ who: W
     // `SPACE_FIXTURES=two-people` lets a test be one of a made-up team's people by header (`x-dev-person: bea`): the fixture inbox shows each only the mailboxes they are on.
     const named = env.SPACE_FIXTURES === 'two-people' ? /^[a-z]{2,12}$/.exec(req.headers.get('x-dev-person') ?? '')?.[0] : undefined
     const address = named ? `${named}@dev` : 'local@dev'
-    const dev = { address, name: named ?? 'Local dev', signIn: address, role: 'member' as const, sharedAddresses: [] }
+    // The calendar-mail fixture is the owner's view: a card is joined to the Calendar tab for the owner alone (conversation.ts `joinCalendar`), so there the stand-in person is the owner.
+    const dev = { address, name: named ?? 'Local dev', signIn: address, role: env.SPACE_FIXTURES === 'calendar-mail' ? ('owner' as const) : ('member' as const), sharedAddresses: [] }
     return { who: { address: dev.address, name: dev.name }, signedIn: signedIn(dev, Math.floor(deps.now() / 1000) + 3600) }
   }
   console.warn(`access refused: ${out.detail}`)
@@ -158,7 +159,7 @@ export function meOf(who: Who, install: Install): Me {
  */
 async function appsFor(req: Request, env: Env, deps: Deps, partsFor: PartsFor): Promise<Apps> {
   const mode = env.SPACE_FIXTURES
-  if (onLocalDev(req, env) && (mode === '1' || mode === 'mail-down' || mode === 'chat-refused' || mode === 'forms-down' || mode === 'knowledge-down' || mode === 'phone-on' || mode === 'telegram-late' || mode === 'telegram-signed-out' || mode === 'jmap-refused' || mode === 'jmap-down' || mode === 'calendar-lapsed' || mode === 'calendar-down' || mode === 'calendar-empty' || mode === 'telegram-pictures' || mode === 'two-people')) {
+  if (onLocalDev(req, env) && (mode === '1' || mode === 'mail-down' || mode === 'chat-refused' || mode === 'forms-down' || mode === 'knowledge-down' || mode === 'phone-on' || mode === 'telegram-late' || mode === 'telegram-signed-out' || mode === 'jmap-refused' || mode === 'jmap-down' || mode === 'calendar-lapsed' || mode === 'calendar-down' || mode === 'calendar-empty' || mode === 'telegram-pictures' || mode === 'two-people' || mode === 'calendar-mail')) {
     // One set of invented people for as long as the dev server runs, so a message sent in a photograph stays in the history that follows it.
     if (fixtures?.mode !== mode) {
       const { fixtureApps } = await import('./stand-ins')

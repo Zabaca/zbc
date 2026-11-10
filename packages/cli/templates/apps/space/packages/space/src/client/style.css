@@ -824,6 +824,56 @@ body {
 .card.doc.returned .card-ico {
   color: var(--ok);
 }
+/* An email's calendar part, drawn where its empty bubble would be (CalendarCard.tsx): an invitation, an update or a plain event in the accent's colour, a yes in green, a maybe in amber, a no or a cancellation in red. */
+.card.cal {
+  margin-top: 4px;
+  border-color: rgba(106, 164, 255, 0.28);
+}
+/* The mark stays beside the words on a phone (the card's usual 260px minimum would drop it above them); only "Open in Calendar" wraps under. */
+.card.cal .card-main {
+  flex: 1 1 160px;
+}
+.card.cal.ok {
+  border-color: rgba(111, 191, 139, 0.5);
+}
+.card.cal.ok .card-ico {
+  color: var(--ok);
+}
+.card.cal.warn {
+  border-color: rgba(224, 168, 90, 0.5);
+}
+.card.cal.warn .card-ico {
+  color: var(--warn);
+}
+.card.cal.bad {
+  border-color: rgba(229, 118, 110, 0.5);
+}
+.card.cal.bad .card-ico {
+  color: var(--bad);
+}
+.cal-heading {
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+.card.cal .card-title {
+  overflow-wrap: anywhere;
+}
+.card.cal .sub {
+  overflow-wrap: anywhere;
+}
+/* A cancelled event's time is the one it was for, struck through. */
+.cal-when.struck {
+  text-decoration: line-through;
+}
+/* A guest's note, in their own words, with their line breaks. */
+.cal-note {
+  margin-top: 3px;
+  padding-left: 10px;
+  border-left: 2px solid var(--line2);
+  color: var(--mute);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
 .btn.send-sign svg {
   vertical-align: -2px;
   margin-right: 5px;
