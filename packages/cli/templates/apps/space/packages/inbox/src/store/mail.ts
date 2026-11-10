@@ -38,6 +38,8 @@
  * never spam, trash or one of the owner's unfinished drafts.
  */
 
+import type { CalendarSummary } from '@space/workspace'
+import { keptCalendar } from '../calendar-summary'
 import { messageIdOf } from '../cloudflare/send'
 import { subjectKey } from '../cloudflare/thread'
 import { accountLabel } from '../gmail/account'
@@ -325,6 +327,8 @@ export interface AttachmentRef {
 
 /** The setting row that says the one-time pass over stored calendar mail was done (`MailStore.calendarPassDone`). */
 const EVENT_KEYS_BACKFILLED = 'calendar_event_keys_backfilled'
+/** The setting row that says the one-time pass over stored Gmail mail for calendar summaries is done (migration 20's sibling of the event-key pass). */
+const CALENDAR_SUMMARIES_BACKFILLED = 'calendar_summaries_backfilled'
 
 /** An open conversation that a newer one about the same calendar event has replaced (`MailStore.supersededEvents`). */
 export interface Superseded {
@@ -1541,6 +1545,67 @@ export class MailStore extends TelegramStore {
     })
   }
 
+  // ─── the one-time pass over mail stored before the calendar summary existed ──
+
+  /**
+   * Whether the one-time summary pass is done (a setting row says so). Its sibling is the event-key pass above and it is shaped the same: a stored Gmail message's calendar part was never kept, so the Mailroom reads each candidate again from Gmail
+   * (`Mailroom.summariseStoredCalendarMail`) and parses it as new mail is. A business mailbox's and the mail server's stored mail is NOT passed over (as that pass decided: few such emails, and each would mean reading its whole kept copy): it shows
+   * its card only if its calendar part arrives again, and keeps the chip it has.
+   */
+  calendarSummariesDone(): boolean {
+    return (
+      this.sql.exec(`SELECT 1 FROM setting WHERE key = ?1`, CALENDAR_SUMMARIES_BACKFILLED).toArray()[0] !== undefined
+    )
+  }
+
+  /**
+   * Up to `limit` stored Gmail messages of one account that have no summary and have not been looked at (`calendar` NULL: a message looked at holds `none`), inbound, that could carry a calendar part: they list a calendar file (by its declared type or a name ending
+   * in .ics), carry an event key, or have no words at all.
+   */
+  calendarSummaryCandidates(mailboxId: string, limit: number): { id: string; gmailId: string }[] {
+    return this.sql
+      .exec(
+        `SELECT id, gmail_id FROM message
+          WHERE mailbox_id = ?1 AND gmail_id IS NOT NULL AND direction = 'in' AND calendar IS NULL
+            AND (attachments LIKE '%text/calendar%' OR attachments LIKE '%application/ics%' OR attachments LIKE '%.ics"%'
+                 OR event_key IS NOT NULL OR trim(body) = '')
+          ORDER BY rowid LIMIT ?2`,
+        mailboxId,
+        limit,
+      )
+      .toArray()
+      .map((r) => ({ id: text(r.id), gmailId: text(r.gmail_id) }))
+  }
+
+  /** Record what the pass found for one message: its summary, or `none` (looked at, nothing to show) so it is never read twice. A message that already has one is left as it is. */
+  recordCalendarSummary(messageId: string, summary: CalendarSummary | null): void {
+    this.sql.exec(
+      `UPDATE message SET calendar = ?2 WHERE id = ?1 AND calendar IS NULL`,
+      messageId,
+      keptCalendar(summary),
+    )
+  }
+
+  /** The pass is done: every account with a working grant has no candidate left. Said once, in the setting and in the audit trail. */
+  markCalendarSummariesDone(looked: number): void {
+    this.ports.transaction(() => {
+      this.sql.exec(
+        `INSERT INTO setting (key, value, updated_at, updated_by) VALUES (?1, 'done', ?2, ?3)
+         ON CONFLICT(key) DO NOTHING`,
+        CALENDAR_SUMMARIES_BACKFILLED,
+        this.now(),
+        CALENDAR_ACTOR,
+      )
+      this.audit(
+        CALENDAR_ACTOR,
+        'message.calendar-summaries-backfilled',
+        `setting:${CALENDAR_SUMMARIES_BACKFILLED}`,
+        null,
+        { looked },
+      )
+    })
+  }
+
   // ─── a Gmail message becoming a row ──────────────────────────────────
 
   /** Store a page's messages; each one stored for the first time is added to `fresh`, when given. */
@@ -1644,11 +1709,11 @@ export class MailStore extends TelegramStore {
                             created_at, created_by, updated_at, updated_by, sent_at, sent_by, source_ref,
                             mailbox_id, ${cols.message}, rfc_message_id, in_reply_to, from_header, to_header, cc_header,
                             sender_date, snippet, body_truncated, attachments, labels, list_unsubscribe,
-                            read_at, read_by, closed_at, closed_by, reply_to_header, event_key, event_kind)
+                            read_at, read_by, closed_at, closed_by, reply_to_header, event_key, event_kind, calendar)
        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, '', ?8, ?9, ?8, ?9, ?10, ?9, NULL,
                ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23,
                CASE WHEN ?24 = 1 THEN NULL ELSE ?8 END, CASE WHEN ?24 = 1 THEN NULL ELSE ?9 END,
-               CASE WHEN ?25 = 1 THEN NULL ELSE ?8 END, CASE WHEN ?25 = 1 THEN NULL ELSE ?9 END, ?26, ?27, ?28)`,
+               CASE WHEN ?25 = 1 THEN NULL ELSE ?8 END, CASE WHEN ?25 = 1 THEN NULL ELSE ?9 END, ?26, ?27, ?28, ?29)`,
       messageId,
       conversationId,
       primaryIdentity.id,
@@ -1677,6 +1742,7 @@ export class MailStore extends TelegramStore {
       m.replyToHeader,
       m.event?.key ?? null,
       m.event?.kind ?? null,
+      keptCalendar(m.calendar),
     )
     this.touchConversation(conversationId)
     return { id: messageId, from: from[0]?.address ?? null }

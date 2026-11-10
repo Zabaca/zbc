@@ -1,5 +1,7 @@
+import { CALENDAR_SUMMARY_PART_MAX, type CalendarSummary } from '@space/workspace'
 import PostalMime, { type Address, type Email } from 'postal-mime'
 import { type CalendarMail, eventOf } from '../calendar-event'
+import { isCalendarPart, summaryOfCalendar } from '../calendar-summary'
 import { repairMojibake } from '../charset'
 import { BODY_CAP, htmlToText, tidyLine } from '../gmail/parse'
 import type { ParsedAddress } from '../gmail/types'
@@ -44,6 +46,8 @@ export interface ParsedArrival {
   listUnsubscribe: boolean
   /** The calendar event the message is an invitation, update or cancellation of (src/calendar-event.ts), or null. Left out by a caller that has no calendar mail. */
   event?: CalendarMail | null
+  /** What the first calendar part says (src/calendar-summary.ts), or null: no calendar part, no event in it, or one that cannot be read. Left out by a caller that has no calendar mail. */
+  calendar?: CalendarSummary | null
 }
 
 /** How much of a body the list row's line keeps, as Gmail's snippet is a line. */
@@ -106,6 +110,20 @@ function eventOfEmail(email: Email, answersAnother: boolean): CalendarMail | nul
   }
 }
 
+/**
+ * What the message's first calendar part says (src/calendar-summary.ts): the part, inline or a file (`isCalendarPart`), as postal-mime lists it with the attachments, read as text. `null` when there is none, it is over the limit, or it holds no event.
+ * Never throws: a part that cannot be read leaves the email stored as it always was.
+ */
+function calendarOfEmail(email: Email): CalendarSummary | null {
+  try {
+    const part = email.attachments.find((a) => isCalendarPart(a.mimeType, a.filename))
+    if (!part || sizeOf(part.content) > CALENDAR_SUMMARY_PART_MAX) return null
+    return summaryOfCalendar(asText(part.content))
+  } catch {
+    return null
+  }
+}
+
 /** Parse one raw message. Throws only when the parser does, which the caller treats as "kept, owed a filing". */
 export async function parseRaw(raw: ArrayBuffer | Uint8Array): Promise<ParsedArrival> {
   const email = await PostalMime.parse(raw)
@@ -151,6 +169,7 @@ export async function parseRaw(raw: ArrayBuffer | Uint8Array): Promise<ParsedArr
     senderDate: Number.isFinite(date) ? new Date(date).toISOString() : null,
     listUnsubscribe: header('list-unsubscribe') !== '',
     event: eventOfEmail(email, inReplyTo !== null || messageIds(email.references).length > 0),
+    calendar: calendarOfEmail(email),
   }
 }
 

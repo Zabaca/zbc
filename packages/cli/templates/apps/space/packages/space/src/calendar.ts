@@ -76,6 +76,9 @@ export const isCalendarEvent = (v: unknown): v is CalendarEvent =>
   countOrNull(v.readAt) &&
   isBool(v.stale)
 
+/** The answer of `eventsByUid`: one entry per ask, an event or null. */
+export const isCalendarEventsOrNull = (v: unknown): v is (CalendarEvent | null)[] => each(v, (e) => e === null || isCalendarEvent(e))
+
 export const isCalendarAgenda = (v: unknown): v is CalendarAgenda =>
   isRecord(v) &&
   isCount(v.from) &&

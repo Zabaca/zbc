@@ -1,9 +1,11 @@
 import {
   CALENDAR_EVENTS_SCOPE,
   CALENDAR_READONLY_SCOPE,
+  CALENDAR_SUMMARY_PART_MAX,
   type CalendarAccess,
   type CalendarAccessLevel,
   type CalendarGrant,
+  type CalendarSummary,
   type FileRange,
   INBOX_FILE_PART_BYTES,
   INBOX_FILE_WHOLE_BYTES,
@@ -59,7 +61,7 @@ import {
 import { DAY_MS, grantWorks, lapsedReason } from './health'
 import { planHistory } from './history'
 import { buildMime, MimeError, toRaw } from './mime'
-import { attachmentParts, base64Bytes, parseMessage } from './parse'
+import { attachmentParts, base64Bytes, calendarOfMessage, calendarPartOf, parseMessage, summaryOfBytes } from './parse'
 import { type GmailMessage, inPlay, type ParsedMessage } from './types'
 
 /**
@@ -164,6 +166,8 @@ export const LABEL_BUDGET = 150
 export const SUPERSEDE_PER_RUN = 20
 /** Stored messages the one-time calendar pass reads again from Gmail per run. */
 export const CALENDAR_PASS_PER_RUN = 100
+/** How many stored messages the calendar summary pass reads in one run: the pass holds the Mailroom's turn while it reads, so a push, a Close or a Sync now waits behind at most this many Gmail reads, and the alarm is asked for again while more are left. */
+export const CALENDAR_SUMMARY_PASS_PER_RUN = 25
 /** Failures in a row (not one message, so Gmail) after which the calendar pass ends its run. */
 export const CALENDAR_PASS_FAILURES = 3
 /** How long a conversation Gmail refused to close is left alone before it is tried again. */
@@ -622,6 +626,94 @@ export class Mailroom {
   }
 
   /**
+   * A Gmail message as Gmail returned it, becoming the row the store keeps (`parseMessage`), with the one thing a parse of the message alone cannot do: when the calendar part's bytes are kept apart by Gmail (an attachment id, as for a part with a file
+   * name and sometimes without one), ask Gmail for that one file (a second call, for a calendar email only) and read the summary from it. That call failing leaves the email with no summary (`calendar` undefined, stored NULL, so the one-time
+   * pass may try again) and NEVER fails the sync or the page it is part of. NEVER THROWS for the second call. `calls` is how many Gmail calls it made (0 or 1), so a run counts them against `FETCH_BUDGET`.
+   */
+  private async parse(gmail: GmailApi, raw: GmailMessage): Promise<{ message: ParsedMessage; calls: number }> {
+    const parsed = parseMessage(raw)
+    if (parsed.calendar !== undefined) return { message: parsed, calls: 0 }
+    try {
+      return { message: { ...parsed, calendar: await this.readApartCalendar(gmail, raw) }, calls: 1 }
+    } catch (error) {
+      console.warn(
+        `mailroom: could not read the calendar file of ${raw.id}, stored with no summary: ${describe(error)}`,
+      )
+      return { message: parsed, calls: 1 }
+    }
+  }
+
+  /** The summary of a calendar part whose bytes Gmail keeps apart: the file is asked of Gmail (one call), and read. `null` when Gmail has no such file or it holds no event. THROWS what Gmail's call throws. */
+  private async readApartCalendar(gmail: GmailApi, raw: GmailMessage): Promise<CalendarSummary | null> {
+    const part = calendarPartOf(raw)
+    const attachmentId = part?.body?.attachmentId
+    if (!part || !attachmentId) return null
+    const bytes = await gmail.getAttachment(raw.id, attachmentId)
+    return bytes === null || bytes.length > CALENDAR_SUMMARY_PART_MAX ? null : summaryOfBytes(part, bytes)
+  }
+
+  /** One stored message read again from Gmail, and what its calendar part says: `null` when Gmail no longer has it or it holds no event. THROWS what Gmail's calls throw (the pass counts those). */
+  private async summaryOfStored(gmail: GmailApi, gmailId: string): Promise<CalendarSummary | null> {
+    const raw = await gmail.getMessage(gmailId)
+    if (raw === null) return null
+    const inMessage = calendarOfMessage(raw)
+    return inMessage !== undefined ? inMessage : this.readApartCalendar(gmail, raw)
+  }
+
+  /**
+   * The ONE-TIME pass over Gmail mail stored before the store kept what a calendar part says (migration 20), the sibling of `keyStoredCalendarMail` and shaped the same: each candidate (`MailStore.calendarSummaryCandidates`: stored inbound Gmail mail with
+   * no summary and not looked at, that lists a calendar file, carries an event key, or has no words) is read again from Gmail and summarised as new mail is (the calendar file asked of Gmail when its bytes are kept apart); what that says is recorded,
+   * `none` included, so nothing is read twice. At most `CALENDAR_SUMMARY_PASS_PER_RUN` a run, with the alarm asked for again while more are left; it is done (a setting row) once every account with a working grant has none left. An account that failed this
+   * run (in its backoff), or whose grant has lapsed, is left alone for later, and the pass is not done while it has mail left. A run of failures (`CALENDAR_PASS_FAILURES`) is Gmail down, not bad messages: it ends the run and leaves the rest; one message Gmail will not give is logged and recorded `none`, so it cannot
+   * stall the pass by being first in line on every run. Runs AFTER the run's notifications (`workAll`), never before them: the earlier pass delayed a new mail's bell. NEVER THROWS.
+   */
+  private async summariseStoredCalendarMail(failedIds: ReadonlySet<string>): Promise<void> {
+    try {
+      if (this.store.calendarSummariesDone() || !this.ports.google) return
+      let looked = 0
+      let blocked = false
+      for (const row of this.store.gmailMailboxes()) {
+        if (!grantWorks(row)) {
+          // A lapsed account (connected, its grant ended) is left for LATER: the pass is not done while it has mail left to read, and connecting it again lets the pass go on. A disconnected one has no grant to read with and is left.
+          if (row.refreshToken !== null && this.store.calendarSummaryCandidates(row.id, 1).length > 0) blocked = true
+          continue
+        }
+        if (failedIds.has(row.id)) {
+          blocked = true
+          continue
+        }
+        const gmail = this.ports.google.gmail(row.refreshToken as string)
+        let failures = 0
+        for (const c of this.store.calendarSummaryCandidates(row.id, CALENDAR_SUMMARY_PASS_PER_RUN - looked)) {
+          let found: CalendarSummary | null
+          try {
+            found = await this.summaryOfStored(gmail, c.gmailId)
+          } catch (error) {
+            failures += 1
+            if (error instanceof GmailAuthError || failures >= CALENDAR_PASS_FAILURES) throw error
+            console.warn(
+              `mailroom: could not read ${c.gmailId} for the calendar summary pass, left without one: ${describe(error)}`,
+            )
+            this.store.recordCalendarSummary(c.id, null)
+            looked += 1
+            continue
+          }
+          failures = 0
+          this.store.recordCalendarSummary(c.id, found)
+          looked += 1
+        }
+      }
+      const left = this.store
+        .gmailMailboxes()
+        .some((r) => grantWorks(r) && this.store.calendarSummaryCandidates(r.id, 1).length > 0)
+      if (!left && !blocked) this.store.markCalendarSummariesDone(looked)
+      else if (left && looked > 0) await this.alarmNow()
+    } catch (error) {
+      console.warn(`mailroom: reading stored calendar summaries failed: ${describe(error)}`)
+    }
+  }
+
+  /**
    * Close the Gmail conversations that a newer update of the same calendar event has replaced (`MailStore.supersededEvents` says which
    * and why). Gmail first, as a person's Close is: the thread is archived there, so the two cannot disagree. Runs inside the alarm's turn, after the
    * sync, so the update that just arrived is stored.
@@ -1006,7 +1098,7 @@ export class Mailroom {
     for (const m of thread) {
       if (known.has(m.id) || !inPlay(m.labels)) continue
       const raw = await gmail.getMessage(m.id)
-      if (raw) messages.push(parseMessage(raw))
+      if (raw) messages.push((await this.parse(gmail, raw)).message)
     }
     if (messages.length === 0) return false
     // Nobody is looking when Claude or the calendar's sweep closes: a reply found there is new mail like any other.
@@ -1515,6 +1607,9 @@ export class Mailroom {
     // The notifications the stored pages owe, failure or not: a sync that failed on its third page stored two.
     await this.notify()
 
+    // The one-time pass for what the stored mail's calendar parts say reads Gmail again for each candidate, so it runs AFTER the bell: new mail rings at once and never waits behind it.
+    await this.summariseStoredCalendarMail(failedIds)
+
     const moreToDo = this.store
       .gmailMailboxes()
       .some((r) => grantWorks(r) && !failedIds.has(r.id) && (r.job !== null || r.pushSeq > r.syncedSeq))
@@ -1626,7 +1721,11 @@ export class Mailroom {
       for (const candidate of plan.candidates) {
         const raw = await gmail.getMessage(candidate.id)
         fetched += 1
-        if (raw) messages.push(parseMessage(raw))
+        if (raw) {
+          const read = await this.parse(gmail, raw)
+          fetched += read.calls
+          messages.push(read.message)
+        }
       }
 
       const last = page.nextPageToken === null
@@ -1719,7 +1818,11 @@ export class Mailroom {
         }
         const raw = await gmail.getMessage(id)
         fetched += 1
-        if (raw) messages.push(parseMessage(raw))
+        if (raw) {
+          const read = await this.parse(gmail, raw)
+          fetched += read.calls
+          messages.push(read.message)
+        }
       }
       const labels: { gmailId: string; labels: string[] }[] = []
       for (const threadId of heldThreads) {

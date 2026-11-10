@@ -41,6 +41,7 @@ import { DRAFT_BY, type Item, TELEGRAM_HEADING, blocksOf, chosenWay, newLineKey,
 import { CallCard } from './CallCard'
 import { type ChatTools, ChatMessageRow, NewLine, meetOrigin } from './ChatMessage'
 import { type CallActions, useCallActions } from './callActions'
+import { CalendarCard, showsCard } from './CalendarCard'
 import { ChannelPanel } from './Channels'
 import { DraftChat } from './DraftChat'
 import { DraftEditor } from './DraftEdit'
@@ -118,6 +119,8 @@ export interface ViewProps {
   onOpenCall?(name: string): void
   /** A channel's people and what can be done with the channel (Channels.tsx), beside it; absent where the page offers none (a test that draws the conversation alone). */
   channel?: { go(path: string): void; onChanged(): void }
+  /** Move inside the page (a calendar card's "Open in Calendar"); absent where the page offers none (a test that draws the conversation alone): the link then loads the address. */
+  go?(path: string): void
   /** Chat messages with links, Edit and Delete (ChatMessage.tsx); absent where the page offers none (a test that draws the conversation alone), and chat is then plain text. */
   chat?: ChatTools & {
     /** Where "New" begins (the id of the first message that was unread when the conversation was opened), kept by the pane for as long as it stays open; null for none. */
@@ -153,7 +156,7 @@ const shownFile = (m: MailMessage): boolean => (m.attachments ?? []).some((f) =>
  * on the left and ours on the right, a line over it with who and when ("You to <address>" for ours), and the earlier email it quotes folded behind a
  * "•••" button. Both halves are text, so React escapes them. The inbox's labels line is not here: the answer does not carry the labels.
  */
-function EmailMessage({ message, read, now, zone, after }: { message: MailMessage; read: InboxRead; now: number; zone: string | undefined; after?: React.ReactNode }) {
+function EmailMessage({ message, read, now, zone, company, go, after }: { message: MailMessage; read: InboxRead; now: number; zone: string | undefined; company: string; go?: ((path: string) => void) | undefined; after?: React.ReactNode }) {
   const [open, setOpen] = useState(false)
   const mine = message.direction === 'out'
   const name = mine ? 'You' : senderName(message.from)
@@ -180,8 +183,8 @@ function EmailMessage({ message, read, now, zone, after }: { message: MailMessag
             </span>
           )}
         </div>
-        {/* The words of a Telegram message that is only a photo, a voice note, an image or a video are the bracketed label ("[Photo]"); with the file shown under it the label says nothing, so it is not drawn. */}
-        {!(message.deleted !== true && shownFile(message) && PLACEHOLDER.test(read.visible)) && (
+        {/* The words of a Telegram message that is only a photo, a voice note, an image or a video are the bracketed label ("[Photo]"); with the file shown under it the label says nothing, so it is not drawn. Nor is the empty bubble of an email whose only content is a calendar part: the card under it says what it says. */}
+        {!(message.deleted !== true && shownFile(message) && PLACEHOLDER.test(read.visible)) && !(showsCard(message.calendar, company) && read.visible.trim() === '') && (
         <div className={`msg-text bubble${message.deleted === true ? ' deleted' : BRACKETED.test(read.visible) ? ' placeholder' : ''}`} {...(message.deleted === true && { 'data-testid': 'deleted-message' })}>
           {message.deleted === true ? <i>This message was deleted in Telegram.</i> : read.visible}
           {read.quoted !== '' && (
@@ -198,6 +201,7 @@ function EmailMessage({ message, read, now, zone, after }: { message: MailMessag
           )}
         </div>
         )}
+        {showsCard(message.calendar, company) && <CalendarCard calendar={message.calendar} zone={company} go={go} />}
         <MessageFiles messageId={message.id} files={message.attachments} mine={mine} />
         <DeliveryNotes notes={message.delivery} mine={mine} />
         {message.textCut && <div className="sub">This email is longer than the inbox keeps, so it is cut short here. If it came through Gmail, the rest is there.</div>}
@@ -207,11 +211,11 @@ function EmailMessage({ message, read, now, zone, after }: { message: MailMessag
   )
 }
 
-function Message({ entry: e, now, zone, onChanged, tools }: { entry: Extract<Item, { kind: 'entry' }>['entry']; now: number; zone: string | undefined; onChanged?(): void; tools?: ChatTools }) {
+function Message({ entry: e, now, zone, company, go, onChanged, tools }: { entry: Extract<Item, { kind: 'entry' }>['entry']; now: number; zone: string | undefined; company: string; go?: ((path: string) => void) | undefined; onChanged?(): void; tools?: ChatTools }) {
   // An answer from an inbox that predates `read` has nothing to fold by: the email is drawn whole, as it was.
   // "Not sent after all" is drawn once, under the message, whichever way the message is drawn.
   const after = e.kind === 'email' && e.message.sentByHand === true && onChanged ? <NotSentAfterAll messageId={e.message.id} onChanged={onChanged} /> : null
-  if (e.kind === 'email' && e.message.read !== undefined) return <EmailMessage message={e.message} read={e.message.read} now={now} zone={zone} after={after} />
+  if (e.kind === 'email' && e.message.read !== undefined) return <EmailMessage message={e.message} read={e.message.read} now={now} zone={zone} company={company} go={go} after={after} />
   const name = e.kind === 'email' ? (e.message.direction === 'out' ? 'You' : senderName(e.message.from)) : e.message.mine ? 'You' : e.message.authorName
   const mine = e.kind === 'email' ? e.message.direction === 'out' : e.message.mine
   // A chat message in the page: links, Edit and Delete where meet says the person may (ChatMessage.tsx). Drawn alone (a test), it is the plain text it was.
@@ -241,7 +245,8 @@ function Message({ entry: e, now, zone, onChanged, tools }: { entry: Extract<Ite
             {stamp(now, e.at, zone)}
           </time>
         </div>
-        <div className="msg-text">{e.message.text}</div>
+        {!(e.kind === 'email' && showsCard(e.message.calendar, company) && e.message.text.trim() === '') && <div className="msg-text">{e.message.text}</div>}
+        {e.kind === 'email' && showsCard(e.message.calendar, company) && <CalendarCard calendar={e.message.calendar} zone={company} go={go} />}
         {e.kind === 'email' && <MessageFiles messageId={e.message.id} files={e.message.attachments} mine={mine} />}
         {e.kind === 'email' && <DeliveryNotes notes={e.message.delivery} mine={mine} />}
         {e.kind === 'email' && e.message.textCut && <div className="sub">This email is longer than the inbox keeps, so it is cut short here. If it came through Gmail, the rest is there.</div>}
@@ -714,7 +719,7 @@ export function ConversationView(p: ViewProps) {
                 item.kind === 'entry' ? (
                   <Fragment key={item.entry.key}>
                     {item.entry.key === newKey && <NewLine />}
-                    <Message entry={item.entry} now={p.now} zone={p.timeZone} onChanged={p.onDraftChanged} {...(p.chat && { tools: p.chat })} />
+                    <Message entry={item.entry} now={p.now} zone={p.timeZone} company={p.me.company.timeZone} go={p.go} onChanged={p.onDraftChanged} {...(p.chat && { tools: p.chat })} />
                   </Fragment>
                 ) : item.kind === 'document' ? (
                   <DocumentCard key={`document:${item.doc.id}`} doc={item.doc} now={p.now} zone={p.timeZone} />
@@ -1263,6 +1268,7 @@ export function ConversationPane({ me, scope, convKey, fromClosed, refreshes, on
       calls={calls}
       onOpenCall={(name) => go(callPath(name))}
       channel={{ go, onChanged }}
+      go={go}
       chat={{ ...chatTools, newFrom: newFromHeld.current ?? null }}
       onBack={(e) => {
         if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return

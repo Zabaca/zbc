@@ -146,7 +146,8 @@ describe('migration 17: groups and channels', () => {
     )
     expect(db.query(`SELECT * FROM telegram_person`).all()).toEqual(before.person.map((r) => ({ ...r, chat: null })))
     expect(db.query(`SELECT * FROM message`).all()).toEqual(
-      before.message.map((r) => ({ ...r, telegram_to_me: null, jmap_id: null })),
+      // `calendar` is migration 20's, which this store goes on to.
+      before.message.map((r) => ({ ...r, telegram_to_me: null, jmap_id: null, calendar: null })),
     )
     expect(db.query('PRAGMA foreign_key_check').all()).toEqual([])
   })

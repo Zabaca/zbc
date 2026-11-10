@@ -19,6 +19,7 @@ import {
   type CalendarAccountView,
   type CalendarAgenda,
   type CalendarEvent,
+  type CalendarEventAsk,
   type CalendarGrant,
   type CalendarGuest,
   type CalendarResponse,
@@ -838,6 +839,29 @@ export class CalendarStore {
       got.event.accounts.sort((a, b) => a.hue - b.hue)
     }
     return got.event
+  }
+
+  /**
+   * The events a mail's calendar part names, by iCalendar id (`event_uid_idx`): for each ask the one event of the calendar's copy it is about, as `event` gives it (the same meeting in another calendar added to its accounts), or null when none is held in a
+   * shown calendar of a live account. A part about one OCCURRENCE of a repeating event finds it by its moment (an instance's start) or its day (an all-day one); a part with no occurrence finds a single event as it is, and a repeating one at its next
+   * occurrence from `now`, else its latest. Reads the store alone: nothing asks Google.
+   */
+  eventsByUid(asks: readonly CalendarEventAsk[], now: number): (CalendarEvent | null)[] {
+    return asks.map((ask) => {
+      if (ask.uid === '') return null
+      const rows = this.sql.exec(`SELECT calendar_id, id, start_ms, start_date, all_day FROM event WHERE ical_uid = ?1 ORDER BY start_ms, calendar_id, id`, ask.uid).toArray()
+      if (rows.length === 0) return null
+      const startOf = (r: Record<string, unknown>): number => num(r.start_ms)
+      let chosen: Record<string, unknown> | undefined
+      // A part about one occurrence names its ORIGINAL start (RECURRENCE-ID), and an update may have moved it since. Google names an instance `<series id>_<original start>` (`20261120T180000Z`, or `20261120` for an all-day one), so
+      // the instance is found by the end of its id first, and only then by where it now starts.
+      const stamp = (at: number): string => new Date(at).toISOString().replace(/[-:]|\.\d{3}/g, '')
+      const named = (suffix: string) => rows.find((r) => text(r.id).endsWith(`_${suffix}`))
+      if (ask.occurrence?.at !== null && ask.occurrence?.at !== undefined) chosen = named(stamp(ask.occurrence.at)) ?? rows.find((r) => startOf(r) === ask.occurrence?.at)
+      else if (ask.occurrence?.date !== null && ask.occurrence?.date !== undefined) chosen = named(ask.occurrence.date.replaceAll('-', '')) ?? rows.find((r) => flag(r.all_day) && textOrNull(r.start_date) === ask.occurrence?.date)
+      else chosen = rows.find((r) => startOf(r) >= now) ?? rows[rows.length - 1]
+      return chosen ? this.event(eventKey(text(chosen.calendar_id), text(chosen.id))) : null
+    })
   }
 
   /** How many events are held, for the operator and the tests. */

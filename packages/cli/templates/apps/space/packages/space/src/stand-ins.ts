@@ -10,6 +10,7 @@ import { canSee, type MailScope, scopeOf } from '@space/inbox/src/queue'
 import { sniffPicture } from '@space/inbox/src/telegram/wire'
 import {
   type SignedIn,
+  type CalendarSummary,
   type ConversationApp,
   type ConversationRef,
   type Documents,
@@ -88,6 +89,7 @@ import {
   type MeetRead,
   type MeetUsage,
   type SpaceReply,
+  summaryLine,
   type WriteReply,
   answered,
   failed,
@@ -145,6 +147,8 @@ export interface StandInMessage {
   /** A Telegram message its sender edited, or deleted for everyone (the words are then gone): the history says so. */
   edited?: boolean
   deleted?: boolean
+  /** What the email's calendar part says, as the inbox read it when the mail arrived: the page draws a card from it. A message with no words and one of these is listed under the line it makes (`summaryLine`). */
+  calendar?: CalendarSummary
 }
 
 /** A file on a message, as the stand-in keeps it. */
@@ -247,6 +251,7 @@ import { CLIP_WEBM, DROP_OFF_FORM_PDF, SHEET_PHOTO_PNG, RECEIPT_PDF, VOICE_NOTE_
 import { fixtureViews } from './fixture-views'
 import { standInPeople } from './stand-in-people'
 import { standInCalendar } from './stand-in-calendar'
+import { calendarMailFixtures } from './fixture-calendar-mail'
 import { standInKnowledge } from './stand-in-knowledge'
 import { type StandInViewState, type StandInViews, mailboxMark, standInViews } from './stand-in-views'
 import { type StandInClients, fixtureClients, standInClients } from './stand-in-clients'
@@ -271,7 +276,7 @@ type Kept = StandInThread & { messages: StandInMessage[] }
 export function standInInbox(
   contactsIn: StandInContact[],
   threadsIn: StandInThread[],
-  options: { delayMs?: number; page?: number; seeing?: (address: string) => MailScope | null; drafts?: StandInDraft[]; slowMs?: number; now?: () => number; withReading?: boolean; withFiles?: boolean; views?: Partial<StandInViewState>; clients?: StandInClients } = {},
+  options: { delayMs?: number; page?: number; seeing?: (address: string) => MailScope | null; drafts?: StandInDraft[]; slowMs?: number; now?: () => number; withReading?: boolean; withFiles?: boolean; views?: Partial<StandInViewState>; clients?: StandInClients; zone?: string } = {},
 ): StandInInbox {
   const asked: StandInInbox['asked'] = { scopes: [], searches: [], askers: [], histories: [], reads: [], sends: [], closes: [], reopens: [], edits: [], spam: [], settled: [], marked: [], unmarked: [], opened: [] }
   const fileReads: StandInInbox['fileReads'] = []
@@ -373,7 +378,7 @@ export function standInInbox(
       kind: t.kind ?? 'email',
       at: last.at,
       // A group's row says who wrote the newest message before its words, as the inbox's store does (`groupSnippet`).
-      snippet: t.telegramChat === 'group' && last.direction === 'in' && last.from.trim() !== '' && last.text !== '' ? `${last.from.trim().split(/\s+/)[0]}: ${last.text}` : last.text,
+      snippet: t.telegramChat === 'group' && last.direction === 'in' && last.from.trim() !== '' && last.text !== '' ? `${last.from.trim().split(/\s+/)[0]}: ${last.text}` : last.text === '' && last.calendar !== undefined ? summaryLine(last.calendar, options.zone ?? 'America/Los_Angeles') : last.text,
       direction: last.direction,
       unread: t.unread ?? false,
       open: t.open ?? true,
@@ -680,7 +685,7 @@ export function standInInbox(
             // A Telegram chat with a person or a group that has a reply box takes one picture.
             ...(options.withFiles && t.kind === 'telegram' && t.telegramChat !== 'channel' && { canPicture: true }),
           })),
-        messages: all.slice(start, end).map((m) => ({ id: m.id, conversationId: m.conversationId, subject: m.subject, direction: m.direction, at: m.at, from: m.from, text: m.text, textCut: false, ...readOf(m, contact), ...filesOf(m, threads.find((t) => t.id === m.conversationId) as Kept), ...(m.sentByHand === true && { sentByHand: true }), ...(m.edited === true && { edited: true }), ...(m.deleted === true && { deleted: true }), alsoOn: m.on.filter((o) => o !== contact.id).map(party) })),
+        messages: all.slice(start, end).map((m) => ({ id: m.id, conversationId: m.conversationId, subject: m.subject, direction: m.direction, at: m.at, from: m.from, text: m.text, textCut: false, ...readOf(m, contact), ...filesOf(m, threads.find((t) => t.id === m.conversationId) as Kept), ...(m.calendar !== undefined && { calendar: { ...m.calendar, fromYou: m.calendar.organizer?.address === 'tessa@northfield.example' } }), ...(m.sentByHand === true && { sentByHand: true }), ...(m.edited === true && { edited: true }), ...(m.deleted === true && { deleted: true }), alsoOn: m.on.filter((o) => o !== contact.id).map(party) })),
         more: start > 0,
       })
     },
@@ -1580,7 +1585,7 @@ const TELEGRAM: InboxMailbox = { id: 'telegram', name: 'Telegram', address: '700
 const HARBORLINE: InboxMailbox = { id: 'harborline', name: 'harborline', address: 'test@harborline.example' }
 
 /** The inbox and meet as a local page shows them with `SPACE_FIXTURES=1` (or a mode that breaks one part): invented people, times counted back from `now`. */
-export type FixtureMode = '1' | 'mail-down' | 'chat-refused' | 'forms-down' | 'knowledge-down' | 'phone-on' | 'telegram-late' | 'telegram-signed-out' | 'jmap-refused' | 'jmap-down' | 'calendar-lapsed' | 'calendar-down' | 'calendar-empty' | 'telegram-pictures' | 'two-people'
+export type FixtureMode = '1' | 'mail-down' | 'chat-refused' | 'forms-down' | 'knowledge-down' | 'phone-on' | 'telegram-late' | 'telegram-signed-out' | 'jmap-refused' | 'jmap-down' | 'calendar-lapsed' | 'calendar-down' | 'calendar-empty' | 'telegram-pictures' | 'two-people' | 'calendar-mail'
 
 export function fixtureApps(now: number, mode: FixtureMode = '1', options: { formsAt?: string; zone?: string } = {}) {
   const ago = (minutes: number) => now - minutes * MIN
@@ -1972,7 +1977,13 @@ export function fixtureApps(now: number, mode: FixtureMode = '1', options: { for
   const clientsPart = standInClients(fixtureClients(now), { now: () => now })
   // `two-people`: the same fixtures, shown to two people of a made-up team by who the request says it is (`x-dev-person`, src/app.ts): Alex is on every mailbox, Bea on Ridgeway's alone, anyone else on none.
   const seeing = mode === 'two-people' ? (address: string): MailScope | null => (address === 'alex@dev' ? { mailboxIds: null, unfiled: true } : address === 'bea@dev' ? scopeOf(['ridgeway'], false) : address === 'local@dev' ? { mailboxIds: null, unfiled: true } : null) : undefined
-  const inbox = standInInbox(contacts, threads, { ...(seeing && { seeing }), drafts, withReading: true, withFiles: true, clients: clientsPart, views: fixtureViews(now, mode === 'telegram-late' ? 'late' : mode === 'telegram-signed-out' ? 'signed-out' : 'live', mode === 'jmap-refused' ? 'refused' : mode === 'jmap-down' ? 'down' : 'live') })
+  // `calendar-mail`: the same fixtures and one person more, whose conversation holds an email with a calendar part of every kind the page draws as a card (fixture-calendar-mail.ts).
+  if (mode === 'calendar-mail') {
+    const calendarMail = calendarMailFixtures(now, options.zone ?? 'America/Los_Angeles')
+    contacts.push(...calendarMail.contacts)
+    threads.push(...calendarMail.threads)
+  }
+  const inbox = standInInbox(contacts, threads, { ...(seeing && { seeing }), drafts, withReading: true, withFiles: true, clients: clientsPart, ...(options.zone !== undefined && { zone: options.zone }), views: fixtureViews(now, mode === 'telegram-late' ? 'late' : mode === 'telegram-signed-out' ? 'signed-out' : 'live', mode === 'jmap-refused' ? 'refused' : mode === 'jmap-down' ? 'down' : 'live') })
   // Calls, invented: a huddle Tessa started in his direct message with Priya with two people in it (and in Today's "Happening now"), one that ended in #launch, a call link and a meeting in
   // Lena's email conversation, a meeting later today and one tomorrow, a New call with a row of its own, calls from before the space with their chat, and the month's usage. A link is on meet's
   // address and goes nowhere in a local run.

@@ -371,7 +371,7 @@ describe('what each app answers the space', () => {
 
 describe('the calendar', () => {
   test('one face for the space, owner only, reading the calendar’s own store; nothing that writes to Google', () => {
-    expect(sorted(CALENDAR_FOR_SPACE_METHODS)).toEqual(sorted(['calendars', 'agenda', 'event', 'setShown', 'syncNow']))
+    expect(sorted(CALENDAR_FOR_SPACE_METHODS)).toEqual(sorted(['calendars', 'agenda', 'event', 'eventsByUid', 'setShown', 'syncNow']))
     // The calendar reads Google and never writes to it: no method creates, moves, answers or deletes an event.
     for (const m of ['createEvent', 'moveEvent', 'respond', 'deleteEvent', 'book']) expect(CALENDAR_FOR_SPACE_METHODS as readonly string[]).not.toContain(m)
   })

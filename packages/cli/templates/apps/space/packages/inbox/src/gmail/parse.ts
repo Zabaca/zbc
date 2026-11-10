@@ -1,4 +1,6 @@
+import { CALENDAR_SUMMARY_PART_MAX, type CalendarSummary } from '@space/workspace'
 import { eventOf } from '../calendar-event'
+import { isCalendarPart, summaryOfCalendar } from '../calendar-summary'
 import { decodeBody } from '../charset'
 import type { AttachmentInfo } from '../types'
 import type { GmailMessage, GmailPart, ParsedAddress, ParsedMessage } from './types'
@@ -144,6 +146,45 @@ export function eventOfMessage(m: GmailMessage): ReturnType<typeof eventOf> {
     listId: header(m, 'List-Id'),
     answersAnother: header(m, 'In-Reply-To').trim() !== '' || header(m, 'References').trim() !== '',
   })
+}
+
+/** The first calendar part of a message, inline or a file (`isCalendarPart`: text/calendar, application/ics or a name ending in .ics), or null. */
+export function calendarPartOf(m: GmailMessage): GmailPart | null {
+  if (!m.payload) return null
+  const all: GmailPart[] = []
+  const walk = (p: GmailPart) => {
+    all.push(p)
+    p.parts?.forEach(walk)
+  }
+  walk(m.payload)
+  return all.find((p) => isCalendarPart(p.mimeType, p.filename)) ?? null
+}
+
+/** What a calendar part's bytes say (src/calendar-summary.ts), decoded in the charset the part names. Never throws: bytes that cannot be read are no summary. */
+export function summaryOfBytes(part: GmailPart, bytes: Uint8Array): CalendarSummary | null {
+  try {
+    return summaryOfCalendar(decodeBody(bytes, charsetOf(partHeader(part, 'Content-Type'))))
+  } catch {
+    return null
+  }
+}
+
+/**
+ * What the message's calendar part says, from the message as Gmail returned it: `null` when it has no calendar part, the part is over the limit or holds no event; the summary when the part's bytes are in the message; and `undefined` when
+ * Gmail keeps them apart (an `attachmentId`, as it does for a part with a file name and sometimes without one), which the Mailroom asks Gmail for once (`Mailroom.parse`). Never throws.
+ */
+export function calendarOfMessage(m: GmailMessage): CalendarSummary | null | undefined {
+  const part = calendarPartOf(m)
+  if (part === null) return null
+  if ((part.body?.size ?? 0) > CALENDAR_SUMMARY_PART_MAX) return null
+  if (part.body?.data) {
+    try {
+      return summaryOfBytes(part, base64Bytes(part.body.data))
+    } catch {
+      return null
+    }
+  }
+  return part.body?.attachmentId ? undefined : null
 }
 
 /**
@@ -328,5 +369,6 @@ export function parseMessage(m: GmailMessage, cap: number = BODY_CAP): ParsedMes
     senderDate: isoOrNull(Date.parse(header(m, 'Date'))),
     listUnsubscribe: header(m, 'List-Unsubscribe').trim() !== '',
     event: eventOfMessage(m),
+    calendar: calendarOfMessage(m),
   }
 }

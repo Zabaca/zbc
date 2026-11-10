@@ -187,6 +187,19 @@ export const CALENDAR_WINDOW_MAX_MS = 62 * 24 * 60 * 60 * 1000
 export const CALENDAR_BACK_MS = 92 * 24 * 60 * 60 * 1000
 export const CALENDAR_AHEAD_MS = 180 * 24 * 60 * 60 * 1000
 
+/**
+ * One event a mail's calendar part names, to be found in the calendar's copy: by its iCalendar id (`CalendarSummary.uid`), and, for a part about ONE occurrence of a repeating event, by which (`CalendarSummary.occurrence`: its moment, or its
+ * day for an all-day event). With no occurrence, a repeating event is found at its next occurrence from now, else its latest.
+ */
+export interface CalendarEventAsk {
+  uid: string
+  occurrence: { at: number | null; date: string | null } | null
+}
+
+/** The most events one `eventsByUid` is asked for (a page of a conversation holds at most 50 messages), and the longest iCalendar id taken. */
+export const CALENDAR_BY_UID_MOST = 50
+export const CALENDAR_UID_MAX = 1024
+
 /** What the space calls in-process for the Calendar tab, Today's events and Settings › Calendars. Owner only. */
 export interface CalendarForSpace {
   /** The accounts and their calendars. Asks the inbox who is connected first (a few seconds old at most). */
@@ -195,6 +208,12 @@ export interface CalendarForSpace {
   agenda(asker: SignedIn, from: number, to: number): Promise<SpaceReply<CalendarAgenda>>
   /** One event by its key, from the store. `not-found` once it is gone. */
   event(asker: SignedIn, id: string): Promise<SpaceReply<CalendarEvent>>
+  /**
+   * The events a conversation's calendar mail names, by iCalendar id, from the store: one answer per ask, in order, `null` for an event the calendar does not hold (not a connected account's, in a hidden calendar, outside the three months back
+   * and six ahead it keeps, or gone). The one read the space joins an email's card to the owner's Calendar tab with ("Open in Calendar", and the title and time a bare answer leaves out). Owner only like the rest, and a read: nothing is asked of Google.
+   * At most `CALENDAR_BY_UID_MOST` asks; more is `bad-request`.
+   */
+  eventsByUid(asker: SignedIn, asks: readonly CalendarEventAsk[]): Promise<SpaceReply<(CalendarEvent | null)[]>>
   /** Show or hide a calendar. Showing reads it in full; hiding drops its events from the store. Answers the calendar as it now stands. */
   setShown(asker: SignedIn, calendarId: string, shown: boolean): Promise<SpaceReply<CalendarView>>
   /** Ask for every account's calendars to be read again now (the alarm does it in a moment). Answers how many calendars were asked. */
@@ -202,4 +221,4 @@ export interface CalendarForSpace {
 }
 
 /** The method names, so a stub, a test and the binding agree on exactly these and no others. */
-export const CALENDAR_FOR_SPACE_METHODS = ['calendars', 'agenda', 'event', 'setShown', 'syncNow'] as const satisfies readonly (keyof CalendarForSpace)[]
+export const CALENDAR_FOR_SPACE_METHODS = ['calendars', 'agenda', 'event', 'eventsByUid', 'setShown', 'syncNow'] as const satisfies readonly (keyof CalendarForSpace)[]

@@ -805,13 +805,20 @@ export class SpaceStore extends AssistStore {
    * `older` is the text of the messages on the conversations of this page that come BEFORE it, oldest first: a quote is proved
    * against the earlier messages of its conversation (quote.ts), and a page back in time must not lose them. Empty when the page
    * reaches the start of everything asked for.
+   *
+   * `own` is every address that is the owner's (each Gmail account and mailbox: `ownAddresses`), lower case, for the one thing the page says "you" by: an invitation whose organizer is one of them reads "From you" to the owner.
    */
   spaceMessages(
     conversationIds: string[],
     before: string | null,
     limit: number,
-  ): { messages: MessageRow[]; more: boolean; older: { conversationId: string; body: string }[] } | null {
-    if (conversationIds.length === 0) return before === null ? { messages: [], more: false, older: [] } : null
+  ): {
+    messages: MessageRow[]
+    more: boolean
+    older: { conversationId: string; body: string }[]
+    own: string[]
+  } | null {
+    if (conversationIds.length === 0) return before === null ? { messages: [], more: false, older: [], own: [] } : null
     const ids = JSON.stringify(conversationIds)
     if (before !== null) {
       const held = this.sql
@@ -856,7 +863,7 @@ export class SpaceStore extends AssistStore {
         .toArray()
         .map((r) => ({ conversationId: text(r.conversation_id), body: text(r.body) }))
     }
-    return { messages, more, older }
+    return { messages, more, older, own: [...this.ownAddresses()].map((a) => a.toLowerCase()) }
   }
 
   /**

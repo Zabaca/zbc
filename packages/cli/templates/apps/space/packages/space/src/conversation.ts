@@ -8,6 +8,7 @@
 
 import {
   ANSWER_WITHIN_MS,
+  CALENDAR_BY_UID_MOST,
   COMPOSE_KEY,
   type ConversationRef,
   INBOX_MOST_MARKS,
@@ -37,7 +38,8 @@ import {
 import { type ListedConversation, type Scope, isConversationRow, teamPersonFor, mergeConversations } from './conversations'
 import { DOCUMENTS_SHOWN, type DocumentsPart, documentsPartOf } from './documents'
 import { isCount, isRecord } from './guards'
-import { type ChatMessage, type HistorySource, type MailMessage, mergeHistory } from './history'
+import { isCalendarEventsOrNull } from './calendar'
+import { type ChatMessage, type HistorySource, type MailCalendar, type MailMessage, mergeHistory } from './history'
 import { type Asking, statusOf } from './list'
 import { draftViewOf } from './drafts'
 import { inboxCan } from './views'
@@ -227,11 +229,38 @@ const mailMessage = (m: InboxMessage): MailMessage => ({
   ...(m.read !== undefined && { read: { visible: m.read.visible, quoted: m.read.quoted } }),
   ...(m.to !== undefined && { to: m.to }),
   ...(m.attachments !== undefined && m.attachments.length > 0 && { attachments: m.attachments }),
+  ...(m.calendar !== undefined && { calendar: m.calendar }),
   ...(m.delivery !== undefined && m.delivery.length > 0 && { delivery: m.delivery }),
   ...(m.sentByHand === true && { sentByHand: true }),
   ...(m.edited === true && { edited: true }),
   ...(m.deleted === true && { deleted: true }),
 })
+
+/**
+ * Join the cards of a page of mail to the owner's Calendar tab: for each message that carries a calendar summary, the calendar's copy of the event it names (`eventsByUid`, one read for the page, a read of the calendar's own
+ * store that asks Google nothing). A found event gives the card its address ("Open in Calendar") and lends a title or a time the part itself left out, which is all a bare "accepted" carries. ONLY FOR THE OWNER and only where the
+ * install has the Calendar tab (its Gmail switch): a teammate's answer never asks the calendar, so nothing of the owner's calendar reaches them, and the calendar would refuse them anyway. The calendar not answering, or being
+ * slow, leaves every card as the inbox gave it: the join never holds a conversation up past `ANSWER_WITHIN_MS` and never fails it.
+ */
+export async function joinCalendar(ask: Asking, messages: readonly MailMessage[]): Promise<MailMessage[]> {
+  const { calendar } = ask.apps
+  const wanting = messages.filter((m) => m.calendar !== undefined && m.calendar.uid !== '')
+  if (!calendar || wanting.length === 0 || !ask.install.has('gmail') || !ask.install.isOwner(ask.signedIn.person)) return [...messages]
+  const asked = wanting.slice(-CALENDAR_BY_UID_MOST)
+  const answer = await reach('Calendar', () => calendar.eventsByUid(ask.signedIn, asked.map((m) => ({ uid: (m.calendar as MailCalendar).uid, occurrence: (m.calendar as MailCalendar).occurrence }))), isCalendarEventsOrNull, ask.answerWithinMs ?? ANSWER_WITHIN_MS)
+  if (!answer.ok || answer.value.length !== asked.length) return [...messages]
+  const found = new Map(asked.map((m, i) => [m.id, answer.value[i] ?? null]))
+  return messages.map((m) => {
+    const event = found.get(m.id)
+    if (m.calendar === undefined || !event) return m
+    const lent = m.calendar.title === '' ? { title: event.title } : {}
+    const timeless = m.calendar.start === null && m.calendar.startDate === null && m.calendar.written === null
+    const time = timeless
+      ? { allDay: event.allDay, start: event.allDay ? null : event.start, end: event.allDay ? null : event.end, startDate: event.startDate, endDate: event.endDate, written: null }
+      : {}
+    return { ...m, calendar: { ...m.calendar, ...lent, ...time, eventId: event.id } }
+  })
+}
 const chatMessage = (m: MeetMessage): ChatMessage => ({
   id: m.id,
   conversationId: m.conversationId,
@@ -364,9 +393,11 @@ export async function openConversation(ask: Asking, key: string, scope?: Scope):
 
   const sources: HistorySource[] = []
   const threads = new Map<string, ThreadView>()
+  // The cards of calendar mail are joined to the owner's Calendar tab (joinCalendar): one read of the calendar's store for each page of mail, never holding the conversation up.
+  const withCards = await Promise.all(histories.map((h) => (h.ok ? joinCalendar(ask, h.value.messages.map(mailMessage)) : Promise.resolve(null))))
   histories.forEach((h, i) => {
     if (!h.ok) return
-    sources.push({ kind: 'mail', contactId: contactIds[i] as string, messages: h.value.messages.map(mailMessage), more: h.value.more })
+    sources.push({ kind: 'mail', contactId: contactIds[i] as string, messages: withCards[i] ?? h.value.messages.map(mailMessage), more: h.value.more })
     for (const t of h.value.threads) {
       const held = threads.get(t.conversationId)
       const alsoOn = others(t.alsoOn, ask.self, contactIds)
@@ -524,7 +555,7 @@ export async function earlier(ask: Asking, q: EarlierQuery): Promise<Earlier> {
     const { contactId, before } = q.mail
     const got = inbox ? await reach('Email', () => inbox.messagesWith(ask.signedIn, { contactId }, { include: ['bulk', 'closed'], before }), isInboxHistory, ms) : notConnected('Email')
     if (!got.ok) return { ok: false, status: got.kind === 'refused' ? 400 : 503, message: got.message }
-    return { ok: true, messages: got.value.messages.map(mailMessage), more: got.value.more }
+    return { ok: true, messages: await joinCalendar(ask, got.value.messages.map(mailMessage)), more: got.value.more }
   }
   const { conversationId, before } = q.chat
   const got = meet ? await reach('Chat', () => meet.history(ask.signedIn, conversationId, before), isMeetHistory, ms) : notConnected('Chat')

@@ -131,6 +131,7 @@ import {
   isPending,
   type MessageRow,
 } from './types'
+import type { Install } from './workspace'
 
 /** The most addresses one question names: a screen, not a script. (The most conversations one mark-read, close or reopen names is the contract's `INBOX_MOST_MARKS`.) */
 const MOST_ADDRESSES = 100
@@ -463,6 +464,15 @@ const deliveryNote = (n: DeliveryNote): InboxDeliveryNote => ({
 const teamAddresses = (deps: SpaceDeps): string[] =>
   deps.install.people.flatMap((p) => [p.address, p.signIn].map((a) => a.trim().toLowerCase()))
 
+/**
+ * Every address that is "you" to the person asking, lower case: their work address and the one they sign in with, and, for the owner, every address of theirs (each Gmail account and mailbox, `own`). What an invitation's organizer is compared with
+ * to say "From you".
+ */
+export function addressesOfYou(install: Install, actor: string, own: readonly string[]): Set<string> {
+  const signIn = install.person(actor)?.signIn
+  return new Set([actor, ...(signIn ? [signIn.toLowerCase()] : []), ...own])
+}
+
 export function createSpaceInbox(deps: SpaceDeps): InboxForSpace {
   const { store } = deps
   const owner = inboxOwnerOf(deps.install)
@@ -586,7 +596,7 @@ export function createSpaceInbox(deps: SpaceDeps): InboxForSpace {
     who: InboxWho,
     query?: InboxHistoryQuery,
   ): Promise<SpaceReply<InboxHistory>> {
-    return asPerson(asker, async ({ scope: mail }) => {
+    return asPerson(asker, async ({ scope: mail, actor, owner: isOwner }) => {
       const named = readWho(who)
       if (!named.ok) return named
       if (query !== undefined && !isRecord(query)) return BAD('The query is not an object.')
@@ -614,6 +624,8 @@ export function createSpaceInbox(deps: SpaceDeps): InboxForSpace {
         INBOX_HISTORY_PAGE,
       )
       if (page === null) return BAD('That message is not on this person’s conversations.')
+      // The addresses "you" means to the person asking, for an invitation's organizer: their own, and, for the owner, every address of theirs (each Gmail account and mailbox).
+      const you = addressesOfYou(deps.install, actor, isOwner ? page.own : [])
 
       const byId = new Map(conversations.map((c) => [c.id, c]))
       const threads: InboxThread[] = conversations.map((c) => ({
@@ -647,13 +659,20 @@ export function createSpaceInbox(deps: SpaceDeps): InboxForSpace {
         // Mail stored before src/charset.ts was put right on arrival reads right here too, without the row being rewritten; once per message, for its own text and for the quotes after it.
         const body = repairMojibake(m.body)
         inConversation.set(c.id, [...earlier, body])
-        return [messageOf(m, body, others(c, contact.id), earlier)]
+        return [messageOf(m, body, others(c, contact.id), earlier, you)]
       })
       return answered({ threads, messages, more: page.more })
     })
   }
 
-  function messageOf(m: MessageRow, body: string, alsoOn: InboxParty[], earlier: readonly string[]): InboxMessage {
+  /** `you` is every address that is the person asking's own (lower case): an invitation whose organizer is one of them is "from you". */
+  function messageOf(
+    m: MessageRow,
+    body: string,
+    alsoOn: InboxParty[],
+    earlier: readonly string[],
+    you: ReadonlySet<string>,
+  ): InboxMessage {
     const subject = repairMojibake(m.subject)
     return {
       id: m.id,
@@ -673,6 +692,10 @@ export function createSpaceInbox(deps: SpaceDeps): InboxForSpace {
           : readText(body, { earlier, subject, viaGmail: viaGmail(m) }),
       ...(m.direction === 'out' && m.kind === 'email' ? { to: m.to.trim() !== '' ? m.to : m.address } : {}),
       ...(m.attachments.length > 0 && { attachments: attachmentsOf(m) }),
+      // What the email's calendar part says, kept when it arrived (src/calendar-summary.ts); the page draws a card from it. "From you" is the organizer being the person asking.
+      ...(m.calendar !== undefined && {
+        calendar: { ...m.calendar, fromYou: m.calendar.organizer !== null && you.has(m.calendar.organizer.address) },
+      }),
       ...(m.delivery !== undefined && m.delivery.length > 0 && { delivery: m.delivery.map(deliveryNote) }),
       // Only a text or a direct message can be marked sent by hand: an email the Outbox carried in as sent has the same status, and must not be offered "Not sent after all" (it could then be sent again).
       ...(m.status === 'manual-sent' && m.kind !== 'email' && { sentByHand: true }),

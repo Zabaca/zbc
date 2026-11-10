@@ -223,6 +223,7 @@ export function harness(
     owner,
     content,
     mailboxPeople: mailboxPeopleOf(install),
+    zone: install.company.timeZone,
   })
 
   /** Move the clock on, so two writes never share a timestamp. */

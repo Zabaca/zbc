@@ -55,8 +55,8 @@ export interface CalendarSource {
 /** Longest key kept: a stranger's UID is not stored without a limit. */
 const KEY_LIMIT = 300
 
-/** Lines of an iCalendar body with the folds undone (a line that starts with a space or a tab continues the one before). */
-function unfold(ics: string): string[] {
+/** Lines of an iCalendar body with the folds undone (a line that starts with a space or a tab continues the one before). Shared with the summary reader (`src/calendar-summary.ts`). */
+export function unfold(ics: string): string[] {
   return ics
     .replace(/\r\n?/g, '\n')
     .replace(/\n[ \t]/g, '')
