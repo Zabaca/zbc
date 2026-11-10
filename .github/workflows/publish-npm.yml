@@ -31,11 +31,12 @@
 #
 # That shapes the whole file, in three ways:
 #
-#   - **Two jobs, not one.** npm accepts OIDC only from GitHub-HOSTED runners,
-#     and @zabaca/agent's tests only run on a self-hosted one (see its matrix
-#     entry). So `pack` tests and packs each package wherever it must, and
-#     `publish` uploads the tarball from a hosted runner. The tarball crosses as
-#     an artifact, so what is published is byte-for-byte what was tested.
+#   - **Two jobs, not one.** Only `publish` holds `id-token: write`, so `pack`
+#     tests and packs each package with read access alone and `publish` uploads
+#     the tarball. The tarball crosses as an artifact, so what is published is
+#     byte-for-byte what was tested. (Until 2026-11-10 there was a second
+#     reason: @zabaca/agent's tests ran on a self-hosted runner, and npm refuses
+#     OIDC from one.)
 #   - **bun packs, npm publishes.** Only the npm CLI speaks trusted publishing.
 #     But `npm publish` from the package directory drops `bin/zbc.js` — "bin[zbc]
 #     script name bin/zbc.js was invalid and removed" (npm 11.6.2, 2026-09-30)
@@ -56,10 +57,7 @@ concurrency: publish-npm
 
 jobs:
   pack:
-    # Per package, because only one of them needs a particular machine. The
-    # matrix sets it; `ubuntu-latest` stays the default for anything that does
-    # not ask. See `runner` on the @zabaca/agent entry below.
-    runs-on: ${{ matrix.runner || 'ubuntu-latest' }}
+    runs-on: ubuntu-latest
     permissions:
       contents: read
     strategy:
@@ -89,23 +87,13 @@ jobs:
           - package: '@zabaca/agent'
             slug: agent
             dir: packages/agent
-            # The one job that cannot run on a hosted runner. Its tests drive
-            # the real sandbox rather than a stub, and `@anthropic-ai/sandbox-
-            # runtime` refuses to start on Linux without `bwrap`, `socat` and
-            # `rg` — none of which a GitHub VM has. Every one of the 25 tests
-            # that touch it failed with one line, `Sandbox dependencies not
-            # available`, from 2026-09-14 until this. It passes on a Mac
-            # because macOS sandboxes with Seatbelt and never asks for them.
+            # Its tests drive the real sandbox rather than a stub, so this is
+            # the one entry with a step of its own, "Sandbox dependencies"
+            # below. Every one of the 25 tests that touch the sandbox failed
+            # with one line, `Sandbox dependencies not available`, from
+            # 2026-09-14 until those were installed; it passes on a Mac because
+            # macOS sandboxes with Seatbelt and never asks for them.
             #
-            # `ryzen` is foundry's long-lived Incus guest, where those three are
-            # installed as declared state rather than per run. An apt step here
-            # would also have worked, and is the right answer for a fleet with
-            # no such machine; this repo has one, and six sibling repos already
-            # use it.
-            #
-            # Only packing happens here. The publish itself cannot: npm refuses
-            # OIDC from a self-hosted runner.
-            runner: [self-hosted, ryzen]
             # First consumer outside the workspace is the Zabaca fork of
             # claude-mem, which installs from npm — so unlike the other two
             # this is compiled with tsc, not bundled: it is a library, and the
@@ -121,6 +109,25 @@ jobs:
           bun-version: latest
 
       - run: bun install
+
+      # `@anthropic-ai/sandbox-runtime` refuses to start on Linux without
+      # `bwrap`, `socat` and `rg`, and a GitHub VM has none of them. Ubuntu
+      # 24.04 also confines unprivileged user namespaces with AppArmor, so a
+      # bwrap that is installed still dies on its first call with
+      # `loopback: Failed RTM_NEWADDR: Operation not permitted`. Lifting that
+      # restriction is a setting on this one throwaway VM, and the step exists
+      # for this one entry: nothing else in the matrix asks for a sandbox.
+      # The key is absent on a kernel without the restriction, which needs
+      # nothing, so its absence is not an error.
+      - name: Sandbox dependencies
+        if: matrix.slug == 'agent'
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq bubblewrap socat ripgrep
+          key=/proc/sys/kernel/apparmor_restrict_unprivileged_userns
+          if [ -e "${key}" ]; then
+            sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          fi
 
       - name: Test what ships
         run: ${{ matrix.test }}
