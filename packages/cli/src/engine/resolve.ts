@@ -97,6 +97,11 @@ export function isEphemeral(instance: ModuleInstance): boolean {
   return declared ?? legacyConfigEphemeral(instance.moduleName, instance.config)
 }
 
+/** Whether `zbc destroy` must leave this instance's resource standing. See `InstanceOptions.retain`. */
+export function isRetained(instance: ModuleInstance): boolean {
+  return (instance as { retain?: boolean }).retain === true
+}
+
 /**
  * An ephemeral instance of a module with no `destroy` is a contradiction, and
  * the engine refuses it before it applies anything — including the instances

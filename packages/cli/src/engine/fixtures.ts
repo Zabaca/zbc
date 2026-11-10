@@ -59,6 +59,7 @@ export function fakeInstance(
     imports?: ModuleInstance[]
     config?: Record<string, unknown>
     ephemeral?: boolean
+    retain?: boolean
   } = {},
 ): ModuleInstance {
   return fakeModule(`mod-${name}`, opts).instance({
@@ -66,6 +67,7 @@ export function fakeInstance(
     config: opts.config ?? {},
     imports: opts.imports ?? [],
     ...(opts.ephemeral === undefined ? {} : { ephemeral: opts.ephemeral }),
+    ...(opts.retain === undefined ? {} : { retain: opts.retain }),
   })
 }
 

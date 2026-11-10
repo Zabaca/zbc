@@ -120,6 +120,10 @@ Deploying a Cloudflare Worker — `workerSecrets`, `workerVars`, `bindings`,
   `config`. The engine destroys the instance and re-applies it on every run. It
   is refused when the module has no `destroy`, and when the module emits a
   credential declared `rotates: 'never'`.
+- `retain: true`, also on the **instance**, is the opposite: `zbc destroy`
+  never deletes that resource (a database of records, the bucket of their
+  files). A whole-environment destroy leaves it standing and says so; naming it
+  as the target is refused. It cannot be combined with `ephemeral`.
 - Preview environments name resources per PR with
   `` `myapp-pr-${process.env.PR_NUMBER ?? 'local'}` ``. The scaffolded workflow
   runs `zbc apply preview` on each push and `zbc destroy preview` when the PR
@@ -204,6 +208,8 @@ The engine's errors name the field, the instance and the fix:
 | `Instance "A" imports "B", which is not in <env>` | B has no instance file in this environment |
 | `does not export a valid module instance as its default export` | A `.ts` file in the environment directory that isn't an instance |
 | `is ephemeral but module "m" has no destroy` | Drop `ephemeral`, or give the module a `destroy` |
+| `sets retain: zbc destroy never deletes it` | Intended. Remove `retain` in a reviewed change first, or delete the resource by hand |
+| `sets retain and ephemeral` | Drop one: ephemeral destroys on every apply |
 | `Circular dependency detected` | Two instances import each other |
 | A `ZodError` | The instance config doesn't match the module's `configSchema` |
 | A timeout that quotes a "proves" claim | A readiness probe never passed. Usually a missing token scope, sometimes slow provider propagation |

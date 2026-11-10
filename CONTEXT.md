@@ -63,6 +63,10 @@ _Avoid_: task, script, command (an action is not a shell entry point — the who
 An Instance the engine destroys and re-applies on every `zbc apply`, so each run starts from a clean resource. A property of the Instance, not of the Module — any Module with a `destroy` can be ephemeral, and an Instance marked ephemeral whose Module has none is refused before anything is applied. Distinct from `zbc destroy`, which tears down every Instance with a `destroy`, ephemeral or not.
 _Avoid_: temporary, disposable (the Agent context's Workspace owns "disposable")
 
+**Retained**:
+An Instance whose resource `zbc destroy` never deletes: a whole-environment destroy leaves it standing and says so, and naming it as the target is refused. A property of the Instance, not of the Module, for the same reason as Ephemeral: one Module backs both a scratch resource and one holding records. The Instance carries no `destroy`, so an engine that predates the key skips it too. Refused together with Ephemeral. See [ADR-0019](./docs/adr/0019-a-retained-instance-is-never-destroyed.md).
+_Avoid_: protected, locked (both suggest a provider-side setting; this is only what zbc will do)
+
 **Shared Library**:
 A `kind: "library"` directory under `modules/` holding code the Modules beside it import as `../<name>` — an API envelope, a host `exec` seam, a zod schema fragment — and defining no Module of its own. It has no config, no `apply` and no Instance; `zbc add` installs it like a Module and says so. A Module or Library names the ones it imports in its manifest's `modules` key, and `zbc add` installs that graph first. See [ADR-0015](./docs/adr/0015-a-library-is-a-registry-kind.md).
 _Avoid_: core module (the four bundled ones are named `*-core`, but "module" is the thing it is not), util

@@ -19,17 +19,20 @@ together with the modules it deploys through.
 | `cloudflare-token` | module | Mints a scoped account-owned API token from a root token. R2 S3 credentials come with it. Has a readiness probe | `tokenId`, `tokenValue`*, `s3AccessKeyId`, `s3SecretAccessKey`* | `CLOUDFLARE_ROOT_TOKEN` (`rootTokenSecret`) |
 | `cloudflare-zone` | module | A zone's DNS records (authoritative, deletes gated) and settings (forward-only); creates the zone itself with `createIfAbsent` | `zoneId`, `zoneName`, `zoneStatus`, `zoneCreated`, `nameServers` (array), counts | `apiToken` ref, required |
 | `cloudflare-tunnel` | module | A remotely-managed tunnel, its ingress and DNS records | `tunnelId`, `runToken`, `hostnames` | `apiToken` ref, required |
-| `cloudflare-access` | module | A Zero Trust application and its allow / service-auth policies | `appId`, `aud`, `teamDomain`, `clientId`, `clientSecret`, … | `apiToken` ref, required |
+| `cloudflare-access` | module | A Zero Trust application and its allow / service-auth policies, or a bypass for a path whose Worker authenticates every request itself | `appId`, `aud`, `teamDomain`, `clientId`, `clientSecret`, … | `apiToken` ref, or `apiToken: { secret }` |
 | `cloudflare-email` | module | Email Service for a domain (beta): sending (SPF/DKIM/DMARC) and inbound routing rules | `domain`, `addresses`, `dnsStatus`, … | `CLOUDFLARE_API_TOKEN` (extra Email scopes) |
-| `d1` | module | A D1 database plus idempotent schema (`statements`, `additiveColumns`). Has a readiness probe | `databaseName`, `databaseId` | `CLOUDFLARE_API_TOKEN` (D1: Edit) |
+| `d1` | module | A D1 database, a versioned history (`migrationsDir`, wrangler's migrator) and idempotent schema (`statements`, `additiveColumns`). Has a readiness probe | `databaseName`, `databaseId` | `CLOUDFLARE_API_TOKEN` (D1: Edit) |
 | `r2` | module | An R2 bucket | `bucketName` | `CLOUDFLARE_API_TOKEN` (R2 Storage: Edit) |
+| `queue` | module | A Queue and the Email Sending event subscriptions that fill it. `destroy` leaves the queue | `queueName`, `queueId`, `subscriptionIds` | `CLOUDFLARE_API_TOKEN` (Queues: Edit) |
 | `cloudflare-api` | library | API root, response envelope, `cf()` helper, errors | — | — |
 
 \* declared secret output: redacted from logs and `--json`.
 
 A credential marked "`apiToken` ref" comes from a `cloudflare-token` instance
 that this instance imports: `apiToken: { from: '<token instance>', output: 'tokenValue' }`.
-It is never a `secrets.yaml` key.
+It is never a `secrets.yaml` key, except that `cloudflare-access` also takes
+`apiToken: { secret: 'CLOUDFLARE_API_TOKEN' }` for an environment that mints no
+tokens and applies Access with its existing deploy credential.
 
 ## Other providers
 

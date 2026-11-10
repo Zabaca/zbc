@@ -67,7 +67,8 @@ zbc destroy <env> [instance]
 ```
 
 With no instance, tears down every instance whose module defines `destroy`, in
-reverse dependency order. Instances without `destroy` are skipped and say so. If
+reverse dependency order. Instances without `destroy`, and instances set
+`retain: true`, are skipped and say so; naming a retained instance is refused. If
 a destroy needs an import's outputs, the engine applies that import on demand
 and tears it down later in the same run. With an instance, tears down only that
 instance, never its imports, and refuses if its destroy would need an import
@@ -89,7 +90,7 @@ zbc list <env> [--json]
 ```
 
 Shows what the environment declares, in apply order: module, `ephemeral`,
-whether `destroy` exists, imports, and actions. It runs no module and calls no
+`retain`, whether `destroy` reaches it, imports, and actions. It runs no module and calls no
 provider. `--json` prints `{ env, instances }` on stdout, nothing else.
 
 ## Secrets
