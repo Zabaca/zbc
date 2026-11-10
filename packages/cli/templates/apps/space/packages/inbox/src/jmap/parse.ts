@@ -92,6 +92,7 @@ export async function parseJmapMessage(
       senderDate: parsed.senderDate,
       listUnsubscribe: parsed.listUnsubscribe,
       event: parsed.event ?? null,
+      calendar: parsed.calendar ?? null,
     }
   } catch (error) {
     console.warn(

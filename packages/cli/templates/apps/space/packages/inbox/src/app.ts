@@ -14,6 +14,7 @@ import {
   type Identity,
   type KnowledgeForInbox,
   type LiveBinding,
+  summaryLine,
 } from '@space/workspace'
 import { type Context, Hono } from 'hono'
 import type { Assistant } from './assistant/assistant'
@@ -56,6 +57,7 @@ import {
   isClientId,
   isWhole,
   type ListedClient,
+  type MessageRow,
   type Queue,
   SEND_FIELDS,
   SEND_NAMES_NO_TEXT,
@@ -564,8 +566,14 @@ export function createApp(deps: Deps) {
     const clientIds = [...new Set(found.value.contacts.flatMap((p) => (p.clientId === null ? [] : [p.clientId])))]
     // Only asked when somebody on it has a Client: a conversation of strangers needs no list.
     const names = clientsById(clientIds.length > 0 ? (await directory(c)).clients : [])
+    // A message with no words of its own and a calendar summary says what the summary says in one line, on the company's clock, so Claude never has to guess who accepted from a subject.
+    const withCalendarLine = (m: MessageRow): MessageRow =>
+      m.calendar !== undefined && m.body.trim() === ''
+        ? { ...m, calendarLine: summaryLine(m.calendar, install.company.timeZone) }
+        : m
     const page: ConversationPage = {
       ...found.value,
+      messages: found.value.messages.map(withCalendarLine),
       clients: clientIds.map((clientId) => clientLabel(clientId, names)),
     }
     return c.json(page)

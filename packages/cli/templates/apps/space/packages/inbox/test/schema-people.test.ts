@@ -53,10 +53,16 @@ const tables = [
 describe('migration 19: the people of every mailbox', () => {
   test('it adds one table and changes nothing else, and fills a Gmail account with its connector, lower case', () => {
     const { sql, db } = deployed()
-    const before = Object.fromEntries(tables.map((t) => [t, db.query(`SELECT * FROM ${t} ORDER BY rowid`).all()]))
+    // Without the column a later migration added to `message` (migration 20, `calendar`): this test is about what migration 19 changes.
+    const rowsOf = (t: string) =>
+      db
+        .query(`SELECT * FROM ${t} ORDER BY rowid`)
+        .all()
+        .map((r) => Object.fromEntries(Object.entries(r as Record<string, unknown>).filter(([k]) => k !== 'calendar')))
+    const before = Object.fromEntries(tables.map((t) => [t, rowsOf(t)]))
     expect(migrate(sql)).toBe(INBOX_VERSION)
-    expect(INBOX_VERSION).toBe(20)
-    for (const t of tables) expect(db.query(`SELECT * FROM ${t} ORDER BY rowid`).all(), t).toEqual(before[t] as never)
+    expect(INBOX_VERSION).toBeGreaterThanOrEqual(20)
+    for (const t of tables) expect(rowsOf(t), t).toEqual(before[t] as never)
     expect(db.query('PRAGMA foreign_key_check').all()).toEqual([])
     expect(db.query(`SELECT mailbox_id, person, added_by FROM mailbox_person ORDER BY mailbox_id`).all()).toEqual([
       { mailbox_id: 'gm1', person: OWNER, added_by: 'migration 19' },
@@ -72,8 +78,8 @@ describe('migration 19: the people of every mailbox', () => {
 
   test('it is applied once, and a build from before it refuses the store it made', () => {
     const { sql } = deployed()
-    expect(migrate(sql)).toBe(20)
-    expect(migrate(sql)).toBe(20)
+    expect(migrate(sql)).toBe(INBOX_VERSION)
+    expect(migrate(sql)).toBe(INBOX_VERSION)
     expect(sql.exec(`SELECT count(*) AS n FROM mailbox_person`).one().n).toBe(2)
   })
 

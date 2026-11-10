@@ -37,7 +37,7 @@
  * cost, and the knowledge base's shape. The draft chat and the knowledge base's page added migration 10: the
  * chat's turns and a proposed change's target. The spam check added migration 11: what the spam classifier said
  * of a message. Several Gmail accounts added migration 14: when a grant lapsed, and the label of the account that already exists. The Telegram bridge
- * added migration 16: the mailbox table made again for a third kind, and what a Telegram chat, person and message need. Its groups and channels added migration 17: a chat's kind, a supergroup's or channel's own position, the identity that stands for a group, and whether a group message is addressed to the owner. A mailbox on the install's own mail server added migration 18: the mailbox table made again for a fourth kind (read and written over JMAP) and the server's own message and thread ids. Mailbox people added migration 19: the people of every mailbox.
+ * added migration 16: the mailbox table made again for a third kind, and what a Telegram chat, person and message need. Its groups and channels added migration 17: a chat's kind, a supergroup's or channel's own position, the identity that stands for a group, and whether a group message is addressed to the owner. A mailbox on the install's own mail server added migration 18: the mailbox table made again for a fourth kind (read and written over JMAP) and the server's own message and thread ids. Mailbox people added migration 19: the people of every mailbox. The calendar summary added migration 20: what an email's calendar part says, on the message.
  * There is NO approval column anywhere: Claude's send is
  * authorised by the owner's instruction, recorded with each send, in place of an approval step.
  * `message.status` already names every status that is used, because SQLite
@@ -1029,6 +1029,18 @@ export const INBOX_MIGRATIONS: readonly InboxMigration[] = [
   SELECT "id", lower(trim("connected_by")), "connected_at", 'migration 19'
     FROM "mailbox"
    WHERE "kind" = 'gmail' AND trim("connected_by") != '' AND "connected_by" NOT LIKE 'agent:%';
+  `,
+
+  // 20 ── what an email's calendar part says, kept on the message (so a conversation shows an invitation, an update, a cancellation or a guest's answer in place of an empty bubble).
+  // `calendar` is the summary the inbox reads ONCE when the mail arrives (src/calendar-summary.ts, and the workspace's `CalendarSummary`) as JSON: what the part is, the first event's title, time, place, organizer and guests. NULL means the message
+  // was not looked at (stored before this column, or its calendar bytes could not be fetched at arrival); the text `none` means it was looked at and has no summary, so the one-time pass (`Mailroom.summariseStoredCalendarMail`, a setting row says
+  // done) never reads it again. Nothing else changes: the event key and its closing (migration 15) are untouched.
+  //
+  // ── ONE-WAY, AND THE SMALLEST IT CAN BE ─────────────────────────────────
+  // One nullable column; no index, no backfill, no row rewritten. A build before this one refuses a store at version 21 (`migrate`, below), so never redeploy an older commit as it was: keep every migration in the list, undo by a build of the old
+  // code that still carries this one (an undo build keeps migrations 12 to 20), and take a bookmark (scripts/inbox.ts bookmark) before applying. test/schema-calendar.test.ts runs it over a store with today's schema.
+  `
+  ALTER TABLE "message" ADD COLUMN "calendar" TEXT;
   `,
 ]
 

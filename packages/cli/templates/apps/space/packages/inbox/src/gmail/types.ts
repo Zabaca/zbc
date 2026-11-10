@@ -1,3 +1,4 @@
+import type { CalendarSummary } from '@space/workspace'
 import type { CalendarMail } from '../calendar-event'
 import type { AttachmentInfo } from '../types'
 
@@ -88,6 +89,11 @@ export interface ParsedMessage {
   listUnsubscribe: boolean
   /** The calendar event the message is an invitation, update or cancellation of (src/calendar-event.ts), or null. Left out by a caller that has no calendar mail. */
   event?: CalendarMail | null
+  /**
+   * What the email's calendar part says (src/calendar-summary.ts), kept on the message (`message.calendar`). `null`: looked at, and no calendar part, or one that holds no event or cannot be read. ABSENT (undefined): NOT looked
+   * at, because the part's bytes are kept apart by Gmail and the second call for them failed: the message is stored with no summary and the one-time pass may read it again. Left out by a caller that has no calendar mail.
+   */
+  calendar?: CalendarSummary | null
 }
 
 /** Gmail's label ids that the inbox acts on. Everything else is stored and ignored. */

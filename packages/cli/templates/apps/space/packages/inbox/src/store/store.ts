@@ -38,7 +38,7 @@
  * message marked sent by hand, and the reverse.
  */
 
-import type { InboxFrom } from '@space/workspace'
+import { type InboxFrom, parseCalendarSummary, summaryLine } from '@space/workspace'
 import { judgeSender } from '../automated'
 import { repairMojibake } from '../charset'
 import type { SuggestionContact } from '../clients'
@@ -133,6 +133,8 @@ export interface InboxPorts {
    * account is its connector's). Left out, no mailbox is said: every new one is the owner's alone. Read when a mailbox is made and when the object starts (`settleMailboxPeople`).
    */
   mailboxPeople?: (kind: MailboxKind, address: string) => readonly string[] | null
+  /** The company's time zone (the declaration's `company.timeZone`), which the one line a calendar email without words is listed under says its time on (`summaryLine`). Left out: UTC. */
+  zone?: string
 }
 
 /**
@@ -221,7 +223,7 @@ export const messageSelect = (owner: string): string => `
          m.created_at, m.created_by, m.updated_by, m.sent_at, m.sent_by, m.source_ref,
          m.gmail_id, m.jmap_id, m.from_header, m.to_header, m.cc_header, m.snippet, m.body_truncated,
          m.attachments, m.labels, m.instruction_text, m.instruction_where, m.instruction_at, m.raw_key,
-         m.edited_at, m.deleted_at,
+         m.edited_at, m.deleted_at, m.calendar,
          i.kind, i.address, i.contact_id, c.name AS contact_name,
          CASE WHEN m.direction = 'out' AND m.status = 'draft' THEN (SELECT value FROM setting WHERE key = 'telegram-send-failed:' || m.id) END AS send_refusal,
          CASE WHEN m.direction = 'out' THEN cf.address END AS sent_from,
@@ -260,6 +262,7 @@ function pictureOf(r: Row): { picture: NonNullable<MessageRow['picture']> } | Re
 }
 
 export function messageRow(r: Row): MessageRow {
+  const calendar = parseCalendarSummary(r.calendar)
   return {
     id: text(r.id),
     conversationId: textOrNull(r.conversation_id),
@@ -294,6 +297,7 @@ export function messageRow(r: Row): MessageRow {
     snippet: text(r.snippet),
     bodyTruncated: Number(r.body_truncated) === 1,
     attachments: jsonArray<AttachmentInfo>(r.attachments),
+    ...(calendar !== null && { calendar }),
     labels: jsonArray<string>(r.labels),
     ...(typeof r.raw_key === 'string' && { rawKey: r.raw_key }),
     ...pictureOf(r),
@@ -1381,6 +1385,14 @@ export class Inbox {
     )
   }
 
+  /** A list row's line: the newest message's words, cut to 160 characters, or, when it has none and a calendar summary, the line that summary makes on the company's clock. */
+  private listLine(body: string, stored: unknown): string {
+    const words = repairMojibake(body).replace(/\s+/g, ' ').trim().slice(0, 160)
+    if (words !== '') return words
+    const summary = parseCalendarSummary(stored)
+    return summary === null ? '' : summaryLine(summary, this.ports.zone ?? 'UTC')
+  }
+
   /**
    * The summaries of the conversations `where` names. Two row facts come with them (the mark
    * and the tag a list row shows, so no row needs a read of its own): whether the newest
@@ -1396,7 +1408,7 @@ export class Inbox {
                 c.mailbox_id, mb.kind AS mailbox_kind,
                 mb.display_name AS mailbox_name, mb.address AS mailbox_address,
                 (SELECT count(*) FROM message d WHERE d.conversation_id = c.id AND d.status IN ${PENDING}) AS drafts,
-                p.subject AS subject, p.body AS body,
+                p.subject AS subject, p.body AS body, p.calendar AS calendar,
                 (p.status = 'sent' AND p.direction = 'out' AND p.sent_by LIKE '${AGENT_PREFIX}%' AND p.instruction_text IS NOT NULL) AS from_claude,
                 w.created_by AS draft_by, w.updated_by AS draft_updated_by, w.rev AS draft_rev,
                 w.body AS draft_body, w.status AS draft_status
@@ -1437,7 +1449,8 @@ export class Inbox {
         clientIds: distinctClientIds(people),
         subject: text(r.subject),
         // Repaired before the whitespace is collapsed and the line cut: a no-break space or a cut inside "â€™" would leave it garbled (src/charset.ts).
-        snippet: repairMojibake(text(r.body)).replace(/\s+/g, ' ').trim().slice(0, 160),
+        // An email with no words of its own that carries a calendar summary is listed under the line the summary makes ("Ines Okafor accepted: Roadmap review, ..."), where the line would otherwise be empty.
+        snippet: this.listLine(text(r.body), r.calendar),
         newestFromClaude: Number(r.from_claude) === 1,
         draft:
           r.draft_by === null || r.draft_by === undefined

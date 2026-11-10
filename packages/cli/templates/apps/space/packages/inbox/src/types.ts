@@ -1,4 +1,4 @@
-import type { InboxFrom } from '@space/workspace'
+import type { CalendarSummary, InboxFrom } from '@space/workspace'
 
 /**
  * The shapes that cross the wire between the store, the API, the browser and
@@ -243,6 +243,13 @@ export interface MessageRow {
   snippet: string
   bodyTruncated: boolean
   attachments: AttachmentInfo[]
+  /**
+   * What the email's calendar part says (an invitation, an update, a cancellation, a guest's answer, or a plain event), read once when the mail arrived and kept (src/calendar-summary.ts, migration 20). Absent on a message with no calendar part, one
+   * whose part could not be read and one stored before the inbox read them that the one-time pass has not reached. Claude's script prints it with the message, and `calendarLine` beside it when the message has no words.
+   */
+  calendar?: CalendarSummary
+  /** On a message that has no words of its own and a calendar summary: the one line that says what the summary says ("Ines Okafor accepted: Roadmap review, Fri, Nov 13, 10:00 AM to 10:30 AM PST"), on the company's clock. Set only for Claude's script (src/app.ts); absent otherwise. */
+  calendarLine?: string
   /** On a Telegram message its sender edited: when (the text above is the new one). Absent otherwise. */
   editedAt?: string
   /** On a Telegram message its sender deleted for everyone: when. The text is gone and the row stays, so the history shows that one was deleted. Absent otherwise. */

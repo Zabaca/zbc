@@ -46,6 +46,7 @@ import type {
 } from './inbox-views'
 import type { InboxContactProfile, InboxContacts, InboxContactsScope, InboxMerge, InboxMerged, InboxProfileEdit, InboxRename, InboxSplit, InboxSplitDone, InboxUnmerged } from './inbox-people'
 import type { FileRange } from './files'
+import type { InboxCalendar } from './calendar-summary'
 import { MAILBOX_ID } from './inbox-views'
 import type { ClientRef, MailKind } from './rows'
 
@@ -317,6 +318,11 @@ export interface InboxMessage {
    * through a business mailbox the bytes are the message's own kept copy; for one in the owner's Gmail they are fetched from Gmail, and only pictures.
    */
   attachments?: InboxAttachment[]
+  /**
+   * What the email's calendar part says (an invitation, an update, a cancellation, a guest's answer, or a plain event), read once when the mail arrived and kept (`CalendarSummary`), with whether the organizer is the person asking. ABSENT
+   * on an email with no calendar part, one whose part could not be read, one stored before the inbox read them that has not been passed over yet, and from an inbox that predates it: a caller then draws no card.
+   */
+  calendar?: InboxCalendar
   /**
    * How a message this inbox SENT AS A BUSINESS MAILBOX went, one note per recipient Cloudflare has reported on. ABSENT when nothing was reported
    * (the owner's Gmail raises no such reports, a message received has none, and an inbox that predates it never sent it): a caller then says nothing.

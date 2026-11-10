@@ -72,7 +72,10 @@ export const USAGE = `usage: inbox.ts <command>
                                        first, at most 200, each with a line of the message that matched (match).
                                        Reads only what the inbox holds, never Gmail; changes and marks nothing
   conversation <id>                    one conversation: its messages, the drafts waiting on it, read and open
-                                       state, and \`through\` (how far into it you have read)
+                                       state, and \`through\` (how far into it you have read). A message whose
+                                       email carried a calendar part has \`calendar\` (what it says: an invitation,
+                                       an update, a cancellation, a guest's answer) and, when it has no words of
+                                       its own, \`calendarLine\`, the one line that says it (who accepted what, when)
   close <conversation-id> <through>    close it: out of the Inbox, and archived in Gmail too (undo with reopen).
                                        Pass the \`through\` that \`conversation\` printed; refused (409) if a
                                        message arrived after it, and then \`conversation\` shows it

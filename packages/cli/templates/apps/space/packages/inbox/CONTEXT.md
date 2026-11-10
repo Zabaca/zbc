@@ -208,6 +208,13 @@ copy when asked for, one at a time, and not from a message over 10 MB (named onl
 may carry files (ten, 15 MB together), each kept beside the **sent copy**; a Gmail account sends none. Named by its message and its place in that message's list, never by Gmail's id for it.
 _Avoid_: file (too broad), image (only some attachments are pictures), download (only for a Cloudflare mailbox's files; Gmail's other files open in Gmail)
 
+**Calendar summary**:
+What an email's first calendar part (text/calendar or application/ics, inline or a file, or a name ending in .ics) says, read once when the mail arrives and kept on the message as a short piece of JSON (`message.calendar`, migration 20): what the part is (an
+**invitation**, an **update**, a **cancellation**, a guest's **answer** (accepted, declined, tentative or a counter proposal), or a plain **event**), the first event's title, time, place, organizer and guests (ten, then a count) and how many more events the part holds. Times are read to
+moments (UTC, an IANA zone, a Windows zone name through a fixed table, or the part's own zone block) or kept as written and said so; text is cut and stripped, and no link is kept. NULL on a message not looked at, the text `none` on one looked at that has no summary. A conversation shows
+a card from it in place of the empty bubble, a list row whose newest email has no words is listed under its one line, and Claude's script prints that line. Made for every email, a person's included, because it closes nothing (the **event key** is a different thing: it keys only mail Google Calendar sent, to close older updates).
+_Avoid_: invite, ics (the file), event (Google Calendar's word, and the event key's)
+
 **Delivery report**:
 What Cloudflare's Email Sending publishes, to a queue the inbox consumes, about one recipient of one message the inbox sent as a **Cloudflare mailbox**: delivered, deferred, bounced, failed, rejected or complained, with the receiving
 server's reason in its words. Kept one row each in `delivery_event` (never changed, once however often it is delivered), believed only when its sender is a declared mailbox's address, and

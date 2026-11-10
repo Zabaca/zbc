@@ -24,6 +24,7 @@
  * closed stamp, so it reopens it, and no read stamp, so it is unread again.
  */
 
+import { keptCalendar } from '../calendar-summary'
 import { type ParsedArrival, SNIPPET_CHARS } from '../cloudflare/parse'
 import type { MailForModel } from '../cloudflare/spam-check'
 import { bySubject, outsiders, referenceOrder, subjectKey } from '../cloudflare/thread'
@@ -406,10 +407,10 @@ export class ArrivalStore extends Inbox {
                               created_at, created_by, updated_at, updated_by, sent_at, sent_by, source_ref,
                               mailbox_id, gmail_id, rfc_message_id, in_reply_to, from_header, to_header, cc_header,
                               sender_date, snippet, body_truncated, attachments, labels, list_unsubscribe,
-                              read_at, read_by, closed_at, closed_by, reply_to_header, arrival_key, raw_key, event_key, event_kind)
+                              read_at, read_by, closed_at, closed_by, reply_to_header, arrival_key, raw_key, event_key, event_kind, calendar)
          VALUES (?1, ?2, ?3, 'in', 'sent', ?4, ?5, '', ?6, ?7, ?6, ?7, ?8, ?7, NULL,
                  ?9, NULL, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, '[]', ?19,
-                 NULL, NULL, NULL, NULL, ?20, ?21, ?22, ?23, ?24)`,
+                 NULL, NULL, NULL, NULL, ?20, ?21, ?22, ?23, ?24, ?25)`,
         messageId,
         conversationId,
         primaryIdentity.id,
@@ -434,6 +435,7 @@ export class ArrivalStore extends Inbox {
         meta.rawKey,
         parsed.event?.key ?? null,
         parsed.event?.kind ?? null,
+        keptCalendar(parsed.calendar),
       )
       this.touchConversation(conversationId)
       this.sql.exec(

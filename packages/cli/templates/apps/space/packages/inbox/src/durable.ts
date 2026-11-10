@@ -147,6 +147,7 @@ export class InboxDO extends DurableObject<Env> {
       owner,
       content: bundledContent,
       mailboxPeople: mailboxPeopleOf(bundledInstall),
+      zone: bundledInstall.company.timeZone,
     })
     // The VAPID key, checked once here. Unset or not a whole P-256 key, it is null and notifications fail closed: every
     // route says they are not set up, and nothing is sent. In `vite dev` the key is the dev one from .dev.vars, and the
