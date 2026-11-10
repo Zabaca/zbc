@@ -75,4 +75,21 @@ describe('the folder’s packages share one copy of what they share', () => {
       expect(specs[0], tool).toMatch(/^\d+\.\d+\.\d+$/)
     }
   })
+
+  test('every library a package names is one exact version, so a project that pulls the folder builds what was tested', () => {
+    // The folder ships no lockfile: it is pulled into a project's own workspace, and a range would let that project's install choose a newer library than any suite here ran with.
+    const loose: string[] = []
+    for (const folder of [...readdirSync(packagesRoot).map((name) => `${packagesRoot}${name}`), `${packagesRoot}../kit`]) {
+      let manifest: { name: string; dependencies?: Record<string, string>; devDependencies?: Record<string, string> }
+      try {
+        manifest = JSON.parse(readFileSync(`${folder}/package.json`, 'utf8'))
+      } catch {
+        continue
+      }
+      for (const [library, spec] of Object.entries({ ...manifest.dependencies, ...manifest.devDependencies })) {
+        if (!spec.startsWith('workspace:') && !/^\d+\.\d+\.\d+(?:-[\w.]+)?$/.test(spec)) loose.push(`${manifest.name}: ${library}@${spec}`)
+      }
+    }
+    expect(loose).toEqual([])
+  })
 })
