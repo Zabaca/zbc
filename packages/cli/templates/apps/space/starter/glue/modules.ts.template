@@ -1,0 +1,28 @@
+import { cloudflareModule } from '{{MODULES}}/cloudflare'
+import { cloudflareAccessModule } from '{{MODULES}}/cloudflare-access'
+import { d1Module } from '{{MODULES}}/d1'
+import { queueModule } from '{{MODULES}}/queue'
+import { r2Module } from '{{MODULES}}/r2'
+import type { ModuleInstance } from '{{ENGINE}}/types'
+import type { SpaceKitModules, SpaceKitPaths } from '{{APP}}/kit/instances'
+
+/**
+ * What this project hands the space's install kit: its own zbc modules, and where the space's code is from the project's root. One place, read by every environment of this project that holds an install
+ * of the space, so the kit itself imports nothing of the project's.
+ */
+export const SPACE_MODULES: SpaceKitModules = {
+  worker: cloudflareModule,
+  access: cloudflareAccessModule,
+  queue: queueModule,
+  bucket: r2Module,
+  database: d1Module,
+}
+
+/** Where the space's Worker package and forms' migrations are, from the project's root. Each environment adds its own declaration's path. */
+export const SPACE_PATHS: Omit<SpaceKitPaths, 'declaration'> = {
+  worker: 'vendor/space/packages/space',
+  formsMigrations: 'vendor/space/packages/forms/migrations',
+}
+
+/** An instance as this project's engine knows it: what an environment's instance file exports. */
+export type SpaceInstance = ModuleInstance<never>

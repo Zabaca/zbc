@@ -1,0 +1,223 @@
+/* The inbox's own menu as a tree under Inbox in the rail (and Meet's, the same way), its sheet on a phone, and the Client pill on a row (src/client/nav.tsx). Same dark look as style.css. */
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+/* The rail grows a tree and a foot: it scrolls when they are longer than the screen. */
+.rail {
+  overflow-y: auto;
+}
+.rail-item.gear {
+  display: none;
+}
+
+/* ---------- the tree ---------- */
+.rail-tree {
+  margin: 0 0 6px 17px;
+  padding-left: 6px;
+  border-left: 1px solid var(--line);
+}
+.tree {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.t-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 8px;
+  min-height: 28px;
+  border-radius: 6px;
+  color: #c3c3ca;
+  font-size: 12.5px;
+  text-decoration: none;
+}
+.t-item:hover {
+  background: rgba(255, 255, 255, 0.04);
+}
+.t-item.on {
+  background: var(--raise);
+  color: var(--text);
+  font-weight: 500;
+}
+.t-item.child {
+  min-height: 24px;
+  padding-left: 18px;
+  color: var(--mute);
+  font-size: 12px;
+}
+.t-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.clientpill.suggested {
+  border-style: dashed;
+  background: transparent;
+}
+.t-count {
+  color: var(--mute);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+.t-unread {
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.t-group {
+  padding: 12px 8px 3px;
+  color: var(--mute);
+  font-size: 10.5px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.t-note {
+  margin: 0;
+  padding: 8px 8px 4px;
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+/* Settings at the foot, and the lines the inbox says there. */
+.t-foot {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
+}
+.t-foot .t-item.gear {
+  gap: 8px;
+}
+.t-status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 8px;
+  color: var(--mute);
+  font-size: 11px;
+  line-height: 1.5;
+  text-decoration: none;
+}
+.t-status:hover {
+  color: var(--text);
+}
+.t-dot {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--ok);
+  box-shadow: 0 0 0 3px rgba(95, 192, 138, 0.15);
+}
+.t-dot.amber {
+  background: var(--warn);
+  box-shadow: 0 0 0 3px rgba(224, 168, 90, 0.18);
+}
+.rail-foot {
+  padding-bottom: 4px;
+}
+
+/* ---------- the Client pill, as on the inbox's own rows ---------- */
+.clientpill {
+  display: inline-flex;
+  max-width: 100%;
+  padding: 1px 7px;
+  overflow: hidden;
+  border: 1px solid rgba(106, 164, 255, 0.22);
+  border-radius: 5px;
+  background: rgba(106, 164, 255, 0.14);
+  color: #9bbcff;
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ---------- the views button and its sheet (a phone) ---------- */
+.views-row {
+  display: none;
+  padding: 8px 14px 0;
+}
+.views-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 40px;
+  padding: 6px 12px;
+  border: 1px solid var(--line2);
+  border-radius: 8px;
+  background: var(--panel);
+  color: var(--text);
+  font: inherit;
+  font-weight: 500;
+  cursor: pointer;
+}
+.views-btn > span:first-child {
+  flex: 1;
+  text-align: left;
+}
+.views-caret {
+  color: var(--mute);
+}
+.sheet:focus {
+  outline: none;
+}
+.sheet {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  padding-top: env(safe-area-inset-top);
+  background: var(--bg);
+}
+.sheet-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px max(16px, env(safe-area-inset-right)) 12px max(16px, env(safe-area-inset-left));
+  border-bottom: 1px solid var(--line);
+}
+.sheet-body {
+  overflow: auto;
+  padding: 8px max(12px, env(safe-area-inset-right)) max(24px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left));
+}
+.sheet .t-item {
+  min-height: 44px;
+  font-size: 14px;
+}
+.sheet .t-item.child {
+  min-height: 38px;
+  font-size: 13px;
+}
+.sheet .t-status {
+  min-height: 28px;
+  font-size: 12px;
+}
+
+@media (max-width: 760px) {
+  /* The strip has room for the four tabs and a gear: the tree and the foot are the sheet's. */
+  .rail-tree,
+  .rail-foot {
+    display: none;
+  }
+  .rail-item.gear {
+    display: flex;
+  }
+  .views-row {
+    display: block;
+  }
+}

@@ -1,0 +1,27 @@
+# Messages and settings in the space: chat is meet's answer, drawn where the conversation is
+
+Status: accepted, the second step of retiring meet's `/start` (channel admin was the first: [0012](0012-channel-admin-is-meets-answer-drawn-in-the-conversation-and-the-invitation-is-the-one-email-it-causes.md)). Meet's side is [packages/meet ADR 0008](../../../meet/docs/adr/0008-messages-and-settings-in-the-space-the-same-core-methods-asked-as-the-same-teammate-and-a-message-in-a-conversation-you-are-not-in-does-not-exist.md); the contract is `packages/workspace/src/meet-for-space.ts`.
+
+## What the space does
+
+**Five things that only `/start` still did in chat, each drawn where it belongs.**
+
+1. **New message** is a third button above the Conversations list, beside New channel and Browse channels. It lists the people meet says the person may write to (`/api/meet/people`), searched by name or address. A person with a direct message that has something in it is opened as it is. For anyone else the panel becomes a box; **the first message is `/api/chat` with a `personId`**, the post that already existed, so it is one direct message and one message however often Send is pressed: the compose key is made once for the box and kept through a refusal, and an outcome the space lost track of offers no second try. When it has gone the page opens the conversation by the person's address (a row holding that address is found by it).
+2. **Edit and Delete** are on the line over a chat message, only where meet's `may` for that message says so. Edit is a box (Enter saves, Escape cancels) that keeps its words when meet refuses; Delete asks first, in `/start`'s words ("Delete this message for everyone?", Delete or Keep it). Meet's refusals are shown under the message as meet words them. What was done is put right in the history held on screen (the message may be older than the newest page, which a read does not bring back), and the conversation and the list are then read again.
+3. **Settings, Chat** is a section of the Settings menu: the name chat messages carry, the switch for the email that says a direct message has waited 15 minutes, and the privacy note (`/start`'s words, word for word) with **I understand** until it has been acknowledged. Each press is one call to meet; none sends anything.
+4. **Links** in a chat message are drawn as links by the in-call chat's own rule (`linkify`, imported from meet's page code, so there is one rule): `http` or `https`, a host, no embedded sign-in, a look-alike host shown as what it really opens; opened in a new tab with `rel="noopener noreferrer nofollow"`. A link to a call on meet's address reads **Join call**. Email is not linked: this is chat.
+5. **"New"** is a line before the first message from someone else that was unread when the conversation was opened, and the tab's title carries the unread count: `(3) Conversations | Northfield Works` (the company's name).
+
+## Decisions worth knowing
+
+**The space decides nothing about who may do what.** The buttons follow meet's `may`; the refusals are meet's. The Worker (`src/chat.ts`) is one call to meet each, with the request's assertion, never retried. The four writes (`/api/meet/message-edit`, `message-delete`, `me-update`, `privacy-ack`) are POSTs on their own paths, accepted only by the one POST guard (this host's Origin, a JSON body); a body that is not what the write takes is a 400 and meet is not asked, and the parsers are as strict as meet (a nudge that is not a boolean is refused at the Worker too).
+
+**"New" is the first answer's.** The conversation answer carries `newFrom`, the id of the first unread message from someone else, worked out from the unread count meet already gives for the row (the unread-th from the end among others' messages), so no new field was needed from meet. Opening a conversation marks it read, and every answer after the first says nothing is unread; so the pane keeps the first answer's `newFrom` for as long as that conversation stays open. A message that arrives while it is open is not "new" to the person reading it, so the line does not move. If the line falls on a huddle's announcement (drawn as a card) or on the person's own message, it goes to the next message from someone else that is drawn.
+
+**The title counts chat, not email.** `/api/meet/unread` is one read of meet's overview, summed in the Worker: every unread message in direct messages, channels and the Phone conversation, as `/start`'s title counted. Email's unread stays in the Unread view's own count; the space's rows already mix the two (and say so), but a title that added them would hide which kind it is. It is read when the page opens, when it is shown again, once a minute while visible, and when anything here changed (a conversation read or sent, the live socket saying chat moved).
+
+**Nothing about a private conversation reaches someone outside it.** Meet answers "There is no such message." for a message in a conversation the person is not in, in the same words as one that is not there. A person's list of people to write to has no guest they share no channel with. A guest never reaches the space.
+
+## What was not decided here
+
+A first direct message from a channel's member list (the **Message** button there stays where a direct message with something in it exists); the privacy note asked on first sight (`/start` asked guests, never teammates); a count in the title that adds email's.

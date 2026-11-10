@@ -1,0 +1,7 @@
+# A recipient's private link: its page sends no referrer (the token is in the path), loads nothing from another site, and
+# cannot be framed. The same-origin API under /api/s/ sets its own no-store and no-referrer headers (src/routes/signer.ts).
+/s/*
+  Referrer-Policy: no-referrer
+  X-Content-Type-Options: nosniff
+  X-Frame-Options: DENY
+  Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; worker-src 'self' blob:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'

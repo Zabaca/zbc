@@ -1,0 +1,9 @@
+node_modules/
+dist/
+.wrangler/
+.dev.vars
+*.dev.vars
+test-results/
+playwright-report/
+# The Worker's settings, written by the build for the install it builds (kit/worker-settings.ts); never edited, never committed
+packages/space/wrangler.json

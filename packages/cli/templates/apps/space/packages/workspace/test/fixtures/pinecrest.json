@@ -1,0 +1,19 @@
+{
+  "company": {
+    "id": "pinecrest-test",
+    "name": "Pinecrest Test",
+    "domain": "pinecrest.test",
+    "timeZone": "America/Los_Angeles",
+    "logo": "/logo.png",
+    "colors": { "accent": "#2b5d3a" }
+  },
+  "access": { "teamDomain": "brightwater.cloudflareaccess.com" },
+  "space": { "host": "space.pinecrest.test", "sessionDuration": "730h" },
+  "formsService": { "contact": "info@pinecrest.test" },
+  "sharedAddresses": ["info@pinecrest.test", "estimates@pinecrest.test"],
+  "people": [
+    { "address": "lane@pinecrest.test", "name": "Lane", "role": "owner" },
+    { "address": "corin@pinecrest.test", "name": "Corin", "signIn": "corin.private@example.com", "role": "member", "sharedAddresses": ["estimates@pinecrest.test"] },
+    { "address": "dana@pinecrest.test", "name": "Dana", "role": "member" }
+  ]
+}

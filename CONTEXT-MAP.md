@@ -1,6 +1,6 @@
 # Context Map
 
-zbc holds four bounded contexts. They share a repository and a runtime, not a
+zbc holds four bounded contexts of its own, and carries a fifth thing that keeps its own. They share a repository and a runtime, not a
 vocabulary — the same word means different things on either side of a line, so
 each keeps its own glossary.
 
@@ -23,8 +23,21 @@ each keeps its own glossary.
 - [agentgit](./packages/agentgit/CONTEXT.md) — the public git host for agents at
   `agentgit.zabaca.com`. One deployment of walgit, plus the client-side pieces
   that only make sense against it. Lives in `packages/agentgit/`.
+- [The space](./packages/cli/templates/apps/space/README.md): a small company's
+  workspace in one Worker, a vendored app
+  ([ADR-0020](./docs/adr/0020-an-app-too-large-to-copy-is-a-subtree-of-its-own-public-copy.md)).
+  It is not one context but eight packages, each with a `CONTEXT.md` of its own
+  under `packages/cli/templates/apps/space/packages/`, and it ships whole to
+  every company that runs `zbc add space`. Its words are its own: an "install"
+  there is a company's deployed space, not a module instance.
 
 ## Relationships
+
+- **The space → Infrastructure**: the space's kit is handed a project's zbc
+  modules (`cloudflare`, `cloudflare-access`, `queue`, `r2`, `d1`) and builds
+  its instances from them; it imports none. A module change the kit depends on
+  is reviewed here, where both are, and `worker-install-shape.test.ts` in the
+  modules holds the shape the kit needs.
 
 - **Agent → Infrastructure**: none yet, and deliberately so. An agent that could
   call `zbc apply` would hold provisioning credentials, which is exactly what the

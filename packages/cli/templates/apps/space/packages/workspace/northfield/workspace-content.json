@@ -1,0 +1,84 @@
+{
+  "personas": {
+    "info@ridgewaycycles.example": {
+      "role": "the customer-service agent for Ridgeway Cycles, a neighbourhood bike workshop in Alder Bend, Oregon, where bicycles are repaired, tuned and fitted to their riders",
+      "signature": "Tessa\nRidgeway Cycles",
+      "us": "info@ (us)"
+    },
+    "hello@shiftlantern.example": {
+      "role": "the reply assistant for ShiftLantern, which publishes free guides for hourly workers in Oregon about the rules of their workplace",
+      "signature": "ShiftLantern",
+      "us": "hello@ (us)",
+      "rules": "A reply from ShiftLantern does three things and no more: it thanks the reader, it says in a sentence what the matching guide covers, and it says where a person can take a question about their own job. ShiftLantern is a set of general guides; it does not give legal advice, and a reply says so plainly when a reader asks for it. Leave out anything that judges the reader's own case: no opinion on whether a rule was broken, no sum of money, no count of days left, no suggestion about how to handle a manager. For a question about their own job, name Oregon's Bureau of Labor and Industries or a lawyer licensed in Oregon. Mention a guide by name or address only when the knowledge base lists it; with nothing listed, give shiftlantern.example and stop there. The reply is from ShiftLantern as a whole: it carries no person's name and refers to no other company."
+    },
+    "tessa@northfield.example": {
+      "role": "the email assistant for Tessa Marlow, who runs Northfield Works, where custom shelving and cabinets are designed and built to order",
+      "signature": "Tessa\nNorthfield Works",
+      "us": "Tessa (us)"
+    }
+  },
+  "spamQuestions": {
+    "info@ridgewaycycles.example": {
+      "categories": [
+        "customer",
+        "business_correspondence",
+        "vendor_pitch",
+        "scam_phishing",
+        "internal_test"
+      ],
+      "questions": {
+        "category": {
+          "type": "choice",
+          "instructions": "You are sorting mail for Ridgeway Cycles, a neighbourhood bike workshop in Alder Bend, Oregon, where bicycles are repaired, tuned and fitted to their riders. Tessa, who owns the shop, reads this inbox. Choose the one kind this message is.",
+          "criteria": {
+            "customer": "A rider, or someone about to become one, writing to the shop about its work: a repair or tune-up, a fitting, what something costs, when the shop is open, a booking, or a bike already left there.",
+            "business_correspondence": "A firm or person the shop already does business with, about that business: whoever supplies its parts and tools, its landlord, insurer or bookkeeper, a cycling club, another shop.",
+            "vendor_pitch": "An offer nobody asked for, aimed at the shop as a buyer: adverts, search ranking, customer lists, a new website, booking or till software, temporary staff, a loan.",
+            "scam_phishing": "A message built to deceive: a bill for something the shop never ordered, a document to sign or a voicemail to hear behind a link, a calendar notice from a stranger, a warning that an account or password needs attention.",
+            "internal_test": "A test message, or a check a system sends by itself."
+          }
+        },
+        "junk": {
+          "type": "noul",
+          "instructions": "You are sorting mail for Ridgeway Cycles, a neighbourhood bike workshop in Alder Bend, Oregon, where bicycles are repaired, tuned and fitted to their riders. Tessa, who owns the shop, reads this inbox. Answer one question about this message: is it unrequested selling, advertising or a trick, which can stay out of Tessa's main inbox?",
+          "criteria": {
+            "true": "Yes when the sender is pushing something the shop did not ask for, or trying to deceive it, and no one in the message wants a bike repaired, tuned or fitted.",
+            "false": "No when the sender is or could become a customer, already does business with the shop, or asks anything about its work. If you cannot tell, answer no."
+          }
+        }
+      }
+    },
+    "hello@shiftlantern.example": {
+      "categories": [
+        "worker_question",
+        "page_feedback",
+        "organization_or_professional",
+        "vendor_pitch",
+        "scam_phishing",
+        "internal_test"
+      ],
+      "questions": {
+        "category": {
+          "type": "choice",
+          "instructions": "ShiftLantern (shiftlantern.example) publishes free guides for hourly workers in Oregon on topics such as overtime, breaks, sick time, scheduling and final pay. You are sorting one message sent to its contact address, which Tessa, who runs the site, reads. Workers are the usual senders, and their messages vary widely: some are a single line, some run for pages, some are in a language other than English, and many are written in distress. Sort by who is writing and why, not by how well it is written. Pick the one kind that fits.",
+          "criteria": {
+            "worker_question": "The sender, or a person they are writing for, has or had a job and the message is about that job: unpaid or late wages, overtime, missed breaks, time off, a changed schedule, losing the job, a final paycheck, punishment after a complaint, mistreatment, or being paid as a contractor. A plain account of what happened counts even with no question in it. Tone, length, spelling and language do not matter.",
+            "page_feedback": "The message is about the site itself: something on a page is wrong, out of date, broken or unclear, or the reader liked or disliked a guide.",
+            "organization_or_professional": "The sender writes for a body rather than for themselves and wants nothing bought: a union, a workers' centre, legal aid, a public agency, a library or school, a journalist or a researcher. A lawyer who introduces themselves or offers help to readers belongs here too.",
+            "vendor_pitch": "The sender wants the site to buy, publish or exchange something: search ranking work, links or guest articles, a new design, adverts, contact lists, visitors, software, a domain name, or a partnership offer written so that any website could have received it.",
+            "scam_phishing": "The message tries to trick: a bill for something never ordered, a warning about the domain, hosting, copyright or an account that asks for a click or a login, or an offer of crypto, an investment, a prize or an inheritance.",
+            "internal_test": "A test message, or a check a system sends by itself."
+          }
+        },
+        "junk": {
+          "type": "noul",
+          "instructions": "ShiftLantern (shiftlantern.example) publishes free guides for hourly workers in Oregon on topics such as overtime, breaks, sick time, scheduling and final pay. You are sorting one message sent to its contact address, which Tessa, who runs the site, reads. Decide one thing: is this message selling, advertising, a request for links or guest articles, or a trick, so that it can stay out of the main inbox? Never keep a worker's message out. Length, tone, spelling and language are not reasons: a worker's message stays whether it is one line or ten pages, calm or furious, in English or in any language. Whenever a real person might be telling their own story or asking for help, the answer is no.",
+          "criteria": {
+            "true": "Yes when the message treats the site as a buyer or a mark: an offer of SEO, link-building, a guest-post or backlinks, website design, advertising, lead-generation or contact lists, software or another service, a partnership proposal any site could have been sent, crypto or other investments, phishing, invoices for nothing ordered, or alarms about an account. No job and no workplace rule is the subject of it.",
+            "false": "No when a person has a reason of their own to write. That covers anyone describing work: wages, hours, breaks, leave, being let go, a last paycheck, or trouble with an employer, whether for themselves or for someone close to them, in any language. It covers a correction to a page or a question about one. It covers a workers' group, legal aid, a union, a public office, a library, a reporter, a researcher, and a lawyer who introduces themselves or offers help. A message that is hard to follow, a single line, many pages, or in a language you cannot read is still a no. If you cannot tell, answer no."
+          }
+        }
+      }
+    }
+  }
+}

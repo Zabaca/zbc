@@ -1,0 +1,49 @@
+{
+  "_fixture": "PLACEHOLDER: shaped from Google’s documented API reference, not a captured response. Replace with a trimmed real response after Gmail is connected (packages/inbox/docs/runbooks/inbox-google-setup.md, \"After connecting\").",
+  "id": "19a1e8a0d1c3f777",
+  "threadId": "19a1e8a0d1c3f777",
+  "labelIds": ["UNREAD", "CATEGORY_PROMOTIONS", "INBOX"],
+  "snippet": "This week: three ways to cut your hosting bill",
+  "historyId": "482100",
+  "internalDate": "1792486800000",
+  "sizeEstimate": 15012,
+  "payload": {
+    "partId": "",
+    "mimeType": "text/html",
+    "filename": "",
+    "headers": [
+      {
+        "name": "Date",
+        "value": "Mon, 20 Oct 2026 02:00:00 -0700"
+      },
+      {
+        "name": "From",
+        "value": "Hosting Weekly <news@hosting.example>"
+      },
+      {
+        "name": "To",
+        "value": "tessa@northfield.example"
+      },
+      {
+        "name": "Subject",
+        "value": "This week: three ways to cut your hosting bill"
+      },
+      {
+        "name": "Message-ID",
+        "value": "<20261020090000.1@news.hosting.example>"
+      },
+      {
+        "name": "List-Unsubscribe",
+        "value": "<https://hosting.example/unsub/abc>, <mailto:unsub@hosting.example>"
+      },
+      {
+        "name": "Content-Type",
+        "value": "text/html; charset=\"UTF-8\""
+      }
+    ],
+    "body": {
+      "size": 160,
+      "data": "PGh0bWw-PGhlYWQ-PHN0eWxlPnB7Y29sb3I6cmVkfTwvc3R5bGU-PC9oZWFkPjxib2R5PjxwPlRoaXMgd2Vlazo8L3A-PHA-VGhyZWUgd2F5cyB0byBjdXQgeW91ciBob3N0aW5nIGJpbGwgJmFtcDsgbW9yZS48L3A-PHNjcmlwdD5hbGVydCgxKTwvc2NyaXB0PjwvYm9keT48L2h0bWw-"
+    }
+  }
+}

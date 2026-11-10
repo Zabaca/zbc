@@ -1,0 +1,13 @@
+{
+  "name": "space",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "license": "MIT",
+  "workspaces": ["packages/*", "kit"],
+  "scripts": {
+    "test": "bun run --filter '*' test",
+    "typecheck": "bun run --filter '*' typecheck",
+    "check:public": "bun packages/workspace/scripts/public-check.ts --strict"
+  }
+}

@@ -1,0 +1,137 @@
+/* The Forms tab's screens were written with Tailwind v4 (they came from forms' admin); this is Tailwind inside the space, in the space's look.
+   Theme and utilities only: no preflight, which would reset the whole page. What the screens need from it is below, under `.forms-tab`.
+   The layers are ordered in style.css (theme, base, components, utilities), so a utility beats the space's element rules (also in `base`). */
+@import 'tailwindcss/theme.css' layer(theme);
+@import 'tailwindcss/utilities.css' layer(utilities);
+
+/* The classes the screens share with the signer's pages are in forms' public/ folder (FormRunner, PdfPages), which the builder's preview and the
+   placement screen draw: Tailwind reads them for the classes they use. */
+@source "../../../../forms/src/public";
+
+/* The admin's colour names, over the space's own colours (style.css :root). The look is the space's: dark, the accent blue for the main action. */
+@theme inline {
+  --color-background: var(--bg);
+  --color-foreground: var(--text);
+  --color-card: var(--panel);
+  --color-muted: var(--raise);
+  --color-muted-foreground: var(--mute);
+  --color-border: var(--line2);
+  --color-input: rgba(255, 255, 255, 0.24);
+  --color-ring: var(--accent);
+  --color-primary: var(--accent);
+  --color-primary-hi: #8bb8ff;
+  --color-primary-foreground: #07101e;
+  --color-accent: rgba(255, 255, 255, 0.07);
+  --color-destructive: var(--bad);
+  --color-pos: var(--ok);
+  --color-pos-bg: rgba(111, 191, 139, 0.12);
+  --color-warn: var(--warn);
+  --color-warn-bg: var(--warn-bg);
+  --color-neg-bg: var(--bad-bg);
+}
+
+/* What Tailwind's preflight would give the screens, for the tab only. */
+@layer base {
+  .forms-tab *,
+  .forms-tab ::before,
+  .forms-tab ::after {
+    box-sizing: border-box;
+    border: 0 solid var(--line2);
+  }
+  .forms-tab h1,
+  .forms-tab h2,
+  .forms-tab h3,
+  .forms-tab h4 {
+    font-size: inherit;
+    font-weight: inherit;
+  }
+  .forms-tab h1,
+  .forms-tab h2,
+  .forms-tab h3,
+  .forms-tab h4,
+  .forms-tab p,
+  .forms-tab dl,
+  .forms-tab dd,
+  .forms-tab figure,
+  .forms-tab pre {
+    margin: 0;
+  }
+  .forms-tab a {
+    color: inherit;
+    text-decoration: inherit;
+  }
+  .forms-tab ol,
+  .forms-tab ul {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+  .forms-tab button,
+  .forms-tab input,
+  .forms-tab select,
+  .forms-tab textarea {
+    font: inherit;
+    letter-spacing: inherit;
+    color: inherit;
+    background-color: transparent;
+    border-radius: 0;
+  }
+  .forms-tab button:not(:disabled) {
+    cursor: pointer;
+  }
+  .forms-tab img,
+  .forms-tab svg,
+  .forms-tab canvas {
+    display: block;
+    vertical-align: middle;
+  }
+  .forms-tab img {
+    max-width: 100%;
+    height: auto;
+  }
+  .forms-tab table {
+    border-collapse: collapse;
+  }
+  .forms-tab ::placeholder {
+    opacity: 1;
+    color: color-mix(in oklab, currentcolor 50%, transparent);
+  }
+  .forms-tab select option {
+    background: var(--panel);
+    color: var(--text);
+  }
+}
+
+/* The sections of the tab across the top of the screen on a phone. On a computer they are the tree in the rail. */
+.forms-sections {
+  display: none;
+  gap: 6px;
+  padding: 8px 14px;
+  overflow-x: auto;
+  border-bottom: 1px solid var(--line);
+  background: var(--bg);
+}
+.forms-section {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  min-height: 34px;
+  padding: 4px 12px;
+  border: 1px solid var(--line2);
+  border-radius: 999px;
+  color: var(--mute);
+  font-size: 12.5px;
+  text-decoration: none;
+  white-space: nowrap;
+}
+.forms-section.on {
+  background: var(--raise);
+  border-color: transparent;
+  color: var(--text);
+  font-weight: 500;
+}
+@media (max-width: 760px) {
+  .forms-sections {
+    display: flex;
+  }
+}

@@ -1,0 +1,200 @@
+/* The People tab (People.tsx): the directory, a person's page, and the three fields also drawn beside a conversation. Dark only, with the rest of the space. */
+
+/* The groups of the list: Clients, Outside, Team. */
+.p-group {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: 0;
+  padding: 12px 14px 4px;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--mute);
+}
+
+/* A person's page takes the whole detail column and scrolls in it. */
+.detail:has(.p-page) {
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: flex-start;
+  padding: 0;
+  overflow-y: auto;
+}
+.p-page {
+  display: grid;
+  gap: 16px;
+  width: 100%;
+  max-width: 660px;
+  padding: 18px 22px 44px;
+  align-content: start;
+}
+.p-page > .back {
+  display: none;
+  width: auto;
+  padding: 0;
+  border: 0;
+  min-height: 28px;
+}
+.p-head {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+}
+.p-head h2 {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 500;
+}
+.p-head .avatar-lg {
+  width: 52px;
+  height: 52px;
+  font-size: 17px;
+}
+.p-head-acts {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 6px;
+}
+/* Rename: the box and its buttons, on a row that wraps on a phone. */
+.p-rename {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  max-width: 100%;
+}
+.p-rename input {
+  flex: 1 1 200px;
+  min-width: 0;
+  padding: 7px 10px;
+  border: 1px solid var(--line2);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+}
+.p-rename input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+.p-rename .cnotice {
+  flex-basis: 100%;
+}
+/* An address of a person who has two or more: its Split off beside it. */
+.fact dd:has(.split) {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+}
+
+/* The three fields. */
+.p-fields {
+  display: grid;
+  gap: 10px;
+}
+.p-field {
+  display: grid;
+  gap: 4px;
+}
+.p-field input,
+.p-field textarea,
+.p-section select {
+  width: 100%;
+  padding: 7px 10px;
+  border: 1px solid var(--line2);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+}
+.p-field textarea {
+  resize: vertical;
+  min-height: 84px;
+}
+.p-field input:focus,
+.p-field textarea:focus,
+.p-section select:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+.p-newer {
+  align-items: flex-start;
+}
+.p-newer p {
+  margin: 0 0 6px;
+}
+
+/* A block of the page: the Client, a merge, the documents. */
+.p-section {
+  display: grid;
+  gap: 10px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+}
+.p-section p {
+  margin: 0;
+}
+.p-line {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 10px 12px;
+  border: 1px solid var(--line2);
+  border-radius: 9px;
+  background: var(--panel);
+}
+.p-line.dashed {
+  border-style: dashed;
+  border-color: rgba(106, 164, 255, 0.5);
+}
+.p-pick {
+  display: grid;
+  gap: 8px;
+}
+
+/* A merge just made, with the way back, above the person it left. */
+.p-merged {
+  flex: none;
+  margin: 14px 22px 0;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+/* The fields beside a conversation: in the profile panel, under the facts. */
+.p-beside {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+
+@media (max-width: 760px) {
+  .detail:has(.p-page) {
+    display: flex;
+  }
+  .p-page > .back {
+    display: inline-flex;
+  }
+  .p-page {
+    padding: 14px max(14px, env(safe-area-inset-right)) 40px max(14px, env(safe-area-inset-left));
+  }
+  .p-merged {
+    margin: 12px max(14px, env(safe-area-inset-right)) 0 max(14px, env(safe-area-inset-left));
+  }
+  .p-line {
+    align-items: stretch;
+  }
+  .p-field input,
+  .p-field textarea,
+  .p-section select {
+    font-size: 16px;
+  }
+}

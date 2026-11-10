@@ -1,0 +1,46 @@
+/* The Knowledge tab (Knowledge.tsx, KnowledgeTab.tsx): the page, the cards and chips of Settings, plus the businesses an entry is for. Dark only, with the rest of the space. */
+.knowledge .s-stack {
+  margin-top: 14px;
+}
+/* The small labels naming the businesses an entry is for. */
+.k-biz {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.kindtag.warn {
+  color: var(--warn);
+}
+/* The businesses to tick on an entry. */
+.k-pick {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  min-width: 0;
+}
+.k-pick-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 14px;
+}
+.k-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 28px;
+  cursor: pointer;
+}
+.k-check input {
+  width: auto;
+  margin: 0;
+  accent-color: var(--accent);
+}
+@media (max-width: 760px) {
+  .knowledge .s-entry-head {
+    align-items: flex-start;
+  }
+  .knowledge .chips {
+    flex-wrap: wrap;
+  }
+}

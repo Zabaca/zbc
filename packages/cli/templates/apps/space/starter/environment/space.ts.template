@@ -1,0 +1,11 @@
+import { spaceInstance } from '../../space/{{ENV}}'
+
+/**
+ * The space itself: one Worker on the host the declaration names, in the account the install file names. One line, made by the space's kit (vendor/space/kit/instances.ts); the instances beside this
+ * one are applied first, so the host is never served without its sign-in.
+ *
+ * Applied by hand, and looked at after (vendor/space/packages/space/README.md, "Checking an address after an apply"). Before the first apply: vendor/space/docs/install.md.
+ *
+ * Deploy: bunx @zabaca/zbc apply {{ENV}} space
+ */
+export default spaceInstance('space')

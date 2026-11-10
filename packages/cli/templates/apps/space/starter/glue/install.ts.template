@@ -1,0 +1,35 @@
+import { readFileSync } from 'node:fs'
+import { INSTANCE_NAMES, buildSpaceInstall, type SpaceInstall, type SpaceInstances } from '{{APP}}/kit/instances'
+import installFile from '../environments/{{ENV}}/workspace-install.json'
+import declaration from '../environments/{{ENV}}/workspace.json'
+import { SPACE_MODULES, SPACE_PATHS, type SpaceInstance } from './modules'
+
+/**
+ * This project's install of the space in the `{{ENV}}` environment, made by the kit from the pair beside that environment's instances: the declaration (workspace.json) and the install file
+ * (workspace-install.json). Each of the space's instance files there is one line that exports its instance from here, since zbc loads every .ts file of an environment as an instance and the kit makes
+ * them all at once. Which instances exist follows the declaration: a feature switched on (a business mailbox, calls, a machine's door) adds its instance, and its one-line file is then added beside the others.
+ */
+
+/** The names (never the values) of what the environment's secrets file holds: sops leaves a file's keys readable and encrypts only the values. Empty until the file is made. */
+const sopsNames = ((): readonly string[] => {
+  try {
+    return [...readFileSync(new URL('../environments/{{ENV}}/secrets.yaml', import.meta.url), 'utf8').matchAll(/^([A-Z][A-Z0-9_]*):/gm)].map((m) => m[1] as string)
+  } catch {
+    return []
+  }
+})()
+
+export const install: SpaceInstall<SpaceInstance> = buildSpaceInstall<SpaceInstance>({
+  declaration,
+  installFile,
+  sopsNames,
+  modules: SPACE_MODULES,
+  paths: { ...SPACE_PATHS, declaration: 'packages/infra/environments/{{ENV}}/workspace.json' },
+})
+
+/** One of the install's instances, by its key. Throws when the install does not have it, which is a declaration that lost a feature its instance file still names. */
+export function spaceInstance<K extends keyof SpaceInstances>(key: K): SpaceInstance {
+  const instance = install.instances[key]
+  if (instance === undefined) throw new Error(`This install has no "${INSTANCE_NAMES[key]}" instance: its declaration and install file no longer have what it is for`)
+  return instance
+}

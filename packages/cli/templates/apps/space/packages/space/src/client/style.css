@@ -1,0 +1,1292 @@
+/* The look of the space, cut down to
+   what the shell and the empty tabs use. Dark only. */
+
+/* The Forms tab's screens use Tailwind (forms/forms.css), whose rules live in these layers. The space's own rules about bare elements are in `base`,
+   so a utility on a heading or a link beats them; everything else here is outside the layers and beats the screens' utilities where it names the same thing. */
+@layer theme, base, components, utilities;
+
+:root {
+  --bg: #0e0f11;
+  --panel: #141518;
+  --raise: #1a1b1f;
+  --line: rgba(255, 255, 255, 0.075);
+  --line2: rgba(255, 255, 255, 0.14);
+  --text: #e4e5e8;
+  --mute: #8c9099;
+  --accent: #6aa4ff;
+  --accent-bg: rgba(106, 164, 255, 0.13);
+  --warn: #e0a85a;
+  --warn-bg: rgba(224, 168, 90, 0.1);
+  --ok: #6fbf8b;
+  --bad: #e5766e;
+  --bad-bg: rgba(229, 118, 110, 0.1);
+  color-scheme: dark;
+}
+* {
+  box-sizing: border-box;
+}
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+body {
+  background: var(--bg);
+  color: var(--text);
+  font: 13px/1.45 -apple-system, BlinkMacSystemFont, 'SF Pro Text', system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+@layer base {
+  h1,
+  p {
+    margin: 0;
+  }
+  h1 {
+    font-size: 20px;
+    font-weight: 500;
+  }
+  a {
+    color: var(--accent);
+  }
+  b {
+    font-weight: 500;
+  }
+}
+.sub {
+  font-size: 11.5px;
+  color: var(--mute);
+}
+.grow {
+  flex: 1;
+}
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.boot {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  padding: 24px;
+  text-align: center;
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--line2);
+  border-radius: 6px;
+  padding: 5px 12px;
+  min-height: 32px;
+  font: inherit;
+  font-size: 12px;
+  color: var(--text);
+  background: var(--panel);
+  text-decoration: none;
+  cursor: pointer;
+}
+.btn:hover {
+  background: var(--raise);
+}
+.btn.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #07101e;
+  font-weight: 500;
+}
+
+/* ---------- the shell: tabs down the side ---------- */
+.shell {
+  display: grid;
+  grid-template-columns: 188px minmax(0, 1fr);
+  height: 100%;
+}
+.rail {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 8px;
+  border-right: 1px solid var(--line);
+  background: var(--panel);
+}
+.ws {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px 12px;
+}
+.ws-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  background: var(--accent);
+  color: #07101e;
+  font-weight: 600;
+  font-size: 12px;
+}
+.rail-item {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 7px 9px;
+  min-height: 34px;
+  border-radius: 7px;
+  color: var(--mute);
+  text-decoration: none;
+}
+.rail-item:hover {
+  background: rgba(255, 255, 255, 0.04);
+}
+.rail-item.on {
+  background: var(--raise);
+  color: var(--text);
+}
+.me {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  padding: 8px;
+}
+.avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--accent-bg);
+  border: 1px solid rgba(106, 164, 255, 0.35);
+  font-size: 10px;
+  font-weight: 500;
+}
+.main {
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  overflow: auto;
+}
+
+/* ---------- the screens ---------- */
+.page {
+  max-width: 800px;
+  margin: 0 auto;
+  padding: 22px 28px 40px;
+}
+.page > .sub {
+  margin-top: 2px;
+}
+.empty {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 16px;
+  padding: 16px;
+  border: 1px dashed var(--line2);
+  border-radius: 9px;
+  color: var(--mute);
+}
+.split {
+  display: grid;
+  grid-template-columns: 330px minmax(0, 1fr);
+  height: 100%;
+}
+.list {
+  min-height: 0;
+  overflow: auto;
+  border-right: 1px solid var(--line);
+}
+.list-head {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--line);
+  background: var(--bg);
+}
+.list-head h1 {
+  font-size: 14px;
+}
+.list .empty {
+  margin: 14px;
+}
+.detail {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+.detail-note {
+  max-width: 340px;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  color: var(--mute);
+}
+
+/* ---------- The Inbox's and Meet's lists ---------- */
+.live {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--mute);
+}
+.live .dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--mute);
+}
+.live.open .dot {
+  background: #6fbf8b;
+}
+.live.reconnecting .dot {
+  background: var(--warn);
+}
+.search {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 10px 12px 0;
+  padding: 0 8px 0 10px;
+  min-height: 34px;
+  border: 1px solid var(--line2);
+  border-radius: 7px;
+  color: var(--mute);
+}
+.search:focus-within {
+  border-color: var(--accent);
+}
+.search input {
+  flex: 1;
+  min-width: 0;
+  min-height: 32px;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+}
+.search input::-webkit-search-cancel-button {
+  display: none;
+}
+.search .clear {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--mute);
+  cursor: pointer;
+}
+.search .clear:hover {
+  background: var(--raise);
+}
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--line);
+}
+.chips-gap {
+  flex: none;
+  width: 1px;
+  height: 16px;
+  margin: 0 2px;
+  background: var(--line2);
+}
+.chip {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 28px;
+  padding: 3px 11px;
+  border: 1px solid var(--line2);
+  border-radius: 99px;
+  background: transparent;
+  color: var(--mute);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.chip:hover {
+  background: rgba(255, 255, 255, 0.04);
+}
+.chip.on {
+  background: var(--text);
+  border-color: var(--text);
+  color: #101114;
+}
+.chip .count {
+  min-width: 16px;
+  padding: 0 5px;
+  border-radius: 99px;
+  background: var(--accent-bg);
+  color: var(--accent);
+  font-size: 10.5px;
+  line-height: 16px;
+  text-align: center;
+}
+.chip.on .count {
+  background: rgba(0, 0, 0, 0.12);
+  color: #101114;
+}
+.rows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.row {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  width: 100%;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--line);
+  color: inherit;
+  text-decoration: none;
+}
+.row:hover {
+  background: rgba(255, 255, 255, 0.025);
+}
+.row:focus-visible {
+  outline-offset: -2px;
+}
+.avatar-lg {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  margin-top: 1px;
+  border-radius: 50%;
+  border: 1px solid var(--line2);
+  background: var(--raise);
+  font-size: 11.5px;
+  font-weight: 500;
+}
+.avatar-lg.team {
+  background: var(--accent-bg);
+  border-color: rgba(106, 164, 255, 0.35);
+}
+.avatar-lg.channel {
+  border-radius: 8px;
+  color: var(--mute);
+}
+.row-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.row-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+}
+.row-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 500;
+  font-size: 13px;
+}
+.row.unread .row-title {
+  color: #fff;
+}
+.when {
+  flex: none;
+}
+.clamp,
+.row-sub {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.row-sub {
+  display: block;
+}
+.row-sub .sub {
+  font-size: 12px;
+}
+.subject {
+  color: var(--text);
+}
+.row-badges {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+  margin-top: 4px;
+}
+.kindtag {
+  display: inline-flex;
+  gap: 4px;
+  align-items: center;
+  font-size: 10.5px;
+  color: var(--mute);
+}
+.pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 7px;
+  border: 1px solid var(--line2);
+  border-radius: 99px;
+  font-size: 11px;
+  color: var(--mute);
+  white-space: nowrap;
+}
+.pill.accent {
+  color: var(--accent);
+  border-color: rgba(106, 164, 255, 0.4);
+  background: var(--accent-bg);
+}
+.notices {
+  display: flex;
+  flex-direction: column;
+}
+.notice {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  margin: 0;
+  padding: 9px 14px;
+  border-bottom: 1px solid var(--line);
+  font-size: 12px;
+}
+.notice svg {
+  flex: none;
+  margin-top: 2px;
+}
+.notice.unreachable {
+  background: var(--warn-bg);
+  color: var(--warn);
+}
+.notice.refused {
+  background: var(--raise);
+  color: var(--mute);
+}
+.notice.quiet {
+  color: var(--mute);
+}
+.linkish {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}
+.empty-line {
+  margin: 0;
+  padding: 18px 14px;
+}
+.foot {
+  margin: 0;
+  padding: 12px 14px 24px;
+}
+.source {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  margin: 0;
+  padding: 12px 14px 6px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--mute);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+/* ---------- a conversation: the history, the reply, the profile ---------- */
+.split {
+  grid-template-rows: minmax(0, 1fr);
+}
+.row.on {
+  background: var(--raise);
+}
+.detail {
+  min-width: 0;
+  min-height: 0;
+}
+.detail:has(.e-detail) {
+  padding: 0;
+  align-items: stretch;
+  justify-content: stretch;
+  overflow: hidden;
+}
+.e-detail {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+.e-convo {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.back {
+  display: none;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+  min-height: 40px;
+  padding: 0 12px;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  background: transparent;
+  color: var(--accent);
+  font: inherit;
+  text-decoration: none;
+  cursor: pointer;
+}
+.d-head {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  padding: 12px 18px;
+  border-bottom: 1px solid var(--line);
+}
+.d-head h2,
+.e-pro-head h2 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 500;
+}
+.d-head .grow {
+  min-width: 0;
+}
+.d-head .sub {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.e-pbtn {
+  display: inline-flex;
+}
+.reopen-name {
+  display: block;
+  max-width: 18ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.kbd {
+  padding: 0 5px;
+  border: 1px solid var(--line2);
+  border-radius: 4px;
+  color: var(--mute);
+  font: inherit;
+  font-size: 11px;
+  line-height: 16px;
+}
+.change-notice {
+  flex: none;
+  padding: 0 18px 8px;
+}
+.change-notice .cnotice {
+  margin-top: 8px;
+}
+@media (pointer: coarse) {
+  .kbd {
+    display: none;
+  }
+}
+.e-convo > .notice {
+  flex: none;
+  padding-left: 18px;
+  padding-right: 18px;
+}
+.timeline {
+  flex: 1 1 0;
+  min-height: 0;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 14px 18px;
+}
+.timeline .earlier {
+  align-self: center;
+  flex: none;
+}
+.trow-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.srchead {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 6px 0 0;
+  color: var(--mute);
+  font-size: 11px;
+}
+.srchead::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--line);
+}
+.msg {
+  display: flex;
+  gap: 9px;
+  max-width: 760px;
+}
+.avatar-sm {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  margin-top: 1px;
+  border-radius: 50%;
+  border: 1px solid var(--line2);
+  background: var(--raise);
+  font-size: 9.5px;
+  font-weight: 500;
+}
+.msg.mine .avatar-sm {
+  background: var(--accent-bg);
+  border-color: rgba(106, 164, 255, 0.35);
+}
+.msg-body {
+  min-width: 0;
+}
+.msg-head {
+  display: flex;
+  gap: 6px;
+  align-items: baseline;
+  flex-wrap: wrap;
+}
+.msg-text {
+  margin-top: 2px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+/* An email, as the inbox's page draws it: a bubble each, theirs on the left and ours on the right in the accent's tint, the quoted rest folded behind a button. */
+.msg.email .msg-body {
+  max-width: min(640px, 88%);
+}
+.msg.email.mine {
+  flex-direction: row-reverse;
+  margin-left: auto;
+}
+.msg.email.mine .msg-head {
+  justify-content: flex-end;
+}
+.msg.email.mine .sub {
+  text-align: right;
+}
+/* The line over an email stays one line, as the inbox's does: the name and the time keep their size, and a long address gives way (cut with an ellipsis). */
+.msg.email .msg-head {
+  flex-wrap: nowrap;
+}
+.msg.email .msg-head b,
+.msg.email .msg-head time {
+  flex: none;
+}
+.msg.email .msg-head .addr {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.msg-text.bubble {
+  margin-top: 3px;
+  padding: 9px 12px;
+  border-radius: 10px;
+  background: var(--raise);
+  line-height: 1.45;
+}
+.msg.email.mine .msg-text.bubble {
+  background: var(--accent-bg);
+}
+/* The bracketed words a Telegram message carries when it has no text ("[Video]", "[Voice note]"). The bubble is sized to the stamp over it or to these few words, whichever is wider, and the row comes out a fraction of a
+   pixel narrower than the words, which `overflow-wrap: anywhere` then breaks ("[Vide" and "o]"). The words are short and fixed, so they are never broken. */
+.msg-text.bubble.placeholder {
+  white-space: nowrap;
+}
+/* A Telegram message its sender deleted for everyone: a quiet line, not a bubble of words. */
+.msg-text.bubble.deleted {
+  background: transparent;
+  border: 1px dashed var(--line2);
+  color: var(--mute);
+}
+.fold {
+  display: flex;
+  align-items: center;
+  height: 18px;
+  margin-top: 6px;
+  padding: 0 8px;
+  border: 1px solid var(--line2);
+  border-radius: 999px;
+  background: var(--panel);
+  color: var(--mute);
+  font: inherit;
+  font-size: 11px;
+  line-height: 1;
+  letter-spacing: 0.15em;
+  cursor: pointer;
+}
+.fold:hover {
+  color: var(--text);
+  border-color: rgba(255, 255, 255, 0.25);
+}
+.quoted {
+  margin-top: 6px;
+  padding-left: 10px;
+  border-left: 2px solid var(--line2);
+  color: var(--mute);
+}
+.card {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  max-width: 640px;
+  padding: 10px 12px;
+  border: 1px solid var(--line2);
+  border-radius: 9px;
+  background: var(--panel);
+}
+.card.draft {
+  border-color: rgba(106, 164, 255, 0.4);
+}
+.card.stuck {
+  border-color: rgba(224, 168, 90, 0.5);
+}
+.stuck-send {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 4px;
+}
+.stuck-bar {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.stuck-ask {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--line2);
+  border-radius: 8px;
+}
+.stuck-ask p {
+  margin: 0;
+}
+.not-sent {
+  margin-top: 6px;
+}
+.card.doc {
+  border-color: rgba(106, 164, 255, 0.28);
+}
+/* The signed copy is back: the same card, in the colour of a finished thing. */
+.card.doc.returned {
+  border-color: rgba(111, 191, 139, 0.5);
+}
+.card.doc.returned .card-ico {
+  color: var(--ok);
+}
+.btn.send-sign svg {
+  vertical-align: -2px;
+  margin-right: 5px;
+}
+@media (max-width: 520px) {
+  /* A phone's header has Close and Profile beside it: the mark alone, still named for a screen reader. */
+  .btn-words {
+    display: none;
+  }
+  .btn.send-sign svg {
+    margin-right: 0;
+  }
+}
+.card-ico {
+  color: var(--accent);
+  padding-top: 1px;
+}
+.card-main {
+  flex: 1 1 260px;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.card-title {
+  font-weight: 500;
+}
+.draft-text {
+  margin-top: 4px;
+  padding-left: 8px;
+  border-left: 2px solid var(--accent);
+  color: var(--mute);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.card-act {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.composer {
+  flex: none;
+  padding: 10px 18px max(12px, env(safe-area-inset-bottom));
+  border-top: 1px solid var(--line);
+  background: var(--bg);
+}
+.composer textarea {
+  display: block;
+  width: 100%;
+  resize: none;
+  padding: 8px 10px;
+  border: 1px solid var(--line2);
+  border-radius: 8px;
+  background: var(--panel);
+  color: var(--text);
+  font: inherit;
+  outline: none;
+}
+.composer textarea:focus {
+  border-color: var(--accent);
+}
+.composer textarea[readonly] {
+  color: var(--mute);
+}
+.composer .to {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  margin-bottom: 6px;
+}
+.composer .to select {
+  min-height: 30px;
+  max-width: 100%;
+  border: 1px solid var(--line2);
+  border-radius: 6px;
+  background: var(--panel);
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+}
+.seg {
+  display: inline-flex;
+  gap: 4px;
+}
+.composer-bar {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+  margin-top: 8px;
+}
+.btn:disabled,
+.chip:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.cnotice {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  margin: 8px 0 0;
+  padding: 7px 10px;
+  border: 1px solid var(--line2);
+  border-radius: 7px;
+  font-size: 12px;
+}
+.cnotice svg {
+  flex: none;
+  margin-top: 2px;
+}
+.cnotice.ok {
+  color: var(--ok);
+  border-color: rgba(111, 191, 139, 0.35);
+}
+.cnotice.warn {
+  color: var(--warn);
+  background: var(--warn-bg);
+  border-color: rgba(224, 168, 90, 0.35);
+}
+.cnotice.error {
+  color: var(--bad);
+  background: var(--bad-bg);
+  border-color: rgba(229, 118, 110, 0.4);
+}
+/* Files on an email, what Cloudflare reported of it, and Attach in the composer. A picture is a thumbnail of fixed height, so the page does not jump as pictures arrive; the rest are chips. */
+.files {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: flex-start;
+  margin: 6px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.files.mine {
+  justify-content: flex-end;
+}
+.files li {
+  max-width: 100%;
+}
+.file-thumb {
+  margin: 0;
+  max-width: 100%;
+}
+.file-thumb a {
+  display: block;
+}
+.file-thumb img {
+  display: block;
+  max-width: 100%;
+  height: 130px;
+  object-fit: contain;
+  border: 1px solid var(--line2);
+  border-radius: 8px;
+  background: var(--panel);
+}
+.file-thumb figcaption {
+  margin-top: 2px;
+  max-width: 260px;
+  color: var(--mute);
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+.file-voice {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+  margin: 0;
+  max-width: 100%;
+}
+.file-voice figcaption {
+  flex-basis: 100%;
+  color: var(--mute);
+  font-size: 11px;
+}
+.file-voice audio {
+  width: 260px;
+  max-width: 100%;
+  height: 36px;
+}
+.file-video {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+  margin: 0;
+  max-width: 100%;
+}
+.file-video figcaption {
+  flex-basis: 100%;
+  color: var(--mute);
+  font-size: 11px;
+}
+/* A fixed ceiling on the player, so a tall phone recording does not push the conversation off the screen; the video keeps its own shape inside it. */
+.file-video video {
+  display: block;
+  width: 320px;
+  max-width: 100%;
+  max-height: 320px;
+  border: 1px solid var(--line2);
+  border-radius: 8px;
+  background: #000;
+}
+.file-save {
+  color: var(--mute);
+  font-size: 11.5px;
+}
+.file-note {
+  color: var(--mute);
+  font-size: 11.5px;
+}
+.file-left {
+  display: grid;
+  justify-items: start;
+  gap: 2px;
+  max-width: 100%;
+}
+.file-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  padding: 3px 10px;
+  border: 1px solid var(--line2);
+  border-radius: 99px;
+  color: var(--mute);
+  font-size: 11.5px;
+  text-decoration: none;
+  overflow-wrap: anywhere;
+}
+a.file-chip:hover {
+  border-color: rgba(255, 255, 255, 0.25);
+  color: var(--text);
+}
+.delivery {
+  display: grid;
+  gap: 2px;
+  margin: 5px 0 0;
+  padding: 0;
+  list-style: none;
+  color: var(--mute);
+  font-size: 11.5px;
+}
+.delivery.mine {
+  justify-items: end;
+  text-align: right;
+}
+.delivery li {
+  overflow-wrap: anywhere;
+}
+.delivery li.problem {
+  color: var(--bad);
+  font-weight: 500;
+}
+.attach {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  margin-top: 8px;
+}
+.file-chip.chosen button {
+  border: 0;
+  background: transparent;
+  color: var(--mute);
+  font: inherit;
+  cursor: pointer;
+  padding: 0 2px;
+}
+.file-chip.chosen button:hover {
+  color: var(--text);
+}
+.attach-why {
+  color: var(--bad);
+  font-size: 12px;
+}
+/* The one picture of a Telegram reply or draft: small, fixed height so the box does not jump, with its name and Take out beside it, and the limits said under it. */
+.picture-chosen {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  max-width: 100%;
+}
+.picture-preview {
+  display: block;
+  height: 56px;
+  max-width: 120px;
+  object-fit: cover;
+  border-radius: 6px;
+  border: 1px solid var(--line);
+}
+.attach-limits {
+  flex-basis: 100%;
+  font-size: 12px;
+}
+.attach-picture .file-chip {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+.e-profile {
+  display: none;
+  flex: none;
+  width: 300px;
+  overflow: auto;
+  border-left: 1px solid var(--line);
+}
+.e-profile .back.always {
+  display: none;
+}
+.e-pro {
+  padding: 16px 16px 24px;
+}
+.e-pro-head {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+.e-pro-head .avatar-lg {
+  width: 48px;
+  height: 48px;
+  font-size: 16px;
+}
+.tags {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.facts {
+  margin: 0;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--panel);
+}
+.fact {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--line);
+  overflow-wrap: anywhere;
+}
+.fact:last-child {
+  border-bottom: 0;
+}
+.fact dd {
+  margin: 0;
+}
+@media (min-width: 1280px) {
+  .e-profile {
+    display: block;
+  }
+  .e-pbtn {
+    display: none;
+  }
+}
+@media (max-width: 1279px) {
+  .e-profile.open {
+    display: block;
+    width: 100%;
+    border-left: 0;
+  }
+  .e-profile.open .back.always {
+    display: inline-flex;
+  }
+  .e-convo.away {
+    display: none;
+  }
+}
+
+/* ---------- a phone: the tabs become a strip across the top, icon above label ---------- */
+@media (max-width: 760px) {
+  .shell {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+  .rail {
+    flex-direction: row;
+    gap: 2px;
+    padding: max(2px, env(safe-area-inset-top)) max(4px, env(safe-area-inset-right)) 2px max(4px, env(safe-area-inset-left));
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+  }
+  .ws,
+  .me,
+  .rail .grow {
+    display: none;
+  }
+  .rail-item {
+    flex: 1;
+    flex-direction: column;
+    justify-content: center;
+    gap: 2px;
+    min-width: 0;
+    min-height: 52px;
+    padding: 6px 2px;
+    font-size: 11px;
+  }
+  .rail-label {
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  /* Seven tabs and the gear in a 390px strip (the Calendar tab made it seven): each gets about 47px, and the longest label, Knowledge, still has to be read whole, so the type is a half point smaller and tighter, and the gear (an icon alone) is 42px wide, not 52 (settings.css), to leave the tabs about 49px each. */
+  @media (max-width: 440px) {
+    .rail {
+      gap: 0;
+      padding-left: max(2px, env(safe-area-inset-left));
+      padding-right: max(2px, env(safe-area-inset-right));
+    }
+    .rail-item {
+      font-size: 9.5px;
+      letter-spacing: -0.04em;
+      padding-left: 0;
+      padding-right: 0;
+    }
+  }
+  .page {
+    padding: 16px max(16px, env(safe-area-inset-right)) 30px max(16px, env(safe-area-inset-left));
+  }
+  .split {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .list {
+    border-right: 0;
+  }
+  .detail {
+    display: none;
+  }
+  /* A conversation takes the screen; the list comes back with the back link above it. */
+  .split.open .list {
+    display: none;
+  }
+  .split.open .detail {
+    display: flex;
+  }
+  .back {
+    display: inline-flex;
+  }
+  .e-profile.open .back.always {
+    display: inline-flex;
+  }
+  .d-head,
+  .timeline,
+  .composer {
+    padding-left: max(14px, env(safe-area-inset-left));
+    padding-right: max(14px, env(safe-area-inset-right));
+  }
+  .e-convo > .notice {
+    padding-left: max(14px, env(safe-area-inset-left));
+    padding-right: max(14px, env(safe-area-inset-right));
+  }
+  .change-notice {
+    padding-left: max(14px, env(safe-area-inset-left));
+    padding-right: max(14px, env(safe-area-inset-right));
+  }
+  .e-pro {
+    padding: 14px max(14px, env(safe-area-inset-right)) 24px max(14px, env(safe-area-inset-left));
+  }
+  .row {
+    padding-left: max(14px, env(safe-area-inset-left));
+    padding-right: max(14px, env(safe-area-inset-right));
+  }
+}

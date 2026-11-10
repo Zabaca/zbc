@@ -1,0 +1,180 @@
+/* Today (Today.tsx): rows, a card each, grouped under a small heading. Dark only, with the rest of the space. */
+.today .tnotices {
+  margin-top: 14px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  overflow: hidden;
+}
+.today .tnotices .notice:last-child {
+  border-bottom: 0;
+}
+.today .tproblem {
+  margin-top: 14px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+}
+.tsec {
+  margin-top: 20px;
+}
+.tsec .group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 8px;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--mute);
+}
+.tcount {
+  padding: 0 6px;
+  border-radius: 99px;
+  background: var(--raise);
+  font-size: 10.5px;
+  letter-spacing: 0;
+}
+.trows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.trow {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  padding: 9px 12px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--panel);
+  color: inherit;
+  text-decoration: none;
+}
+.trow:hover {
+  border-color: var(--line2);
+}
+.trow:focus-visible {
+  outline-offset: -2px;
+}
+.tlead {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--line2);
+  border-radius: 8px;
+  background: var(--raise);
+  color: var(--mute);
+}
+.tmain {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.ttop {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+.ttitle {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  overflow: hidden;
+  font-weight: 500;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.twhen {
+  flex: none;
+}
+.tsub {
+  overflow: hidden;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tsub .subject {
+  color: var(--text);
+}
+.tend {
+  display: flex;
+  flex: none;
+  gap: 6px;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  max-width: 46%;
+}
+.where {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10.5px;
+  color: var(--mute);
+}
+.today .pill.warn {
+  color: var(--warn);
+  border-color: rgba(224, 168, 90, 0.4);
+  background: var(--warn-bg);
+}
+.today .pill.ok {
+  color: var(--ok);
+  border-color: rgba(111, 191, 139, 0.4);
+}
+.today .pill.primary {
+  color: #0e0f11;
+  border-color: var(--accent);
+  background: var(--accent);
+  font-weight: 500;
+}
+.livedot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--ok);
+  box-shadow: 0 0 0 3px rgba(111, 191, 139, 0.2);
+}
+.tmore,
+.tquiet {
+  margin: 8px 2px 0;
+}
+.tquiet {
+  max-width: 60ch;
+}
+
+@media (max-width: 760px) {
+  .ttitle {
+    flex-wrap: wrap;
+    overflow: visible;
+    white-space: normal;
+  }
+  .trow {
+    flex-wrap: wrap;
+    row-gap: 6px;
+  }
+  .tmain {
+    flex-basis: calc(100% - 44px);
+  }
+  .tend {
+    max-width: none;
+    flex-basis: 100%;
+    justify-content: flex-start;
+    padding-left: 38px;
+  }
+  .tsub {
+    white-space: normal;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+  }
+}

@@ -6,11 +6,15 @@ pre-commit:
       exclude:
         - ".agents/**"
         - ".claude/skills/**"
+        # The space keeps the formatting it was written in: its public copy (Zabaca/zbc-space) is split from this folder, and a reformat here is a diff in every install that pulled it.
+        - "packages/cli/templates/apps/space/**"
       run: bun node_modules/.bin/oxlint {staged_files}
     oxfmt:
       glob: "*.{js,jsx,ts,tsx}"
       exclude:
         - ".agents/**"
         - ".claude/skills/**"
+        # The space keeps the formatting it was written in: its public copy (Zabaca/zbc-space) is split from this folder, and a reformat here is a diff in every install that pulled it.
+        - "packages/cli/templates/apps/space/**"
       run: bun node_modules/.bin/oxfmt --write {staged_files}
       stage_fixed: true

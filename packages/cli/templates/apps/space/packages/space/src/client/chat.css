@@ -1,0 +1,166 @@
+/* Chat in the space: a message's links, Edit and Delete and the "New" line (ChatMessage.tsx), New message (NewMessage.tsx) and Settings, Chat (ChatSettings.tsx). */
+
+.msg-text a {
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  overflow-wrap: anywhere;
+}
+.msg-text a[data-testid='join-call'] {
+  display: inline-block;
+  padding: 1px 9px;
+  border: 1px solid var(--accent);
+  border-radius: 999px;
+  background: var(--accent-bg);
+  text-decoration: none;
+  font-size: 12.5px;
+}
+
+/* Edit and Delete sit on the line over the message and are quiet until the message is looked at; on a phone, with no hover, they are always there. */
+.msg-acts {
+  display: inline-flex;
+  gap: 10px;
+  margin-left: auto;
+}
+@media (hover: hover) {
+  .msg-acts {
+    opacity: 0;
+    transition: opacity 0.12s;
+  }
+  .msg:hover .msg-acts,
+  .msg:focus-within .msg-acts {
+    opacity: 1;
+  }
+}
+.msg-edit {
+  display: grid;
+  gap: 6px;
+  margin-top: 4px;
+}
+.msg-edit textarea {
+  width: 100%;
+  min-height: 76px;
+  padding: 8px 10px;
+  border: 1px solid var(--line2);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  resize: vertical;
+}
+.msg-edit textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+.msg-edit-bar {
+  display: flex;
+  gap: 8px;
+}
+.msg-error {
+  margin: 6px 0 0;
+}
+.msg .s-ask {
+  margin-top: 6px;
+}
+
+/* where unread begins */
+.new-line {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 6px 0 2px;
+  color: var(--bad);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.new-line::before,
+.new-line::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: currentColor;
+  opacity: 0.55;
+}
+.new-line::before {
+  flex: none;
+  width: 0;
+}
+
+/* New message: a person to write to, then the first message */
+.chan-list .chan-pick {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-width: 0;
+  padding: 6px 8px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.chan-list .chan-pick:hover,
+.chan-list .chan-pick:focus-visible {
+  border-color: var(--line2);
+  background: var(--raise);
+}
+.chan-list li:has(> .chan-pick) {
+  display: block;
+}
+.chan-text {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--line2);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  resize: vertical;
+}
+.chan-text:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+/* Settings, Chat */
+.chat-settings {
+  display: grid;
+  gap: 14px;
+  max-width: 640px;
+}
+.chat-name {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 10px;
+}
+.chat-name .field {
+  display: grid;
+  gap: 3px;
+  flex: 1 1 220px;
+  min-width: 0;
+}
+.chat-name input {
+  width: 100%;
+  min-height: 32px;
+  padding: 5px 8px;
+  border: 1px solid var(--line2);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+}
+.chat-privacy {
+  display: grid;
+  gap: 8px;
+}
+.chat-privacy p {
+  margin: 0;
+  line-height: 1.5;
+}

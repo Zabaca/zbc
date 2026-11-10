@@ -1,0 +1,37 @@
+Return-Path: <tessa@northfield.example>
+Received: from mail.example.net (mail.example.net [192.0.2.43])
+	by mx.cloudflare.net with ESMTPS id 2f5c8a1e9b7d4c30
+	for <test@ridgewaycycles.example>; Mon, 26 Oct 2026 18:02:11 +0000 (UTC)
+Received: by mail.example.net with SMTP id 5b1f17b1804b1-47117e75258so45181785e9.1
+        for <test@ridgewaycycles.example>; Mon, 26 Oct 2026 11:02:10 -0700 (PDT)
+DKIM-Signature: v=1; a=rsa-sha256; c=relaxed/relaxed;
+        d=northfield.example; s=20251104; t=1793037730; x=1793642530; darn=ridgewaycycles.example;
+        h=to:subject:message-id:date:from:mime-version:from:to:cc:subject
+         :date:message-id:reply-to;
+        bh=Qe2n0nW8sQhJmV3m5c3q9mP0r8y3k8nD1rQeX3o6x7A=;
+        b=Yw2oXx9d0VJmWk8uJm4kR5hZ6Zc0m3pQ2rS1tUvWxYzAbCdEfGhIjKlMnOpQrStUv
+MIME-Version: 1.0
+From: Tessa Marlow <tessa@northfield.example>
+Date: Mon, 26 Oct 2026 11:02:05 -0700
+Message-ID: <CAF3b9xR1kq2c8Zw4pVhE5nT7yUo6Lr0aJdG9sXm1BvNc2Hq4Wg@mail.gmail.com>
+Subject: Hours question
+To: Ridgeway Test <test@ridgewaycycles.example>
+Content-Type: multipart/alternative; boundary="0000000000007c1a2b06a3f0e1d4"
+
+--0000000000007c1a2b06a3f0e1d4
+Content-Type: text/plain; charset="UTF-8"
+Content-Transfer-Encoding: quoted-printable
+
+Hi, what are your hours on Saturdays? Do you do the =2440 tune-up walk-in?
+
+Thanks,
+Tessa
+
+--0000000000007c1a2b06a3f0e1d4
+Content-Type: text/html; charset="UTF-8"
+Content-Transfer-Encoding: quoted-printable
+
+<div dir=3D"ltr">Hi, what are your hours on Saturdays? Do you do the $40 tu=
+ne-up walk-in?<br><br>Thanks,<br>Tessa</div>
+
+--0000000000007c1a2b06a3f0e1d4--

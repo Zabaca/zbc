@@ -1,0 +1,19 @@
+{
+  "name": "space",
+  "workspaces": ["packages/*", "kit"],
+  "modules": ["cloudflare", "cloudflare-access", "queue", "r2", "d1"],
+  "starter": [
+    { "from": "starter/environment/workspace.json", "to": "packages/infra/environments/{{ENV}}/workspace.json" },
+    { "from": "starter/environment/workspace-install.json", "to": "packages/infra/environments/{{ENV}}/workspace-install.json" },
+    { "from": "starter/environment/workspace-content.json", "to": "packages/infra/environments/{{ENV}}/workspace-content.json" },
+    { "from": "starter/glue/modules.ts.template", "to": "packages/infra/space/modules.ts" },
+    { "from": "starter/glue/install.ts.template", "to": "packages/infra/space/{{ENV}}.ts" },
+    { "from": "starter/environment/forms-bucket.ts.template", "to": "packages/infra/environments/{{ENV}}/forms-bucket.ts" },
+    { "from": "starter/environment/forms-database.ts.template", "to": "packages/infra/environments/{{ENV}}/forms-database.ts" },
+    { "from": "starter/environment/space-access.ts.template", "to": "packages/infra/environments/{{ENV}}/space-access.ts" },
+    { "from": "starter/environment/space-forms-access.ts.template", "to": "packages/infra/environments/{{ENV}}/space-forms-access.ts" },
+    { "from": "starter/environment/space-guest-chat.ts.template", "to": "packages/infra/environments/{{ENV}}/space-guest-chat.ts" },
+    { "from": "starter/environment/space-guest-signing.ts.template", "to": "packages/infra/environments/{{ENV}}/space-guest-signing.ts" },
+    { "from": "starter/environment/space.ts.template", "to": "packages/infra/environments/{{ENV}}/space.ts" }
+  ]
+}

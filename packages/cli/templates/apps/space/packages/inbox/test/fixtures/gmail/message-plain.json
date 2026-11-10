@@ -1,0 +1,49 @@
+{
+  "_fixture": "PLACEHOLDER: shaped from Google’s documented API reference, not a captured response. Replace with a trimmed real response after Gmail is connected (packages/inbox/docs/runbooks/inbox-google-setup.md, \"After connecting\").",
+  "id": "19a1f0c2b7d4e801",
+  "threadId": "19a1f0c2b7d4e801",
+  "labelIds": ["UNREAD", "CATEGORY_PERSONAL", "INBOX"],
+  "snippet": "Hi Tessa, can you send the revised quote for the site? Thanks, Dana",
+  "historyId": "482913",
+  "internalDate": "1792497600000",
+  "sizeEstimate": 2231,
+  "payload": {
+    "partId": "",
+    "mimeType": "text/plain",
+    "filename": "",
+    "headers": [
+      {
+        "name": "Delivered-To",
+        "value": "tessa@northfield.example"
+      },
+      {
+        "name": "Date",
+        "value": "Mon, 20 Oct 2026 05:00:00 -0700"
+      },
+      {
+        "name": "From",
+        "value": "\"Smith, Dana\" <dana@example.com>"
+      },
+      {
+        "name": "To",
+        "value": "Tessa Marlow <tessa@northfield.example>"
+      },
+      {
+        "name": "Subject",
+        "value": "Revised quote for the site"
+      },
+      {
+        "name": "Message-ID",
+        "value": "<CAKd3x7w1@mail.example.com>"
+      },
+      {
+        "name": "Content-Type",
+        "value": "text/plain; charset=\"UTF-8\""
+      }
+    ],
+    "body": {
+      "size": 68,
+      "data": "SGkgVGVzc2EsDQoNCmNhbiB5b3Ugc2VuZCB0aGUgcmV2aXNlZCBxdW90ZSBmb3IgdGhlIHNpdGU_DQoNClRoYW5rcywNCkRhbmENCg"
+    }
+  }
+}

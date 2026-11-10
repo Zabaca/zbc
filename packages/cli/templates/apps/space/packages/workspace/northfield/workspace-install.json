@@ -1,0 +1,42 @@
+{
+  "account": { "id": "0000000000000000000000000000a001" },
+  "worker": "space",
+  "stores": {
+    "formsBucket": "forms-files",
+    "formsDatabase": "forms-records",
+    "rawMailBucket": "northfield-inbox-raw",
+    "deliveryQueue": "northfield-inbox-delivery"
+  },
+  "deliveryReports": [
+    { "name": "ridgeway-sending", "zoneId": "0000000000000000000000000000b001", "domain": "ridgewaycycles.example" },
+    { "name": "shiftlantern-sending", "zoneId": "0000000000000000000000000000b002", "domain": "shiftlantern.example" },
+    { "name": "quill-sending", "zoneId": "0000000000000000000000000000b003", "domain": "quill.example" }
+  ],
+  "rateLimits": { "public": "1001", "auth": "1002" },
+  "calls": { "realtimeAppId": "0000000000000000000000000000c001", "turnKeyId": "0000000000000000000000000000d001" },
+  "gmail": { "pushServiceAccount": "inbox-push@northfield-mail-000000.iam.gserviceaccount.com" },
+  "access": {
+    "space": { "application": "space.northfield.example", "policy": "space.northfield.example allowed operators" },
+    "forms": { "application": "space.northfield.example/forms", "policy": "space.northfield.example/forms allowed people" },
+    "agent": { "application": "space.northfield.example/agent/inbox", "token": "northfield-web inbox agent" },
+    "telegram": { "application": "space.northfield.example/agent/telegram", "token": "telegram bridge" },
+    "clients": { "application": "space.northfield.example/agent/clients", "token": "northfield-web clients" },
+    "guests": {
+      "calls": { "application": "space.northfield.example/r/*", "policy": "space.northfield.example/r/* anyone, no sign-in (calls)" },
+      "chat": { "application": "space.northfield.example/w/*", "policy": "space.northfield.example/w/* anyone, no sign-in (channel guests)" },
+      "signing": { "application": "space.northfield.example/s/*", "policy": "space.northfield.example/s/* anyone, no sign-in (signers)" }
+    }
+  },
+  "secrets": {
+    "forms": { "dataKey": "FORMS_DATA_KEY", "sealKey": "FORMS_SEAL_KEY", "sealCertChain": "FORMS_SEAL_CERT_CHAIN" },
+    "calls": { "realtimeAppSecret": "MEET_REALTIME_APP_SECRET", "turnKeyToken": "MEET_TURN_KEY_TOKEN" },
+    "notifications": { "vapidKey": "INBOX_VAPID_KEY" },
+    "gmail": { "clientSecret": "INBOX_GOOGLE_CLIENT_SECRET" },
+    "assistant": { "anthropicKey": "INBOX_ANTHROPIC_API_KEY" },
+    "hostedMailboxes": {
+      "keys": { "INBOX_JMAP_HARBORLINE_TEST": "INBOX_JMAP_HARBORLINE_TEST" },
+      "doorClientId": "MAIL_SPACE_ACCESS_CLIENT_ID",
+      "doorClientSecret": "MAIL_SPACE_ACCESS_CLIENT_SECRET"
+    }
+  }
+}

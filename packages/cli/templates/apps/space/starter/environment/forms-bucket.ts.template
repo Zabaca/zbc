@@ -1,0 +1,8 @@
+import { spaceInstance } from '../../space/{{ENV}}'
+
+/**
+ * Forms' bucket (`stores.formsBucket` of the install file): every file a signer or an operator gives Forms. Never destroyed. One line, made by the space's kit (vendor/space/kit/instances.ts) from this environment's declaration and install file.
+ *
+ * Deploy just this one: bunx @zabaca/zbc apply {{ENV}} forms-bucket
+ */
+export default spaceInstance('formsBucket')

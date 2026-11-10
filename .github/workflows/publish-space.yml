@@ -1,0 +1,66 @@
+# Publishes packages/cli/templates/apps/space/ as the Zabaca/zbc-space
+# repository: the public copy a consumer pulls into `vendor/space` with
+# `zbc add space` and `zbc update space`. A deterministic `git subtree split`,
+# so each push is a fast-forward as long as this repository's main is not
+# rewritten. Nobody changes zbc-space directly; a change is made here.
+#
+# On every merge to main that touches the folder, unlike `publish-core`, which
+# is manual: a consumer may follow the space's newest commit (`--ref main`), so
+# the copy's main is this folder's main. A VERSION is still one deliberate act:
+# a tag is made only when the folder's `package.json` version is one the copy
+# has no tag for, so bumping that version is what cuts a release, and the tag
+# and the split land together.
+name: publish-space
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'packages/cli/templates/apps/space/**'
+  workflow_dispatch:
+
+concurrency: publish-space
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # subtree split walks full history
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      # The last thing between a line and the public: the folder's own check,
+      # which reads files and needs nothing installed. A merge that got past
+      # review with something real in it stops here, unpublished.
+      - name: Nothing real in the folder (the public check)
+        run: bun packages/workspace/scripts/public-check.ts --strict
+        working-directory: packages/cli/templates/apps/space
+
+      - name: Set up deploy key
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s\n' "${{ secrets.ZBC_SPACE_DEPLOY_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan github.com >> ~/.ssh/known_hosts
+
+      - name: Split and push main
+        run: |
+          git subtree split --prefix=packages/cli/templates/apps/space -b space-main
+          git push git@github.com:Zabaca/zbc-space.git space-main:refs/heads/main
+
+      - name: Tag with the space's version (once per version)
+        run: |
+          VERSION=$(jq -r .version packages/cli/templates/apps/space/package.json)
+          TAG="v${VERSION}"
+          if git ls-remote --exit-code --tags git@github.com:Zabaca/zbc-space.git "refs/tags/${TAG}" >/dev/null 2>&1; then
+            echo "${TAG} is already published; the version did not change"
+          else
+            git tag "${TAG}" space-main
+            git push git@github.com:Zabaca/zbc-space.git "refs/tags/${TAG}"
+          fi

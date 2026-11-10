@@ -1,0 +1,84 @@
+# The space's own suites, run on every change to it.
+#
+# The space (packages/cli/templates/apps/space/) is pulled into a consumer's
+# repository as a git subtree of its public copy, so a defect here ships to
+# every company that runs one. It is a workspace of eight packages and a kit,
+# members of this repository's workspace, and this is the gate its tests,
+# typechecks and public check run behind.
+#
+# Its own workflow, as `walgit-e2e` is the walgit template's: `core-tests.yml`
+# is scoped, deliberately and in writing, to `templates/infra/`.
+name: space-tests
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'packages/cli/templates/apps/space/**'
+      - '.github/workflows/space-tests.yml'
+      - 'bun.lock'
+  pull_request:
+    paths:
+      - 'packages/cli/templates/apps/space/**'
+      - '.github/workflows/space-tests.yml'
+      - 'bun.lock'
+  workflow_dispatch:
+
+concurrency:
+  group: space-tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: packages/cli/templates/apps/space
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      # Nothing is installed for this one: the check reads files and imports no
+      # dependency, so a line that must never be public fails the run before a
+      # minute is spent on anything else.
+      - name: Nothing real in the folder (the public check)
+        run: bun packages/workspace/scripts/public-check.ts --strict
+
+      - run: bun install
+        working-directory: .
+
+      # Forms looks at PDFs (poppler's pdfsig checks a seal, pdftoppm renders a
+      # page to find a stamp) and tests its key-making script against a
+      # throwaway sops file. Where a tool is missing those tests skip, and a
+      # skipped test is a green one, so the run fails here instead.
+      - name: Poppler, age and sops for the forms tests
+        working-directory: .
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq poppler-utils age
+          SOPS_VERSION=v3.13.3
+          SOPS_SHA256=e5bec3346a873ae91d871550f3e698c1aad962aff462a080e40f25fde17fef6b
+          curl -fsSL -o /tmp/sops "https://github.com/getsops/sops/releases/download/$SOPS_VERSION/sops-$SOPS_VERSION.linux.amd64"
+          echo "$SOPS_SHA256  /tmp/sops" | sha256sum -c -
+          sudo install -m 0755 /tmp/sops /usr/local/bin/sops
+          for tool in pdfsig pdftoppm age-keygen sops; do
+            command -v "$tool" >/dev/null || { echo "::error::$tool is missing, so the forms tests that need it would skip and pass for nothing."; exit 1; }
+          done
+
+      # `bun test` strips types rather than checking them.
+      - name: Typecheck the eight packages and the kit
+        run: bun run typecheck
+
+      # The suites build throwaway git repositories; an ambient signing setting
+      # must not be what fails them.
+      - name: Test the eight packages and the kit
+        env:
+          GIT_CONFIG_GLOBAL: /dev/null
+          GIT_CONFIG_SYSTEM: /dev/null
+        run: bun run test

@@ -1,0 +1,81 @@
+{
+  "_fixture": "PLACEHOLDER: shaped from Google’s documented API reference, not a captured response. Replace with a trimmed real response after Gmail is connected (packages/inbox/docs/runbooks/inbox-google-setup.md, \"After connecting\").",
+  "history": [
+    {
+      "id": "482914",
+      "messages": [
+        {
+          "id": "19a1f1d4c9e0a512",
+          "threadId": "19a1f0c2b7d4e801"
+        }
+      ],
+      "messagesAdded": [
+        {
+          "message": {
+            "id": "19a1f1d4c9e0a512",
+            "threadId": "19a1f0c2b7d4e801",
+            "labelIds": ["UNREAD", "CATEGORY_PERSONAL", "INBOX"]
+          }
+        }
+      ]
+    },
+    {
+      "id": "482950",
+      "messages": [
+        {
+          "id": "19a1f0c2b7d4e801",
+          "threadId": "19a1f0c2b7d4e801"
+        }
+      ],
+      "labelsRemoved": [
+        {
+          "message": {
+            "id": "19a1f0c2b7d4e801",
+            "threadId": "19a1f0c2b7d4e801",
+            "labelIds": ["CATEGORY_PERSONAL", "INBOX"]
+          },
+          "labelIds": ["UNREAD"]
+        }
+      ]
+    },
+    {
+      "id": "482960",
+      "messages": [
+        {
+          "id": "19a1e8a0d1c3f777",
+          "threadId": "19a1e8a0d1c3f777"
+        }
+      ],
+      "labelsRemoved": [
+        {
+          "message": {
+            "id": "19a1e8a0d1c3f777",
+            "threadId": "19a1e8a0d1c3f777",
+            "labelIds": ["CATEGORY_PROMOTIONS"]
+          },
+          "labelIds": ["INBOX"]
+        }
+      ]
+    },
+    {
+      "id": "482970",
+      "messages": [
+        {
+          "id": "19a1ee0000000001",
+          "threadId": "19a1ee0000000001"
+        }
+      ],
+      "messagesAdded": [
+        {
+          "message": {
+            "id": "19a1ee0000000001",
+            "threadId": "19a1ee0000000001",
+            "labelIds": ["SPAM"]
+          }
+        }
+      ]
+    }
+  ],
+  "nextPageToken": "17189355614123478021",
+  "historyId": "483011"
+}
