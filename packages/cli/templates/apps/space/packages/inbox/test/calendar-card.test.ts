@@ -813,3 +813,100 @@ describe('the second Gmail call counts against the run’s budget', () => {
     expect(h.db.query(`SELECT count(*) AS n FROM message WHERE gmail_id LIKE 'bd%'`).get()).toEqual({ n: total })
   })
 })
+
+describe('names and titles, for summaries as they were already stored', () => {
+  /** An answer whose part names the guest by address only and writes the answer into the event's title, as another calendar program does. */
+  const BARE = (title: string, guest = 'ines@example.com') =>
+    ics('REPLY', [
+      'UID:bare@google.com',
+      'DTSTART:20261113T180000Z',
+      'DTEND:20261113T183000Z',
+      `SUMMARY:${title}`,
+      `ORGANIZER;CN=Tessa Marlow:mailto:${OWNER}`,
+      `ATTENDEE;PARTSTAT=ACCEPTED:mailto:${guest}`,
+    ])
+  const run = (h: H) => {
+    const door = throughSpace(h)
+    const io = {
+      env: {
+        INBOX_URL: bundledInstall.agentDoor()?.url ?? 'no door',
+        INBOX_ACCESS_CLIENT_ID: CLIENT_ID,
+        INBOX_ACCESS_CLIENT_SECRET: CLIENT_SECRET,
+      },
+      sopsKey: () => {
+        throw new Error('sops must not be called when the env is set')
+      },
+      readInput: async (spec: string) => spec,
+      fetch: (url: string, init: RequestInit) => door.fetch(url, init as never),
+    }
+    return (...argv: string[]) => runCli(argv, io as never)
+  }
+  const scriptLine = async (h: H, subject: string): Promise<string | undefined> => {
+    const id = (
+      h.db.query(`SELECT conversation_id AS id FROM message WHERE subject = ?1`).get(subject) as { id: string }
+    ).id
+    const page = JSON.parse((await run(h)('conversation', id)).output) as { messages: { calendarLine?: string }[] }
+    return page.messages[0]?.calendarLine
+  }
+  const WHEN = 'Fri, Nov 13, 10:00 AM to 10:30 AM PST'
+
+  test('the list line and the script line name the guest by the email’s From display name and do not say the answer twice', async () => {
+    const h = await world()
+    await arrive(h, {
+      id: 'n1',
+      threadId: 'tn1',
+      from: INES,
+      subject: 'Accepted: Roadmap review',
+      body: '',
+      ics: BARE('Accepted: Roadmap review'),
+    })
+    // As stored by the build before: the guest has no name, and the title has the answer in it.
+    expect(summaryOf(h, 'n1')).toMatchObject({
+      by: { name: '', address: 'ines@example.com' },
+      title: 'Accepted: Roadmap review',
+    })
+    expect(await lineOf(h, 'ines@example.com')).toBe(`Ines Okafor accepted: Roadmap review, ${WHEN}`)
+    expect(await scriptLine(h, 'Accepted: Roadmap review')).toBe(`Ines Okafor accepted: Roadmap review, ${WHEN}`)
+    // The space is told the summary as stored: the page words it itself (the space's own tests).
+    const [m] = await messagesOf(h, 'ines@example.com')
+    expect(m?.from).toBe(INES)
+    expect(m?.calendar).toMatchObject({ by: { name: '' }, title: 'Accepted: Roadmap review' })
+  })
+
+  test('nothing changes for a named guest, an address that is not the sender’s, or an invitation titled "Accepted: ..."', async () => {
+    const h = await world()
+    await arrive(h, {
+      id: 'n2',
+      threadId: 'tn2',
+      from: INES,
+      subject: 'Someone else',
+      body: '',
+      ics: BARE('Roadmap review', 'someone.else@example.com'),
+    })
+    expect(await scriptLine(h, 'Someone else')).toBe(`someone.else@example.com accepted: Roadmap review, ${WHEN}`)
+    await arrive(h, { id: 'n3', threadId: 'tn3', from: INES, subject: 'Named', body: '', ics: ACCEPTED })
+    expect(await scriptLine(h, 'Named')).toBe(`Ines Okafor accepted: Roadmap review, ${WHEN}`)
+    const invitation = ics('REQUEST', [
+      'UID:acc@google.com',
+      'DTSTART:20261113T180000Z',
+      'DTEND:20261113T183000Z',
+      'SUMMARY:Accepted: the new terms',
+      'ORGANIZER:mailto:noah@fernway.example',
+    ])
+    await arrive(h, { id: 'n4', threadId: 'tn4', from: NOAH, subject: 'Invitation', body: '', ics: invitation })
+    expect(await scriptLine(h, 'Invitation')).toBe(`Invitation: Accepted: the new terms, ${WHEN}`)
+  })
+
+  test('a sender with no display name leaves the address, as before', async () => {
+    const h = await world()
+    await arrive(h, {
+      id: 'n5',
+      threadId: 'tn5',
+      from: 'ines@example.com',
+      subject: 'No name',
+      body: '',
+      ics: BARE('Accepted: Roadmap review'),
+    })
+    expect(await scriptLine(h, 'No name')).toBe(`ines@example.com accepted: Roadmap review, ${WHEN}`)
+  })
+})

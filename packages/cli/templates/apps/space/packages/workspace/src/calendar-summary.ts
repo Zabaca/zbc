@@ -227,11 +227,49 @@ export function occurrenceWords(s: CalendarSummary, zone: string): string {
   return ''
 }
 
+// ── Two things a summary is made ready for its words by (never stored: a summary already kept is covered the same way) ──────────────
+
+/** The person a From header names, or null: the display name (decoded as the inbox stores it, unquoted, on one line, at most 100 characters; '' when the header has none or it is only the address) and the address, lower case. */
+export function senderOf(header: string | undefined): CalendarPerson | null {
+  const h = (header ?? '').trim()
+  if (h === '' || h.length > 600) return null
+  const bracketed = /^(.*)<([^<>\s]+)>$/.exec(h)
+  const bare = /^[^\s<>@]+@[^\s<>@]+$/.test(h)
+  const address = (bracketed ? (bracketed[2] as string) : bare ? h : '').trim().toLowerCase()
+  if (address === '' || !address.includes('@')) return null
+  const quoted = ((bracketed?.[1] ?? '').trim().replace(/^"(.*)"$/s, '$1').replace(/\\(.)/g, '$1'))
+  // biome-ignore lint/suspicious/noControlCharactersInRegex: the point is to remove control characters
+  const name = quoted.replace(/[\u0000-\u001f\u007f-\u009f]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, CALENDAR_SUMMARY_LIMITS.name).trim()
+  return { name: name.toLowerCase() === address ? '' : name, address }
+}
+
+/** The answer words some calendar programs write at the front of an answer's title ("Accepted: Roadmap review"): English, and German as Outlook writes it. */
+const ANSWER_TITLE = /^(?:accepted|declined|tentative|angenommen|abgelehnt|mit vorbehalt)\s*:\s*/i
+
+/**
+ * What a summary is worded from: the same summary, with (1) a guest or organizer who has no name in the part filled in with the display name of the email's From header when their address is the address the email came from (the
+ * name comes from nowhere else: not from the part's own text, not from another message), and (2) for an answer, the answer word and colon another calendar program wrote at the front of the title taken off ("Accepted: Roadmap review" is
+ * "Roadmap review", because the heading already says who accepted), unless nothing would be left. An invitation titled "Accepted: ..." is not an answer and is left alone. `from` is the email's From header as the inbox stores it.
+ */
+export function forWords<T extends CalendarSummary>(s: T, from?: string): T {
+  const sender = from === undefined ? null : senderOf(from)
+  const named = <P extends CalendarPerson | null | undefined>(p: P): P =>
+    p && sender && sender.name !== '' && p.name === '' && p.address !== '' && p.address === sender.address ? { ...p, name: sender.name } : p
+  const stripped = s.kind === 'reply' ? s.title.replace(ANSWER_TITLE, '').trim() : s.title
+  return {
+    ...s,
+    title: stripped === '' ? s.title : stripped,
+    ...(s.by !== undefined && { by: named(s.by) }),
+    organizer: named(s.organizer),
+  }
+}
+
 /**
  * The one line for a list row whose newest email has no words of its own, and for Claude's script: "Ana accepted: Advisory board intro, Thu, Nov 13, 10:00 AM to 10:30 AM PST". The heading, then the title and the time. A counter
  * proposal's time is the one proposed. Cut to `max` characters (the list's own line is cut at 160).
  */
-export function summaryLine(s: CalendarSummary, zone: string, max = 160): string {
+export function summaryLine(summary: CalendarSummary, zone: string, max = 160, from?: string): string {
+  const s = forWords(summary, from)
   const rest = [s.title, summaryWhen(s, zone)].filter((x) => x !== '').join(', ')
   const line = rest === '' ? summaryHeading(s) : `${summaryHeading(s)}: ${rest}`
   return line.length <= max ? line : `${line.slice(0, max - 1).trimEnd()}…`
@@ -250,9 +288,9 @@ export function guestsWords(s: Pick<CalendarSummary, 'guests' | 'guestsMore'>): 
  * `summaryLine`, or '' when wording the summary throws (a summary that passed the guard but cannot be said on this clock). A list row, Claude's script and the card use this, so a stored summary can never break a list or a page: the
  * email is then listed and drawn as it was before the summary existed.
  */
-export function safeSummaryLine(s: CalendarSummary, zone: string, max = 160): string {
+export function safeSummaryLine(s: CalendarSummary, zone: string, max = 160, from?: string): string {
   try {
-    return summaryLine(s, zone, max)
+    return summaryLine(s, zone, max, from)
   } catch {
     return ''
   }

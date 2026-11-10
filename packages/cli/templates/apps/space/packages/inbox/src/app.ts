@@ -569,7 +569,7 @@ export function createApp(deps: Deps) {
     // A message with no words of its own and a calendar summary says what the summary says in one line, on the company's clock, so Claude never has to guess who accepted from a subject.
     const withCalendarLine = (m: MessageRow): MessageRow => {
       if (m.calendar === undefined || m.body.trim() !== '') return m
-      const calendarLine = safeSummaryLine(m.calendar, install.company.timeZone)
+      const calendarLine = safeSummaryLine(m.calendar, install.company.timeZone, 160, m.from)
       return calendarLine === '' ? m : { ...m, calendarLine }
     }
     const page: ConversationPage = {

@@ -1,11 +1,13 @@
 import { describe, expect, test } from 'bun:test'
 import {
   type CalendarSummary,
+  forWords,
   guestsWords,
   isCalendarSummary,
   isInboxCalendar,
   occurrenceWords,
   parseCalendarSummary,
+  senderOf,
   safeSummaryLine,
   summaryHeading,
   summaryLine,
@@ -143,5 +145,75 @@ describe('a summary that cannot be said', () => {
     expect(safeSummaryLine(base, ZONE)).toBe('Invitation: Roadmap review, Fri, Nov 13, 10:00 AM to 10:30 AM PST')
     expect(() => summaryLine(base, 'Nowhere/Bad')).toThrow()
     expect(safeSummaryLine(base, 'Nowhere/Bad')).toBe('')
+  })
+})
+
+describe('the name a guest has when the part gives none: the one the email came From', () => {
+  const answered: CalendarSummary = { ...base, kind: 'reply', answer: 'accepted', by: { name: '', address: 'ana@vidalcreative.example' } }
+
+  test('the From header is read: a display name, a quoted one, none, and only an address', () => {
+    expect(senderOf('Ana Vidal <Ana@VidalCreative.example>')).toEqual({ name: 'Ana Vidal', address: 'ana@vidalcreative.example' })
+    expect(senderOf('"Vidal, Ana" <ana@vidalcreative.example>')).toEqual({ name: 'Vidal, Ana', address: 'ana@vidalcreative.example' })
+    expect(senderOf('<ana@vidalcreative.example>')).toEqual({ name: '', address: 'ana@vidalcreative.example' })
+    expect(senderOf('ana@vidalcreative.example')).toEqual({ name: '', address: 'ana@vidalcreative.example' })
+    expect(senderOf('ana@vidalcreative.example <ana@vidalcreative.example>')).toEqual({ name: '', address: 'ana@vidalcreative.example' })
+    expect(senderOf('Ana')).toBeNull()
+    expect(senderOf('')).toBeNull()
+    expect(senderOf(undefined)).toBeNull()
+    expect(senderOf(`${'x'.repeat(700)} <a@b.example>`)).toBeNull()
+  })
+
+  test('a guest with no name, whose address is the sender’s, takes the sender’s display name, in the heading and the line', () => {
+    const from = 'Ana Vidal <ana@vidalcreative.example>'
+    expect(summaryHeading(forWords(answered, from))).toBe('Ana Vidal accepted')
+    expect(summaryLine(answered, ZONE, 160, from)).toBe('Ana Vidal accepted: Roadmap review, Fri, Nov 13, 10:00 AM to 10:30 AM PST')
+    // As stored (no name), without a From, or from a header that has no name: the address, as it was.
+    expect(summaryLine(answered, ZONE)).toBe('ana@vidalcreative.example accepted: Roadmap review, Fri, Nov 13, 10:00 AM to 10:30 AM PST')
+    expect(summaryLine(answered, ZONE, 160, 'ana@vidalcreative.example')).toContain('ana@vidalcreative.example accepted')
+    expect(summaryLine(answered, ZONE, 160, '<ana@vidalcreative.example>')).toContain('ana@vidalcreative.example accepted')
+  })
+
+  test('nothing else is renamed: a named guest, an address that is not the sender’s, the guests; the organizer is named the same way as the guest', () => {
+    const from = 'Ana Vidal <ana@vidalcreative.example>'
+    expect(forWords({ ...answered, by: { name: 'A. Vidal', address: 'ana@vidalcreative.example' } }, from).by?.name).toBe('A. Vidal')
+    expect(forWords({ ...answered, by: { name: '', address: 'someone.else@example.com' } }, from).by?.name).toBe('')
+    const invited: CalendarSummary = { ...base, organizer: { name: '', address: 'ana@vidalcreative.example' }, guests: [{ name: '', address: 'ana@vidalcreative.example' }] }
+    expect(forWords(invited, from).organizer?.name).toBe('Ana Vidal')
+    expect(forWords(invited, from).guests).toEqual(invited.guests)
+    expect(forWords({ ...invited, organizer: null }, from).organizer).toBeNull()
+    // The extras an answer to the page carries ride through.
+    expect((forWords({ ...invited, fromYou: true } as CalendarSummary, from) as unknown as { fromYou: boolean }).fromYou).toBe(true)
+  })
+})
+
+describe('an answer’s title does not say the answer twice', () => {
+  const answered = (title: string): CalendarSummary => ({ ...base, kind: 'reply', answer: 'accepted', by, title })
+
+  test.each([
+    ['Accepted: Roadmap review', 'Roadmap review'],
+    ['accepted:Roadmap review', 'Roadmap review'],
+    ['DECLINED : Roadmap review', 'Roadmap review'],
+    ['Tentative: Roadmap review', 'Roadmap review'],
+    ['Angenommen: Roadmap review', 'Roadmap review'],
+    ['Abgelehnt: Roadmap review', 'Roadmap review'],
+    ['Mit Vorbehalt: Roadmap review', 'Roadmap review'],
+  ])('%s is "%s"', (title, left) => {
+    expect(forWords(answered(title)).title).toBe(left)
+    expect(summaryLine(answered(title), ZONE)).toBe(`Ana Vidal accepted: ${left}, Fri, Nov 13, 10:00 AM to 10:30 AM PST`)
+  })
+
+  test('only at the very start, only once, and never leaving an empty title', () => {
+    expect(forWords(answered('Roadmap review: Accepted: soon')).title).toBe('Roadmap review: Accepted: soon')
+    expect(forWords(answered('Re: Accepted: Roadmap review')).title).toBe('Re: Accepted: Roadmap review')
+    expect(forWords(answered('Accepted: Declined: Roadmap')).title).toBe('Declined: Roadmap')
+    expect(forWords(answered('Accepted:')).title).toBe('Accepted:')
+    expect(forWords(answered('Accepted:   ')).title).toBe('Accepted:   ')
+    expect(forWords(answered('Acceptance: Roadmap')).title).toBe('Acceptance: Roadmap')
+  })
+
+  test('an invitation, an update, a cancellation or an event titled "Accepted: ..." is left alone', () => {
+    for (const kind of ['invitation', 'update', 'cancelled', 'event'] as const) {
+      expect(forWords({ ...base, kind, title: 'Accepted: Roadmap review' }).title).toBe('Accepted: Roadmap review')
+    }
   })
 })

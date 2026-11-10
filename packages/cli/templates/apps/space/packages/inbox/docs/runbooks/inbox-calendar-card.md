@@ -29,6 +29,8 @@ An apply of the space (the inbox runs in its Worker): `bunx @zabaca/zbc apply <e
 3. Open the conversation of someone who answered an invitation: a card ("<guest> accepted", declined, said maybe, proposed a new time) in place of the empty bubble, the file's chip under it, the time on the company's clock. The Inbox list's line for it says the same words.
 4. The calendar files are written to the documented shapes in the tests, not captured: read one real invitation, one real update, one cancellation and one real answer, and compare the card with Gmail's own. A Gmail calendar file that does not show is worth a look at `message.calendar` (`none` means the part held no event or could not be read; NULL means the file could not be fetched at arrival and the pass has not reached it).
 5. Open in Calendar (the owner, where the event is in the Calendar tab) opens that event's card.
+6. An answer whose calendar part names the guest by address only (no name): the card, the list's line and Claude's script say the display name the email came From, when the part's address is the sender's (`forWords`, `senderOf` in the workspace's `calendar-summary.ts`; applied where the words are made, so a summary kept before it is covered). No name in the From header, or an address that is not the sender's: the address stays.
+7. An answer from a program that writes the answer into the event's title ("Accepted: <title>"): the heading says who accepted and the title is just "<title>", with no second "Accepted:" in the card or the line. An invitation really titled "Accepted: ..." keeps its title. Only English and German (Outlook's "Angenommen", "Abgelehnt", "Mit Vorbehalt") words are taken off.
 
 ## Undo
 

@@ -23,7 +23,9 @@ afterAll(async () => {
   await GlobalRegistrator.unregister()
 })
 
-async function draw(options: { withFile?: boolean; zone?: string } = {}) {
+type Mail = { calendar?: { title: string; kind: string; by?: { name: string; address: string } } & Record<string, unknown>; from: string }
+
+async function draw(options: { withFile?: boolean; zone?: string; edit?: (messages: Mail[]) => void } = {}) {
   const apps = fixtureApps(T0, 'calendar-mail', { zone: ZONE })
   const opened = await openConversation({ apps, install, signedIn: OWNER_SIGNED_IN, self: ['tessa@northfield.example'], answerWithinMs: 200, now: () => T0 }, 'ana@vidalcreative.example')
   if (!opened.ok) throw new Error(opened.message)
@@ -33,6 +35,7 @@ async function draw(options: { withFile?: boolean; zone?: string } = {}) {
     const first = answer.sources.find((s) => s.kind === 'mail')
     if (first?.kind === 'mail' && first.messages[0]) first.messages[0].attachments = [{ name: 'invite.ics', size: 1009, type: 'text/calendar', picture: false, download: true }]
   }
+  if (options.edit) options.edit(answer.sources.flatMap((s) => (s.kind === 'mail' ? (s.messages as unknown as Mail[]) : [])))
   const { act, createElement } = await import('react')
   const { createRoot } = await import('react-dom/client')
   const { ConversationView } = await import('../src/client/Conversation')
@@ -82,7 +85,7 @@ const text = (card: Element | null | undefined, id: string) => card?.querySelect
 describe('an email with a calendar part and no words', () => {
   test('is a card in place of the empty bubble: every email has one card, and none has an empty bubble', async () => {
     const { host, done } = await draw()
-    expect(cards(host)).toHaveLength(15)
+    expect(cards(host)).toHaveLength(17)
     for (const entry of host.querySelectorAll('[data-testid="entry"]')) {
       expect(entry.querySelector('[data-testid="calendar-card"]')).not.toBeNull()
       expect(entry.querySelector('.msg-text.bubble')).toBeNull()
@@ -128,8 +131,8 @@ describe('an email with a calendar part and no words', () => {
   test('a guest’s answer says who answered and how, with their note in their own words; a counter proposal says the time it proposes', async () => {
     const { host, done } = await draw()
     const heading = (kind: string, answer: string) => cards(host).filter((c) => c.getAttribute('data-kind') === kind && c.getAttribute('data-answer') === answer).map((c) => c.querySelector('[data-testid="calendar-heading"]')?.textContent)
-    expect(heading('reply', 'accepted')).toEqual(['Ana Vidal accepted', 'Ana Vidal accepted'])
-    expect(heading('reply', 'declined')).toEqual(['Ana Vidal declined'])
+    expect(heading('reply', 'accepted')).toEqual(['Ana Vidal accepted', 'Ana Vidal accepted', 'Ana Vidal accepted'])
+    expect(heading('reply', 'declined')).toEqual(['Ana Vidal declined', 'Ana Vidal declined'])
     expect(heading('reply', 'tentative')).toEqual(['Ana Vidal said maybe'])
     expect(heading('reply', 'counter')[0]).toMatch(/^Ana Vidal proposed a new time: \w{3}, \w{3} \d{1,2}, 2:00 PM to 2:30 PM P[SD]T$/)
     expect(text(byTitle(host, 'Fernway budget review'), 'note')).toBe('I am out of the office that week, sorry. Could we do the week after?')
@@ -180,12 +183,45 @@ describe('an email with a calendar part and no words', () => {
   test('a summary that cannot be worded on the company’s clock draws no card, and the email is drawn as it was (its bubble stays)', async () => {
     const { host, answer, done } = await draw({ zone: 'Nowhere/Bad' })
     // A card whose time is said on the clock is not drawn when the clock is no clock; one that needs none (a day, a time as written, no time) is. Every email is drawn either way, a card or its plain bubble, never both and never neither.
-    expect(cards(host).length).toBeLessThan(15)
+    expect(cards(host).length).toBeLessThan(17)
     const entries = [...host.querySelectorAll('[data-testid="entry"]')]
     expect(entries).toHaveLength(answer.sources.flatMap((s) => (s.kind === 'mail' ? s.messages : [])).length)
     const drawn = entries.map((entry) => (entry.querySelector('[data-testid="calendar-card"]') !== null) !== (entry.querySelector('.msg-text') !== null))
     expect(drawn.every(Boolean)).toBe(true)
     await done()
+  })
+
+  test('a guest the part names by address only is named by the email’s From, which is the same address; a named guest, and an address that is not the sender’s, stay as the part gave them', async () => {
+    const { host, done } = await draw()
+    expect(text(byTitle(host, 'Design check-in'), 'heading')).toBe('Ana Vidal accepted')
+    expect(text(byTitle(host, 'Roadmap review'), 'heading')).toBe('Invitation')
+    await done()
+    const other = await draw({
+      edit: (messages) => {
+        const card = messages.find((m) => m.calendar?.title === 'Design check-in')?.calendar
+        if (card) card.by = { name: '', address: 'someone.else@example.com' }
+      },
+    })
+    expect(text(byTitle(other.host, 'Design check-in'), 'heading')).toBe('someone.else@example.com accepted')
+    await other.done()
+  })
+
+  test('an answer’s title loses the answer word another program wrote into it; an invitation titled "Accepted: ..." and a title that is only the word are left as written', async () => {
+    const { host, done } = await draw()
+    expect(byTitle(host, 'Budget sync')).toBeDefined()
+    expect(byTitle(host, 'Declined: Budget sync')).toBeUndefined()
+    await done()
+    const edited = await draw({
+      edit: (messages) => {
+        const invitation = messages.find((m) => m.calendar?.title === 'Team offsite')?.calendar
+        if (invitation) invitation.title = 'Accepted: Team offsite'
+        const bare = messages.find((m) => m.calendar?.title === 'Declined: Budget sync')?.calendar
+        if (bare) bare.title = 'Declined:'
+      },
+    })
+    expect(byTitle(edited.host, 'Accepted: Team offsite')).toBeDefined()
+    expect(byTitle(edited.host, 'Declined:')).toBeDefined()
+    await edited.done()
   })
 
   test('keeps the file chip under the card, as it is today', async () => {
