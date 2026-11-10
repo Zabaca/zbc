@@ -11,7 +11,7 @@ export const isKind = (v: unknown): v is Kind => typeof v === 'string' && (KINDS
 /** People in one call. One constant; the limit is what each browser must decode, not the SFU. */
 export const ROOM_CAP = 8
 /** Up to this many people each camera goes up at full quality; past it, at the low step. */
-export const FULL_TAMARACK_UP_TO = 4
+export const FULL_QUALITY_UP_TO = 4
 /** A person not heard from for this long drops off everyone's list. */
 export const MEMBER_TIMEOUT_MS = 30_000
 /** How often a browser checks in (which is also its heartbeat). */
@@ -30,7 +30,7 @@ export const CHAT_PAGE = 200
 export const CHAT_SAVED_NOTICE = 'Messages in this chat are saved.'
 
 export type Quality = 'full' | 'low'
-export const qualityFor = (count: number): Quality => (count <= FULL_TAMARACK_UP_TO ? 'full' : 'low')
+export const qualityFor = (count: number): Quality => (count <= FULL_QUALITY_UP_TO ? 'full' : 'low')
 
 /** What a camera is sent at, by quality step. The browser applies these to its sender. */
 export const CAMERA_CAPS = {
