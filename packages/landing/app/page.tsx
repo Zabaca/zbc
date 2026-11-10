@@ -106,6 +106,33 @@ export default function Page() {
                   </div>
                 ))}
               </div>
+
+              <Stack gap="md">
+                <span className="eyebrow">The space</span>
+                <Measure size="display" as="h2">
+                  One address where a small company works.
+                </Measure>
+                <Measure size="wide" as="p" className="lede">
+                  Mail, chat and calls, a calendar, forms and documents sent for signature, clients
+                  and what the company knows, behind one sign-in. One Cloudflare Worker in the
+                  company&rsquo;s own account, deployed from the company&rsquo;s own repo. Too large
+                  to copy once, so it is pulled as a git subtree of{' '}
+                  <a href="https://github.com/Zabaca/zbc-space">its own public repo</a> and updated
+                  the same way. Your changes ride through every update.
+                </Measure>
+              </Stack>
+
+              <div>
+                {SPACE_COMMANDS.map((c) => (
+                  <div
+                    key={c.name}
+                    className="grid grid-cols-1 items-baseline gap-x-6 gap-y-3 border-t border-ink-4 py-6 wide:grid-cols-[16rem_1fr]"
+                  >
+                    <code className="font-mono text-md text-ink-0">{c.name}</code>
+                    <p className="m-0 max-w-[56ch] text-sm leading-[1.55]">{c.body}</p>
+                  </div>
+                ))}
+              </div>
             </Stack>
           </Container>
         </Section>
@@ -310,6 +337,21 @@ const APP_TEMPLATES = [
   },
 ]
 
+const SPACE_COMMANDS = [
+  {
+    name: 'zbc add space',
+    body: 'Pulls the space into vendor/space at its newest version, adds it to your workspace, and writes the files a new install starts from: who the company is, what each thing is called in your account, and one line per instance. Fill them in and apply.',
+  },
+  {
+    name: 'zbc update space',
+    body: 'Pulls a newer version over it. What you changed is kept, a conflict is an ordinary git merge, and the command names the files that are yours and the files that differ from the copy you pulled.',
+  },
+  {
+    name: 'zbc apply production space',
+    body: 'Builds the Worker for your company and deploys it with its sign-in, its stores and its secrets, in that order, so the address is never served without its gate. Its records are marked never to be destroyed.',
+  },
+]
+
 const PREVIEW_SNIPPET = `// packages/infra/environments/preview/web.ts
 const pr = process.env.PR_NUMBER ?? 'local'
 
@@ -338,9 +380,9 @@ function Code({ children }: { children: string }) {
 function C9sTerminal() {
   const rows = [
     ['agent-canvas', '8', '2', '2', '3', '0', '1'],
-    ['foothill-inbox', '4', '1', '0', '1', '1', '1'],
+    ['acme-space', '4', '1', '0', '1', '1', '1'],
     ['tour-guide', '3', '1', '0', '1', '0', '1'],
-    ['zbc-inbox', '3', '1', '0', '1', '0', '1'],
+    ['zbc-landing', '3', '1', '0', '1', '0', '1'],
     ['zbc-nats', '3', '1', '1', '1', '0', '0'],
   ]
   const w = [22, 7, 9, 12, 4, 4, 4]
