@@ -1,0 +1,46 @@
+name: proof-agent-ubuntu
+on:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        variant: [none, apt, apt-sysctl, apt-apparmor-profile]
+    name: ${{ matrix.variant }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - run: bun install
+      - name: Environment
+        run: |
+          head -2 /etc/os-release
+          sysctl kernel.apparmor_restrict_unprivileged_userns kernel.unprivileged_userns_clone || true
+          for b in bwrap socat rg; do command -v $b || echo "no $b"; done
+      - name: apt
+        if: matrix.variant != 'none'
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq bubblewrap socat ripgrep
+      - name: sysctl
+        if: matrix.variant == 'apt-sysctl'
+        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+      - name: apparmor profile for bwrap
+        if: matrix.variant == 'apt-apparmor-profile'
+        run: |
+          sudo tee /etc/apparmor.d/bwrap-userns >/dev/null <<'PROFILE'
+          abi <abi/4.0>,
+          include <tunables/global>
+          profile bwrap /usr/bin/bwrap flags=(unconfined) {
+            userns,
+          }
+          PROFILE
+          sudo apparmor_parser -r /etc/apparmor.d/bwrap-userns
+      - name: bwrap smoke
+        run: bwrap --ro-bind / / --unshare-all --dev /dev true && echo bwrap-ok
+        continue-on-error: true
+      - name: agent tests
+        run: bun test packages/agent/src
