@@ -853,8 +853,12 @@ export class CalendarStore {
       if (rows.length === 0) return null
       const startOf = (r: Record<string, unknown>): number => num(r.start_ms)
       let chosen: Record<string, unknown> | undefined
-      if (ask.occurrence?.at !== null && ask.occurrence?.at !== undefined) chosen = rows.find((r) => startOf(r) === ask.occurrence?.at)
-      else if (ask.occurrence?.date !== null && ask.occurrence?.date !== undefined) chosen = rows.find((r) => flag(r.all_day) && textOrNull(r.start_date) === ask.occurrence?.date)
+      // A part about one occurrence names its ORIGINAL start (RECURRENCE-ID), and an update may have moved it since. Google names an instance `<series id>_<original start>` (`20261120T180000Z`, or `20261120` for an all-day one), so
+      // the instance is found by the end of its id first, and only then by where it now starts.
+      const stamp = (at: number): string => new Date(at).toISOString().replace(/[-:]|\.\d{3}/g, '')
+      const named = (suffix: string) => rows.find((r) => text(r.id).endsWith(`_${suffix}`))
+      if (ask.occurrence?.at !== null && ask.occurrence?.at !== undefined) chosen = named(stamp(ask.occurrence.at)) ?? rows.find((r) => startOf(r) === ask.occurrence?.at)
+      else if (ask.occurrence?.date !== null && ask.occurrence?.date !== undefined) chosen = named(ask.occurrence.date.replaceAll('-', '')) ?? rows.find((r) => flag(r.all_day) && textOrNull(r.start_date) === ask.occurrence?.date)
       else chosen = rows.find((r) => startOf(r) >= now) ?? rows[rows.length - 1]
       return chosen ? this.event(eventKey(text(chosen.calendar_id), text(chosen.id))) : null
     })

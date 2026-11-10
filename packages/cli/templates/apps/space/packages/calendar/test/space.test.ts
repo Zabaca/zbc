@@ -134,6 +134,20 @@ describe('the events a mail’s calendar part names, found by iCalendar id', () 
     expect(await ask('weekly1@google.com', { at: T0 + 100 * DAY, date: null })).toBeNull()
   })
 
+  test('an occurrence an update has MOVED is still found: the part names its original start, which Google keeps in the instance id', async () => {
+    const original = T0 + 5 * DAY
+    const stampOf = (at: number) => new Date(at).toISOString().replace(/[-:]|\.\d{3}/g, '')
+    const { ask } = await calendarWith((h) => {
+      // The Friday occurrence was moved two hours later; its id still ends in the start it had.
+      h.google.setEvent(Z, Z, weekly(`weeklyseries_${stampOf(original)}`, original + 2 * HOUR))
+      h.google.setEvent(Z, Z, weekly(`weeklyseries_${stampOf(original + 7 * DAY)}`, original + 7 * DAY))
+    })
+    expect((await ask('weekly1@google.com', { at: original, date: null }))?.start).toBe(original + 2 * HOUR)
+    expect((await ask('weekly1@google.com', { at: original + 7 * DAY, date: null }))?.start).toBe(original + 7 * DAY)
+    // An occurrence nothing holds, by id or by start, is not guessed at.
+    expect(await ask('weekly1@google.com', { at: original + 3 * DAY, date: null })).toBeNull()
+  })
+
   test('once every occurrence is past, the latest is the one', async () => {
     const { ask } = await calendarWith((h) => {
       for (const [id, at] of [['w1', T0 - 9 * DAY], ['w2', T0 - 3 * DAY], ['w3', T0 - 1 * DAY]] as const) h.google.setEvent(Z, Z, weekly(id, at))

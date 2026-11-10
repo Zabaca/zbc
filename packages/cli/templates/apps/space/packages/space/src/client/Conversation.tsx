@@ -41,7 +41,7 @@ import { DRAFT_BY, type Item, TELEGRAM_HEADING, blocksOf, chosenWay, newLineKey,
 import { CallCard } from './CallCard'
 import { type ChatTools, ChatMessageRow, NewLine, meetOrigin } from './ChatMessage'
 import { type CallActions, useCallActions } from './callActions'
-import { CalendarCard } from './CalendarCard'
+import { CalendarCard, showsCard } from './CalendarCard'
 import { ChannelPanel } from './Channels'
 import { DraftChat } from './DraftChat'
 import { DraftEditor } from './DraftEdit'
@@ -184,7 +184,7 @@ function EmailMessage({ message, read, now, zone, company, go, after }: { messag
           )}
         </div>
         {/* The words of a Telegram message that is only a photo, a voice note, an image or a video are the bracketed label ("[Photo]"); with the file shown under it the label says nothing, so it is not drawn. Nor is the empty bubble of an email whose only content is a calendar part: the card under it says what it says. */}
-        {!(message.deleted !== true && shownFile(message) && PLACEHOLDER.test(read.visible)) && !(message.calendar !== undefined && read.visible.trim() === '') && (
+        {!(message.deleted !== true && shownFile(message) && PLACEHOLDER.test(read.visible)) && !(showsCard(message.calendar, company) && read.visible.trim() === '') && (
         <div className={`msg-text bubble${message.deleted === true ? ' deleted' : BRACKETED.test(read.visible) ? ' placeholder' : ''}`} {...(message.deleted === true && { 'data-testid': 'deleted-message' })}>
           {message.deleted === true ? <i>This message was deleted in Telegram.</i> : read.visible}
           {read.quoted !== '' && (
@@ -201,7 +201,7 @@ function EmailMessage({ message, read, now, zone, company, go, after }: { messag
           )}
         </div>
         )}
-        {message.calendar !== undefined && <CalendarCard calendar={message.calendar} zone={company} go={go} />}
+        {showsCard(message.calendar, company) && <CalendarCard calendar={message.calendar} zone={company} go={go} />}
         <MessageFiles messageId={message.id} files={message.attachments} mine={mine} />
         <DeliveryNotes notes={message.delivery} mine={mine} />
         {message.textCut && <div className="sub">This email is longer than the inbox keeps, so it is cut short here. If it came through Gmail, the rest is there.</div>}
@@ -245,8 +245,8 @@ function Message({ entry: e, now, zone, company, go, onChanged, tools }: { entry
             {stamp(now, e.at, zone)}
           </time>
         </div>
-        {!(e.kind === 'email' && e.message.calendar !== undefined && e.message.text.trim() === '') && <div className="msg-text">{e.message.text}</div>}
-        {e.kind === 'email' && e.message.calendar !== undefined && <CalendarCard calendar={e.message.calendar} zone={company} go={go} />}
+        {!(e.kind === 'email' && showsCard(e.message.calendar, company) && e.message.text.trim() === '') && <div className="msg-text">{e.message.text}</div>}
+        {e.kind === 'email' && showsCard(e.message.calendar, company) && <CalendarCard calendar={e.message.calendar} zone={company} go={go} />}
         {e.kind === 'email' && <MessageFiles messageId={e.message.id} files={e.message.attachments} mine={mine} />}
         {e.kind === 'email' && <DeliveryNotes notes={e.message.delivery} mine={mine} />}
         {e.kind === 'email' && e.message.textCut && <div className="sub">This email is longer than the inbox keeps, so it is cut short here. If it came through Gmail, the rest is there.</div>}

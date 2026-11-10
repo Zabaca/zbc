@@ -6,6 +6,7 @@ import {
   isInboxCalendar,
   occurrenceWords,
   parseCalendarSummary,
+  safeSummaryLine,
   summaryHeading,
   summaryLine,
   summaryWhen,
@@ -125,5 +126,22 @@ describe('what is read back', () => {
     expect(isInboxCalendar({ ...base, fromYou: false })).toBe(true)
     expect(isInboxCalendar(base)).toBe(false)
     expect(isInboxCalendar({ ...base, fromYou: 'yes' })).toBe(false)
+  })
+})
+
+describe('a summary that cannot be said', () => {
+  test('a moment outside the range of a Date, and a day that is not a day, are not in a summary', () => {
+    expect(isCalendarSummary({ ...base, end: 8_710_914_564_000_000 })).toBe(false)
+    expect(isCalendarSummary({ ...base, start: -8_710_914_564_000_000 })).toBe(false)
+    expect(isCalendarSummary({ ...base, occurrence: { at: 8_710_914_564_000_000, date: null } })).toBe(false)
+    expect(isCalendarSummary({ ...base, startDate: '2026-13-45' })).toBe(false)
+    expect(isCalendarSummary({ ...base, occurrence: { at: null, date: '2026-02-31x' } })).toBe(false)
+    expect(isCalendarSummary({ ...base, start: 8.64e15, end: -8.64e15 })).toBe(true)
+  })
+
+  test('the safe line is the line, and nothing when wording throws (a zone the runtime does not know)', () => {
+    expect(safeSummaryLine(base, ZONE)).toBe('Invitation: Roadmap review, Fri, Nov 13, 10:00 AM to 10:30 AM PST')
+    expect(() => summaryLine(base, 'Nowhere/Bad')).toThrow()
+    expect(safeSummaryLine(base, 'Nowhere/Bad')).toBe('')
   })
 })

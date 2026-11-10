@@ -23,7 +23,7 @@ afterAll(async () => {
   await GlobalRegistrator.unregister()
 })
 
-async function draw(options: { withFile?: boolean } = {}) {
+async function draw(options: { withFile?: boolean; zone?: string } = {}) {
   const apps = fixtureApps(T0, 'calendar-mail', { zone: ZONE })
   const opened = await openConversation({ apps, install, signedIn: OWNER_SIGNED_IN, self: ['tessa@northfield.example'], answerWithinMs: 200, now: () => T0 }, 'ana@vidalcreative.example')
   if (!opened.ok) throw new Error(opened.message)
@@ -40,7 +40,7 @@ async function draw(options: { withFile?: boolean } = {}) {
   const host = document.getElementById('root') as HTMLElement
   const root = createRoot(host)
   const props = {
-    me: ME,
+    me: options.zone === undefined ? ME : { ...ME, company: { ...ME.company, timeZone: options.zone } },
     now: T0,
     answer,
     sources: answer.sources,
@@ -174,6 +174,17 @@ describe('an email with a calendar part and no words', () => {
       expect(card.textContent).not.toMatch(/\b(Accept|Decline|Reply|RSVP)\b/)
       expect(card.innerHTML).not.toContain('http')
     }
+    await done()
+  })
+
+  test('a summary that cannot be worded on the company’s clock draws no card, and the email is drawn as it was (its bubble stays)', async () => {
+    const { host, answer, done } = await draw({ zone: 'Nowhere/Bad' })
+    // A card whose time is said on the clock is not drawn when the clock is no clock; one that needs none (a day, a time as written, no time) is. Every email is drawn either way, a card or its plain bubble, never both and never neither.
+    expect(cards(host).length).toBeLessThan(15)
+    const entries = [...host.querySelectorAll('[data-testid="entry"]')]
+    expect(entries).toHaveLength(answer.sources.flatMap((s) => (s.kind === 'mail' ? s.messages : [])).length)
+    const drawn = entries.map((entry) => (entry.querySelector('[data-testid="calendar-card"]') !== null) !== (entry.querySelector('.msg-text') !== null))
+    expect(drawn.every(Boolean)).toBe(true)
     await done()
   })
 

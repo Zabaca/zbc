@@ -812,7 +812,12 @@ export class SpaceStore extends AssistStore {
     conversationIds: string[],
     before: string | null,
     limit: number,
-  ): { messages: MessageRow[]; more: boolean; older: { conversationId: string; body: string }[]; own: string[] } | null {
+  ): {
+    messages: MessageRow[]
+    more: boolean
+    older: { conversationId: string; body: string }[]
+    own: string[]
+  } | null {
     if (conversationIds.length === 0) return before === null ? { messages: [], more: false, older: [], own: [] } : null
     const ids = JSON.stringify(conversationIds)
     if (before !== null) {

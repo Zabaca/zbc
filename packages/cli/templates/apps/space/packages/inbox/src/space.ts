@@ -119,7 +119,6 @@ import { createSpaceOperator } from './space-operator'
 import { createSpacePeople } from './space-people'
 import { createSpaceViews } from './space-views'
 import type { SpaceConversation, SpaceParty } from './store/space'
-import type { Install } from './workspace'
 import type { Result } from './store/store'
 import { telegramFileNote } from './telegram/media'
 import {
@@ -132,6 +131,7 @@ import {
   isPending,
   type MessageRow,
 } from './types'
+import type { Install } from './workspace'
 
 /** The most addresses one question names: a screen, not a script. (The most conversations one mark-read, close or reopen names is the contract's `INBOX_MOST_MARKS`.) */
 const MOST_ADDRESSES = 100

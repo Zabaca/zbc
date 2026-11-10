@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import { type CalendarSummary, createInstall, parseCalendarSummary, type SignedIn } from '@space/workspace'
 import { runCli } from '../scripts/cli'
 import { GmailAuthError, GmailError } from '../src/gmail/google'
-import { CALENDAR_PASS_FAILURES, CALENDAR_PASS_PER_RUN } from '../src/gmail/mailroom'
+import { CALENDAR_PASS_FAILURES, CALENDAR_SUMMARY_PASS_PER_RUN, FETCH_BUDGET } from '../src/gmail/mailroom'
 import { parseJmapMessage } from '../src/jmap/parse'
 import { bundledInstall } from '../src/workspace'
 import { asker, harness, pushBody, T0, TEAM } from '../test-support/harness'
@@ -142,7 +142,7 @@ describe('a Gmail email arrives', () => {
       id: 'a3',
       threadId: 'ta3',
       from: INES,
-      subject: 'Angenommen: Roadmap review',
+      subject: 'Accepted: Roadmap review',
       body: '',
       attachments: file(ACCEPTED),
     })
@@ -522,7 +522,7 @@ describe('the one-time pass over mail stored before the summary existed', () => 
       id: 'p1',
       threadId: 'tp1',
       from: INES,
-      subject: 'Angenommen: Roadmap review',
+      subject: 'Accepted: Roadmap review',
       body: '',
       attachments: file(ACCEPTED),
     })
@@ -575,13 +575,13 @@ describe('the one-time pass over mail stored before the summary existed', () => 
     // The card is there the moment the conversation opens, and the list says it.
     expect((await messagesOf(h, 'ines@example.com'))[0]?.calendar).toMatchObject({ kind: 'reply', answer: 'accepted' })
     const { people } = unwrap(await h.space().people(asker()))
-    const listed = people.flatMap((p) => p.conversations).find((c) => c.subject === 'Angenommen: Roadmap review')
+    const listed = people.flatMap((p) => p.conversations).find((c) => c.subject === 'Accepted: Roadmap review')
     expect(listed?.snippet).toBe('Ines Okafor accepted: Roadmap review, Fri, Nov 13, 10:00 AM to 10:30 AM PST')
   })
 
-  test('at most 100 a run, with the alarm asked for again while more are left', async () => {
+  test('only a small batch a run (the pass holds the Mailroom’s turn), with the alarm asked for again while more are left', async () => {
     const h = await world()
-    for (let i = 0; i < CALENDAR_PASS_PER_RUN + 5; i += 1) {
+    for (let i = 0; i < CALENDAR_SUMMARY_PASS_PER_RUN + 5; i += 1) {
       await arrive(h, {
         id: `q${String(i).padStart(3, '0')}`,
         threadId: `tq${i}`,
@@ -595,11 +595,11 @@ describe('the one-time pass over mail stored before the summary existed', () => 
     const before = reads(h)
     const alarms = h.alarms.length
     await h.mailroom.runAlarm()
-    expect(reads(h) - before).toBe(CALENDAR_PASS_PER_RUN)
+    expect(reads(h) - before).toBe(CALENDAR_SUMMARY_PASS_PER_RUN)
     expect(h.inbox.calendarSummariesDone()).toBe(false)
     expect(h.alarms.length).toBeGreaterThan(alarms)
     await h.mailroom.runAlarm()
-    expect(reads(h) - before).toBe(CALENDAR_PASS_PER_RUN + 5)
+    expect(reads(h) - before).toBe(CALENDAR_SUMMARY_PASS_PER_RUN + 5)
     expect(h.inbox.calendarSummariesDone()).toBe(true)
   })
 
@@ -635,7 +635,7 @@ describe('the one-time pass over mail stored before the summary existed', () => 
       id: 'u1',
       threadId: 'tu1',
       from: INES,
-      subject: 'Angenommen',
+      subject: 'Accepted',
       body: '',
       attachments: file(ACCEPTED),
     })
@@ -653,7 +653,7 @@ describe('the one-time pass over mail stored before the summary existed', () => 
       id: 'w1',
       threadId: 'tw1',
       from: INES,
-      subject: 'Angenommen',
+      subject: 'Accepted',
       body: '',
       attachments: file(ACCEPTED),
     })
@@ -717,5 +717,99 @@ describe('the one-time pass over mail stored before the summary existed', () => 
     expect(order[0]).toBe('notify')
     expect(calls.filter((c) => c.startsWith('getMessage'))).toEqual(['getMessage:v2', 'getMessage:v1'])
     expect(summaryOf(h, 'v1').kind).toBe('reply')
+  })
+})
+
+describe('a summary that cannot be worded never breaks a list, the script or a page', () => {
+  /** The summary of a crafted part: a duration past the last moment a Date holds. */
+  const FAR = ics('REQUEST', [
+    'UID:far@google.com',
+    'DTSTART:20261113T100000Z',
+    'DURATION:P14400000W',
+    'SUMMARY:Far',
+    `ORGANIZER;CN=Noah Feld:mailto:noah@fernway.example`,
+  ])
+
+  test('the reader drops the end that no Date can hold, so the part arrives as an ordinary invitation', async () => {
+    const h = await world()
+    await arrive(h, { id: 'z1', threadId: 'tz1', from: NOAH, subject: 'Invitation: Far', body: '', ics: FAR })
+    expect(summaryOf(h, 'z1')).toMatchObject({
+      kind: 'invitation',
+      title: 'Far',
+      start: Date.UTC(2026, 10, 13, 10, 0),
+      end: null,
+    })
+    expect(await lineOf(h, 'noah@fernway.example')).toBe('Invitation: Far, Fri, Nov 13, 2:00 AM PST')
+  })
+
+  test('a stored summary that is out of range (one an older or hostile writer left) is no summary: the list, the script and the space read on', async () => {
+    const h = await world()
+    await arrive(h, { id: 'z2', threadId: 'tz2', from: NOAH, subject: 'Invitation: Far', body: '', ics: FAR })
+    await arrive(h, { id: 'z3', threadId: 'tz3', from: INES, subject: 'Hello', body: 'Plain words.' })
+    const far = { ...summaryOf(h, 'z2'), end: 8_710_914_564_000_000 }
+    h.db.run(`UPDATE message SET calendar = ?1 WHERE gmail_id = 'z2'`, [JSON.stringify(far)])
+    const { people } = unwrap(await h.space().people(asker()))
+    expect(people).toHaveLength(2)
+    expect(await lineOf(h, 'noah@fernway.example')).toBe('')
+    const [m] = await messagesOf(h, 'noah@fernway.example')
+    expect(m?.calendar).toBeUndefined()
+    const run = (() => {
+      const door = throughSpace(h)
+      const io = {
+        env: {
+          INBOX_URL: bundledInstall.agentDoor()?.url ?? 'no door',
+          INBOX_ACCESS_CLIENT_ID: CLIENT_ID,
+          INBOX_ACCESS_CLIENT_SECRET: CLIENT_SECRET,
+        },
+        sopsKey: () => {
+          throw new Error('sops must not be called when the env is set')
+        },
+        readInput: async (spec: string) => spec,
+        fetch: (url: string, init: RequestInit) => door.fetch(url, init as never),
+      }
+      return (...argv: string[]) => runCli(argv, io as never)
+    })()
+    const id = (h.db.query(`SELECT conversation_id AS id FROM message WHERE gmail_id = 'z2'`).get() as { id: string })
+      .id
+    const page = JSON.parse((await run('conversation', id)).output) as { messages: { calendarLine?: string }[] }
+    expect(page.messages[0]?.calendarLine).toBeUndefined()
+    expect(JSON.parse((await run('queue')).output).rows).toHaveLength(2)
+  })
+
+  test('a summary that passes the guard but cannot be said on the clock (a time zone the runtime does not know) is listed as the email was, and the script leaves the line out', async () => {
+    const h = await world()
+    await arrive(h, { id: 'z4', threadId: 'tz4', from: INES, subject: 'Accepted', body: '', ics: ACCEPTED })
+    ;(h.inbox as unknown as { ports: { zone: string } }).ports.zone = 'Nowhere/Bad'
+    expect(await lineOf(h, 'ines@example.com')).toBe('')
+  })
+})
+
+describe('the second Gmail call counts against the run’s budget', () => {
+  test('a sync of calendar files kept apart stops at the budget by calls, not by messages', async () => {
+    const h = await world()
+    h.google.mailbox.pageSize = 20
+    const total = FETCH_BUDGET
+    for (let i = 0; i < total; i += 1) {
+      h.google.mailbox.add({
+        id: `bd${String(i).padStart(3, '0')}`,
+        threadId: `tbd${i}`,
+        from: INES,
+        subject: `Reply ${i}`,
+        body: '',
+        attachments: file(ACCEPTED),
+        at: T0 + i,
+      })
+    }
+    await h.push({ body: pushBody(OWNER) })
+    const asked = () => h.google.calls.filter((c) => c.startsWith('getMessage')).length
+    const before = asked()
+    await h.mailroom.runAlarm()
+    // One page is 20 messages and 40 calls: the budget of 150 is passed after four pages, so 80 were read, where counting messages alone it would have been 140.
+    expect(asked() - before).toBeLessThan(total)
+    expect(asked() - before).toBe(80)
+    expect(attachmentCalls(h).length).toBe(80)
+    // The rest is owed, not lost.
+    await h.drain()
+    expect(h.db.query(`SELECT count(*) AS n FROM message WHERE gmail_id LIKE 'bd%'`).get()).toEqual({ n: total })
   })
 })

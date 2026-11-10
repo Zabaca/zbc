@@ -519,3 +519,116 @@ describe('which part is read', () => {
     expect(isCalendarPart(undefined, undefined)).toBe(false)
   })
 })
+
+describe('a part built to make the reader work', () => {
+  /** How long the reader takes on a part, in milliseconds. */
+  const took = (text: string): number => {
+    const began = performance.now()
+    summaryOfCalendar(text)
+    return performance.now() - began
+  }
+  const BIG = CALENDAR_SUMMARY_PART_MAX - 4096
+
+  test('one attendee or organizer value of almost 256 KB of "@" and a "<" is read in well under a second (the address pattern cannot backtrack)', () => {
+    for (const property of ['ATTENDEE', 'ORGANIZER', 'ATTENDEE;PARTSTAT=ACCEPTED']) {
+      const part = calendar('REPLY', [event([`${property}:mailto:${'@'.repeat(BIG)}<`])])
+      expect(part.length).toBeLessThan(CALENDAR_SUMMARY_PART_MAX)
+      expect(took(part)).toBeLessThan(500)
+    }
+    const spaced = calendar('REQUEST', [event([`ATTENDEE:${'a@'.repeat(BIG / 2)}<`, `ORGANIZER:${'a'.repeat(BIG)}@`])])
+    expect(took(spaced)).toBeLessThan(500)
+  })
+
+  test('an address that is only too long is no address, and what is read of the rest is kept', () => {
+    const s = read(
+      calendar('REQUEST', [
+        event([
+          `ATTENDEE;CN=Ana Vidal:mailto:${'a'.repeat(400)}@example.com`,
+          'ATTENDEE;CN=Ben Cole:mailto:ben@example.com',
+        ]),
+      ]),
+    )
+    expect(s.guests).toEqual([
+      { name: 'Ana Vidal', address: '' },
+      { name: 'Ben Cole', address: 'ben@example.com' },
+    ])
+  })
+
+  test('a very long line of any property is cut before it is read, and the part is still read in well under a second', () => {
+    for (const property of ['SUMMARY', 'LOCATION', 'UID', 'COMMENT', 'DTSTART', 'RRULE', 'X-ANYTHING', 'DESCRIPTION']) {
+      const part = calendar('REPLY', [
+        event([
+          `${property}:${'x'.repeat(BIG)}`,
+          'ATTENDEE;PARTSTAT=ACCEPTED;CN=Ana Vidal:mailto:ana@vidalcreative.example',
+        ]),
+      ])
+      expect(took(part)).toBeLessThan(500)
+    }
+    const s = read(
+      calendar('REQUEST', [event([`SUMMARY:${'T'.repeat(BIG)}`], ['UID:long@x.example', 'DTSTART:20261113T180000Z'])]),
+    )
+    expect(s.title.length).toBe(200)
+    // A property name too long to be one, and parameters that never end, cost nothing either.
+    expect(took(calendar('REQUEST', [event([`${'N'.repeat(BIG)};${'P=1;'.repeat(1000)}:v`])]))).toBeLessThan(500)
+    expect(took(calendar('REQUEST', [event([`ATTENDEE;CN="${'"'.repeat(BIG)}:mailto:a@b.example`])]))).toBeLessThan(500)
+  })
+
+  test('components nested too deep are not read (and the part costs nothing to refuse)', () => {
+    const deep = `BEGIN:VCALENDAR\r\n${'BEGIN:VEVENT\r\n'.repeat(16_000)}`
+    expect(took(deep)).toBeLessThan(500)
+    expect(summaryOfCalendar(deep)).toBeNull()
+    const ordinary = ics([
+      'BEGIN:VCALENDAR',
+      'METHOD:REQUEST',
+      'BEGIN:VEVENT',
+      'UID:a@x.example',
+      'SUMMARY:Fine',
+      'BEGIN:VALARM',
+      'ACTION:DISPLAY',
+      'END:VALARM',
+      'END:VEVENT',
+      'END:VCALENDAR',
+    ])
+    expect(read(ordinary).title).toBe('Fine')
+  })
+})
+
+describe('a time no Date can hold', () => {
+  const start = ['UID:far@x.example', 'DTSTART:20261113T100000Z', 'SUMMARY:Far']
+
+  test('an end past the last moment is dropped, the start is kept, and the summary can be worded', () => {
+    for (const duration of ['P14400000W', 'P99999999999999999999999W', 'PT999999999999999999999H']) {
+      const s = read(calendar('REQUEST', [event([`DURATION:${duration}`], start)]))
+      expect(s.start).toBe(Date.UTC(2026, 10, 13, 10, 0))
+      expect(s.end).toBeNull()
+      expect(isCalendarSummary(s)).toBe(true)
+      expect(summaryLine(s, ZONE)).toBe('Invitation: Far, Fri, Nov 13, 2:00 AM PST')
+    }
+  })
+
+  test('the same for an all-day event and for a time as written', () => {
+    const day = read(
+      calendar('REQUEST', [
+        event(['DURATION:P99999999999W'], ['UID:d@x.example', 'DTSTART;VALUE=DATE:20261113', 'SUMMARY:Far']),
+      ]),
+    )
+    expect(day).toMatchObject({ allDay: true, startDate: '2026-11-13', endDate: '2026-11-13' })
+    expect(summaryLine(day, ZONE)).toBe('Invitation: Far, Fri, Nov 13, all day')
+    const floating = read(
+      calendar('REQUEST', [
+        event(['DURATION:P99999999999W'], ['UID:f@x.example', 'DTSTART:20261113T100000', 'SUMMARY:Far']),
+      ]),
+    )
+    expect(floating.written).toEqual({ start: '2026-11-13T10:00', end: null, zone: null })
+    expect(() => summaryLine(floating, ZONE)).not.toThrow()
+  })
+
+  test('the last moment there is is kept and worded; one millisecond past it is not a moment at all', () => {
+    const edge = { ...read(calendar('REQUEST', [event([], start)])), start: 8.64e15, end: null }
+    expect(isCalendarSummary(edge)).toBe(true)
+    expect(() => summaryLine(edge, ZONE)).not.toThrow()
+    expect(isCalendarSummary({ ...edge, start: 8.64e15 + 1 })).toBe(false)
+    expect(isCalendarSummary({ ...edge, end: -8.64e15 - 1 })).toBe(false)
+    expect(isCalendarSummary({ ...edge, occurrence: { at: 8_710_914_564_000_000, date: null } })).toBe(false)
+  })
+})

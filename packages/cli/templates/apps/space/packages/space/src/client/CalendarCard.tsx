@@ -25,17 +25,35 @@ function toneOf(c: MailCalendar): { tone: 'ok' | 'bad' | 'warn' | 'plain'; icon:
   }
 }
 
+/** Every sentence a card says, or null when the summary cannot be worded on this clock (it never throws): the page then draws the email as it was, with no card. */
+function wordsOf(c: MailCalendar, zone: string) {
+  try {
+    const when = summaryWhen(c, zone)
+    const counter = c.kind === 'reply' && c.answer === 'counter'
+    return {
+      counter,
+      when,
+      // A counter proposal says its time in the heading ("Ana proposed a new time: Fri, Nov 14, 2:00 PM"); every other card says it under the title.
+      heading: counter && when !== '' ? `${summaryHeading(c)}: ${when}` : summaryHeading(c),
+      guests: c.kind === 'reply' ? '' : guestsWords(c),
+      occurrence: occurrenceWords(c, zone),
+    }
+  } catch {
+    return null
+  }
+}
+
+/** Whether the email draws a card: it has a summary and the summary can be worded. Only then is the empty bubble left out. */
+export const showsCard = (c: MailCalendar | undefined, zone: string): c is MailCalendar => c !== undefined && wordsOf(c, zone) !== null
+
 export function CalendarCard({ calendar: c, zone, go }: { calendar: MailCalendar; zone: string; go?: ((path: string) => void) | undefined }) {
+  const words = wordsOf(c, zone)
+  if (words === null) return null
+  const { counter, when, heading, guests, occurrence } = words
   const { tone, icon } = toneOf(c)
-  const counter = c.kind === 'reply' && c.answer === 'counter'
-  const when = summaryWhen(c, zone)
-  // A counter proposal says its time in the heading ("Ana proposed a new time: Fri, Nov 14, 2:00 PM"); every other card says it under the title.
-  const heading = counter && when !== '' ? `${summaryHeading(c)}: ${when}` : summaryHeading(c)
   const cancelled = c.kind === 'cancelled'
   const reply = c.kind === 'reply'
   const who = c.organizer === null ? '' : c.fromYou ? 'you' : c.organizer.name !== '' ? c.organizer.name : c.organizer.address
-  const guests = reply ? '' : guestsWords(c)
-  const occurrence = occurrenceWords(c, zone)
   return (
     <div className={`card cal ${tone}`} data-testid="calendar-card" data-kind={c.kind} {...(c.answer !== undefined && { 'data-answer': c.answer })}>
       <span className="card-ico">

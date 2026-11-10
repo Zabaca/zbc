@@ -20,6 +20,7 @@
 
 import {
   CALENDAR_SUMMARY_GUESTS,
+  CALENDAR_SUMMARY_MOMENT_MAX,
   CALENDAR_SUMMARY_PART_MAX,
   type CalendarOccurrence,
   type CalendarPerson,
@@ -55,8 +56,18 @@ interface Line {
   value: string
 }
 
+/**
+ * The longest content line read, in characters. Nothing this reader keeps is longer (an address is at most 320, a text at most 500), so a longer line is a stranger's attempt to make the reader work: it is cut here, before anything
+ * looks at it, so no property of a part can cost more than a few thousand characters of work.
+ */
+const LINE_MAX = 4096
+
+/** The deepest nesting of components read (a calendar holds an event, which holds an alarm; a zone holds an observance). A part nested deeper is not read. */
+const DEPTH_MAX = 8
+
 /** One content line: `NAME;PARAM=x;PARAM="y;z":value`. Null for a line with no name or no colon. */
-function parseLine(line: string): Line | null {
+function parseLine(whole: string): Line | null {
+  const line = whole.length > LINE_MAX ? whole.slice(0, LINE_MAX) : whole
   let quoted = false
   let colon = -1
   for (let i = 0; i < line.length; i += 1) {
@@ -191,6 +202,7 @@ class Collector {
   }
 
   private begin(what: string): void {
+    if (this.stack.length >= DEPTH_MAX) throw new Error('nested too deep')
     this.stack.push(what)
     if (what === 'VEVENT') this.event = []
     else if (what === 'VTIMEZONE') this.zone = { tzid: '', observances: [] }
@@ -283,9 +295,15 @@ const placeOf = (value: string): string => {
 
 /** The address a CAL-ADDRESS names (`mailto:ann@x.example`), lower case, or '' when it is not an email address. */
 function addressOf(value: string): string {
-  const bare = value.trim().replace(/^mailto:/i, '')
-  const address = bare.toLowerCase()
-  return /^[^\s<>"',;:()[\]\\]+@[^\s<>"',;:()[\]\\]+$/.test(address) && address.length <= LIMITS.address ? address : ''
+  // The length first, and `@` kept out of both halves, so the pattern cannot backtrack over a long run of characters that almost match.
+  if (value.length > LIMITS.address + 16) return ''
+  const address = value
+    .trim()
+    .replace(/^mailto:/i, '')
+    .toLowerCase()
+  return address.length <= LIMITS.address && /^[^\s<>"',;:()[\]\\@]+@[^\s<>"',;:()[\]\\@]+$/.test(address)
+    ? address
+    : ''
 }
 
 function personOf(line: Line): CalendarPerson | null {
@@ -486,6 +504,16 @@ interface When {
 
 const NO_TIME: When = { allDay: false, start: null, end: null, startDate: null, endDate: null, written: null }
 
+/** A moment, or null when it is not one a Date can hold: a stranger's duration can name a time past the last day there is, which cannot be worded, so it is not kept. */
+const inRange = (ms: number | null): number | null =>
+  ms !== null && Number.isFinite(ms) && Math.abs(ms) <= CALENDAR_SUMMARY_MOMENT_MAX ? ms : null
+
+/** The last day a date can be written as `YYYY-MM-DD` (year 9999): past it a day is not kept. */
+const DAY_MAX = Date.UTC(9999, 11, 31)
+
+/** A wall clock time as milliseconds, or null when it is past the last year 4 digits can write. */
+const inYears = (ms: number): number | null => (Number.isFinite(ms) && Math.abs(ms) <= DAY_MAX ? ms : null)
+
 /** The event's time from its DTSTART, and DTEND or DURATION. */
 function whenOf(props: Line[], zones: Map<string, Observance[]>): When {
   const find = (name: string) => props.find((l) => l.name === name)
@@ -497,15 +525,17 @@ function whenOf(props: Line[], zones: Map<string, Observance[]>): When {
     // DTEND is the day AFTER the last; the last day is what a person means.
     let last = start.day
     if (end?.kind === 'date' && end.day > start.day) last = dayOf(Date.parse(`${end.day}T00:00:00Z`) - 86_400_000)
-    else if (end === null && length !== null && length >= 86_400_000)
-      last = dayOf(Date.parse(`${start.day}T00:00:00Z`) + length - 86_400_000)
+    else if (end === null && length !== null && length >= 86_400_000) {
+      const lastMs = inYears(Date.parse(`${start.day}T00:00:00Z`) + length - 86_400_000)
+      if (lastMs !== null) last = dayOf(lastMs)
+    }
     return { ...NO_TIME, allDay: true, startDate: start.day, endDate: last }
   }
   if (start.kind === 'moment') {
     const endMs = end?.kind === 'moment' ? end.ms : length !== null ? start.ms + length : null
-    return { ...NO_TIME, start: start.ms, end: endMs }
+    return { ...NO_TIME, start: inRange(start.ms), end: inRange(endMs) }
   }
-  const endWall = end?.kind === 'written' ? end.wall : length !== null ? start.wall + length : null
+  const endWall = end?.kind === 'written' ? end.wall : length !== null ? inYears(start.wall + length) : null
   return {
     ...NO_TIME,
     written: { start: start.local, end: endWall === null ? null : localOf(endWall), zone: start.zone },
@@ -516,7 +546,10 @@ function occurrenceOf(line: Line | undefined, zones: Map<string, Observance[]>):
   const t = timeOf(line, zones)
   if (t === null) return null
   if (t.kind === 'date') return { at: null, date: t.day }
-  if (t.kind === 'moment') return { at: t.ms, date: null }
+  if (t.kind === 'moment') {
+    const at = inRange(t.ms)
+    return at === null ? null : { at, date: null }
+  }
   return { at: null, date: t.local.slice(0, 10) }
 }
 

@@ -14,7 +14,7 @@ import {
   type Identity,
   type KnowledgeForInbox,
   type LiveBinding,
-  summaryLine,
+  safeSummaryLine,
 } from '@space/workspace'
 import { type Context, Hono } from 'hono'
 import type { Assistant } from './assistant/assistant'
@@ -567,10 +567,11 @@ export function createApp(deps: Deps) {
     // Only asked when somebody on it has a Client: a conversation of strangers needs no list.
     const names = clientsById(clientIds.length > 0 ? (await directory(c)).clients : [])
     // A message with no words of its own and a calendar summary says what the summary says in one line, on the company's clock, so Claude never has to guess who accepted from a subject.
-    const withCalendarLine = (m: MessageRow): MessageRow =>
-      m.calendar !== undefined && m.body.trim() === ''
-        ? { ...m, calendarLine: summaryLine(m.calendar, install.company.timeZone) }
-        : m
+    const withCalendarLine = (m: MessageRow): MessageRow => {
+      if (m.calendar === undefined || m.body.trim() !== '') return m
+      const calendarLine = safeSummaryLine(m.calendar, install.company.timeZone)
+      return calendarLine === '' ? m : { ...m, calendarLine }
+    }
     const page: ConversationPage = {
       ...found.value,
       messages: found.value.messages.map(withCalendarLine),

@@ -22,6 +22,9 @@ export const CALENDAR_SUMMARY_LIMITS = { title: 200, place: 200, note: 500, name
 export const CALENDAR_SUMMARY_GUESTS = 10
 export const CALENDAR_SUMMARY_PART_MAX = 256 * 1024
 
+/** The farthest a moment may be from the epoch, in milliseconds: the range of a JavaScript Date. A time outside it cannot be worded (formatting it throws), so the reader drops it and the guard refuses it. */
+export const CALENDAR_SUMMARY_MOMENT_MAX = 8.64e15
+
 /** A person on an event, as the part names them: the name it gave (or their address when it gave none) and the address. */
 export interface CalendarPerson {
   name: string
@@ -83,10 +86,10 @@ export interface InboxCalendar extends CalendarSummary {
 const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v)
 const isText = (v: unknown): v is string => typeof v === 'string'
 const isCount = (v: unknown): v is number => typeof v === 'number' && Number.isSafeInteger(v) && v >= 0
-const isMoment = (v: unknown): v is number => typeof v === 'number' && Number.isSafeInteger(v)
+const isMoment = (v: unknown): v is number => typeof v === 'number' && Number.isSafeInteger(v) && Math.abs(v) <= CALENDAR_SUMMARY_MOMENT_MAX
 const orNull = (v: unknown, ok: (x: unknown) => boolean): boolean => v === null || ok(v)
 const isPerson = (v: unknown): v is CalendarPerson => isRecord(v) && isText(v.name) && isText(v.address)
-const isDay = (v: unknown): boolean => isText(v) && /^\d{4}-\d{2}-\d{2}$/.test(v)
+const isDay = (v: unknown): boolean => isText(v) && /^\d{4}-\d{2}-\d{2}$/.test(v) && !Number.isNaN(Date.parse(`${v}T00:00:00Z`))
 const kinds = new Set<string>(CALENDAR_SUMMARY_KINDS)
 const answers = new Set<string>(CALENDAR_SUMMARY_ANSWERS)
 
@@ -241,4 +244,16 @@ export function guestsWords(s: Pick<CalendarSummary, 'guests' | 'guestsMore'>): 
   if (s.guestsMore > 0) return `${names.join(', ')} and ${s.guestsMore} more`
   if (names.length === 1) return names[0] as string
   return `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`
+}
+
+/**
+ * `summaryLine`, or '' when wording the summary throws (a summary that passed the guard but cannot be said on this clock). A list row, Claude's script and the card use this, so a stored summary can never break a list or a page: the
+ * email is then listed and drawn as it was before the summary existed.
+ */
+export function safeSummaryLine(s: CalendarSummary, zone: string, max = 160): string {
+  try {
+    return summaryLine(s, zone, max)
+  } catch {
+    return ''
+  }
 }

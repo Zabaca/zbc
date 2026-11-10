@@ -1553,7 +1553,9 @@ export class MailStore extends TelegramStore {
    * its card only if its calendar part arrives again, and keeps the chip it has.
    */
   calendarSummariesDone(): boolean {
-    return this.sql.exec(`SELECT 1 FROM setting WHERE key = ?1`, CALENDAR_SUMMARIES_BACKFILLED).toArray()[0] !== undefined
+    return (
+      this.sql.exec(`SELECT 1 FROM setting WHERE key = ?1`, CALENDAR_SUMMARIES_BACKFILLED).toArray()[0] !== undefined
+    )
   }
 
   /**
@@ -1577,7 +1579,11 @@ export class MailStore extends TelegramStore {
 
   /** Record what the pass found for one message: its summary, or `none` (looked at, nothing to show) so it is never read twice. A message that already has one is left as it is. */
   recordCalendarSummary(messageId: string, summary: CalendarSummary | null): void {
-    this.sql.exec(`UPDATE message SET calendar = ?2 WHERE id = ?1 AND calendar IS NULL`, messageId, keptCalendar(summary))
+    this.sql.exec(
+      `UPDATE message SET calendar = ?2 WHERE id = ?1 AND calendar IS NULL`,
+      messageId,
+      keptCalendar(summary),
+    )
   }
 
   /** The pass is done: every account with a working grant has no candidate left. Said once, in the setting and in the audit trail. */
@@ -1590,7 +1596,13 @@ export class MailStore extends TelegramStore {
         this.now(),
         CALENDAR_ACTOR,
       )
-      this.audit(CALENDAR_ACTOR, 'message.calendar-summaries-backfilled', `setting:${CALENDAR_SUMMARIES_BACKFILLED}`, null, { looked })
+      this.audit(
+        CALENDAR_ACTOR,
+        'message.calendar-summaries-backfilled',
+        `setting:${CALENDAR_SUMMARIES_BACKFILLED}`,
+        null,
+        { looked },
+      )
     })
   }
 

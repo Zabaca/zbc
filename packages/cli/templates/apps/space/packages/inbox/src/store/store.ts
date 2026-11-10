@@ -38,7 +38,7 @@
  * message marked sent by hand, and the reverse.
  */
 
-import { type InboxFrom, parseCalendarSummary, summaryLine } from '@space/workspace'
+import { type InboxFrom, parseCalendarSummary, safeSummaryLine } from '@space/workspace'
 import { judgeSender } from '../automated'
 import { repairMojibake } from '../charset'
 import type { SuggestionContact } from '../clients'
@@ -1390,7 +1390,7 @@ export class Inbox {
     const words = repairMojibake(body).replace(/\s+/g, ' ').trim().slice(0, 160)
     if (words !== '') return words
     const summary = parseCalendarSummary(stored)
-    return summary === null ? '' : summaryLine(summary, this.ports.zone ?? 'UTC')
+    return summary === null ? '' : safeSummaryLine(summary, this.ports.zone ?? 'UTC')
   }
 
   /**
