@@ -361,7 +361,10 @@ describe('a Signer List', () => {
     const loaded = await loadIndex(store, 'claimed')
     const claimed = await commitIndex(
       store,
-      { ...loaded.index, claim: { signers: ['SHA256:someListedKey'] } },
+      {
+        ...loaded.index,
+        claim: { signers: ['SHA256:someListedKey'], ts: new Date().toISOString() },
+      },
       loaded.etag,
     )
     expect(claimed.ok).toBe(true)
