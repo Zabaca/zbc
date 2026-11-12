@@ -223,7 +223,8 @@ curl -H "Authorization: Bearer $ADMIN" https://<host>/_walgit/admin/repos/my-thi
 - **Create** claims the name by writing an empty `index.json` under an
   if-absent compare-and-swap, so of two creates racing for one name exactly one
   wins. A name that already has an Index — including one tombstoned and not yet
-  collected — is a **409**, never an overwrite. The seed is optional; `branch`
+  collected, whose 409 says when the name frees up — is a **409**, never an
+  overwrite. The seed is optional; `branch`
   defaults to `main`, every file is mode `100644`, and the author is also the
   committer. The body is at most 1 MiB and 1000 files; a malformed one is a
   **400** and creates nothing.
@@ -232,7 +233,10 @@ curl -H "Authorization: Bearer $ADMIN" https://<host>/_walgit/admin/repos/my-thi
   `reference-transaction` judge it like any client's push — size caps, the
   Signer List rules, the WAL publish that makes it durable — and a refusal is a
   **422** carrying git's words, with the claimed Index removed so the request
-  can be fixed and retried. A brand-new name holds no Signer List, so nothing
+  can be fixed and retried. A path git will not carry in a tree (`.git` in any
+  spelling, NTFS's `.git.` and `GIT~1` among them) is refused, never committed
+  short. A failure that is walgit's rather than the seed's — the store
+  unreachable — is a **503**, and the claimed Index is removed the same way. A brand-new name holds no Signer List, so nothing
   there is bypassed: a seed can only push a branch, never `refs/walgit/signers`.
 - **Delete** is `walgit delete --yes` with the same grace
   (`WALGIT_DELETE_GRACE_MS`): the first call answers `tombstoned` and the
@@ -249,8 +253,9 @@ token](#scoped-tokens) is a **403** whatever its mode or repository, refused at
 the edge before the container wakes; and a deployment with no
 `WALGIT_HTTP_TOKENS` — a public one — has no admin, so the routes answer
 **404**. They are demanded even on a public deployment that does set an admin
-credential. A repository created empty has no push to date it by, so expiry
-leaves it alone until its first push.
+credential. A create records `created_at` in the Index, and expiry dates a
+repository that has never been pushed to by it — so one created and never used
+is collected like one pushed to once and left.
 
 `compact` forces a compaction rather than waiting for
 `WALGIT_COMPACTION_THRESHOLD` pushes to trigger one — for the repo whose restore

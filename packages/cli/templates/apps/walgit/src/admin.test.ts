@@ -9,9 +9,16 @@ import * as os from 'node:os'
 import * as path from 'node:path'
 
 import { capabilitiesFrom } from '../shared/capabilities'
-import { base64UrlEncode, mintScopedToken } from '../shared/scoped-token'
+import {
+  base64UrlEncode,
+  mintScopedToken,
+  scopedAccessOf,
+  scopedEdgeAnswer,
+  scopeTargetOf,
+} from '../shared/scoped-token'
 import { loadIndex } from '../shared/wal-index'
-import { createAdminOps, parseSeed } from './admin'
+import { createAdminOps, MAX_SEED_BYTES, parseSeed } from './admin'
+import { decideExpiry } from './expire'
 import { ensureBareRepo } from './cache'
 import { runGitHttpBackend } from './git-backend'
 import { createHttpHandler } from './http'
@@ -301,5 +308,110 @@ describe('parseSeed', () => {
   test('a path that is both a file and a directory is refused', () => {
     const parsed = parseSeed(JSON.stringify({ ...SEED, files: { a: '1', 'a/b': '2' } }))
     expect(parsed.ok).toBe(false)
+  })
+})
+
+describe('what a seed may not do', () => {
+  test('every spelling of .git is refused before anything is created', async () => {
+    for (const name of ['.GIT/config', '.git./config', '.git /config', 'GIT~1/config', 'a/.Git']) {
+      const res = await admin('POST', 'dotgit', { ...SEED, files: { [name]: 'x' } })
+      expect(res.status).toBe(400)
+    }
+    expect((await loadIndex(store, 'dotgit')).etag).toBeNull()
+  })
+
+  test('a path that begins with a quote is carried verbatim, not unquoted', async () => {
+    const name = '"\\056git/config"'
+    const res = await admin('POST', 'quoted', { ...SEED, files: { [name]: 'kept\n' } })
+    expect(res.status).toBe(201)
+    const clone = path.join(scratch, 'quoted')
+    expect(
+      (
+        await run(
+          scratch,
+          'clone',
+          `http://walgit:${ADMIN}@127.0.0.1:${server.port}/quoted.git`,
+          clone,
+        )
+      ).status,
+    ).toBe(0)
+    expect(fs.readFileSync(path.join(clone, name), 'utf8')).toBe('kept\n')
+  }, 30_000)
+
+  test('a body over the cap is a 413 and creates nothing', async () => {
+    const res = await admin('POST', 'huge', {
+      ...SEED,
+      files: { big: 'x'.repeat(MAX_SEED_BYTES + 1) },
+    })
+    expect(res.status).toBe(413)
+    expect((await loadIndex(store, 'huge')).etag).toBeNull()
+  })
+
+  test('a seed the hooks refuse is a 422 carrying their words, and leaves no repository', async () => {
+    // Read by `pre-receive`, a grandchild of this process.
+    process.env.WALGIT_MAX_PUSH_BYTES = '10'
+    try {
+      const res = await admin('POST', 'over-cap', {
+        ...SEED,
+        files: { 'big.txt': 'y'.repeat(5000) },
+      })
+      expect(res.status).toBe(422)
+      const text = await res.text()
+      expect(text).toContain('the seed push was refused')
+      expect(text).not.toContain('walgit-seed-')
+    } finally {
+      delete process.env.WALGIT_MAX_PUSH_BYTES
+    }
+    expect((await loadIndex(store, 'over-cap')).etag).toBeNull()
+    // So the same name can be asked for again once the body is fixed.
+    expect((await admin('POST', 'over-cap', SEED)).status).toBe(201)
+  }, 30_000)
+})
+
+describe('races and lifetimes', () => {
+  test('of two creates racing for one name, exactly one wins', async () => {
+    const answers = await Promise.all([admin('POST', 'raced', SEED), admin('POST', 'raced', SEED)])
+    expect(answers.map((res) => res.status).toSorted()).toEqual([201, 409])
+  }, 30_000)
+
+  test('a 409 for a name being deleted says when it frees up', async () => {
+    expect((await admin('POST', 'leaving')).status).toBe(201)
+    expect((await admin('DELETE', 'leaving')).status).toBe(200)
+    const res = await admin('POST', 'leaving')
+    expect(res.status).toBe(409)
+    expect(await res.text()).toContain('is being deleted')
+  })
+
+  test('a repository created empty is dated by its creation, so expiry can collect it', async () => {
+    const created = new Date(clock.getTime())
+    expect((await admin('POST', 'idle-empty')).status).toBe(201)
+    const { index } = await loadIndex(store, 'idle-empty')
+    expect(index.created_at).toBe(created.toISOString())
+    const later = new Date(created.getTime() + 2 * 3_600_000)
+    expect(decideExpiry(index, { now: later, windowMs: 3_600_000 }).verdict).toBe('collect')
+    expect(decideExpiry(index, { now: created, windowMs: 3_600_000 }).verdict).toBe('retain')
+  })
+})
+
+describe('at the edge', () => {
+  test('a scoped token on an admin route is refused 403 before the container wakes', async () => {
+    const access = await scopedAccessOf(`Bearer ${await scoped('write')}`, {
+      keys: PUBLIC_KEY,
+      known: [ADMIN],
+    })
+    for (const [method, route] of [
+      ['POST', '/_walgit/admin/repos/seeded'],
+      ['DELETE', '/_walgit/admin/repos/seeded'],
+      ['GET', '/_walgit/admin/repos/seeded/usage'],
+    ] as const) {
+      expect(scopeTargetOf(method, route, '')).toEqual({ kind: 'elsewhere' })
+      expect(scopedEdgeAnswer(access, scopeTargetOf(method, route, ''))?.status).toBe(403)
+    }
+    // The admin token is not a scoped one, and passes through to the container.
+    const adminAccess = await scopedAccessOf(`Bearer ${ADMIN}`, {
+      keys: PUBLIC_KEY,
+      known: [ADMIN],
+    })
+    expect(scopedEdgeAnswer(adminAccess, { kind: 'elsewhere' })).toBeNull()
   })
 })

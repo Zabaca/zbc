@@ -30,7 +30,7 @@ import { indexKey } from '../shared/keys'
 import type { ObjectStore } from '../shared/store'
 import { emptyIndex, loadIndex } from '../shared/wal-index'
 import { deleteRepo, type DeleteResult } from './delete-repo'
-import { git, gitOrThrow } from './git'
+import { git, gitAsync, type GitOptions } from './git'
 import type { ResolvedRepo } from './repo'
 import { usageOfIndex, type RepoUsage } from './usage'
 import { commitIndex } from './wal-index'
@@ -159,15 +159,18 @@ function identPart(value: unknown): value is string {
  */
 function badPath(name: string): string | null {
   if (name === '') return 'is empty'
-  // Control characters, tabs among them, would end the `--index-info` line
-  // this path is written on; git refuses NUL in a path anyway.
+  // Control characters have no business in a scaffold's file names, and NUL
+  // is the record separator the path is written to git with.
   if (hasControl(name)) return 'contains a control character'
   if (name.startsWith('/') || name.endsWith('/')) return 'must be relative, with no trailing slash'
   for (const segment of name.split('/')) {
     if (segment === '' || segment === '.' || segment === '..') {
       return 'has an empty, "." or ".." segment'
     }
-    if (segment.toLowerCase() === '.git') return 'names a .git directory'
+    // `.git` as git's `verify_path` spells it on every platform a clone may
+    // land on: any case, NTFS's trailing dots and spaces, and its 8.3 alias.
+    const folded = segment.toLowerCase().replace(/[. ]+$/, '')
+    if (folded === '.git' || folded === 'git~1') return 'names a .git directory'
   }
   return null
 }
@@ -190,10 +193,20 @@ function branchNameOk(branch: string): boolean {
 
 export type CreateResult =
   | { kind: 'created'; repo: string; commit?: string; ref?: string }
-  /** The name already has an Index — a repository, or one being deleted. */
-  | { kind: 'exists'; repo: string }
+  /**
+   * The name already has an Index — a repository, or one being deleted, in
+   * which case `collectAfter` is when the name frees up.
+   */
+  | { kind: 'exists'; repo: string; collectAfter?: string }
   /** The seed push was refused; nothing was left behind. */
   | { kind: 'refused'; repo: string; message: string }
+
+/**
+ * A seed git itself refused — the hooks turning the push down, or a tree that
+ * would not hold the files asked for. The caller's to fix, so a 422; anything
+ * else that goes wrong while seeding is walgit's, and is thrown as itself.
+ */
+export class SeedRefused extends Error {}
 
 /** What `src/http.ts` is given to answer the admin routes with. */
 export interface AdminOps {
@@ -213,32 +226,58 @@ export interface AdminDeps {
 }
 
 export function createAdminOps(deps: AdminDeps): AdminOps {
+  const now = () => (deps.now ?? (() => new Date()))()
   return {
     async create(repo, seed) {
       // The name is claimed by the Index, under an if-absent write: of two
       // creates racing for one name exactly one wins, and the other is the
       // same 409 a create of an existing repository gets. Nothing before this
-      // line writes anything.
-      const claimed = await commitIndex(deps.store, emptyIndex(repo.repoId), null)
-      if (!claimed.ok) return { kind: 'exists', repo: repo.repoId }
+      // line writes anything. `created_at` is what expiry dates the
+      // repository by until its first push.
+      const claimed = await commitIndex(
+        deps.store,
+        { ...emptyIndex(repo.repoId), created_at: now().toISOString() },
+        null,
+      )
+      if (!claimed.ok) {
+        const { index } = await loadIndex(deps.store, repo.repoId)
+        return {
+          kind: 'exists',
+          repo: repo.repoId,
+          ...(index.deletion ? { collectAfter: index.deletion.collect_after } : {}),
+        }
+      }
       if (!seed) return { kind: 'created', repo: repo.repoId }
 
       try {
         const ensured = deps.ensureRepo(repo)
         await deps.syncRepo(ensured)
-        const commit = pushSeed(ensured.dir, seed, (deps.now ?? (() => new Date()))())
+        const commit = await pushSeed(ensured.dir, seed, now())
         return { kind: 'created', repo: repo.repoId, commit, ref: `refs/heads/${seed.branch}` }
       } catch (err) {
-        // A refused seed leaves no repository behind, so the caller can fix the
-        // body and ask again instead of meeting its own 409. Only the Index
-        // this request wrote is removed, and only while it is still empty —
-        // anything a push has published since is somebody's work.
-        const { index } = await loadIndex(deps.store, repo.repoId)
-        if (index.entries.length === 0 && Object.keys(index.refs).length === 0) {
-          await deps.store.delete(indexKey(repo.repoId))
-          fs.rmSync(repo.dir, { recursive: true, force: true })
+        // A failed seed leaves no repository behind, so the caller can fix the
+        // body (or wait out the outage) and ask again instead of meeting its
+        // own 409. Only the Index this request wrote is removed, and only
+        // while it is still the object this request wrote: a push that
+        // published since changed its etag, and that is somebody's work.
+        //
+        // The store has no conditional delete, so a push landing between this
+        // read and the delete is not excluded — a window of one round trip, on
+        // a name created a moment ago by this very request. The cache
+        // directory is left alone: it is disposable, holds nothing the hooks
+        // published, and another request may be reading it.
+        try {
+          const current = await deps.store.get(indexKey(repo.repoId))
+          if (current?.etag === claimed.etag) await deps.store.delete(indexKey(repo.repoId))
+        } catch {
+          // The rollback failing leaves an empty repository behind, which is
+          // a 409 on retry and an ordinary delete away; the seed's own failure
+          // is the thing to report.
         }
-        return { kind: 'refused', repo: repo.repoId, message: (err as Error).message }
+        if (err instanceof SeedRefused) {
+          return { kind: 'refused', repo: repo.repoId, message: err.message }
+        }
+        throw err
       }
     },
 
@@ -263,58 +302,101 @@ export function createAdminOps(deps: AdminDeps): AdminOps {
 
 /**
  * Build the seed's one commit in a scratch repository and push it into `dir`.
- * Returns the commit id; throws with git's own words when the push is refused.
+ * Returns the commit id; throws `SeedRefused` with git's own words when the
+ * push is refused.
  *
  * The scratch repository is a separate object database on purpose: nothing is
  * written into the served repository except by `git-receive-pack`, so the
  * hooks see the commit arrive in quarantine exactly as a client's would.
+ *
+ * Every git call is asynchronous and the blobs are written by one process, not
+ * one per file: this runs on the request path of the container that is also
+ * serving every clone and push, and the push's hooks make network round trips.
  */
-function pushSeed(dir: string, seed: Seed, now: Date): string {
+async function pushSeed(dir: string, seed: Seed, now: Date): Promise<string> {
   const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'walgit-seed-'))
+  // No message leaving here names the scratch directory.
+  const scrub = (text: string) => text.trim().replaceAll(scratch, '<seed>')
+  const run = async (args: string[], opts: GitOptions = {}) => {
+    const res = await gitAsync(args, opts)
+    if (res.status !== 0) {
+      throw new Error(`walgit seed: git ${args[0]} failed: ${scrub(res.stderr)}`)
+    }
+    return res.stdout
+  }
   try {
     const gitDir = path.join(scratch, 'seed.git')
-    gitOrThrow(['init', '--bare', '--quiet'], { operands: [gitDir] })
+    await run(['init', '--bare', '--quiet'], { operands: [gitDir] })
 
-    const lines: string[] = []
-    for (const [name, content] of Object.entries(seed.files)) {
-      const oid = gitOrThrow(['hash-object', '-w', '--stdin'], { gitDir, input: content })
-      lines.push(`100644 blob ${oid.stdout.trim()}\t${name}`)
-    }
+    // The content goes to git through files named by index, so no requested
+    // path is ever a file name here or an argument anywhere.
+    const names = Object.keys(seed.files)
+    const blobs = path.join(scratch, 'blobs')
+    fs.mkdirSync(blobs)
+    const blobPaths = names.map((name, i) => {
+      const file = path.join(blobs, String(i))
+      fs.writeFileSync(file, seed.files[name]!)
+      return file
+    })
+    const oids = (
+      await run(['hash-object', '-w', '--stdin-paths'], {
+        gitDir,
+        input: `${blobPaths.join('\n')}\n`,
+      })
+    )
+      .trim()
+      .split('\n')
+    if (oids.length !== names.length)
+      throw new Error('walgit seed: git hashed the wrong number of files')
+
+    // NUL-terminated records: with `-z` git reads each path verbatim, with no
+    // C-unquoting of a path that begins with a double quote.
     const indexEnv = { GIT_INDEX_FILE: path.join(scratch, 'index') }
-    gitOrThrow(['update-index', '--index-info'], {
+    await run(['update-index', '-z', '--index-info'], {
       gitDir,
-      input: `${lines.join('\n')}\n`,
+      input: names.map((name, i) => `100644 blob ${oids[i]}\t${name}\0`).join(''),
       env: indexEnv,
     })
-    const tree = gitOrThrow(['write-tree'], { gitDir, env: indexEnv }).stdout.trim()
+    const tree = (await run(['write-tree'], { gitDir, env: indexEnv })).trim()
+
+    // `update-index` IGNORES a path it will not carry — a name only some
+    // filesystem treats as `.git` — and still exits 0. So the tree is read
+    // back, and a seed whose tree is not exactly the files asked for is
+    // refused rather than committed short.
+    const listed = (await run(['ls-tree', '-r', '-z', '--name-only', tree], { gitDir }))
+      .split('\0')
+      .filter(Boolean)
+    const missing = names.filter((name) => !listed.includes(name))
+    if (missing.length > 0 || listed.length !== names.length) {
+      throw new SeedRefused(
+        `git would not carry ${missing.length > 0 ? missing.map((name) => JSON.stringify(name)).join(', ') : 'these paths as named'} in a tree`,
+      )
+    }
 
     // Author and committer are the one ident the request named: walgit did not
     // write this commit, the caller did, and the commit should say so.
     const date = `${Math.floor(now.getTime() / 1000)} +0000`
-    const ident = {
-      GIT_AUTHOR_NAME: seed.author.name,
-      GIT_AUTHOR_EMAIL: seed.author.email,
-      GIT_AUTHOR_DATE: date,
-      GIT_COMMITTER_NAME: seed.author.name,
-      GIT_COMMITTER_EMAIL: seed.author.email,
-      GIT_COMMITTER_DATE: date,
-    }
-    const commit = gitOrThrow(['commit-tree', tree, '-F', '-'], {
-      gitDir,
-      input: seed.message.endsWith('\n') ? seed.message : `${seed.message}\n`,
-      env: ident,
-    }).stdout.trim()
-
-    const pushed = git(
-      ['push', '--quiet', '--porcelain', dir, `${commit}:refs/heads/${seed.branch}`],
-      {
+    const commit = (
+      await run(['commit-tree', tree, '-F', '-'], {
         gitDir,
-      },
+        input: seed.message.endsWith('\n') ? seed.message : `${seed.message}\n`,
+        env: {
+          GIT_AUTHOR_NAME: seed.author.name,
+          GIT_AUTHOR_EMAIL: seed.author.email,
+          GIT_AUTHOR_DATE: date,
+          GIT_COMMITTER_NAME: seed.author.name,
+          GIT_COMMITTER_EMAIL: seed.author.email,
+          GIT_COMMITTER_DATE: date,
+        },
+      })
+    ).trim()
+
+    const pushed = await gitAsync(
+      ['push', '--quiet', '--porcelain', dir, `${commit}:refs/heads/${seed.branch}`],
+      { gitDir },
     )
     if (pushed.status !== 0) {
-      throw new Error(
-        `the seed push was refused: ${(pushed.stderr || pushed.stdout).trim().replaceAll(scratch, '<seed>')}`,
-      )
+      throw new SeedRefused(`the seed push was refused: ${scrub(pushed.stderr || pushed.stdout)}`)
     }
     return commit
   } finally {

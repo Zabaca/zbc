@@ -803,7 +803,14 @@ function createRouter(deps: HttpHandlerDeps): (req: Request) => Promise<Response
 
       const created = await admin.create(resolved, parsed.seed)
       if (created.kind === 'exists') {
-        return reject(409, 'collision', `walgit: the repository "${created.repo}" already exists\n`)
+        const when = created.collectAfter
+          ? ` and is being deleted — the name is free once it is collected after ${created.collectAfter}`
+          : ''
+        return reject(
+          409,
+          'collision',
+          `walgit: the repository "${created.repo}" already exists${when}\n`,
+        )
       }
       if (created.kind === 'refused') {
         return reject(422, 'invalid', `walgit: ${created.message}\n`)
@@ -1277,12 +1284,19 @@ const seedTooLarge = () =>
 /** A request body as text, or `null` once it passes `limit` bytes. */
 async function readBounded(request: Request, limit: number): Promise<string | null> {
   if (!request.body) return ''
+  const reader = request.body.getReader()
   const chunks: Uint8Array[] = []
   let total = 0
-  for await (const chunk of request.body as unknown as AsyncIterable<Uint8Array>) {
-    total += chunk.byteLength
-    if (total > limit) return null
-    chunks.push(chunk)
+  for (;;) {
+    const { done, value } = await reader.read()
+    if (done) break
+    total += value.byteLength
+    if (total > limit) {
+      // Stop the upload rather than leave the rest of it in flight.
+      await reader.cancel().catch(() => {})
+      return null
+    }
+    chunks.push(value)
   }
   const joined = new Uint8Array(total)
   let at = 0

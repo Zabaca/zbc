@@ -87,6 +87,11 @@ export function lastWriteAt(index: WalIndex): string | null {
     if (!Number.isFinite(at)) continue
     if (!newest || at > newest.at) newest = { ts: entry.ts, at }
   }
+  // A repository an admin created empty is dated by its creation until its
+  // first push, so it expires like one pushed to once and then left.
+  if (!newest && index.created_at && Number.isFinite(Date.parse(index.created_at))) {
+    return index.created_at
+  }
   return newest?.ts ?? null
 }
 
