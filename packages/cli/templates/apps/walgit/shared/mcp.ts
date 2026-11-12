@@ -47,6 +47,7 @@ import type { Capabilities } from './capabilities'
 import { renderLlms } from './llms'
 import type { Operator } from './operator'
 import { REF_NAME, REPO_ID } from './protocol'
+import { nameInScope } from './scoped-token'
 
 /** The manual, as a resource a client can read without calling a tool. */
 export const MANUAL_URI = 'agentgit://manual'
@@ -104,6 +105,12 @@ export interface McpDeps {
   status(name: string): Promise<Read<StatusFacts>>
   provenance(name: string): Promise<Read<{ repo: string; provenance: ProvenanceFacts }>>
   watch(name: string, ref: string | null, timeoutMs: number): Promise<WatchOutcome>
+  /**
+   * The one repository a verified scoped token names (docs/adr/0021), when the
+   * caller presented one. Every tool refuses any other name before `deps` is
+   * asked anything, so a name outside the claim never reaches the host.
+   */
+  scopedTo?: string | null
 }
 
 interface ToolResult {
@@ -129,6 +136,15 @@ const refuse = (message: string): ToolResult => ({
  * repository half the service can see. Refused here rather than forwarded so a
  * path-shaped name never becomes a request at all.
  */
+function outOfScope(deps: McpDeps, name: string): string | null {
+  const scope = deps.scopedTo
+  if (scope === undefined || scope === null) return null
+  // The same comparison the HTTP surfaces make: exact, by the canonical id.
+  return nameInScope(scope, name)
+    ? null
+    : `walgit: this token is scoped to the repository "${scope}", not "${name}"`
+}
+
 function badName(name: string): string | null {
   return REPO_ID.test(name)
     ? null
@@ -159,7 +175,7 @@ export function createAgentgitMcp(deps: McpDeps): McpServer {
       inputSchema: { name },
     },
     async (input): Promise<ToolResult> => {
-      const bad = badName(input.name)
+      const bad = badName(input.name) ?? outOfScope(deps, input.name)
       if (bad) return refuse(bad)
       const read = await deps.status(input.name)
       if (!read.ok) return refuse(read.message)
@@ -201,7 +217,7 @@ export function createAgentgitMcp(deps: McpDeps): McpServer {
       },
     },
     async (input): Promise<ToolResult> => {
-      const bad = badName(input.name)
+      const bad = badName(input.name) ?? outOfScope(deps, input.name)
       if (bad) return refuse(bad)
       const ref = input.ref ?? null
       if (ref !== null && !REF_NAME.test(ref)) {
@@ -245,7 +261,7 @@ export function createAgentgitMcp(deps: McpDeps): McpServer {
       },
     },
     async (input): Promise<ToolResult> => {
-      const bad = badName(input.name)
+      const bad = badName(input.name) ?? outOfScope(deps, input.name)
       if (bad) return refuse(bad)
       const read = await deps.provenance(input.name)
       if (!read.ok) return refuse(read.message)

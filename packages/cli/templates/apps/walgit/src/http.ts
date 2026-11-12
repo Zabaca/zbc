@@ -877,9 +877,14 @@ function createRouter(deps: HttpHandlerDeps): (req: Request) => Promise<Response
       return reject(503, 'unavailable', `${scoped.reason}\n`)
     }
     if (scoped.kind === 'scoped') {
+      const target = scopeTargetOf(request.method, url.pathname, url.search)
+      // `per-message` is a promise that each named repository is judged, and
+      // only the edge keeps it (the MCP tools, the event socket). Nothing here
+      // does, so the container holds those paths as `elsewhere` — a route
+      // added under them later is closed to a scoped token until it judges.
       const refused = scopeRefusal(
         scoped.claims,
-        scopeTargetOf(request.method, url.pathname, url.search),
+        target.kind === 'per-message' ? { kind: 'elsewhere' } : target,
       )
       if (refused) return reject(refused.status, 'unauthorized', refused.message)
     } else if (!deps.public && !authorizedBy(request.headers.get('authorization'), deps.tokens)) {

@@ -40,7 +40,7 @@ import { Hono } from 'hono'
 
 import type { Capabilities } from '../shared/capabilities'
 import { parseTokens } from '../shared/credentials'
-import { type ScopedClaims, scopeAllowsRead } from '../shared/scoped-token'
+import type { ScopedClaims } from '../shared/scoped-token'
 import { authorizeSubscribe } from '../shared/events'
 import {
   type McpDeps,
@@ -106,19 +106,6 @@ function deps(
   // header a clone of a Private repository presents.
   const authorization = request.headers.get('authorization')
 
-  // A scoped token (docs/adr/0021) reaches the endpoint — the edge let it
-  // through, because the repositories here are named per tool call — and is
-  // refused, per call, for every name but its own. Refused HERE rather than
-  // left to the container's gate so a name outside the claim never wakes it.
-  const outOfScope = (name: string): Read<never> | null =>
-    scoped && !scopeAllowsRead(scoped, name)
-      ? {
-          ok: false,
-          status: 403,
-          message: `walgit: this token is scoped to the repository "${scoped.repo}", not "${name}"`,
-        }
-      : null
-
   return {
     version: env.WALGIT_BUILD_ID ?? '0.0.0',
     host,
@@ -126,8 +113,6 @@ function deps(
     operator,
 
     async status(name): Promise<Read<StatusFacts>> {
-      const refused = outOfScope(name)
-      if (refused) return refused
       const read = await provenanceRead(env, authorization, name)
       if (!read.ok) return read
       // Only now: `REFS_PATH` is internal and judges nothing, so reading it
@@ -149,18 +134,19 @@ function deps(
     },
 
     async provenance(name): Promise<Read<{ repo: string; provenance: ProvenanceFacts }>> {
-      const refused = outOfScope(name)
-      if (refused) return refused
       const read = await provenanceRead(env, authorization, name)
       if (!read.ok) return read
       return { ok: true, repo: name, provenance: read.provenance }
     },
 
-    watch: (name, ref, timeoutMs) => {
-      const refused = outOfScope(name)
-      if (refused && !refused.ok) return Promise.reject(new Error(refused.message))
-      return watchRef(env, caps, authorization, name, ref, timeoutMs, scoped !== null)
-    },
+    watch: (name, ref, timeoutMs) =>
+      watchRef(env, caps, authorization, name, ref, timeoutMs, scoped !== null),
+
+    // A scoped token (docs/adr/0021) reaches the endpoint — the edge let it
+    // through, because the repositories here are named per tool call — and
+    // every tool refuses a name outside its claim before any of the reads
+    // above runs, so such a name never wakes the container (`shared/mcp.ts`).
+    scopedTo: scoped?.repo ?? null,
   }
 }
 

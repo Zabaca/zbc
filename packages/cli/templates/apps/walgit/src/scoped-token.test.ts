@@ -18,6 +18,8 @@ import {
   scopedEdgeAnswer,
   scopeRefusal,
   scopeTargetOf,
+  scopedTokenExpired,
+  scopedWatchRefusal,
   tokenPublicKeysConfigError,
   verifyScopedToken,
 } from '../shared/scoped-token'
@@ -339,5 +341,69 @@ describe('scopedEdgeAnswer', () => {
     const read = { kind: 'scoped', claims: claims({ mode: 'read' }) } as const
     expect(scopedEdgeAnswer(read, target)!.status).toBe(403)
     expect(scopedEdgeAnswer({ kind: 'scoped', claims: claims() }, target)).toBeNull()
+  })
+})
+
+describe('review hardening', () => {
+  test('honours nbf when an issuer sets one', async () => {
+    const later = await mintScopedToken(issuer.privateKey, {
+      ...claims(),
+      nbf: NOW + 3600,
+    } as ScopedClaims)
+    expect(await verifyScopedToken(later, issuer.publicKey, NOW_MS)).toEqual({
+      ok: false,
+      reason: 'token is not valid yet (nbf)',
+    })
+    const now = await mintScopedToken(issuer.privateKey, { ...claims(), nbf: NOW } as ScopedClaims)
+    expect((await verifyScopedToken(now, issuer.publicKey, NOW_MS)).ok).toBe(true)
+  })
+
+  test('accepts one spelling of a signature, not the sixteen atob would', async () => {
+    const token = await mint()
+    const [h, p, s] = token.split('.') as [string, string, string]
+    const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_'
+    const last = alphabet.indexOf(s.at(-1)!)
+    // Same top two bits of the final character, different spare low bits.
+    const respelled = `${s.slice(0, -1)}${alphabet[(last & 0b110000) | ((last + 1) & 0b001111)]}`
+    expect(respelled).not.toBe(s)
+    expect((await verifyScopedToken(`${h}.${p}.${respelled}`, issuer.publicKey, NOW_MS)).ok).toBe(
+      false,
+    )
+  })
+
+  test('a repeated service parameter is judged a push if any value is one', () => {
+    expect(
+      scopeTargetOf(
+        'GET',
+        '/alpha.git/info/refs',
+        '?service=git-upload-pack&service=git-receive-pack',
+      ),
+    ).toEqual({ kind: 'repo', repo: 'alpha', write: true })
+  })
+
+  test('a browse page names the id the container would serve', () => {
+    expect(scopeTargetOf('GET', '/alpha.git/tree/main', '')).toEqual({
+      kind: 'repo',
+      repo: 'alpha',
+      write: false,
+    })
+    expect(scopeTargetOf('GET', '/_walgit/provenance', '?repo=/alpha')).toEqual({
+      kind: 'repo',
+      repo: 'alpha',
+      write: false,
+    })
+  })
+
+  test('an open subscription expires with its token, skew included', () => {
+    expect(scopedTokenExpired(NOW - SCOPED_TOKEN_SKEW_SECONDS + 1, NOW_MS)).toBe(false)
+    expect(scopedTokenExpired(NOW - SCOPED_TOKEN_SKEW_SECONDS, NOW_MS)).toBe(true)
+  })
+
+  test('a watch is refused whole when any name is outside the claim', () => {
+    const scoped = { kind: 'scoped', claims: claims() } as const
+    expect(scopedWatchRefusal(scoped, ['alpha'])).toBeNull()
+    expect(scopedWatchRefusal(scoped, ['alpha', 'beta'])).toBe('forbidden')
+    expect(scopedWatchRefusal({ kind: 'invalid', reason: 'x' }, ['alpha'])).toBe('unauthorized')
+    expect(scopedWatchRefusal({ kind: 'unscoped' }, ['beta'])).toBeNull()
   })
 })

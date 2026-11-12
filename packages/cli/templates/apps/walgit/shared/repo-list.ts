@@ -286,7 +286,7 @@ export async function collectRepoList(store: ObjectStore, page: number): Promise
 export async function collectOneRepo(store: ObjectStore, name: string): Promise<RepoListing> {
   const found = await store.get(indexKey(name)).catch(() => null)
   return {
-    repos: found ? [await rowFor(store, name)] : [],
+    repos: found ? [rowFromBytes(name, found.body)] : [],
     page: 1,
     pages: 1,
     total: found ? 1 : 0,
@@ -306,7 +306,16 @@ async function rowFor(store: ObjectStore, name: string): Promise<RepoRow> {
   try {
     const found = await store.get(indexKey(name))
     if (!found) return bare(name)
-    const index = JSON.parse(new TextDecoder().decode(found.body)) as WalIndex
+    return rowFromBytes(name, found.body)
+  } catch {
+    return bare(name)
+  }
+}
+
+/** One row from an Index's bytes, already read. Never throws. */
+function rowFromBytes(name: string, body: Uint8Array): RepoRow {
+  try {
+    const index = JSON.parse(new TextDecoder().decode(body)) as WalIndex
     if (index.version !== 1 || index.repo_id !== name) return bare(name)
     return foldIndex(name, index)
   } catch {

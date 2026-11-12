@@ -101,7 +101,11 @@ export function base64UrlDecode(text: string): Uint8Array<ArrayBuffer> | null {
   }
   const bytes = new Uint8Array(binary.length)
   for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i)
-  return bytes
+  // Canonical only. `atob` ignores the spare low bits of the last character,
+  // so without this sixteen spellings of one signature would all verify — and
+  // anything later keyed on the token string (a cache, a denylist) could be
+  // stepped around by re-spelling it.
+  return base64UrlEncode(bytes) === text ? bytes : null
 }
 
 export function base64UrlEncode(bytes: Uint8Array): string {
@@ -230,7 +234,7 @@ export async function verifyScopedToken(
 
   const payload = jsonSegment(payloadPart)
   if (!payload) return { ok: false, reason: 'malformed token payload' }
-  const { repo, mode, exp, iat, sub } = payload
+  const { repo, mode, exp, iat, nbf, sub } = payload
   // The canonical id only: `.git` is a suffix a client's URL chooses, not part
   // of a name (`src/repo.ts`), so a claim spelled with one would be a second
   // spelling of a different repository.
@@ -245,11 +249,18 @@ export async function verifyScopedToken(
   if (sub !== undefined && typeof sub !== 'string') {
     return { ok: false, reason: 'token sub claim must be a string' }
   }
+  if (nbf !== undefined && !isTime(nbf))
+    return { ok: false, reason: 'token nbf claim is not a time' }
 
   const now = nowMs / 1000
   if (exp + SCOPED_TOKEN_SKEW_SECONDS <= now) return { ok: false, reason: 'token has expired' }
   if (iat - SCOPED_TOKEN_SKEW_SECONDS > now) {
     return { ok: false, reason: 'token iat is in the future' }
+  }
+  // Optional, but honoured where an issuer sets it (RFC 7519 §4.1.5): a token
+  // not valid yet is not valid.
+  if (isTime(nbf) && nbf - SCOPED_TOKEN_SKEW_SECONDS > now) {
+    return { ok: false, reason: 'token is not valid yet (nbf)' }
   }
 
   return {
@@ -335,14 +346,17 @@ export type ScopeTarget =
  * Validity is not decided here: a name the container would refuse is compared
  * as-is and simply fails to match.
  */
-const canonical = (name: string): string => name.replace(/\.git$/, '')
+const canonical = (name: string): string => name.replace(/^\//, '').replace(/\.git$/, '')
 
 export function scopeTargetOf(method: string, pathname: string, search: string): ScopeTarget {
   const git = SMART_HTTP.exec(pathname)
   if (git) {
-    const service = new URLSearchParams(search).get('service')
+    // EVERY `service` value, not the first: `git http-backend` acts on the
+    // last, so a read token appending a second one must still be judged a push.
+    const services = new URLSearchParams(search).getAll('service')
     const write =
-      git[2] === 'git-receive-pack' || (git[2] === 'info/refs' && service === 'git-receive-pack')
+      git[2] === 'git-receive-pack' ||
+      (git[2] === 'info/refs' && services.includes('git-receive-pack'))
     return { kind: 'repo', repo: canonical(git[1]!), write }
   }
   const proposals = PROPOSALS_HTTP.exec(pathname)
@@ -359,7 +373,7 @@ export function scopeTargetOf(method: string, pathname: string, search: string):
   if (pathname === MCP_PATH || pathname === EVENTS_PATH) return { kind: 'per-message' }
   if (pathname === REPOS_PATH) return { kind: 'list' }
   const page = wantsBrowse(method, pathname)
-  if (page) return { kind: 'repo', repo: page.repo, write: false }
+  if (page) return { kind: 'repo', repo: canonical(page.repo), write: false }
   return { kind: 'elsewhere' }
 }
 
@@ -392,7 +406,12 @@ export function scopeRefusal(
 
 /** Shorthand for the per-message surfaces: may this token read this name? */
 export function scopeAllowsRead(claims: ScopedClaims, repo: string): boolean {
-  return scopeRefusal(claims, { kind: 'repo', repo: canonical(repo), write: false }) === null
+  return nameInScope(claims.repo, repo)
+}
+
+/** Does a requested name resolve to the claimed repository? Exact, by id. */
+export function nameInScope(claimed: string, requested: string): boolean {
+  return canonical(requested) === claimed
 }
 
 /**
@@ -440,4 +459,33 @@ export function scopedEdgeAnswer(access: ScopedAccess, target: ScopeTarget): Res
   }
   const refused = scopeRefusal(access.claims, target)
   return refused ? new Response(refused.message, { status: refused.status, headers: plain }) : null
+}
+
+/**
+ * Has a token that verified at some earlier moment expired since?
+ *
+ * For a credential held open — an event-stream socket verified when its
+ * `watch` arrived — so it stops being served when the token would have stopped
+ * being accepted, with the same skew `verifyScopedToken` allows.
+ */
+export function scopedTokenExpired(exp: number, nowMs: number = Date.now()): boolean {
+  return exp + SCOPED_TOKEN_SKEW_SECONDS <= nowMs / 1000
+}
+
+/**
+ * The event stream's question: may this credential watch these repositories?
+ *
+ * `null` when it may — every unscoped credential included, which the Reader
+ * List gate judges as before. Otherwise the error the socket is told before it
+ * is closed: `unauthorized` for a token that does not verify, `forbidden` for
+ * one that names anything outside its claim. Whole, never narrowed: a
+ * subscriber silently stripped of one repository waits forever.
+ */
+export function scopedWatchRefusal(
+  access: ScopedAccess,
+  repos: readonly string[],
+): 'unauthorized' | 'forbidden' | null {
+  if (access.kind === 'unscoped') return null
+  if (access.kind !== 'scoped') return 'unauthorized'
+  return repos.every((repo) => scopeAllowsRead(access.claims, repo)) ? null : 'forbidden'
 }

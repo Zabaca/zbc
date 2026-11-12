@@ -1163,8 +1163,14 @@ revocation can later refuse every token issued before an instant.
 - **Create on first push:** a `write` token may create the repository it names,
   exactly as the admin token can.
 - **On top, unchanged:** Private repositories, Reader Lists, Signer Lists,
-  signed pushes and per-source rate limits. A scoped token is not a Read
-  Challenge and does not open a Private repository by itself.
+  signed pushes and per-source rate limits. A scoped token **cannot** open a
+  Private repository: it and a Read Challenge signature both travel in the one
+  `Authorization` header, and a Private repository answers only the signature.
+- **One keypair per deployment.** There is no `aud` claim; the key is the
+  boundary, so a token for `my-thing` on one walgit does not open `my-thing` on
+  another. `nbf` is honoured when present. walgit sets no maximum lifetime —
+  keep it short, since a token cannot be revoked before `exp` yet.
+- **An open `watch`** is closed by the first ref event after its token expires.
 - **Where it's checked:** at the edge Worker first, so a bad credential never
   wakes the container, and again in the container with the same function
   (`shared/scoped-token.ts`).

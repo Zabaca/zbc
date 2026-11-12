@@ -282,3 +282,42 @@ describe('the manual', () => {
     expect(first && 'text' in first ? first.text : null).toBe(renderLlms('walgit.test', CAPS, null))
   })
 })
+
+describe('a scoped token (docs/adr/0021)', () => {
+  test('every tool refuses a name outside the claim, before the host is asked', async () => {
+    const asked: string[] = []
+    const client = await connect(
+      deps({
+        scopedTo: 'alpha',
+        async status(name) {
+          asked.push(`status:${name}`)
+          return { ok: true, exists: true, claimed: false, private: false, refs: {} }
+        },
+        async provenance(name) {
+          asked.push(`provenance:${name}`)
+          return { ok: true, repo: name, provenance: {} }
+        },
+        async watch(name) {
+          asked.push(`watch:${name}`)
+          return { timedOut: true }
+        },
+      }),
+    )
+    for (const [tool, args] of [
+      ['agentgit_status', { name: 'beta' }],
+      ['agentgit_provenance', { name: 'beta', ref: 'refs/heads/main' }],
+      ['agentgit_watch', { name: 'beta', timeoutMs: 10 }],
+    ] as const) {
+      const { isError, text } = await call(client, tool, args)
+      expect(isError).toBe(true)
+      expect(text).toBe('walgit: this token is scoped to the repository "alpha", not "beta"')
+    }
+    expect(asked).toEqual([])
+    // Its own name is answered as before.
+    expect((await call(client, 'agentgit_status', { name: 'alpha' })).isError).toBe(false)
+    expect((await call(client, 'agentgit_watch', { name: 'alpha', timeoutMs: 10 })).isError).toBe(
+      false,
+    )
+    expect(asked).toEqual(['status:alpha', 'watch:alpha'])
+  })
+})

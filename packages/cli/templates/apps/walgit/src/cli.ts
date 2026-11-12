@@ -592,6 +592,11 @@ async function tokenCommand(args: ParsedArgs): Promise<number> {
     // The same grammar every entry point applies, and the canonical spelling:
     // a claim is an exact name, never `name.git`.
     const repo = normalizeRepoId(repoFlag)
+    // A claim may not end in `.git` (it would name a different repository than
+    // the URL serves), so a name that still does after normalizing would mint
+    // a token no deployment accepts. Refused here, where it can be said.
+    if (repo.endsWith('.git'))
+      throw new Error(`"${repoFlag}" is not a repository id a token can name`)
     const ttlMs = parseDuration(stringFlag(args, 'ttl') ?? '1h')
     if (!(ttlMs > 0)) throw new Error('--ttl must be longer than zero')
     const iat = Math.floor(Date.now() / 1000)

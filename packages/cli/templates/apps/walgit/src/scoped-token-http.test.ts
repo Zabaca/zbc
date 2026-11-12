@@ -11,7 +11,7 @@
 import { describe, expect, test } from 'bun:test'
 
 import { capabilitiesFrom, type CapabilityEnv } from '../shared/capabilities'
-import { BROWSE_PATH, PROVENANCE_PATH } from '../shared/protocol'
+import { BROWSE_PATH, PROVENANCE_PATH, READ_CHALLENGE_SCHEME } from '../shared/protocol'
 import { base64UrlEncode, mintScopedToken, type ScopedClaims } from '../shared/scoped-token'
 import { createHttpHandler, type BrowseReads, type HttpHandlerDeps } from './http'
 
@@ -196,5 +196,38 @@ describe('the admin token', () => {
         expect((await ask(path, 'admin-token', method)).status).toBe(200)
       }
     }
+  })
+})
+
+describe('what the container does not judge per message', () => {
+  test('the MCP and event-stream paths are refused, not let through', async () => {
+    const { ask } = deployment()
+    for (const path of ['/_walgit/mcp', '/_walgit/events']) {
+      expect((await ask(path, await token())).status).toBe(403)
+    }
+  })
+})
+
+describe('a Private repository', () => {
+  test('is not opened by a scoped token for it: the Read Challenge still stands', async () => {
+    const { ask } = deployment({
+      public: true,
+      overrides: {
+        privateReads: {
+          seed: 'private-seed',
+          readClaim: async () => ({
+            signers: ['SHA256:owner'],
+            readers: [],
+            ts: '2026-11-01T00:00:00Z',
+          }),
+          verifyRead: () => null,
+          now: () => NOW_MS,
+        },
+      },
+    })
+    const res = await ask('/alpha.git/info/refs?service=git-upload-pack', await token())
+    expect(res.status).toBe(401)
+    // The challenge a Private repository answers, not the scoped-token refusal.
+    expect(res.headers.get('www-authenticate')).toContain(READ_CHALLENGE_SCHEME)
   })
 })
