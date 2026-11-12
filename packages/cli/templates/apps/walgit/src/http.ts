@@ -804,9 +804,12 @@ function createRouter(deps: HttpHandlerDeps): (req: Request) => Promise<Response
         if (Number.isFinite(declared) && declared > MAX_REVOKE_BYTES) return revokeTooLarge()
         const text = await readBounded(request, MAX_REVOKE_BYTES)
         if (text === null) return revokeTooLarge()
-        const parsed = parseRevoke(text, new Date())
+        const parsed = parseRevoke(text)
         if (!parsed.ok) return reject(400, 'invalid', `walgit: ${parsed.message}\n`)
         const revoked = await admin.revokeTokens(resolved.repoId, parsed.since)
+        if (revoked === 'later-than-now') {
+          return reject(400, 'invalid', 'walgit: "since" must not be later than now\n')
+        }
         return revoked ? json(revoked) : NOT_FOUND()
       }
       if (request.method === 'DELETE') {

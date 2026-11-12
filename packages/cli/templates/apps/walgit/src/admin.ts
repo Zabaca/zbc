@@ -217,9 +217,10 @@ export interface AdminOps {
   /**
    * Revoke the repository's scoped tokens issued before `since` (default now)
    * by moving its `tokens_valid_since` forward. `null` when the log holds no
-   * Index for this name.
+   * Index for this name; `'later-than-now'` for a `since` in the future, which
+   * would revoke tokens not minted yet — a different request from this one.
    */
-  revokeTokens(repoId: string, since: Date | null): Promise<RevokeResult | null>
+  revokeTokens(repoId: string, since: Date | null): Promise<RevokeResult | 'later-than-now' | null>
 }
 
 /** The usage row, with what only the admin surface reports beside it. */
@@ -242,13 +243,10 @@ export type RevokeParse = { ok: true; since: Date | null } | { ok: false; messag
 
 /**
  * Read a revoke request's body: empty means now, and otherwise
- * `{"since": "<ISO instant>"}` no later than `now`.
- *
- * A future instant is refused rather than clamped: it would revoke tokens that
- * have not been minted yet, which is a different request from the one this
- * endpoint answers.
+ * `{"since": "<ISO instant>"}`. Whether it is later than now is the admin
+ * operation's question, asked on its own clock.
  */
-export function parseRevoke(text: string, now: Date): RevokeParse {
+export function parseRevoke(text: string): RevokeParse {
   if (text.trim() === '') return { ok: true, since: null }
   let body: unknown
   try {
@@ -264,7 +262,6 @@ export function parseRevoke(text: string, now: Date): RevokeParse {
   }
   const ms = Date.parse(since)
   if (!Number.isFinite(ms)) return { ok: false, message: '"since" must be an ISO 8601 instant' }
-  if (ms > now.getTime()) return { ok: false, message: '"since" must not be later than now' }
   return { ok: true, since: new Date(ms) }
 }
 
@@ -358,7 +355,9 @@ export function createAdminOps(deps: AdminDeps): AdminOps {
     },
 
     async revokeTokens(repoId, since) {
-      const asked = (since ?? now()).toISOString()
+      const at = now()
+      if (since && since.getTime() > at.getTime()) return 'later-than-now'
+      const asked = (since ?? at).toISOString()
       // A compare-and-swap loop rather than `updateIndex`, because an absent
       // Index must stay absent: revoking a name nobody holds would claim it,
       // and creating is the create route's job. To revoke for a name a write
