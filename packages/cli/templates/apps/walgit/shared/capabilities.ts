@@ -65,6 +65,7 @@ type CapabilityVar = Extract<
   | 'WALGIT_PRIVATE_REPOS'
   | 'WALGIT_PROPOSALS'
   | 'WALGIT_WEB'
+  | 'WALGIT_TOKEN_PUBLIC_KEYS'
   | 'WALGIT_RATE_WINDOW_SECONDS'
   | 'WALGIT_MAX_NEW_REPOS_PER_SOURCE'
   | 'WALGIT_MAX_PUSHES_PER_SOURCE'
@@ -197,6 +198,12 @@ export type Capabilities = {
    * operator opts into rather than acquires on upgrade.
    */
   web: boolean
+  /**
+   * Scoped tokens are accepted (`shared/scoped-token.ts`, docs/adr/0021): an
+   * issuer holding the private key mints a short-lived credential for one
+   * repository, read or write. Off unless `WALGIT_TOKEN_PUBLIC_KEYS` is set.
+   */
+  scopedTokens: boolean
   /** A repository is collected this many hours after its last push. */
   retentionHours: number | null
   /**
@@ -310,6 +317,7 @@ export function capabilitiesFrom(
       seedValue(env.WALGIT_PRIVATE_REPOS) !== null,
     proposals: namesCanRefuse && signedPushes && flagEnabled(env.WALGIT_PROPOSALS),
     web: flagEnabled(env.WALGIT_WEB),
+    scopedTokens: seedValue(env.WALGIT_TOKEN_PUBLIC_KEYS) !== null,
     retentionHours,
     claimedRetentionHours:
       namesCanBeClaimed &&

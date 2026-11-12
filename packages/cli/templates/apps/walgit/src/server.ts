@@ -16,6 +16,7 @@ import * as fs from 'node:fs'
 import { capabilitiesFrom } from '../shared/capabilities'
 import { BOOT_MARKER } from '../shared/container-snapshot'
 import { parseTokens } from '../shared/credentials'
+import { tokenPublicKeysConfigError } from '../shared/scoped-token'
 import { listCommits, listTree, readBlob, statBlob } from './browse'
 import { clearBootResidue } from './boot-residue'
 import { ensureBareRepo } from './cache'
@@ -96,6 +97,16 @@ if (privateConfigError) {
  * `WALGIT_SIGNER_LISTS` never reaches here, having been refused above.
  */
 const privateSeed = privateReposEnabled(process.env) ? privateReposSeed(process.env) : null
+
+/**
+ * A malformed scoped-token key list (docs/adr/0021) is reported at boot and NOT
+ * fatal: what it breaks is scoped tokens, which are then refused with a 503
+ * naming the entry, while the admin credential keeps working. Taking every
+ * clone down for a typo in a key the operator is only adding would be the
+ * wrong blast radius.
+ */
+const tokenKeysError = tokenPublicKeysConfigError(process.env.WALGIT_TOKEN_PUBLIC_KEYS)
+if (tokenKeysError) console.error(tokenKeysError)
 
 const store = storeFromEnv()
 if (!store) {
@@ -202,6 +213,7 @@ try {
     reposDir,
     tokens,
     public: isPublic,
+    scopedTokenKeys: process.env.WALGIT_TOKEN_PUBLIC_KEYS,
     ensureRepo: ensureBareRepo,
     syncRepo: (repo) => syncRepo(store, repo),
     runBackend: runGitHttpBackend,

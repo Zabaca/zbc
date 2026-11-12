@@ -23,6 +23,7 @@ import {
 } from '../shared/browse'
 import { capabilitiesFrom, type Capabilities } from '../shared/capabilities'
 import { authorizedBy, presentedSignature } from '../shared/credentials'
+import { scopeRefusal, scopeTargetOf, scopedAccessOf } from '../shared/scoped-token'
 import {
   BASIC_CHALLENGE,
   BROWSE_PATH,
@@ -189,6 +190,14 @@ export type HttpHandlerDeps = {
    * stand still inside one or step over its edge (`src/rate-limit.ts`).
    */
   now?: () => number
+  /**
+   * `WALGIT_TOKEN_PUBLIC_KEYS`, verbatim (`shared/scoped-token.ts`,
+   * docs/adr/0021). Absent or blank means scoped tokens are off and every
+   * credential is judged exactly as before.
+   */
+  scopedTokenKeys?: string
+  /** The clock scoped tokens are checked against; injectable for tests. */
+  tokenNow?: () => number
 }
 
 /** Everything the Private gate needs, present or absent as a whole. */
@@ -845,7 +854,35 @@ function createRouter(deps: HttpHandlerDeps): (req: Request) => Promise<Response
       )
     }
 
-    if (!deps.public && !authorizedBy(request.headers.get('authorization'), deps.tokens)) {
+    // A scoped token (docs/adr/0021), judged by the same function the edge
+    // judged it with. The edge has normally refused a bad one already; this is
+    // the same rule held over whatever reaches the container another way.
+    //
+    // A valid one stands in for the deployment credential below, for its own
+    // repository only — which is also what lets a `write` token create the
+    // repository it names on first push, exactly as an admin token does. Every
+    // gate after this one (the Read Challenge, Signer Lists, the rate limits)
+    // still applies on top.
+    const scoped = await scopedAccessOf(request.headers.get('authorization'), {
+      keys: deps.scopedTokenKeys,
+      known: [...deps.tokens, ...(priv?.announceSecret ? [priv.announceSecret] : [])],
+      now: deps.tokenNow,
+    })
+    if (scoped.kind === 'invalid') {
+      return reject(401, 'unauthorized', `walgit: ${scoped.reason}\n`, {
+        'www-authenticate': BASIC_CHALLENGE,
+      })
+    }
+    if (scoped.kind === 'misconfigured') {
+      return reject(503, 'unavailable', `${scoped.reason}\n`)
+    }
+    if (scoped.kind === 'scoped') {
+      const refused = scopeRefusal(
+        scoped.claims,
+        scopeTargetOf(request.method, url.pathname, url.search),
+      )
+      if (refused) return reject(refused.status, 'unauthorized', refused.message)
+    } else if (!deps.public && !authorizedBy(request.headers.get('authorization'), deps.tokens)) {
       return UNAUTHORIZED()
     }
 

@@ -291,6 +291,7 @@ test('an unconfigured deployment advertises nothing, and says so in every field'
     namesCanBePrivate: false,
     proposals: false,
     web: false,
+    scopedTokens: false,
     retentionHours: null,
     claimedRetentionHours: null,
     maxPushBytes: null,

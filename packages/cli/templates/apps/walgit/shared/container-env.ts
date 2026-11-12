@@ -100,6 +100,10 @@ export const CONTAINER_ENV = [
   // list buys everywhere else: the deploy that first sets it changes the
   // fingerprint and replaces the running container once.
   'WALGIT_WEB',
+  // Scoped tokens (docs/adr/0021). The edge verifies before it wakes the
+  // container, and the container verifies again on what reaches it, so both
+  // halves need the public keys — never a private one; walgit holds none.
+  'WALGIT_TOKEN_PUBLIC_KEYS',
   // Per-source rate limits (src/rate-limit.ts). The verdict is reached in the
   // container's own HTTP handler — the only place that sees both the source the
   // edge attributed the request to and the repository it names — so the numbers

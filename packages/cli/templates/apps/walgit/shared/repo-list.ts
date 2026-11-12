@@ -88,6 +88,13 @@ export interface RepoListDeps {
   caps: Capabilities
   /** The configured credentials (`parseTokens`). */
   tokens: readonly string[]
+  /**
+   * The one repository a verified scoped token names (docs/adr/0021), when the
+   * request presented one. The edge has already verified it; here it stands in
+   * for the deployment credential and narrows the list to that name, so a
+   * scoped token never learns another repository exists.
+   */
+  scopedTo?: string
 }
 
 /** A response as a value: the Worker turns this into a `Response`. */
@@ -131,11 +138,15 @@ export async function repoListResponse(
   request: RepoListRequest,
   deps: RepoListDeps,
 ): Promise<EdgeResponse> {
-  const { caps, store, tokens } = deps
+  const { caps, store, tokens, scopedTo } = deps
 
   // Before the store is touched. A refusal must not be the reason a bucket is
   // read, and must never be cached: the next request carries a credential.
-  if (!caps.publicAccess && !authorizedBy(request.authorization, tokens)) {
+  if (
+    scopedTo === undefined &&
+    !caps.publicAccess &&
+    !authorizedBy(request.authorization, tokens)
+  ) {
     return {
       status: 401,
       headers: {
@@ -150,13 +161,18 @@ export async function repoListResponse(
   }
 
   const page = requestedPage(request.search)
-  const listing = await collectRepoList(store, page)
+  const listing =
+    scopedTo === undefined
+      ? await collectRepoList(store, page)
+      : await collectOneRepo(store, scopedTo)
 
   // A minute, and only where a read takes no credential — the same reasoning
   // the landing page's header carries, plus the one this page adds: a shared
   // cache must not hold a document that exists because THIS request presented
-  // a token. One function for both web-view pages (`shared/web.ts`).
-  const cacheControl = webCacheControl(caps)
+  // a token. One function for both web-view pages (`shared/web.ts`). Never
+  // shared-cached when it was narrowed for a scoped token: the same URL lists
+  // every name to the next, anonymous, request.
+  const cacheControl = scopedTo === undefined ? webCacheControl(caps) : 'private, no-store'
 
   const wantsHtml = request.accept.toLowerCase().includes('text/html')
   if (!wantsHtml) {
@@ -260,6 +276,21 @@ export async function collectRepoList(store: ObjectStore, page: number): Promise
     pages,
     total: names.length,
     sortedBy: 'push',
+  }
+}
+
+/**
+ * The list as a scoped token sees it: its own repository, when the log holds
+ * one by that name, and nothing else — not even the count of the others.
+ */
+export async function collectOneRepo(store: ObjectStore, name: string): Promise<RepoListing> {
+  const found = await store.get(indexKey(name)).catch(() => null)
+  return {
+    repos: found ? [await rowFor(store, name)] : [],
+    page: 1,
+    pages: 1,
+    total: found ? 1 : 0,
+    sortedBy: 'name',
   }
 }
 

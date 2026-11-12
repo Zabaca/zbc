@@ -40,6 +40,7 @@ import { Hono } from 'hono'
 
 import type { Capabilities } from '../shared/capabilities'
 import { parseTokens } from '../shared/credentials'
+import { type ScopedClaims, scopeAllowsRead } from '../shared/scoped-token'
 import { authorizeSubscribe } from '../shared/events'
 import {
   type McpDeps,
@@ -82,8 +83,9 @@ export async function handleMcp(
   caps: Capabilities,
   operator: Operator | null,
   host: string,
+  scoped: ScopedClaims | null = null,
 ): Promise<Response> {
-  const server = createAgentgitMcp(deps(request, env, caps, operator, host))
+  const server = createAgentgitMcp(deps(request, env, caps, operator, host, scoped))
   const transport = new StreamableHTTPTransport()
   await server.connect(transport)
   const app = new Hono()
@@ -97,11 +99,25 @@ function deps(
   caps: Capabilities,
   operator: Operator | null,
   host: string,
+  scoped: ScopedClaims | null,
 ): McpDeps {
   // The caller's own credential, forwarded unchanged to every gated read. An
   // MCP client sends it as an ordinary Authorization header, which is the same
   // header a clone of a Private repository presents.
   const authorization = request.headers.get('authorization')
+
+  // A scoped token (docs/adr/0021) reaches the endpoint — the edge let it
+  // through, because the repositories here are named per tool call — and is
+  // refused, per call, for every name but its own. Refused HERE rather than
+  // left to the container's gate so a name outside the claim never wakes it.
+  const outOfScope = (name: string): Read<never> | null =>
+    scoped && !scopeAllowsRead(scoped, name)
+      ? {
+          ok: false,
+          status: 403,
+          message: `walgit: this token is scoped to the repository "${scoped.repo}", not "${name}"`,
+        }
+      : null
 
   return {
     version: env.WALGIT_BUILD_ID ?? '0.0.0',
@@ -110,6 +126,8 @@ function deps(
     operator,
 
     async status(name): Promise<Read<StatusFacts>> {
+      const refused = outOfScope(name)
+      if (refused) return refused
       const read = await provenanceRead(env, authorization, name)
       if (!read.ok) return read
       // Only now: `REFS_PATH` is internal and judges nothing, so reading it
@@ -131,12 +149,18 @@ function deps(
     },
 
     async provenance(name): Promise<Read<{ repo: string; provenance: ProvenanceFacts }>> {
+      const refused = outOfScope(name)
+      if (refused) return refused
       const read = await provenanceRead(env, authorization, name)
       if (!read.ok) return read
       return { ok: true, repo: name, provenance: read.provenance }
     },
 
-    watch: (name, ref, timeoutMs) => watchRef(env, caps, authorization, name, ref, timeoutMs),
+    watch: (name, ref, timeoutMs) => {
+      const refused = outOfScope(name)
+      if (refused && !refused.ok) return Promise.reject(new Error(refused.message))
+      return watchRef(env, caps, authorization, name, ref, timeoutMs, scoped !== null)
+    },
   }
 }
 
@@ -211,11 +235,16 @@ async function watchRef(
   repo: string,
   ref: string | null,
   timeoutMs: number,
+  scoped: boolean,
 ): Promise<WatchOutcome> {
   if (!caps.events) {
     throw new Error('this deployment does not serve the ref-event stream')
   }
+  // A scoped token stands in for the deployment credential, as it does on the
+  // socket route (`events()` in `index.ts`); its claim was checked by the
+  // caller and is checked again by the Durable Object.
   if (
+    !scoped &&
     !authorizeSubscribe({
       authorization,
       tokens: parseTokens(env.WALGIT_HTTP_TOKENS),

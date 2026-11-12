@@ -34,6 +34,12 @@ import { Container } from '@cloudflare/containers'
 import { capabilitiesFrom, type Capabilities } from '../shared/capabilities'
 import { containerEnv, fingerprintEnv, reconcileContainerEnv } from '../shared/container-env'
 import { parseTokens } from '../shared/credentials'
+import {
+  type ScopedClaims,
+  scopeTargetOf,
+  scopedAccessOf,
+  scopedEdgeAnswer,
+} from '../shared/scoped-token'
 import { authorizeAnnounce, authorizeSubscribe } from '../shared/events'
 import { renderLanding, wantsLanding } from '../shared/landing'
 import { renderLlms, wantsLlms } from '../shared/llms'
@@ -217,6 +223,13 @@ export interface Env extends ContainerBindings {
    * container never does, so turning it either way restarts nothing.
    */
   WALGIT_SNAPSHOTS?: string
+  /**
+   * Scoped tokens (`shared/scoped-token.ts`, docs/adr/0021): comma-separated
+   * Ed25519 public keys, each 32 raw bytes in base64url. Off unless set — and
+   * with it unset not one request is judged differently. Public keys only:
+   * whoever mints tokens holds the private half, and walgit never does.
+   */
+  WALGIT_TOKEN_PUBLIC_KEYS?: string
   WALGIT_EVENTS: DurableObjectNamespace<WalgitEvents>
 }
 
@@ -387,6 +400,41 @@ export default {
     // Browser analytics for the page (`shared/analytics.ts`), off unless the
     // instance set a key. Read beside the two reads it mirrors.
     const analytics = analyticsFrom(env)
+
+    // A scoped token (docs/adr/0021), judged FIRST and here, before anything
+    // can wake the container: a bad credential must never cost a cold start,
+    // and a good one for repository A must never reach anything about B. The
+    // container judges it again with the same function on whatever arrives.
+    //
+    // Everything that is not a scoped token — no credential, an admin token, a
+    // Read Challenge signature, a deployment without the keys — comes out
+    // `unscoped` and takes exactly the path it took before.
+    const access = await scopedAccessOf(request.headers.get('authorization'), {
+      keys: env.WALGIT_TOKEN_PUBLIC_KEYS,
+      known: [
+        ...parseTokens(env.WALGIT_HTTP_TOKENS),
+        ...(env.WALGIT_EVENTS_TOKEN ? [env.WALGIT_EVENTS_TOKEN] : []),
+      ],
+    })
+    const scoped: ScopedClaims | null = access.kind === 'scoped' ? access.claims : null
+    const scopedRefusal = scopedEdgeAnswer(
+      access,
+      scopeTargetOf(request.method, url.pathname, url.search),
+    )
+    if (scopedRefusal) {
+      record(env, ctx, {
+        ...base(classifyRequest(request.method, url.pathname, url.search), request),
+        outcome: 'reject',
+        reject: scopedRefusal.status === 503 ? 'unavailable' : 'unauthorized',
+        status: scopedRefusal.status,
+        served: false,
+        cold: false,
+        ttfbMs: Date.now() - startedAt,
+        totalMs: Date.now() - startedAt,
+        bytesServed: 0,
+      })
+      return scopedRefusal
+    }
 
     // The browser half of `/`, answered at the edge (shared/landing.ts). Placed
     // before every other decision on purpose: a link on an aggregator points at
@@ -655,7 +703,12 @@ export default {
               authorization: request.headers.get('authorization'),
               search: url.search,
             },
-            { store, caps, tokens: parseTokens(env.WALGIT_HTTP_TOKENS) },
+            {
+              store,
+              caps,
+              tokens: parseTokens(env.WALGIT_HTTP_TOKENS),
+              ...(scoped ? { scopedTo: scoped.repo } : {}),
+            },
           )
       const bytes = new TextEncoder().encode(answer.body)
       record(env, ctx, {
@@ -859,7 +912,7 @@ export default {
     // current refs, and then deliver nothing forever, because the container's
     // `post-receive` had no URL to announce to.
     if ((url.pathname === EVENTS_PATH || url.pathname === ANNOUNCE_PATH) && caps.events) {
-      return events(request, url, env, caps)
+      return events(request, url, env, caps, scoped)
     }
 
     // The MCP endpoint (`shared/mcp.ts`), answered at the edge like the two
@@ -873,7 +926,7 @@ export default {
     // `/_walgit/` is reserved, and a repository called `mcp` is reached at
     // `/mcp.git/…`, so this route cannot shadow one.
     if (url.pathname === MCP_PATH) {
-      const response = await handleMcp(request, env, caps, operator, url.host)
+      const response = await handleMcp(request, env, caps, operator, url.host, scoped)
       record(env, ctx, {
         // Classified rather than hand-labelled, so the kind this row carries
         // and the kind `shared/telemetry.ts` names for this path cannot become
@@ -1097,7 +1150,13 @@ function authorizationOf(request: Request): HeadersInit {
  * cannot reach a different verdict from the route that claimed it or from the
  * documents that advertised it.
  */
-async function events(request: Request, url: URL, env: Env, caps: Capabilities): Promise<Response> {
+async function events(
+  request: Request,
+  url: URL,
+  env: Env,
+  caps: Capabilities,
+  scoped: ScopedClaims | null,
+): Promise<Response> {
   const stub = env.WALGIT_EVENTS.get(env.WALGIT_EVENTS.idFromName(EVENTS_OBJECT_NAME))
 
   if (url.pathname === ANNOUNCE_PATH) {
@@ -1127,11 +1186,18 @@ async function events(request: Request, url: URL, env: Env, caps: Capabilities):
   // git auth. On a deployment spelling it `true` the manual told an agent that
   // reads need no credential while every subscribe answered 401 — the exact
   // hazard `flagEnabled` was written for (`shared/policy.ts`).
-  const allowed = authorizeSubscribe({
-    authorization: request.headers.get('authorization'),
-    tokens: parseTokens(env.WALGIT_HTTP_TOKENS),
-    isPublic: caps.publicAccess,
-  })
+  //
+  // A verified scoped token (docs/adr/0021) is let through here in place of
+  // the deployment credential: the repositories it may watch are named on the
+  // socket, after the upgrade, and the Durable Object holds every one of them
+  // to the token's claim (`worker/events-do.ts`).
+  const allowed =
+    scoped !== null ||
+    authorizeSubscribe({
+      authorization: request.headers.get('authorization'),
+      tokens: parseTokens(env.WALGIT_HTTP_TOKENS),
+      isPublic: caps.publicAccess,
+    })
   if (!allowed) {
     return new Response('unauthorized\n', {
       status: 401,

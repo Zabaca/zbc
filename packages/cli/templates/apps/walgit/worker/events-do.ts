@@ -35,6 +35,8 @@ import {
   watchedRepos,
 } from '../shared/events'
 import { Outbox } from '../shared/outbox'
+import { parseTokens } from '../shared/credentials'
+import { scopeAllowsRead, scopedAccessOf } from '../shared/scoped-token'
 import { INTERNAL_HEADER, READ_VERDICT_PATH, REFS_PATH } from '../shared/protocol'
 import { RefCache } from '../shared/ref-cache'
 import { type ContainerBindings, containerFor } from './container-binding'
@@ -55,6 +57,12 @@ export interface EventsEnv extends ContainerBindings {
   WALGIT_PRIVATE_REPOS?: string
   WALGIT_SIGNER_LISTS?: string
   WALGIT_PUSH_CERT_SEED?: string
+  /**
+   * Scoped tokens (docs/adr/0021): the keys a watch's credential is verified
+   * against, and the deployment's own secrets, which are never judged as one.
+   */
+  WALGIT_TOKEN_PUBLIC_KEYS?: string
+  WALGIT_HTTP_TOKENS?: string
 }
 
 /** The Worker's internal call to fan an announcement out. Never client-reachable. */
@@ -167,6 +175,31 @@ export class WalgitEvents extends DurableObject<EventsEnv> {
     }
 
     const credential = readSubscription(ws).credential
+
+    // A scoped token (docs/adr/0021) may watch its own repository and nothing
+    // else. Judged here, on the message that names the repositories, with the
+    // same verifier the edge ran at the upgrade — and refused whole, like the
+    // Private gate below, because a subscriber silently narrowed waits forever.
+    const scoped = await scopedAccessOf(credential, {
+      keys: this.env.WALGIT_TOKEN_PUBLIC_KEYS,
+      known: [
+        ...parseTokens(this.env.WALGIT_HTTP_TOKENS),
+        ...(this.env.WALGIT_EVENTS_TOKEN ? [this.env.WALGIT_EVENTS_TOKEN] : []),
+      ],
+    })
+    if (
+      scoped.kind !== 'unscoped' &&
+      (scoped.kind !== 'scoped' ||
+        !watchedRepos(parsed.value).every((repo) => scopeAllowsRead(scoped.claims, repo)))
+    ) {
+      ws.send(encode({ error: scoped.kind === 'scoped' ? 'forbidden' : 'unauthorized' }))
+      try {
+        ws.close(1008, "walgit: outside this token's scope")
+      } catch {
+        // Already gone.
+      }
+      return
+    }
 
     // The Private gate, on the only transport that can ask it here: the
     // container verifies the signature and answers per repository, and
