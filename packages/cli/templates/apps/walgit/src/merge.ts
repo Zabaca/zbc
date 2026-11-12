@@ -33,7 +33,7 @@ import type { ObjectStore } from '../shared/store'
 import { loadIndex } from '../shared/wal-index'
 import { identPart } from './admin'
 import { compareRevs } from './browse'
-import { gitAsync, type GitOptions } from './git'
+import { gitAsync, gitAsyncWithin, type GitOptions } from './git'
 import type { ResolvedRepo } from './repo'
 
 /** The largest merge request body walgit will read: a message, not a payload. */
@@ -45,6 +45,24 @@ export const MAX_MERGE_BODY_BYTES = 64 * 1024
  * summary — the summary is a courtesy, the ref move is the result.
  */
 const MERGE_SUMMARY_TIMEOUT_MS = 10_000
+
+/**
+ * How long the git work that BUILDS one merge may take, together: twenty
+ * seconds — peeling, the merge base, ancestry and a squash's three-way merge.
+ *
+ * A caller can make that work arbitrarily large (a squash of two big diverged
+ * histories), it runs on the one container that serves every clone and push,
+ * and a refusal costs it nothing to repeat — so it is bounded, and a merge
+ * that needs longer is refused (503) rather than waited out. The push itself
+ * is not under this deadline: killing a push between its upload and its
+ * publish is the one interruption the hooks are not built to be the victim of
+ * on purpose, and what it does is bounded by the size caps a push already
+ * meets.
+ */
+const MERGE_BUILD_TIMEOUT_MS = 20_000
+
+/** The build deadline passed. Caught in `mergeInCache`, never thrown past it. */
+class MergeTimedOut extends Error {}
 
 export type MergeMethod = 'fast-forward' | 'squash'
 
@@ -104,6 +122,15 @@ export function parseMergeRequest(text: string): MergeParse {
   if (typeof message !== 'string' || message.trim() === '') {
     return { ok: false, message: 'a squash needs "message", a non-empty string' }
   }
+  // git refuses a NUL in a commit message, and no other control character but
+  // a newline or a tab belongs in one: refused here, as the caller's mistake,
+  // rather than met as `commit-tree` failing halfway through the merge.
+  if (hasStrayControl(message)) {
+    return {
+      ok: false,
+      message: '"message" may not contain control characters other than a newline or a tab',
+    }
+  }
   if (typeof author !== 'object' || author === null || Array.isArray(author)) {
     return { ok: false, message: 'a squash needs "author": { name, email }' }
   }
@@ -119,6 +146,15 @@ export function parseMergeRequest(text: string): MergeParse {
     ok: true,
     request: { source, target, method, expected, message, author: { name, email } },
   }
+}
+
+/** A C0 control character or DEL, other than a newline or a tab. */
+function hasStrayControl(value: string): boolean {
+  for (let i = 0; i < value.length; i++) {
+    const code = value.charCodeAt(i)
+    if ((code < 0x20 && code !== 0x0a && code !== 0x09) || code === 0x7f) return true
+  }
+  return false
 }
 
 /** What one merge did, or why it did nothing. */
@@ -164,6 +200,13 @@ export type MergeResult =
   | { kind: 'signed'; message: string }
   /** The push's own rules refused it — a size cap, append-only, a deletion. */
   | { kind: 'refused'; message: string }
+  /** Building the merge would take longer than `MERGE_BUILD_TIMEOUT_MS`. */
+  | { kind: 'too-large' }
+  /**
+   * The push failed for a reason that is not a rule's: receive-pack or a hook
+   * died, the store was unreachable. Nothing is known to have moved; retry.
+   */
+  | { kind: 'unavailable'; message: string }
 
 export interface MergeOps {
   merge(repo: ResolvedRepo, request: MergeRequest): Promise<MergeResult>
@@ -239,14 +282,6 @@ export function createMergeOps(deps: MergeDeps): MergeOps {
   }
 }
 
-/** git's three answers to `merge-base --is-ancestor`. */
-async function isAncestor(gitDir: string, a: string, b: string): Promise<boolean | null> {
-  const res = await gitAsync(['merge-base', '--is-ancestor'], { gitDir, operands: [a, b] })
-  if (res.status === 0) return true
-  if (res.status === 1) return false
-  return null
-}
-
 async function mergeInCache(
   deps: MergeDeps,
   repo: ResolvedRepo,
@@ -257,14 +292,29 @@ async function mergeInCache(
   // No message leaving here names a directory on this machine.
   const scrub = (text: string) =>
     text.trim().replaceAll(scratch, '<merge>').replaceAll(repo.dir, '<repository>')
+  const gitDir = path.join(scratch, 'merge.git')
+  // Every git call that builds the merge runs under one deadline.
+  const deadline = Date.now() + MERGE_BUILD_TIMEOUT_MS
+  const timed = async (args: string[], opts: GitOptions = {}) => {
+    const res = await gitAsyncWithin(args, deadline - Date.now(), { gitDir, ...opts })
+    if (res.timedOut) throw new MergeTimedOut()
+    return res
+  }
   const run = async (args: string[], opts: GitOptions = {}) => {
-    const res = await gitAsync(args, { gitDir, ...opts })
+    const res = await timed(args, opts)
     if (res.status !== 0) {
       throw new Error(`walgit merge: git ${args[0]} failed: ${scrub(res.stderr)}`)
     }
     return res.stdout
   }
-  const gitDir = path.join(scratch, 'merge.git')
+  // `merge-base --is-ancestor`: 0 is yes, 1 is no, and anything else is git
+  // failing to walk the history, which is not an answer to the question.
+  const isAncestor = async (a: string, b: string) => {
+    const res = await timed(['merge-base', '--is-ancestor'], { operands: [a, b] })
+    if (res.status === 0) return true
+    if (res.status === 1) return false
+    throw new Error(`walgit merge: git could not walk the history: ${scrub(res.stderr)}`)
+  }
   try {
     await gitAsync(['init', '--bare', '--quiet'], { operands: [gitDir] })
     // Borrow the Cache's objects rather than copy them: the merge reads every
@@ -278,8 +328,7 @@ async function mergeInCache(
 
     // Peeled to the commit: an annotated tag as the source names a tag object.
     const peel = async (rev: string) => {
-      const res = await gitAsync(['rev-parse', '--verify', '--quiet'], {
-        gitDir,
+      const res = await timed(['rev-parse', '--verify', '--quiet'], {
         operands: [`${rev}^{commit}`],
       })
       const oid = res.stdout.trim()
@@ -291,18 +340,24 @@ async function mergeInCache(
       return { kind: 'invalid', message: 'the source or the target is not a commit' }
     }
 
-    const mb = await gitAsync(['merge-base'], { gitDir, operands: [targetCommit, sourceCommit] })
-    if (mb.status !== 0 && mb.stdout.trim() === '') return { kind: 'unrelated' }
+    // Exit 1 with no output is "no common ancestor": two histories, both real.
+    // Anything else that is not success is git failing — a missing object, an
+    // incomplete Cache — and is not something to tell the caller about their
+    // branches.
+    const mb = await timed(['merge-base'], { operands: [targetCommit, sourceCommit] })
+    if (mb.status === 1 && mb.stdout.trim() === '') return { kind: 'unrelated' }
+    if (mb.status !== 0) {
+      throw new Error(`walgit merge: git merge-base failed: ${scrub(mb.stderr)}`)
+    }
 
     // Everything the source would bring is already in the target.
-    if (await isAncestor(gitDir, sourceCommit, targetCommit)) {
+    if (await isAncestor(sourceCommit, targetCommit)) {
       return { kind: 'up-to-date', ref: at.target }
     }
 
     let commit: string
     if (request.method === 'fast-forward') {
-      const ff = await isAncestor(gitDir, targetCommit, sourceCommit)
-      if (ff === null) throw new Error('walgit merge: git could not walk the history')
+      const ff = await isAncestor(targetCommit, sourceCommit)
       if (!ff) return { kind: 'not-fast-forward', ref: at.target }
       commit = sourceCommit
     } else {
@@ -311,9 +366,9 @@ async function mergeInCache(
       // conflicted paths, and exits 1 when there are any. With `-z
       // --name-only --no-messages` the output is the tree, then one path per
       // conflicted file, NUL-separated — never a marker in any file.
-      const merged = await gitAsync(
+      const merged = await timed(
         ['merge-tree', '--write-tree', '--name-only', '--no-messages', '-z'],
-        { gitDir, operands: [targetCommit, sourceCommit] },
+        { operands: [targetCommit, sourceCommit] },
       )
       const [tree = '', ...rest] = merged.stdout.split('\0')
       if (merged.status === 1) {
@@ -361,13 +416,15 @@ async function mergeInCache(
       { gitDir },
     )
     if (pushed.status !== 0) {
-      return refusalOf(
+      const refusal = await refusalOf(
         deps,
         repo,
-        at.target,
-        request.expected,
+        { target: at.target, expected: request.expected, commit },
         scrub(`${pushed.stdout}\n${pushed.stderr}`),
       )
+      // `landed`: the Index already holds this merge's commit, so the push
+      // published and failed after — the merge stands, and is answered as one.
+      if (refusal !== 'landed') return refusal
     }
 
     // What the merge changed on the target — the compare's summary of the new
@@ -401,32 +458,48 @@ async function mergeInCache(
       commit,
       summary,
     }
+  } catch (err) {
+    if (err instanceof MergeTimedOut) return { kind: 'too-large' }
+    throw err
   } finally {
     fs.rmSync(scratch, { recursive: true, force: true })
   }
 }
 
 /**
- * Why the push was refused, in the caller's terms.
+ * Why the push was refused, in the caller's terms — or `'landed'`, when it was
+ * not refused at all.
  *
- * The Index is read again first: if the target moved, that is the answer
- * whatever git said, and it is the same 409 a stale expectation gets up front.
- * Otherwise git's own words decide between a lost race (a lease that no longer
- * holds, a ref another push has locked, the publish's own compare-and-swap) and
- * a refusal by the push's rules, which is passed through as the hooks wrote it.
+ * The Index is read again first, because it decides: if it holds this merge's
+ * commit the merge published (and something failed after); if the target
+ * moved, that is the answer whatever git said, the same 409 a stale
+ * expectation gets up front; if a Claim landed since the up-front check, it is
+ * the Signer List refusal. Otherwise git's own words decide between a lost race
+ * (a lease that no longer holds, a ref another push has locked, the publish's
+ * own compare-and-swap), a rule's refusal — passed through as it was written,
+ * a hook's `walgit:` line or git's own size-cap refusal — and anything else, which is a failure
+ * rather than a verdict and is answered as one.
  */
 async function refusalOf(
   deps: MergeDeps,
   repo: ResolvedRepo,
-  target: string,
-  expected: string,
+  at: { target: string; expected: string; commit: string },
   output: string,
-): Promise<MergeResult> {
+): Promise<MergeResult | 'landed'> {
   try {
     const { index } = await loadIndex(deps.store, repo.repoId)
-    const actual = index.refs[target]
-    if (actual !== undefined && actual !== expected) {
-      return { kind: 'stale', ref: target, expected, actual }
+    const actual = index.refs[at.target]
+    if (actual === at.commit) return 'landed'
+    if (actual !== undefined && actual !== at.expected) {
+      return { kind: 'stale', ref: at.target, expected: at.expected, actual }
+    }
+    if (deps.signerLists && index.claim) {
+      return {
+        kind: 'signed',
+        message:
+          `"${repo.repoId}" was claimed by a Signer List while this merge was in flight, so a ref here now moves only by a push a listed key signed — ` +
+          'merge in a clone and push it signed',
+      }
     }
   } catch {
     // The store is what decides; unread, git's words are all there is.
@@ -436,16 +509,17 @@ async function refusalOf(
   if (lost.test(output)) {
     return {
       kind: 'contended',
-      ref: target,
-      message: `${target} was being moved by another write while this merge was in flight — read it again and retry`,
+      ref: at.target,
+      message: `${at.target} was being moved by another write while this merge was in flight — read it again and retry`,
     }
   }
+  // A rule's words: a hook's `walgit:` line, or git's own refusal of a pack
+  // over `receive.maxInputSize` — the per-push size cap, which walgit sets on
+  // the Cache so an oversized pack is refused before it is read whole.
   const said = output
     .split('\n')
     .map((line) => line.replace(/^remote:\s?/, '').trim())
-    .filter((line) => line.startsWith('walgit:'))
-  return {
-    kind: 'refused',
-    message: said.length > 0 ? said.join(' ') : `the merge push was refused: ${output}`,
-  }
+    .filter((line) => line.startsWith('walgit:') || /pack exceeds maximum allowed size/.test(line))
+  if (said.length > 0) return { kind: 'refused', message: said.join(' ') }
+  return { kind: 'unavailable', message: `the merge push failed: ${output}` }
 }

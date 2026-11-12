@@ -1012,21 +1012,45 @@ function createRouter(deps: HttpHandlerDeps): (req: Request) => Promise<Response
   }
 
   /** One merge request, already authenticated. */
-  async function merge(ops: MergeOps, request: Request, url: URL): Promise<Response> {
+  async function merge(
+    ops: MergeOps,
+    request: Request,
+    url: URL,
+    claims: ScopedClaims | null,
+  ): Promise<Response> {
     let resolved: ResolvedRepo
     try {
       resolved = resolveRepo(deps.reposDir, url.searchParams.get('repo') ?? '')
     } catch {
-      return NOT_FOUND()
+      return mergeError(404, 'not-found', 'walgit: not found')
     }
     const declared = Number(request.headers.get('content-length') ?? '0')
     const tooLarge = () =>
-      reject(413, 'invalid', `walgit: a merge request is at most ${MAX_MERGE_BODY_BYTES} bytes\n`)
+      mergeError(413, 'invalid', `walgit: a merge request is at most ${MAX_MERGE_BODY_BYTES} bytes`)
     if (Number.isFinite(declared) && declared > MAX_MERGE_BODY_BYTES) return tooLarge()
     const text = await readBounded(request, MAX_MERGE_BODY_BYTES)
     if (text === null) return tooLarge()
     const parsed = parseMergeRequest(text)
-    if (!parsed.ok) return reject(400, 'invalid', `walgit: ${parsed.message}\n`)
+    if (!parsed.ok) return mergeError(400, 'invalid', `walgit: ${parsed.message}`)
+
+    // A merge is a push the host makes, so it is counted as one against the
+    // per-source window (`src/rate-limit.ts`) — the tenant a scoped token
+    // names, else the address. Unlike a client's push the verdict CAN be a
+    // status here: this route is not git's, and nothing retries a 429 as a
+    // transport fault. Charged before any work, so a refused merge costs the
+    // container nothing; it uploads no bytes of its own.
+    if (limiter) {
+      const source = rateSourceOf(request, claims)
+      if (source) {
+        const verdict = limiter.admit({
+          source,
+          repoId: resolved.repoId,
+          creating: false,
+          bytes: 0,
+        })
+        if (!verdict.ok) return mergeError(429, 'rate-limited', verdict.message.trim())
+      }
+    }
 
     let result: MergeResult
     try {
@@ -1034,7 +1058,7 @@ function createRouter(deps: HttpHandlerDeps): (req: Request) => Promise<Response
     } catch (err) {
       // The store or the Cache. Nothing moved: every way a merge moves a ref
       // is a push that succeeded, and a push that succeeded returns.
-      return reject(503, 'unavailable', `walgit: ${(err as Error).message}\n`)
+      return mergeError(503, 'unavailable', `walgit: ${(err as Error).message}`)
     }
     return mergeAnswer(result)
   }
@@ -1288,7 +1312,7 @@ function createRouter(deps: HttpHandlerDeps): (req: Request) => Promise<Response
       const offered = (deps.capabilities ?? ADVERTISES_NOTHING).merge
       if (!offered || !deps.merge) return NOT_FOUND()
       if (request.method !== 'POST') return NOT_FOUND()
-      return merge(deps.merge, request, url)
+      return merge(deps.merge, request, url, scoped.kind === 'scoped' ? scoped.claims : null)
     }
 
     // What Proposals a repository holds (docs/adr/0018). Beside the provenance
@@ -1501,6 +1525,8 @@ function createRouter(deps: HttpHandlerDeps): (req: Request) => Promise<Response
  */
 function mergeRejectKind(status: number): ContainerRejectKind {
   if (status === 409) return 'collision'
+  if (status === 429) return 'size-cap'
+  if (status === 503) return 'unavailable'
   if (status === 404) return 'not-found'
   if (status === 403) return 'unauthorized'
   return 'invalid'
@@ -1512,35 +1538,42 @@ function mergeRejectKind(status: number): ContainerRejectKind {
  * (`stale`, `contended`), "resolve it in a clone" (`conflict`) and "this will
  * never work here" (`signed`) must not have to parse a sentence to know which.
  */
+function mergeJson(status: number, body: Record<string, unknown>): Response {
+  return new Response(`${JSON.stringify(body)}\n`, {
+    status,
+    headers: {
+      'content-type': 'application/json; charset=utf-8',
+      'cache-control': 'no-store',
+      ...(status >= 400 ? { [REJECT_HEADER]: mergeRejectKind(status) } : {}),
+    },
+  })
+}
+
+/** A merge refusal that is not one of `MergeResult`'s: the request, the window, the store. */
+function mergeError(status: number, error: string, message: string): Response {
+  return mergeJson(status, { error, message })
+}
+
 function mergeAnswer(result: MergeResult): Response {
-  const answer = (status: number, body: Record<string, unknown>) =>
-    new Response(`${JSON.stringify(body)}\n`, {
-      status,
-      headers: {
-        'content-type': 'application/json; charset=utf-8',
-        'cache-control': 'no-store',
-        ...(status >= 400 ? { [REJECT_HEADER]: mergeRejectKind(status) } : {}),
-      },
-    })
   switch (result.kind) {
     case 'merged': {
       const { kind: _kind, summary, ...rest } = result
-      return answer(200, {
+      return mergeJson(200, {
         ...rest,
         ...(summary ?? { files: null, totals: null, truncated: true }),
       })
     }
     case 'not-found':
-      return answer(404, { error: 'not-found', message: `walgit: ${result.message}` })
+      return mergeJson(404, { error: 'not-found', message: `walgit: ${result.message}` })
     case 'invalid':
-      return answer(400, { error: 'invalid', message: `walgit: ${result.message}` })
+      return mergeJson(400, { error: 'invalid', message: `walgit: ${result.message}` })
     case 'unrelated':
-      return answer(400, {
+      return mergeJson(400, {
         error: 'unrelated',
         message: 'walgit: the source and the target share no history, so there is nothing to merge',
       })
     case 'stale':
-      return answer(409, {
+      return mergeJson(409, {
         error: 'stale',
         ref: result.ref,
         expected: result.expected,
@@ -1548,33 +1581,41 @@ function mergeAnswer(result: MergeResult): Response {
         message: `walgit: ${result.ref} is at ${result.actual}, not ${result.expected} — read it again and decide whether to merge onto it`,
       })
     case 'contended':
-      return answer(409, {
+      return mergeJson(409, {
         error: 'contended',
         ref: result.ref,
         message: `walgit: ${result.message}`,
       })
     case 'not-fast-forward':
-      return answer(409, {
+      return mergeJson(409, {
         error: 'not-fast-forward',
         ref: result.ref,
         message: `walgit: ${result.ref} is not an ancestor of the source, so this is not a fast-forward — squash it, or merge in a clone`,
       })
     case 'up-to-date':
-      return answer(409, {
+      return mergeJson(409, {
         error: 'up-to-date',
         ref: result.ref,
         message: `walgit: ${result.ref} already holds everything the source would bring`,
       })
     case 'conflict':
-      return answer(409, {
+      return mergeJson(409, {
         error: 'conflict',
         conflicts: result.paths,
         message: `walgit: the squash conflicts in ${result.paths.length} path${result.paths.length === 1 ? '' : 's'} — resolve it in a clone and push`,
       })
     case 'signed':
-      return answer(403, { error: 'signed', message: `walgit: ${result.message}` })
+      return mergeJson(403, { error: 'signed', message: `walgit: ${result.message}` })
     case 'refused':
-      return answer(422, { error: 'refused', message: result.message })
+      return mergeJson(422, { error: 'refused', message: result.message })
+    case 'too-large':
+      return mergeJson(503, {
+        error: 'too-large',
+        message:
+          'walgit: this merge is too large to build on the request path — merge it in a clone and push',
+      })
+    case 'unavailable':
+      return mergeJson(503, { error: 'unavailable', message: `walgit: ${result.message}` })
   }
 }
 

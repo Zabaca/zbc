@@ -10,6 +10,7 @@ import * as os from 'node:os'
 import * as path from 'node:path'
 
 import { capabilitiesFrom, type CapabilityEnv } from '../shared/capabilities'
+import { renderLlms } from '../shared/llms'
 import { MERGE_PATH } from '../shared/protocol'
 import { base64UrlEncode, mintScopedToken } from '../shared/scoped-token'
 import { loadIndex } from '../shared/wal-index'
@@ -287,10 +288,10 @@ describe('the compare-and-swap', () => {
     expect(after.index.refs['refs/heads/main']).toBe(main)
   }, 30_000)
 
-  test('a target moved after the Index was checked is refused by the push itself', async () => {
-    // The up-front check passes; then another push lands before this merge's
-    // own push does. What refuses it must be the lease and the publish's
-    // compare-and-swap, not the check that already said yes.
+  test('a target moved after the Index was checked is refused by the lease', async () => {
+    // The up-front check passes; then another push lands, and reaches the
+    // Cache, before this merge's own push does. What refuses it must be the
+    // lease, not the check that already said yes.
     //
     // The interloper moves `main` to a commit that is STILL an ancestor of the
     // source, so the fast-forward would succeed if nothing held the lease — a
@@ -323,6 +324,39 @@ describe('the compare-and-swap', () => {
     expect(moved).toBe(true)
     expect(result).toMatchObject({ kind: 'stale', expected: main, actual: interloper })
     expect((await loadIndex(store, 'in-flight')).index.refs['refs/heads/main']).toBe(interloper)
+  }, 30_000)
+
+  test('an Index moved behind the Cache is refused by the publish compare-and-swap', async () => {
+    // The Cache still holds `expected`, so the lease passes and receive-pack
+    // takes the push; only the Index has moved (another node's write, not yet
+    // seen here). What refuses it is `reference-transaction`'s publish.
+    const { main, feature } = await makeRepo('publish-cas')
+    const elsewhere = 'b'.repeat(40)
+    const ops = createMergeOps({
+      store,
+      ensureRepo: ensureBareRepo,
+      syncRepo: async (repo) => {
+        await syncRepo(store, repo)
+        const loaded = await loadIndex(store, 'publish-cas')
+        const moved = await commitIndex(
+          store,
+          { ...loaded.index, refs: { ...loaded.index.refs, 'refs/heads/main': elsewhere } },
+          loaded.etag,
+        )
+        expect(moved.ok).toBe(true)
+      },
+      signerLists: false,
+    })
+    const result = await ops.merge(
+      { repoId: 'publish-cas', dir: path.join(reposDir, 'publish-cas.git') },
+      { source: 'feature', target: 'main', method: 'fast-forward', expected: main },
+    )
+    expect(result).toMatchObject({ kind: 'stale', expected: main, actual: elsewhere })
+    expect((await loadIndex(store, 'publish-cas')).index.refs['refs/heads/main']).toBe(elsewhere)
+    // And the Cache did not move either: the aborted transaction left it.
+    const cached = await run(path.join(reposDir, 'publish-cas.git'), 'rev-parse', 'refs/heads/main')
+    expect(cached).toBe(main)
+    expect(cached).not.toBe(feature)
   }, 30_000)
 
   test('of two merges racing for one target, exactly one wins', async () => {
@@ -441,6 +475,17 @@ describe('the request', () => {
       [{ source: 'f', target: 'main', method: 'fast-forward', expected: 'abc123' }, '"expected"'],
       [{ source: 'f', target: 'main', method: 'squash', expected: oid, author: AUTHOR }, 'message'],
       [{ source: 'f', target: 'main', method: 'squash', expected: oid, message: 'm' }, '"author"'],
+      [
+        {
+          source: 'f',
+          target: 'main',
+          method: 'squash',
+          expected: oid,
+          message: 'a\u0000b',
+          author: AUTHOR,
+        },
+        'control characters',
+      ],
     ] as const) {
       const parsed = parseMergeRequest(typeof bad === 'string' ? bad : JSON.stringify(bad))
       expect(parsed.ok).toBe(false)
@@ -448,6 +493,8 @@ describe('the request', () => {
     }
     const res = await merge('authz', 'not json')
     expect(res.status).toBe(400)
+    // JSON, like every other refusal of this route.
+    expect(((await res.json()) as { error: string }).error).toBe('invalid')
   })
 
   test('a name nobody has pushed to is a 404 that creates nothing', async () => {
@@ -460,4 +507,161 @@ describe('the request', () => {
     expect(res.status).toBe(404)
     expect(fs.existsSync(path.join(reposDir, 'never-pushed.git'))).toBe(false)
   })
+})
+
+describe('what a merge refuses', () => {
+  test('a source the target already holds is a 409 up-to-date', async () => {
+    const { feature } = await makeRepo('up-to-date')
+    const res = await merge('up-to-date', {
+      source: 'main',
+      target: 'feature',
+      method: 'fast-forward',
+      expected: feature,
+    })
+    expect(res.status).toBe(409)
+    expect(((await res.json()) as { error: string }).error).toBe('up-to-date')
+  }, 30_000)
+
+  test('two histories with nothing in common are a 400 unrelated', async () => {
+    const { main, work } = await makeRepo('unrelated')
+    await run(work, 'checkout', '-q', '--orphan', 'island')
+    await run(work, 'rm', '-qrf', '.')
+    fs.writeFileSync(path.join(work, 'island.txt'), 'no shared history\n')
+    await run(work, 'add', '.')
+    await run(work, 'commit', '-qm', 'island')
+    await run(work, 'push', '-q', remote('unrelated'), 'island')
+    const res = await merge('unrelated', {
+      source: 'island',
+      target: 'main',
+      method: 'squash',
+      expected: main,
+      message: 'm',
+      author: AUTHOR,
+    })
+    expect(res.status).toBe(400)
+    expect(((await res.json()) as { error: string }).error).toBe('unrelated')
+  }, 30_000)
+
+  test('a target that is not a branch is a 400, and a non-branch source merges', async () => {
+    const { main, work, feature } = await makeRepo('odd-refs')
+    await run(work, 'tag', 'v1', 'main')
+    await run(work, 'push', '-q', remote('odd-refs'), 'v1', 'feature:refs/walgit/proposals/main/x')
+    for (const target of ['v1', 'refs/walgit/proposals/main/x']) {
+      const res = await merge('odd-refs', {
+        source: 'feature',
+        target,
+        method: 'fast-forward',
+        expected: main,
+      })
+      expect(res.status).toBe(400)
+      expect(((await res.json()) as { message: string }).message).toContain('not a branch')
+    }
+    const res = await merge('odd-refs', {
+      source: 'refs/walgit/proposals/main/x',
+      target: 'main',
+      method: 'fast-forward',
+      expected: main,
+    })
+    expect(res.status).toBe(200)
+    expect((await loadIndex(store, 'odd-refs')).index.refs['refs/heads/main']).toBe(feature)
+  }, 30_000)
+})
+
+// The hooks are children of git, a child of this process, and read their
+// policy from its environment — which is how a deployment sets it too.
+const withEnv = async (vars: Record<string, string>, body: () => Promise<void>) => {
+  const saved = Object.fromEntries(Object.keys(vars).map((key) => [key, process.env[key]]))
+  Object.assign(process.env, vars)
+  try {
+    await body()
+  } finally {
+    for (const [key, value] of Object.entries(saved)) {
+      if (value === undefined) delete process.env[key]
+      else process.env[key] = value
+    }
+  }
+}
+
+describe('the rules a push meets', () => {
+  test('a size cap refuses a squash as it refuses a push: 422, in its own words', async () => {
+    const { main } = await makeRepo('capped', { diverge: 'clean' })
+    await withEnv({ WALGIT_MAX_PUSH_BYTES: '1' }, async () => {
+      const res = await merge('capped', {
+        source: 'feature',
+        target: 'main',
+        method: 'squash',
+        expected: main,
+        message: 'Land it',
+        author: AUTHOR,
+      })
+      const body = (await res.json()) as { error: string; message: string }
+      expect(res.status).toBe(422)
+      expect(body.error).toBe('refused')
+      expect(body.message).toMatch(/larger than|exceeds maximum allowed size/)
+    })
+    expect((await loadIndex(store, 'capped')).index.refs['refs/heads/main']).toBe(main)
+  }, 30_000)
+
+  test('append-only admits a merge, which only ever moves a branch forward', async () => {
+    const { main, feature } = await makeRepo('append-only')
+    await withEnv({ WALGIT_APPEND_ONLY: '1' }, async () => {
+      const res = await merge('append-only', {
+        source: 'feature',
+        target: 'main',
+        method: 'fast-forward',
+        expected: main,
+      })
+      expect(res.status).toBe(200)
+    })
+    expect((await loadIndex(store, 'append-only')).index.refs['refs/heads/main']).toBe(feature)
+  }, 30_000)
+
+  test('a merge is counted against the per-source window, as a push is', async () => {
+    const { main } = await makeRepo('windowed', { diverge: 'clean' })
+    const limited = Bun.serve({
+      port: 0,
+      idleTimeout: 0,
+      fetch: handlerFor({ WALGIT_MERGE: '1', WALGIT_MAX_PUSHES_PER_SOURCE: '1' }),
+    })
+    try {
+      const squash = (message: string) =>
+        fetch(`http://127.0.0.1:${limited.port}${MERGE_PATH}?repo=windowed`, {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json',
+            authorization: `Bearer ${ADMIN}`,
+            'cf-connecting-ip': '203.0.113.7',
+          },
+          body: JSON.stringify({
+            source: 'feature',
+            target: 'main',
+            method: 'squash',
+            expected: main,
+            message,
+            author: AUTHOR,
+          }),
+        })
+      expect((await squash('first')).status).toBe(200)
+      const second = await squash('second')
+      expect(second.status).toBe(429)
+      expect(((await second.json()) as { error: string }).error).toBe('rate-limited')
+    } finally {
+      limited.stop(true)
+    }
+  }, 30_000)
+})
+
+describe('the manual', () => {
+  test('/llms.txt describes a merge only where the route exists', () => {
+    const on = renderLlms('git.example.com', capabilitiesFrom({ WALGIT_MERGE: '1' }))
+    const without = renderLlms('git.example.com', capabilitiesFrom({}))
+    expect(on).toContain(`${MERGE_PATH}?repo=`)
+    expect(on).toContain('"expected"')
+    expect(without).not.toContain(MERGE_PATH)
+  })
+})
+
+test('every merge leaves no scratch repository behind', () => {
+  const left = fs.readdirSync(os.tmpdir()).filter((name) => name.startsWith('walgit-merge-'))
+  expect(left).toEqual([])
 })

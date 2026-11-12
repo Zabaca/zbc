@@ -796,11 +796,18 @@ curl -X POST "https://$HOST/_walgit/merge?repo=my-thing" \
   and pushes it into its own Cache, so every rule a push meets applies — the
   size caps, `WALGIT_APPEND_ONLY`, the Index compare-and-swap that publishes it
   — and the move is announced to Watchers and the push webhook like any push.
-  A refusal by one of those rules is `422` (`refused`) in the rule's own words.
+  A refusal by one of those rules is `422` (`refused`) in the rule's own words;
+  a push that failed for any other reason (a store outage) is `503`
+  (`unavailable`) — retry it.
+- **Bounded.** Building the merge (merge base, ancestry, a squash's three-way
+  merge) has **20 seconds**; past that it is `503` (`too-large`) — merge it in
+  a clone. A merge is **counted as one push** against the per-source window
+  (`WALGIT_MAX_PUSHES_PER_SOURCE`, below), `429` (`rate-limited`) once spent.
 - **Answers.** `200` with `{ repo, method, source: { ref, oid }, target: { ref,
   previous, oid }, commit, files, totals, truncated }` — the compare's file
-  summary of the target before and after, with no diff text (`files` is `null`
-  when it could not be computed in time; the merge still stands). `409`
+  summary of the target before and after, with no diff text (`files` and
+  `totals` are `null`, `truncated` true, when it could not be computed in time;
+  the merge still stands). Every refusal is JSON with an `error` naming it. `409`
   `not-fast-forward`, `409` `up-to-date` (the target already holds the source),
   `409` `conflict` with `conflicts: [paths]` — **never conflict markers**;
   resolve those in a clone — `400` for a malformed body or two refs with no
@@ -811,7 +818,8 @@ curl -X POST "https://$HOST/_walgit/merge?repo=my-thing" \
 - **Who may merge is who may push**: a `write` scoped token for the repository
   or the deployment credential. A `read` token is `403`, another repository's
   token `403`, none `401` (on a public deployment, anyone — as anyone may push).
-  A merge does not count against the per-source push limits.
+  A squash's author is the request's word: nothing records which credential
+  asked for the merge.
 - **Squash and Proposals.** A Proposal is Merged when its tip is an ancestor of
   its target (ADR-0018), so a squash-merged Proposal does **not** read as
   Merged. Fast-forward it if it should.
