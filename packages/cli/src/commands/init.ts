@@ -3,7 +3,16 @@ import * as fs from 'node:fs/promises'
 import { defineCommand } from 'citty'
 import { detectMode } from '../utils/detect-mode'
 import { copyTemplateDir, copyTemplateFile, templatesRoot } from '../utils/copy-template'
-import { coreRefForVersion, DEFAULT_CORE_URL, subtreeAdd, VENDOR_PREFIX } from '../utils/subtree'
+import {
+  coreRefForVersion,
+  DEFAULT_CORE_URL,
+  gitPrefix,
+  gitTopLevel,
+  projectSubdir,
+  subtreeAdd,
+  VENDOR_PREFIX,
+} from '../utils/subtree'
+import { hostWorkspaceGlobsCovering } from '../utils/host-workspaces'
 import { STAMP_FILE, writeStamp } from '../utils/vendor-stamp'
 import pkg from '../../package.json' with { type: 'json' }
 
@@ -22,6 +31,34 @@ async function writeIfMissing(filePath: string, body: string): Promise<void> {
   console.log(`  write ${path.relative(process.cwd(), filePath)}`)
 }
 
+/**
+ * Lay the CI workflows. A project at the repository's top level gets them
+ * verbatim. One in a subfolder gets them at the TOP level's `.github/workflows/`
+ * — GitHub reads no other — with every `run` step defaulted into the project
+ * folder, so the same `bun install` / `bunx @zabaca/zbc apply` run in it.
+ */
+async function layWorkflows(tplRoot: string, repoTop: string, subdir: string): Promise<void> {
+  const wfSrc = path.join(tplRoot, 'workflows')
+  const wfDest = path.join(repoTop, '.github/workflows')
+  if (subdir === '') {
+    await copyTemplateDir(wfSrc, wfDest)
+    return
+  }
+  for (const name of await fs.readdir(wfSrc)) {
+    const body = await Bun.file(path.join(wfSrc, name)).text()
+    // JSON-quoted: a double-quoted YAML scalar, whatever the folder is called.
+    const defaults = `defaults:\n  run:\n    working-directory: ${JSON.stringify(subdir)}\n\njobs:`
+    const dest = path.join(wfDest, name)
+    if (await Bun.file(dest).exists()) {
+      console.warn(
+        `  warn: ${path.relative(process.cwd(), dest)} already exists (the host's own?) — zbc's ${name} was not written; merge it in by hand with working-directory: ${subdir}`,
+      )
+      continue
+    }
+    await writeIfMissing(dest, body.replace(/^jobs:/m, defaults))
+  }
+}
+
 export const initCommand = defineCommand({
   meta: {
     name: 'init',
@@ -30,8 +67,19 @@ export const initCommand = defineCommand({
   args: {
     project: {
       type: 'positional',
-      description: 'Project name (defaults to current directory name)',
+      description: 'Project name (defaults to the project directory name)',
       required: false,
+    },
+    dir: {
+      type: 'string',
+      description:
+        'Scaffold the project into this folder (created if missing), as if run from inside it — e.g. deploy/zbc in a non-Bun repo',
+      required: false,
+    },
+    claude: {
+      type: 'boolean',
+      description:
+        'Write .claude/settings.json (default: only for a greenfield init at the repo top level; --no-claude never writes it)',
     },
     ci: {
       type: 'string',
@@ -64,12 +112,29 @@ export const initCommand = defineCommand({
     },
   },
   async run({ args }) {
-    const cwd = process.cwd()
+    // The project root. Everything below is written relative to it, exactly as
+    // if `init` had been run from inside it; only the CI workflows go to the
+    // repository's top level, the one place GitHub reads them from.
+    const cwd = args.dir ? path.resolve(process.cwd(), args.dir) : process.cwd()
+    await ensureDir(cwd)
     const projectName = args.project ?? path.basename(cwd)
     const tplRoot = templatesRoot()
+    // The host: the git top level, or — for `--dir` outside any git work tree
+    // (copy mode needs no git) — the folder init was run from, so the folder
+    // is still treated as a subfolder of the repo that holds it.
+    let repoTop = gitTopLevel(cwd)
+    let subdir = projectSubdir(cwd)
+    if (repoTop === null && args.dir) {
+      const rel = path.relative(process.cwd(), cwd)
+      if (rel !== '' && !rel.startsWith('..') && !path.isAbsolute(rel)) {
+        repoTop = process.cwd()
+        subdir = rel.split(path.sep).join('/')
+      }
+    }
 
     console.log(`zbc init: ${projectName}`)
     console.log(`  cwd:       ${cwd}`)
+    if (subdir !== '') console.log(`  repo:      ${repoTop} (project in ${subdir}/)`)
 
     const mode = await detectMode(cwd)
     if (mode.kind === 'incompatible') {
@@ -78,6 +143,22 @@ export const initCommand = defineCommand({
     }
     console.log(`  mode:      ${mode.kind}${args.subtree ? ' (subtree)' : ''}`)
 
+    // A project folder the host's own workspace globs cover is one the host's
+    // package manager will try to install and link too.
+    if (repoTop !== null && subdir !== '') {
+      const covering = await hostWorkspaceGlobsCovering(repoTop, subdir)
+      if (covering.length > 0) {
+        console.warn(
+          `  warn: ${subdir}/ falls under the host repo's workspace globs (${covering.join(', ')}) — its package manager will try to manage this project too. Prefer a folder outside them (e.g. deploy/zbc).`,
+        )
+      }
+    }
+    const prefix = gitPrefix(cwd)
+    const hadClaudeDir = await fs
+      .stat(path.join(cwd, '.claude'))
+      .then((st) => st.isDirectory())
+      .catch(() => false)
+
     // 0. Subtree mode: vendor zbc-core FIRST — `git subtree add` demands a
     //    clean tree, so it must run before any scaffold file is written.
     let vendoredRef: string | undefined
@@ -85,7 +166,7 @@ export const initCommand = defineCommand({
       const url = args['core-url'] ?? DEFAULT_CORE_URL
       const ref = args['core-ref'] ?? coreRefForVersion(pkg.version)
       vendoredRef = ref
-      console.log(`  vendoring: ${url} @ ${ref} → ${VENDOR_PREFIX}`)
+      console.log(`  vendoring: ${url} @ ${ref} → ${prefix}`)
       try {
         subtreeAdd(cwd, { url, ref })
       } catch (err) {
@@ -165,24 +246,36 @@ export const initCommand = defineCommand({
 
     // 6. CI workflows
     if (args.ci === 'github') {
-      const wfDest = path.join(cwd, '.github/workflows')
-      await copyTemplateDir(path.join(tplRoot, 'workflows'), wfDest)
+      await layWorkflows(tplRoot, repoTop ?? cwd, subdir)
     } else if (args.ci) {
       console.warn(`  warn: unknown --ci=${args.ci} (only "github" supported)`)
     }
 
-    // 7. Claude Code scaffolding (skip-if-exists, safe in either mode)
+    // 7. Claude Code scaffolding. CLAUDE.md is skip-if-exists in any mode. The
+    //    settings grant tool permissions and enable a plugin, which is not
+    //    init's to decide for a repository that already exists: only a
+    //    greenfield project at the top level gets them unasked.
     await copyTemplateFile(path.join(tplRoot, 'CLAUDE.md'), path.join(cwd, 'CLAUDE.md'), {
       vars,
     })
-    await copyTemplateDir(path.join(tplRoot, 'claude'), path.join(cwd, '.claude'))
+    const existingRepo = mode.kind === 'monorepo' || subdir !== '' || hadClaudeDir
+    const writeClaude = args.claude ?? !existingRepo
+    if (writeClaude) {
+      await copyTemplateDir(path.join(tplRoot, 'claude'), path.join(cwd, '.claude'))
+    } else {
+      console.log(
+        args.claude === false
+          ? '  skip .claude/settings.json (--no-claude)'
+          : '  skip .claude/settings.json (existing repo — pass --claude to write it)',
+      )
+    }
 
     // 8. Vintage stamp — which engine this project is running, recorded at the
     //    project root so `git subtree push` can never carry it upstream.
     await writeStamp(cwd, {
       mode: args.subtree ? 'subtree' : 'copy',
       cliVersion: pkg.version,
-      ...(vendoredRef ? { coreRef: vendoredRef } : {}),
+      ...(vendoredRef ? { coreRef: vendoredRef, prefix } : {}),
     })
     console.log(`  write ${STAMP_FILE}`)
 
@@ -190,10 +283,12 @@ export const initCommand = defineCommand({
     console.log('✓ init done')
     if (args.subtree) {
       console.log(
-        `  engine + modules vendored at ${VENDOR_PREFIX}/ — commit the scaffold, then never mix ${VENDOR_PREFIX}/ and other paths in one commit (subtree push sends prefix-touching commits upstream)`,
+        `  engine + modules vendored at ${prefix}/ — commit the scaffold, then never mix ${prefix}/ and other paths in one commit (subtree push sends prefix-touching commits upstream)`,
       )
     }
     console.log('')
+    if (args.dir)
+      console.log(`Run the next steps from ${path.relative(process.cwd(), cwd) || '.'}/.`)
     if (mode.kind === 'greenfield') {
       console.log('Next steps:')
       console.log('  1. bun install')

@@ -3,7 +3,7 @@ import type { Dirent } from 'node:fs'
 import * as fs from 'node:fs/promises'
 import * as path from 'node:path'
 import { templatesRoot } from './copy-template'
-import { VENDOR_PREFIX } from './subtree'
+import { gitPrefix, gitTopLevel, VENDOR_PREFIX } from './subtree'
 
 /**
  * The reverse drift hazard: files a consumer wrote *inside* `vendor/zbc/`.
@@ -23,15 +23,18 @@ import { VENDOR_PREFIX } from './subtree'
  * vendor/zbc cannot, and must not be reported as consumer-authored.
  */
 function trackedVendorFiles(projectRoot: string): string[] {
-  const res = spawnSync('git', ['ls-files', '-z', '--', VENDOR_PREFIX], {
-    cwd: projectRoot,
+  // Asked at the top level with the prefix as git sees it, so the listing is
+  // the same whether the project is the repository or a subfolder of one.
+  const prefix = gitPrefix(projectRoot)
+  const res = spawnSync('git', ['ls-files', '-z', '--', prefix], {
+    cwd: gitTopLevel(projectRoot) ?? projectRoot,
     encoding: 'utf8',
   })
   if (res.status !== 0 || res.error) return []
   return res.stdout
     .split('\0')
     .filter((line) => line.length > 0)
-    .map((line) => path.posix.relative(VENDOR_PREFIX, line))
+    .map((line) => path.posix.relative(prefix, line))
 }
 
 async function walk(root: string, base = ''): Promise<string[]> {
@@ -62,11 +65,12 @@ export async function foreignVendorFiles(projectRoot: string): Promise<string[]>
   return vendored.filter((rel) => !rel.endsWith('.test.ts') && !upstream.has(rel)).toSorted()
 }
 
-export function describeForeignFiles(files: string[]): string[] {
+/** `prefix` is the one to name: the top-level-relative prefix when the project is a subfolder. */
+export function describeForeignFiles(files: string[], prefix: string = VENDOR_PREFIX): string[] {
   if (files.length === 0) return []
   return [
-    `⚠ ${files.length} file(s) under ${VENDOR_PREFIX}/ are not shipped by zbc-core at that path:`,
-    ...files.map((f) => `    ${VENDOR_PREFIX}/${f}`),
-    `  ${VENDOR_PREFIX}/ is upstream's — \`git subtree push\` would carry these into zbc-core. Move consumer-authored files outside the prefix (e.g. docs/ or packages/infra/).`,
+    `⚠ ${files.length} file(s) under ${prefix}/ are not shipped by zbc-core at that path:`,
+    ...files.map((f) => `    ${prefix}/${f}`),
+    `  ${prefix}/ is upstream's — \`git subtree push\` would carry these into zbc-core. Move consumer-authored files outside the prefix (e.g. docs/ or packages/infra/).`,
   ]
 }

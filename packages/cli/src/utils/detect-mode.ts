@@ -39,7 +39,7 @@ export async function detectMode(cwd: string): Promise<InitMode> {
     return {
       kind: 'incompatible',
       reason:
-        'package.json exists but has no `workspaces` field. v1 only supports greenfield or existing Bun workspaces. Add `"workspaces": ["packages/*"]` and re-run.',
+        'package.json exists but has no `workspaces` field, so this is not a Bun workspace (a pnpm repo, say). Put the zbc project in a folder of its own instead — `zbc init <name> --subtree --dir deploy/zbc`, or run init from inside that folder — which leaves this package.json, its lockfile and node_modules alone. Or, for a Bun repo, add `"workspaces": ["packages/*"]` and re-run.',
     }
   }
 

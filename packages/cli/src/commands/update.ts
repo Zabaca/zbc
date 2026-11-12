@@ -1,3 +1,4 @@
+import * as path from 'node:path'
 import { defineCommand } from 'citty'
 import { findProjectRoot } from '../utils/find-project-root'
 import { refreshCopiedTemplates } from '../utils/copy-refresh'
@@ -8,6 +9,8 @@ import {
   coreRefForVersion,
   DEFAULT_CORE_URL,
   ensureCleanGitTree,
+  gitPrefix,
+  gitTopLevel,
   isVendorMode,
   subtreePull,
   VENDOR_PREFIX,
@@ -83,6 +86,19 @@ export const updateCommand = defineCommand({
     // fix was a hand diff, which is how consumers ended up reimplementing what
     // we ship. The CLI carries the templates, so it can re-lay them in place.
     const stamp = await readStamp(projectRoot)
+    // The subtree prefix as git sees it: `vendor/zbc` at the top level,
+    // `deploy/zbc/vendor/zbc` for a project in a subfolder. Always derived; the
+    // stamp's copy is information, and a stale one is said and then ignored.
+    const prefix = gitPrefix(projectRoot)
+    const recordedPrefix = stamp?.mode === 'subtree' ? (stamp.prefix ?? VENDOR_PREFIX) : prefix
+    if (recordedPrefix !== prefix) {
+      console.warn(
+        `⚠ ${STAMP_FILE} records the subtree at ${recordedPrefix}/, but this project's is ${prefix}/ (the folder moved?) — using ${prefix}/.`,
+      )
+      console.warn(
+        `  git's subtree history names ${recordedPrefix}/, so a pull at ${prefix}/ may be refused as never added; re-vendor at ${prefix}/ if it is.`,
+      )
+    }
 
     if (!(await isVendorMode(projectRoot))) {
       // A stamp saying `subtree` with no engine under the prefix is the varnick
@@ -91,10 +107,16 @@ export const updateCommand = defineCommand({
       // record that this is a subtree project — so say what is wrong instead.
       if (stamp?.mode === 'subtree') {
         console.error(
-          `✗ ${STAMP_FILE} says this project vendors zbc as a subtree, but ${VENDOR_PREFIX}/src is missing — the subtree never landed, or was removed.`,
+          `✗ ${STAMP_FILE} says this project vendors zbc as a subtree, but ${prefix}/src is missing — the subtree never landed, or was removed.`,
         )
+        // git subtree runs only at the top level; say how to get there from here.
+        const top = gitTopLevel(projectRoot)
+        const fromTop =
+          top === null || prefix === VENDOR_PREFIX
+            ? ''
+            : `-C ${JSON.stringify(path.relative(process.cwd(), top) || '.')} `
         console.error(
-          `  Re-vendor it: git subtree add --prefix=${VENDOR_PREFIX} ${DEFAULT_CORE_URL} ${stamp.coreRef ?? coreRefForVersion(pkg.version)} --squash`,
+          `  Re-vendor it: git ${fromTop}subtree add --prefix=${prefix} ${DEFAULT_CORE_URL} ${stamp.coreRef ?? coreRefForVersion(pkg.version)} --squash`,
         )
         process.exit(1)
       }
@@ -142,19 +164,24 @@ export const updateCommand = defineCommand({
 
     const url = args['core-url'] ?? DEFAULT_CORE_URL
     const ref = args['core-ref'] ?? coreRefForVersion(pkg.version)
-    console.log(`zbc update: ${url} @ ${ref} → ${VENDOR_PREFIX}`)
+    console.log(`zbc update: ${url} @ ${ref} → ${prefix}`)
     try {
       subtreePull(projectRoot, { url, ref })
     } catch (err) {
       console.error(`✗ ${(err as Error).message}`)
       process.exit(1)
     }
-    await writeStamp(projectRoot, { mode: 'subtree', cliVersion: pkg.version, coreRef: ref })
-    console.log('✓ vendor/zbc updated — review the squash merge commit and push')
+    await writeStamp(projectRoot, {
+      mode: 'subtree',
+      cliVersion: pkg.version,
+      coreRef: ref,
+      prefix,
+    })
+    console.log(`✓ ${prefix} updated — review the squash merge commit and push`)
 
     // The push direction nobody watches: files written inside the prefix.
     const foreign = await foreignVendorFiles(projectRoot)
-    for (const line of describeForeignFiles(foreign)) console.warn(line)
+    for (const line of describeForeignFiles(foreign, prefix)) console.warn(line)
     if (args.strict && foreign.length > 0) process.exit(1)
   },
 })

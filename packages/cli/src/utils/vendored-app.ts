@@ -223,6 +223,9 @@ export function auditVendoredApp(
     return map
   }
   const upstream = blobs(upstreamListing, '')
+  // Asked from the project root, where git takes and prints paths relative to
+  // that folder: `vendor/space` holds whether the project is the repository or
+  // a subfolder of one.
   const local = blobs(git(projectRoot, ['ls-files', '-s', '-z', '--', app.prefix]), app.prefix)
   const own = [...local.keys()].filter((file) => !upstream.has(file)).toSorted()
   const edited = [...local.keys()]

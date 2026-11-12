@@ -7,16 +7,32 @@ walking up to `zbc.config.ts`, and every `<env>` must be listed in that file's
 ## Scaffold and vendor
 
 ```bash
-zbc init [project] [--ci github] [--subtree] [--no-sops] [--core-url <url>] [--core-ref <ref>]
+zbc init [project] [--dir <path>] [--ci github] [--subtree] [--no-sops] [--claude | --no-claude] [--core-url <url>] [--core-ref <ref>]
 ```
 
 The one-time scaffold: `zbc.config.ts`, `.sops.yaml`, `packages/infra/` with
-`environments/production` and `environments/preview`, a `CLAUDE.md`, a
-`.claude/settings.json`, and, with `--ci github`, `preview.yml` and
-`production.yml`. Every file is skip-if-exists. `--subtree` (the standard) first
-runs `git subtree add --squash` of Zabaca/zbc-core at `vendor/zbc`, pinned to the
-tag `zbc-core-v<cli version>`, so the tree must be clean. It also writes
-`.zbc-vendor.json`. The repo needs either no `package.json` or a Bun workspace.
+`environments/production` and `environments/preview`, a `CLAUDE.md`, and, with
+`--ci github`, `preview.yml` and `production.yml`. Every file is skip-if-exists.
+`--subtree` (the standard) first runs `git subtree add --squash` of
+Zabaca/zbc-core at `vendor/zbc`, pinned to the tag `zbc-core-v<cli version>`, so
+the tree must be clean. It also writes `.zbc-vendor.json`. The project folder
+needs either no `package.json` or a Bun workspace.
+
+A repo that is not a Bun workspace (a pnpm monorepo, say) puts the project in a
+folder of its own: `zbc init <name> --subtree --dir deploy/zbc`, or the same
+from inside that folder. Everything is written there, as if run from inside it,
+and `bun add`/`bun install` stay there too, so the host's root `package.json`,
+lockfile and `node_modules` are untouched. The engine is at
+`deploy/zbc/vendor/zbc`: every subtree command derives the prefix git sees from
+the project root, so `add` and `update` need no flag. `--ci github` writes the
+workflows to the repo's top-level `.github/workflows/` with
+`working-directory: deploy/zbc`. Init warns when the folder falls under the
+host's `workspaces` or `pnpm-workspace.yaml` globs.
+
+`.claude/settings.json` is written by default only for a greenfield project at
+the repo top level. In a Bun-workspace repo, a subfolder or a repo that already
+has `.claude/`, it is skipped unless `--claude` is passed. `--no-claude` skips it
+everywhere.
 
 ```bash
 zbc add <name> [--env production] [--account-id <id>] [--no-prompt]
