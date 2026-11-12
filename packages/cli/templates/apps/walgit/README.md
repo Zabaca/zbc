@@ -998,8 +998,8 @@ first thing walgit ever says to most of them.
 ## Per-source limits
 
 `WALGIT_MAX_NEW_REPOS_PER_SOURCE`, `WALGIT_MAX_PUSHES_PER_SOURCE` and
-`WALGIT_MAX_PUSH_BYTES_PER_SOURCE` bound what **one client** may spend in a
-window; `WALGIT_RATE_WINDOW_SECONDS` is the window and defaults to an hour when
+`WALGIT_MAX_PUSH_BYTES_PER_SOURCE` bound what **one source** — a tenant, or
+else a client address — may spend in a window; `WALGIT_RATE_WINDOW_SECONDS` is the window and defaults to an hour when
 a count is set without one. All three are **unset by default**, and with them
 unset nothing about a push changes.
 
@@ -1025,8 +1025,20 @@ direction. Whether a name is *new* is read from the Index (a repository holding
 no ref is one being created); an Index that cannot be read never invents a
 creation refusal.
 
+**Per tenant, when a scoped token names one.** A push carrying a verified
+[scoped token](#scoped-tokens) with a `sub` claim is counted in a bucket for
+that `sub` — across every repository it holds a token for and every address it
+pushes from — because hosted agents share cloud addresses, and keying them on
+the address would put unrelated tenants in one bucket. A token without `sub`,
+no scoped token, and the admin credential (`WALGIT_HTTP_TOKENS`) are all
+counted by address, exactly as before. Only a claim the handler has verified is
+ever a key, and tenants and addresses are kept in separate key spaces, so a
+`sub` of `203.0.113.7` is not that address. The refusal says which it counted:
+`one tenant`, counted across its repositories and addresses, or `one client`.
+
 `GET /` and `/llms.txt` state each limit that is on, from the same
-`Capabilities` the handler enforces.
+`Capabilities` the handler enforces — and say "per tenant" only on a deployment
+that verifies scoped tokens.
 
 ## Size limits
 
@@ -1272,7 +1284,8 @@ git clone "https://walgit:$TOKEN@$HOST/my-thing.git"   # or: Authorization: Bear
 Claims: `repo` (required, an **exact** repository id — no prefix, no wildcard),
 `mode` (required, `read` | `write`), `exp` and `iat` (required, seconds since the
 epoch; 60 seconds of clock skew is allowed either way, and an `iat` further in
-the future is refused), `sub` (optional, the tenant). `iat` is required so that
+the future is refused), `sub` (optional, the tenant — the bucket the [per-source limits](#per-source-limits)
+count it in). `iat` is required so that
 revocation can later refuse every token issued before an instant.
 
 - **Where it works:** on its own repository, on every surface — git smart HTTP

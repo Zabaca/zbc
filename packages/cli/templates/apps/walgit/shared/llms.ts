@@ -140,19 +140,27 @@ export function renderLlms(
   // only where it is enforced, like every bullet above.
   if (caps.sourceLimited) {
     const window = describeWindow(caps.rateWindowSeconds)
+    // Who "per" means. Only a deployment that verifies scoped tokens can tell
+    // tenants apart, so only there is the tenant named.
+    const who = caps.scopedTokens ? 'tenant or client' : 'client'
     if (caps.maxNewReposPerSource !== null) {
       limits.push(
-        `- **You may create ${caps.maxNewReposPerSource} new repositories per client per ${window}.** Pushing to a name you already created does not count against it.`,
+        `- **You may create ${caps.maxNewReposPerSource} new repositories per ${who} per ${window}.** Pushing to a name you already created does not count against it.`,
       )
     }
     if (caps.maxPushesPerSource !== null) {
       limits.push(
-        `- **You may make ${caps.maxPushesPerSource} pushes per client per ${window}.** Commit locally and push once rather than pushing every commit.`,
+        `- **You may make ${caps.maxPushesPerSource} pushes per ${who} per ${window}.** Commit locally and push once rather than pushing every commit.`,
       )
     }
     if (caps.maxPushBytesPerSource !== null) {
       limits.push(
-        `- **You may push ${describeBytes(caps.maxPushBytesPerSource)} per client per ${window}.**`,
+        `- **You may push ${describeBytes(caps.maxPushBytesPerSource)} per ${who} per ${window}.**`,
+      )
+    }
+    if (caps.scopedTokens) {
+      limits.push(
+        "- **A tenant is your scoped token's `sub` claim**, counted across every repository and address it pushes from. A token with no `sub`, or no scoped token at all, is counted per client address.",
       )
     }
     limits.push(
