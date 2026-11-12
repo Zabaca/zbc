@@ -721,6 +721,19 @@ describe('renderLlms: per-source limits', () => {
     expect(doc).toContain('300 pushes per client per hour')
     expect(doc).toContain('1 GiB (1073741824 bytes) per client per hour')
   })
+
+  test('a deployment that verifies scoped tokens says the limit is per tenant', () => {
+    const doc = renderLlms(
+      HOST,
+      caps({
+        ...OPEN,
+        WALGIT_MAX_PUSHES_PER_SOURCE: '300',
+        WALGIT_TOKEN_PUBLIC_KEYS: 'a'.repeat(43),
+      }),
+    )
+    expect(doc).toContain('300 pushes per tenant or client per hour')
+    expect(doc).toContain("A tenant is your scoped token's `sub` claim")
+  })
 })
 
 /**

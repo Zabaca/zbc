@@ -117,7 +117,8 @@ function sourceLimits(caps: Capabilities): string {
   if (caps.maxPushBytesPerSource !== null) {
     parts.push(shortBytes(caps.maxPushBytesPerSource))
   }
-  return `${parts.join(', ')} per client per ${window}`
+  const who = caps.scopedTokens ? 'tenant or client' : 'client'
+  return `${parts.join(', ')} per ${who} per ${window}`
 }
 
 /**

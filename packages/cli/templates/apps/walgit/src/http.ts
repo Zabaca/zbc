@@ -23,7 +23,12 @@ import {
 } from '../shared/browse'
 import { capabilitiesFrom, type Capabilities } from '../shared/capabilities'
 import { authorizedBy, presentedSignature } from '../shared/credentials'
-import { scopeRefusal, scopeTargetOf, scopedAccessOf } from '../shared/scoped-token'
+import {
+  scopeRefusal,
+  scopeTargetOf,
+  scopedAccessOf,
+  type ScopedClaims,
+} from '../shared/scoped-token'
 import {
   ADMIN_REPOS_HTTP,
   BASIC_CHALLENGE,
@@ -48,7 +53,13 @@ import { emptyReadResponse } from './empty-read'
 import { renderInstructions } from '../shared/instructions'
 import { acceptedNonces, readAllowed, readChallengeNonce, renderReadChallenge } from './private'
 import type { ProposalListing } from './proposals'
-import { countsNewRepos, createSourceLimiter, rateLimitsEnforced, rateLimitsOf } from './rate-limit'
+import {
+  countsNewRepos,
+  createSourceLimiter,
+  rateLimitsEnforced,
+  rateLimitsOf,
+  type RateSource,
+} from './rate-limit'
 import type { ResolvedRepo } from './repo'
 import { resolveRepo } from './repo'
 import type { Claim, Provenance } from '../shared/wal-index'
@@ -1193,7 +1204,10 @@ function createRouter(deps: HttpHandlerDeps): (req: Request) => Promise<Response
     // before a single object is stored.
     let refusal: string | undefined
     if (limiter && route[2] === 'git-receive-pack' && request.method === 'POST') {
-      const source = sourceOf(request)
+      // The tenant a VERIFIED scoped token names, when it names one — `scoped`
+      // is only `scoped` once the signature, expiry and grant have all passed
+      // above — and otherwise the address, exactly as before.
+      const source = rateSourceOf(request, scoped.kind === 'scoped' ? scoped.claims : null)
       // Unattributable: a request that reached the container without passing
       // the edge, or a local deployment. Pooling everything walgit cannot name
       // into one bucket would let the first such request throttle every other.
@@ -1244,6 +1258,18 @@ function createRouter(deps: HttpHandlerDeps): (req: Request) => Promise<Response
       ...(refusal ? { env: { [REFUSE_ENV]: refusal } } : {}),
     })
   }
+}
+
+/**
+ * Who a push is counted against (`src/rate-limit.ts`): the tenant, when a
+ * verified scoped token carries `sub`, else the address `sourceOf` attributes.
+ * A tenant is counted even when no address is visible — the token, not the
+ * network, is what names it.
+ */
+function rateSourceOf(request: Request, claims: ScopedClaims | null): RateSource | null {
+  if (claims?.sub !== undefined && claims.sub !== '') return { per: 'tenant', sub: claims.sub }
+  const address = sourceOf(request)
+  return address === null ? null : { per: 'address', address }
 }
 
 /**
