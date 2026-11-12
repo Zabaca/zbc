@@ -29,7 +29,7 @@ const MiB = 1024 * 1024
  * `packages/infra/environments/production/walgit-public.ts`), repeated here so
  * the push it advertises is the push this file makes.
  */
-const MAX_PUSH_BYTES = 99 * MiB
+const MAX_PUSH_BYTES = 90 * MiB
 
 /**
  * Cloudflare's request-body limit on the Free and Pro plans: 100 MB, decimal.

@@ -987,9 +987,15 @@ before a proxy can answer: measured against Fly, 99 MiB passes and 100 MiB is
 refused only after all 104,879,625 bytes have gone up — 37 s of upload to be
 told `RPC failed; HTTP 413` and `unexpected disconnect`, which reads like a
 dropped network and gets retried. A documented cap must therefore sit under the
-**chunked** cutoff, not the `Content-Length` one (which 413s at 101 MiB after
-~2 MB): ~99 MiB is the safe ceiling for the public instance, with a repository
-total of ~250 MB.
+**chunked** cutoff of whatever is in front, not the `Content-Length` one (which
+413s early). Behind Cloudflare that is the plan's request-body limit, 100 MB
+(100,000,000 bytes, 95.37 MiB) on Free and Pro, so the public instance caps a
+push at 90 MiB, with ~5.6 MB of room for the ref commands and a push
+certificate, and a repository total of ~250 MB. (The Fly measurement above
+allowed 99 MiB, and the public instance kept that number after it moved to
+Cloudflare, where a 96–99 MiB push passed walgit's cap and was refused by the
+edge.) `src/large-push.e2e.test.ts` pushes 20 MiB, eight 20 MiB pushes at
+once, and one either side of the cap against a local node.
 
 The repository total needs no new state. Every WAL entry carries its `size`, so
 the total is a sum over the entries above the compaction frontier — the live

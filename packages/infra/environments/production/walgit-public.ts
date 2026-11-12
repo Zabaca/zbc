@@ -300,12 +300,21 @@ export default cloudflareModule.instance({
       // `pre-receive` takes, and `GET /<name>.git/proposals` reports what is
       // there with `merged` derived from ancestry rather than recorded.
       { name: 'WALGIT_PROPOSALS', value: '1' },
-      // 99 MiB, and the number is measured rather than round. A chunked body
-      // is uploaded IN FULL before the edge can answer, so a cap above the
-      // chunked cutoff would be enforced only after ~37 s of upload, reported
-      // as a dropped connection. walgit refuses in `pre-receive` instead,
-      // before anything reaches the log.
-      { name: 'WALGIT_MAX_PUSH_BYTES', value: String(99 * 1024 * 1024) },
+      // 90 MiB, under Cloudflare's request-body limit with room to spare. A
+      // chunked body is uploaded IN FULL before the edge can answer, so a cap
+      // above the edge's limit is enforced only after the whole upload, as a
+      // 413 a client reads as a dropped connection. walgit refuses in
+      // `pre-receive` instead, before anything reaches the log, and that
+      // works only for a push the edge lets through.
+      //
+      // The edge's limit is 100 MB on the Free and Pro plans, decimal:
+      // 100,000,000 bytes, which is 95.37 MiB. The 99 MiB this used to be was
+      // measured against Fly and was above it, so a 96–99 MiB push passed this
+      // cap and failed at the edge. 90 MiB is 94,371,840 bytes, leaving ~5.6 MB
+      // for the ref commands and a push certificate around the pack.
+      // `src/large-push.e2e.test.ts` (walgit) holds the same number to that
+      // limit.
+      { name: 'WALGIT_MAX_PUSH_BYTES', value: String(90 * 1024 * 1024) },
       // 250 MiB total per repository — the size `git repack -adf` was measured
       // succeeding on in the Containers spike, which is the sizing case.
       { name: 'WALGIT_MAX_REPO_BYTES', value: String(250 * 1024 * 1024) },
