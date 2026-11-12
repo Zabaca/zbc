@@ -243,6 +243,45 @@ export function gitOrThrow(args: readonly string[], opts: GitOptions = {}): GitR
  * (`src/admin.ts`), whose push runs the hooks and their network round trips.
  * Same environment and argv rules as `git`; `input` is written to stdin.
  */
+/**
+ * `gitAsync` under a deadline: the child is killed once `timeoutMs` passes and
+ * the answer says so (`timedOut`), with whatever it had written by then.
+ *
+ * For work on the request path that a caller can make arbitrarily expensive —
+ * a merge's three-way merge of two large histories (`src/merge.ts`) — where
+ * waiting it out would hold the process that also serves every push.
+ */
+export async function gitAsyncWithin(
+  args: readonly string[],
+  timeoutMs: number,
+  opts: GitOptions = {},
+): Promise<GitResult & { timedOut: boolean }> {
+  const child = Bun.spawn(['git', ...argv(args, opts)], {
+    env: childEnv(opts),
+    stdin: opts.input === undefined ? 'ignore' : new TextEncoder().encode(opts.input),
+    stdout: 'pipe',
+    stderr: 'pipe',
+  })
+  let timedOut = false
+  const timer = setTimeout(
+    () => {
+      timedOut = true
+      child.kill('SIGKILL')
+    },
+    Math.max(1, timeoutMs),
+  )
+  try {
+    const [stdout, stderr, status] = await Promise.all([
+      new Response(child.stdout).text(),
+      new Response(child.stderr).text(),
+      child.exited,
+    ])
+    return { status: timedOut ? 1 : status, stdout, stderr, timedOut }
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
 export async function gitAsync(args: readonly string[], opts: GitOptions = {}): Promise<GitResult> {
   const child = Bun.spawn(['git', ...argv(args, opts)], {
     env: childEnv(opts),

@@ -76,7 +76,7 @@ _Avoid_: the UI, the website, the dashboard (it shows what the log holds; it ope
 
 **Compare**:
 One more **Browse** read: `op=compare&base=<ref>&head=<ref>` on `/_walgit/browse`, answering the head against its merge base with the base (three-dot) — the merge base, a per-file summary (added/modified/deleted/renamed, line counts, binary), totals and the unified diff, or the diff alone as text. Both sides are **Browse Refs**. Bounded at 300 files and 1 MiB of diff (`COMPARE_MAX_FILES`, `COMPARE_MAX_DIFF_BYTES`, `shared/browse.ts`), marked `truncated` past either while the totals still count every file. Gated as every Browse is, Scoped Tokens included.
-_Disambiguate_: not a **Proposal**'s `merged`, which is ancestry and reads no diff; and not a merge: a Compare reads and moves nothing.
+_Disambiguate_: not a **Proposal**'s `merged`, which is ancestry and reads no diff; and not a **Host Merge**: a Compare reads and moves nothing.
 
 **Browse Ref**:
 What a browse URL is allowed to name: an entry in `index.refs` — with `refs/heads/` or `refs/tags/` allowed to be left off — or a full forty-character oid. Never a `HEAD`, an abbreviation or a rev-parse expression: whatever is accepted reaches `git ls-tree`, `cat-file` or `git log` as an operand, and the **Index** rather than the **Cache** is what decides, because the disk is a cache. A branch name may contain slashes, so the URL remainder after the page kind is split by **longest ref prefix** — `feature/x/src` is the branch `feature/x` and the directory `src`. The same split serves all four kinds.
@@ -212,7 +212,7 @@ A ref under `refs/walgit/proposals/` that names a commit its pusher wants in a t
 _Avoid_: pull request (GitHub's, and already means a GitHub PR elsewhere in the repository), merge request, change request (an approval-board ticket), PR
 
 **Merged**:
-A Proposal whose tip is an ancestor of its target ref's tip. Computed on read, never recorded, so it is only ever true because someone with the right to write the target pushed a fast-forward or a true merge of the Proposal's tip. A squash or a rebase of it does not merge the Proposal, and a Proposal is never Merged by anything but ancestry.
+A Proposal whose tip is an ancestor of its target ref's tip. Computed on read, never recorded, so it is only ever true because someone with the right to write the target pushed a fast-forward or a true merge of the Proposal's tip — or, where a deployment sets `WALGIT_MERGE`, asked the host for a fast-forward **Host Merge**. A squash or a rebase of it does not merge the Proposal, and a Proposal is never Merged by anything but ancestry.
 _Avoid_: closed, accepted (nothing records an acceptance), landed
 
 **Signer List Proposal**:
@@ -234,6 +234,13 @@ not exist at all on a deployment that does not offer Proposals. *Superseded* is
 deliberately not reported: ADR-0018 admits it only if the same walk yields it
 free, and it does not.
 _Avoid_: list endpoint, PR list, the proposals API
+
+## Host merges (ADR-0022)
+
+**Host Merge**:
+A merge the host performs on request, where the deployment sets `WALGIT_MERGE`: `POST /_walgit/merge?repo=` moves a target branch to a source by **fast-forward**, or to one new **squash** commit whose only parent is the target and whose tree is git's three-way merge. A compare-and-swap: the caller names the commit the target is **expected** at, and a target that moved is a 409 with nothing written. It is a **push the host makes** — built in a scratch repository on the Cache's objects and pushed into the Cache — so the size caps, append-only, the publish's compare-and-swap and the Announce all apply as to any push. A conflict is a 409 naming the paths, never a marker. A name holding a **Signer List** refuses it, because the host holds no key and makes no Push Certificate. A squash-merged Proposal is not **Merged**: Merged is ancestry and stays so.
+_Avoid_: accept (a Signer's push accepts a Proposal), PR merge, auto-merge
+_Disambiguate_: not **Merged**, which is a Proposal's derived state; a Host Merge can produce it only by fast-forward.
 
 ## Scoped tokens (ADR-0021)
 

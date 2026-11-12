@@ -770,6 +770,65 @@ alongside the ref list every browse answer carries. `status` is `added`,
   or `write` token for the repository may compare, another repository's token
   is `403`, and a public deployment answers it with no credential at all.
 
+### Merging a branch on the host
+
+With **`WALGIT_MERGE=1`** (off by default; [ADR-0022](../../../../../docs/adr/0022-a-host-merge-is-a-push-the-host-makes-where-a-deployment-opts-in.md)),
+a client with no checkout can ship what it just reviewed with a compare:
+
+```sh
+curl -X POST "https://$HOST/_walgit/merge?repo=my-thing" \
+  -H "authorization: Bearer $TOKEN" -H 'content-type: application/json' \
+  -d '{"source":"feature/x","target":"main","method":"squash",
+       "expected":"<the commit main is at>",
+       "message":"Land feature/x","author":{"name":"Ada Example","email":"ada@example.com"}}'
+```
+
+- **`method`** is `fast-forward` (the target moves to the source; refused when
+  it is not one) or `squash` (one new commit whose only parent is the target and
+  whose tree is git's three-way merge, authored and committed by `author`).
+  `message` and `author` are required for a squash and ignored otherwise.
+- **`expected` is required** — the full commit id the target stands at, as the
+  review saw it. It is a **compare-and-swap**: if the target has moved, the
+  answer is `409` with `"error": "stale"` and the `actual` commit, and nothing
+  is written. Of two merges racing for one target exactly one lands; the other
+  is `409` (`stale`, or `contended` when it lost to a write still in flight).
+- **A merge is a push.** The host builds the result in a scratch repository
+  and pushes it into its own Cache, so every rule a push meets applies — the
+  size caps, `WALGIT_APPEND_ONLY`, the Index compare-and-swap that publishes it
+  — and the move is announced to Watchers and the push webhook like any push.
+  A refusal by one of those rules is `422` (`refused`) in the rule's own words;
+  a push that failed for any other reason (a store outage) is `503`
+  (`unavailable`) — retry it.
+- **Bounded.** Building the merge (merge base, ancestry, a squash's three-way
+  merge) has **20 seconds**; past that it is `503` (`too-large`) — merge it in
+  a clone. A merge is **counted as one push** against the per-source window
+  (`WALGIT_MAX_PUSHES_PER_SOURCE`, below), `429` (`rate-limited`) once spent.
+- **Answers.** `200` with `{ repo, method, source: { ref, oid }, target: { ref,
+  previous, oid }, commit, files, totals, truncated }` — the compare's file
+  summary of the target before and after, with no diff text (`files` and
+  `totals` are `null`, `truncated` true, when it could not be computed in time;
+  the merge still stands). Every refusal is JSON with an `error` naming it. `409`
+  `not-fast-forward`, `409` `up-to-date` (the target already holds the source),
+  `409` `conflict` with `conflicts: [paths]` — **never conflict markers**;
+  resolve those in a clone — `400` for a malformed body or two refs with no
+  history in common, `404` for a name or a ref the Index does not hold.
+- **A Signer List refuses it.** On a claimed name a ref moves only by a push a
+  listed key signed, and the host has no key: the merge is `403` (`signed`),
+  before any work is done. Merge in a clone and push it signed.
+- **Who may merge is who may push**: a `write` scoped token for the repository
+  or the deployment credential. A `read` token is `403`, another repository's
+  token `403`, none `401` (on a public deployment, anyone — as anyone may push).
+  A squash's author is the request's word: nothing records which credential
+  asked for the merge.
+- **Squash and Proposals.** A Proposal is Merged when its tip is an ancestor of
+  its target (ADR-0018), so a squash-merged Proposal does **not** read as
+  Merged. Fast-forward it if it should.
+
+With `WALGIT_MERGE` unset, `/_walgit/merge` is a `404` and nothing else changes.
+It is independent of `WALGIT_WEB`: a merge is a write, not a browse. The flag is
+on `CONTAINER_ENV`, so the deploy that first sets it replaces the running
+container once.
+
 `WALGIT_WEB` is on `CONTAINER_ENV`, which is what makes the browse endpoint
 above possible at all: `caps.web` is read on both sides — at the edge to claim
 the routes, in the container to decide whether `/_walgit/browse` exists — and a
@@ -919,7 +978,8 @@ Optional instance configuration (plain env, not secrets): `WALGIT_APPEND_ONLY`,
 `WALGIT_MAX_NEW_REPOS_PER_SOURCE`, `WALGIT_MAX_PUSHES_PER_SOURCE`,
 `WALGIT_MAX_PUSH_BYTES_PER_SOURCE`, `WALGIT_RATE_WINDOW_SECONDS`,
 `WALGIT_RETENTION_HOURS`, `WALGIT_CLAIMED_RETENTION_HOURS`,
-`WALGIT_PUBLIC`, `WALGIT_SIGNER_LISTS`, `WALGIT_WEB` (the web view above) —
+`WALGIT_PUBLIC`, `WALGIT_SIGNER_LISTS`, `WALGIT_WEB` (the web view above),
+`WALGIT_MERGE` (host merges, above) —
 each unset means the behaviour is off
 and `GET /` does not claim it. `WALGIT_EVENTS_URL` and `WALGIT_EVENTS_TOKEN` (a
 secret) turn on the ref-event stream below, `WALGIT_WEBHOOK_URL` and

@@ -18,6 +18,8 @@ import { BOOT_MARKER } from '../shared/container-snapshot'
 import { parseTokens } from '../shared/credentials'
 import { tokenPublicKeysConfigError } from '../shared/scoped-token'
 import { createAdminOps } from './admin'
+import { createMergeOps } from './merge'
+import { signerListsEnabled } from './signers'
 import { announceConfigFromEnv, announceTokensRevoked } from './announce'
 import { TokenRevocationReader } from '../shared/token-revocation'
 import { compareRevs, listCommits, listTree, readBlob, statBlob } from './browse'
@@ -253,6 +255,20 @@ try {
             : {}),
         })
       : undefined,
+    // Merge one branch into another on request (`src/merge.ts`,
+    // docs/adr/0022). Only where the deployment opted in AND there is a store:
+    // the merge is a compare-and-swap on the Index, and the push it makes is
+    // published there. The handler checks the same capability again, so the
+    // route and the documents cannot disagree about whether it exists.
+    merge:
+      store && caps.merge
+        ? createMergeOps({
+            store,
+            ensureRepo: ensureBareRepo,
+            syncRepo: (repo) => syncRepo(store, repo),
+            signerLists: signerListsEnabled(),
+          })
+        : undefined,
     // Only when there is both a log to sweep and a window to sweep by. An
     // instance with no retention configured has expiry off entirely, and the
     // endpoint should not exist for it — `expireRepos` would return an empty

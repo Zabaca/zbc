@@ -293,6 +293,7 @@ test('an unconfigured deployment advertises nothing, and says so in every field'
     proposals: false,
     web: false,
     scopedTokens: false,
+    merge: false,
     retentionHours: null,
     claimedRetentionHours: null,
     maxPushBytes: null,

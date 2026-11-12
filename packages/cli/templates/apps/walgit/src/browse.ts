@@ -239,6 +239,7 @@ export async function listCommits(
 /** The bounds one compare works under. The handler's, like `LOG_PAGE`. */
 export interface CompareLimits {
   maxFiles: number
+  /** `0` skips the unified diff: the summary alone (a merge's answer). */
   maxDiffBytes: number
   /** Wall-clock budget for every git command of one compare, together. */
   timeoutMs: number
@@ -330,7 +331,7 @@ export async function compareRevs(
   let truncated = capped
 
   let diff = ''
-  if (files.length > 0) {
+  if (files.length > 0 && limits.maxDiffBytes > 0) {
     // Only the listed files, when the list was capped — so the diff a reader
     // gets describes exactly the files they were shown. A rename needs both
     // of its paths in the pathspec or git cannot pair them. Literal pathspecs,
