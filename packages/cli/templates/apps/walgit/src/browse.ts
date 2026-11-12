@@ -265,6 +265,8 @@ const SUMMARY_MAX_BYTES = 16 * 1024 * 1024
  */
 const DIFF_FLAGS = ['-M', '--no-color', '--no-ext-diff', '--no-textconv']
 
+const text = (bytes: Uint8Array) => new TextDecoder().decode(bytes)
+
 /**
  * The head against its merge base with the base — three-dot, the diff a review
  * reads.
@@ -292,7 +294,6 @@ export async function compareRevs(
   const deadline = Date.now() + limits.timeoutMs
   const run = (args: string[], limit: number, opts: Parameters<typeof gitBounded>[2] = {}) =>
     gitBounded(args, { limit, timeoutMs: Math.max(1, deadline - Date.now()) }, { gitDir, ...opts })
-  const text = (bytes: Uint8Array) => new TextDecoder().decode(bytes)
 
   const peeled: string[] = []
   for (const rev of [base, head]) {

@@ -400,17 +400,17 @@ const LOG_PAGE = 50
  */
 function wantsDiffText(request: Request, url: URL): boolean {
   if (url.searchParams.get('format') === 'diff') return true
-  let text = 0
-  let json = 0
+  let textQ = 0
+  let jsonQ = 0
   for (const range of (request.headers.get('accept') ?? '').split(',')) {
     const [type = '', ...params] = range.split(';').map((part) => part.trim().toLowerCase())
     const qParam = params.find((param) => param.startsWith('q='))
     const q = qParam === undefined ? 1 : Number(qParam.slice(2))
     if (!Number.isFinite(q)) continue
-    if (type === 'text/x-diff' || type === 'text/plain') text = Math.max(text, q)
-    if (type === 'application/json') json = Math.max(json, q)
+    if (type === 'text/x-diff' || type === 'text/plain') textQ = Math.max(textQ, q)
+    if (type === 'application/json') jsonQ = Math.max(jsonQ, q)
   }
-  return text > 0 && text > json
+  return textQ > 0 && textQ > jsonQ
 }
 
 /**
