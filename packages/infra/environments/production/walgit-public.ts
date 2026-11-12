@@ -312,8 +312,8 @@ export default cloudflareModule.instance({
       // measured against Fly and was above it, so a 96–99 MiB push passed this
       // cap and failed at the edge. 90 MiB is 94,371,840 bytes, leaving ~5.6 MB
       // for the ref commands and a push certificate around the pack.
-      // `src/large-push.e2e.test.ts` (walgit) holds the same number to that
-      // limit.
+      // walgit's `src/large-push.e2e.test.ts` repeats this number, checks it
+      // against that limit and pushes either side of it; change both together.
       { name: 'WALGIT_MAX_PUSH_BYTES', value: String(90 * 1024 * 1024) },
       // 250 MiB total per repository — the size `git repack -adf` was measured
       // succeeding on in the Containers spike, which is the sizing case.

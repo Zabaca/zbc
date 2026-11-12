@@ -42,6 +42,11 @@ let run: Run
 let node: WalgitNode
 
 beforeAll(async () => {
+  // A local FileStore always: `Run` uses a real bucket when `WALGIT_S3_*` is
+  // set, and this file would upload ~450 MiB to it on every `bun test src`.
+  for (const key of Object.keys(process.env)) {
+    if (key.startsWith('WALGIT_S3_')) delete process.env[key]
+  }
   run = new Run()
   node = await run.node('large', {
     WALGIT_MAX_PUSH_BYTES: String(MAX_PUSH_BYTES),
@@ -99,6 +104,7 @@ describe('large pushes', () => {
 
   test('a push just under the cap is accepted', async () => {
     const result = await pushRandom('under-cap', MAX_PUSH_BYTES - MiB)
+    expect(result.out).not.toContain('error:')
     expect(result.status).toBe(0)
     await expectInLog(result.repoId, result.oid)
   }, 120_000)
@@ -106,6 +112,7 @@ describe('large pushes', () => {
   test('a push over the cap is refused in walgit’s own words', async () => {
     const result = await pushRandom('over-cap', MAX_PUSH_BYTES + MiB)
     expect(result.status).not.toBe(0)
+    expect(result.out).toContain('this push is larger than 90 MiB')
     expect(result.out).toContain('This is a walgit limit')
     const { index } = await loadIndex(run.store, result.repoId)
     expect(index.refs['refs/heads/main']).toBeUndefined()
