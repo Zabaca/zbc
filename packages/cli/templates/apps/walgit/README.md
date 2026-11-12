@@ -221,7 +221,7 @@ curl -X DELETE -H "Authorization: Bearer $ADMIN" https://<host>/_walgit/admin/re
 # plus `tokensValidSince` (null until its tokens are revoked)
 curl -H "Authorization: Bearer $ADMIN" https://<host>/_walgit/admin/repos/my-thing/usage
 
-# revoke every scoped token for it issued before now: 200 { "repo", "tokensValidSince" }
+# revoke every scoped token for it issued before now: 200 { "repo", "tokensValidSince", "announced" }
 curl -X POST -H "Authorization: Bearer $ADMIN" https://<host>/_walgit/admin/repos/my-thing/revoke-tokens
 # …or before a given instant, no later than now
 curl -X POST -H "Authorization: Bearer $ADMIN" -H 'content-type: application/json' \
@@ -256,8 +256,9 @@ curl -X POST -H "Authorization: Bearer $ADMIN" -H 'content-type: application/jso
 - **Usage** answers `404` for a name with no Index.
 - **Revoke tokens** moves the repository's *tokens valid since* forward — see
   [revocation](#revoking-a-repositorys-tokens). It answers `404` for a name with
-  no Index and creates none; a `since` later than now, or one that is not an ISO
-  instant, is a **400**.
+  no Index and creates none; a `since` more than a minute later than now, or one
+  that is not an ISO 8601 instant, is a **400** (one a little ahead is taken as
+  now).
 
 Only the admin credential may call these, over Bearer or Basic like every other
 credential. No credential (or a wrong one) is a **401**; a [scoped
@@ -1354,11 +1355,20 @@ work. Other repositories' tokens and the admin credential are unaffected. Absent
   container and the event fan-out each read the token's repository's Index on
   every scoped request — a conditional GET, so an unchanged Index costs a `304` —
   and a store that cannot be read refuses the token (**503**) rather than
-  letting it through. A `watch` already open is closed when the revoke lands:
-  the container announces it to the fan-out, which closes every socket watching
-  on a token it covers. A socket the announcement does not reach (the stream's
-  announce failing) is still bounded by its token's `exp`, and every new
-  request is refused.
+  letting it through — including an edge with no object store configured,
+  which has no Index to read and so refuses scoped tokens outright. A `watch`
+  already open is closed when the revoke lands: the container announces it to
+  the fan-out, which closes every socket watching on a token it covers, and the
+  response's `announced` says whether that was acknowledged. If it was not, the
+  socket is still re-judged against the Index before the next event it would
+  be sent, so it is never served after the revocation.
+- **Deleting the repository discards its revocation**, with everything else in
+  `index.json` — an admin delete once collected, and retention expiry alike.
+  The name is then first-come again, and a revoked `write` token that has not
+  reached `exp` could re-create it. To end every token for good, rotate the
+  signing key (`WALGIT_TOKEN_PUBLIC_KEYS`); keep lifetimes short regardless.
+- **Rolling back** to a walgit older than this field ignores it, which makes
+  every revoked token valid again until `exp`.
 - **It only moves forward.** An older `since` than the one stored leaves the
   stored one standing, so a revocation cannot be undone by accident. To restore
   a revoked token, mint a new one.

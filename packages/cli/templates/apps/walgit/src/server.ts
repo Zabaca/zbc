@@ -247,9 +247,8 @@ try {
           graceMs: configuredDeleteGraceMs(),
           ...(announceTo
             ? {
-                announceRevoked: async (repoId: string, since: string) => {
-                  await announceTokensRevoked(announceTo, repoId, since)
-                },
+                announceRevoked: (repoId: string, since: string) =>
+                  announceTokensRevoked(announceTo, repoId, since),
               }
             : {}),
         })

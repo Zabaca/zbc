@@ -237,7 +237,23 @@ export interface RevokeResult {
    * because moving it back would quietly make revoked tokens valid again.
    */
   tokensValidSince: string
+  /**
+   * Whether the event fan-out acknowledged the revocation, so sockets already
+   * open were closed. `false` when it did not, or no stream is configured:
+   * the revocation still holds for every request, and a held socket is
+   * re-judged before the next event it would be sent.
+   */
+  announced: boolean
 }
+
+/**
+ * How far ahead of this clock a supplied `since` may be and still mean "now":
+ * a client sending its own now from a slightly fast clock. Clamped to now.
+ */
+export const REVOKE_SKEW_MS = 60_000
+
+/** An ISO 8601 instant with a date, a time and a zone — what the docs promise. */
+const ISO_INSTANT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:\d{2})$/
 
 export type RevokeParse = { ok: true; since: Date | null } | { ok: false; message: string }
 
@@ -260,7 +276,7 @@ export function parseRevoke(text: string): RevokeParse {
   if (typeof since !== 'string') {
     return { ok: false, message: '"since" must be an ISO 8601 instant' }
   }
-  const ms = Date.parse(since)
+  const ms = ISO_INSTANT.test(since) ? Date.parse(since) : Number.NaN
   if (!Number.isFinite(ms)) return { ok: false, message: '"since" must be an ISO 8601 instant' }
   return { ok: true, since: new Date(ms) }
 }
@@ -276,7 +292,7 @@ export interface AdminDeps {
    * already open on one of them are closed rather than served until `exp`.
    * Absent where no event stream is configured; must never throw.
    */
-  announceRevoked?: (repoId: string, since: string) => Promise<void>
+  announceRevoked?: (repoId: string, since: string) => Promise<boolean>
   now?: () => Date
 }
 
@@ -356,8 +372,8 @@ export function createAdminOps(deps: AdminDeps): AdminOps {
 
     async revokeTokens(repoId, since) {
       const at = now()
-      if (since && since.getTime() > at.getTime()) return 'later-than-now'
-      const asked = (since ?? at).toISOString()
+      if (since && since.getTime() > at.getTime() + REVOKE_SKEW_MS) return 'later-than-now'
+      const asked = (since && since.getTime() < at.getTime() ? since : at).toISOString()
       // A compare-and-swap loop rather than `updateIndex`, because an absent
       // Index must stay absent: revoking a name nobody holds would claim it,
       // and creating is the create route's job. To revoke for a name a write
@@ -376,8 +392,10 @@ export function createAdminOps(deps: AdminDeps): AdminOps {
           )
           if (!written.ok) continue
         }
-        if (deps.announceRevoked) await deps.announceRevoked(repoId, effective)
-        return { repo: repoId, tokensValidSince: effective }
+        const announced = deps.announceRevoked
+          ? await deps.announceRevoked(repoId, effective)
+          : false
+        return { repo: repoId, tokensValidSince: effective, announced }
       }
       throw new Error('the Index is contended; try again')
     },

@@ -117,6 +117,15 @@ export class WalgitEvents extends DurableObject<EventsEnv> {
   /** Revocation reads for watches on scoped tokens (`shared/token-revocation.ts`). */
   private readonly revocations = new TokenRevocationReader()
 
+  /**
+   * The newest revocation announced per repository, in memory. A watch judged
+   * against the Index in flight while a revoke was announced read the old
+   * Index and was skipped by `revokeTokens` (it had no watch yet); this is
+   * checked, with no await between it and the attachment, to close that gap.
+   * Losing it on hibernation is harmless: no watch is in flight then.
+   */
+  private readonly announcedRevocations = new Map<string, string>()
+
   async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url)
 
@@ -127,6 +136,11 @@ export class WalgitEvents extends DurableObject<EventsEnv> {
       // a ref that has already been made durable, which is exactly what a later
       // handshake would go and read.
       this.refs.apply(parsed.value.events)
+      // A scoped socket is re-judged against its repository's Index before it
+      // is sent anything (docs/adr/0021), so a revocation whose announcement
+      // was lost still stops delivery: a socket is never served an event after
+      // its token was revoked, whichever way the news arrived.
+      await this.closeRevokedWatching(parsed.value.events)
       const delivered = this.broadcast(parsed.value.events)
       // A socket that outlives a revocation is a leak (docs/adr/0013), so the
       // sockets reading on the strength of the Reader List this push replaced
@@ -137,6 +151,12 @@ export class WalgitEvents extends DurableObject<EventsEnv> {
       // The same, for a repository whose scoped tokens an admin just revoked
       // (docs/adr/0021): the sockets watching on one issued before it close
       // now, rather than at the token's `exp`.
+      for (const { repo, since } of parsed.value.tokensRevoked) {
+        const known = this.announcedRevocations.get(repo)
+        if (known === undefined || Date.parse(since) > Date.parse(known)) {
+          this.announcedRevocations.set(repo, since)
+        }
+      }
       this.revokeTokens(parsed.value.tokensRevoked)
       return Response.json({ ok: true, delivered })
     }
@@ -218,7 +238,21 @@ export class WalgitEvents extends DurableObject<EventsEnv> {
         s3StoreFrom(this.env, (credentials) => new AwsClient(credentials)),
         this.revocations,
       )
-      if (verdict.kind !== 'valid') scopeRefused = 'unauthorized'
+      if (verdict.kind === 'unknown') {
+        // Not a verdict on the token: the client may retry, so the socket
+        // stays open, and nothing is attached or served.
+        ws.send(encode({ error: verdict.reason.replace(/^walgit: /, '') }))
+        return
+      }
+      if (verdict.kind === 'revoked') {
+        ws.send(encode({ error: 'unauthorized' }))
+        try {
+          ws.close(1008, 'walgit: token revoked')
+        } catch {
+          // Already gone.
+        }
+        return
+      }
     }
     if (scopeRefused) {
       ws.send(encode({ error: scopeRefused }))
@@ -262,6 +296,22 @@ export class WalgitEvents extends DurableObject<EventsEnv> {
         // there is nothing this socket could still be told.
         try {
           ws.close(1008, 'walgit: unauthorized')
+        } catch {
+          // Already gone.
+        }
+        return
+      }
+    }
+
+    // A revoke announced while this watch was being judged: the Index read
+    // above may predate it, and `revokeTokens` skipped this socket because it
+    // had no watch yet. Checked with no await before the attachment below.
+    if (scoped.kind === 'scoped') {
+      const announced = this.announcedRevocations.get(scoped.claims.repo)
+      if (announced !== undefined && tokenRevoked(scoped.claims.iat, announced)) {
+        ws.send(encode({ error: 'unauthorized' }))
+        try {
+          ws.close(1008, 'walgit: token revoked')
         } catch {
           // Already gone.
         }
@@ -346,6 +396,52 @@ export class WalgitEvents extends DurableObject<EventsEnv> {
         ws.close(1008, 'walgit: read access revoked')
       } catch {
         // Already gone; nothing to close.
+      }
+    }
+  }
+
+  /**
+   * Before a fan-out: close every scoped socket an event is about to reach
+   * whose token its repository's Index now revokes. One conditional read per
+   * repository, and only on a deployment with scoped sockets watching it. An
+   * Index that cannot be read closes the socket too — the client reconnects
+   * and is judged afresh — because delivering on an unknown verdict would be
+   * the fail-open this whole check exists to avoid.
+   */
+  private async closeRevokedWatching(events: readonly RefEvent[]): Promise<void> {
+    if (events.length === 0) return
+    const verdicts = new Map<string, string | null | 'unknown'>()
+    for (const ws of this.ctx.getWebSockets()) {
+      const { watch, expires, issued, scopedRepo } = readSubscription(ws)
+      if (!watch || expires === undefined) continue
+      if (!events.some((event) => watchCovers(watch, event))) continue
+      // A socket attached before `issued` was recorded cannot be judged here;
+      // the announcement path closes it on any revocation.
+      if (issued === undefined || scopedRepo === undefined) continue
+      if (!verdicts.has(scopedRepo)) {
+        const store = s3StoreFrom(this.env, (credentials) => new AwsClient(credentials))
+        let since: string | null | 'unknown' = 'unknown'
+        if (store) {
+          try {
+            since = await this.revocations.validSince(store, scopedRepo)
+          } catch {
+            since = 'unknown'
+          }
+        }
+        verdicts.set(scopedRepo, since)
+      }
+      const since = verdicts.get(scopedRepo)!
+      if (since === null) continue
+      if (since !== 'unknown' && !tokenRevoked(issued, since)) continue
+      try {
+        ws.send(
+          encode({
+            error: since === 'unknown' ? 'could not check token revocation' : 'unauthorized',
+          }),
+        )
+        ws.close(1008, since === 'unknown' ? 'walgit: try again' : 'walgit: token revoked')
+      } catch {
+        // Already gone.
       }
     }
   }

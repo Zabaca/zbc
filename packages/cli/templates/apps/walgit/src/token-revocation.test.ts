@@ -84,6 +84,7 @@ async function deployment() {
       now: () => new Date(nowMs),
       announceRevoked: async (repo, since) => {
         announced.push({ repo, since })
+        return true
       },
     }),
   })
@@ -132,6 +133,7 @@ describe('revoking alpha', () => {
     expect(await revoked.json()).toEqual({
       repo: 'alpha',
       tokensValidSince: new Date(START_MS + 5_000).toISOString(),
+      announced: true,
     })
     for (const [path, method] of surfaces('alpha')) {
       const res = await d.ask(path, before, method)
@@ -210,10 +212,20 @@ describe('the revoke endpoint', () => {
     const res = await d.revoke('alpha', JSON.stringify({ since: earlier }))
     expect(res.status).toBe(200)
     expect((await res.json()).tokensValidSince).toBe(earlier)
-    const later = new Date(START_MS + 60_000).toISOString()
+    const later = new Date(START_MS + 120_000).toISOString()
     expect((await d.revoke('alpha', JSON.stringify({ since: later }))).status).toBe(400)
     expect((await d.revoke('alpha', JSON.stringify({ since: 'yesterday' }))).status).toBe(400)
+    // Not ISO, though `Date.parse` would take it.
+    expect((await d.revoke('alpha', JSON.stringify({ since: 'Nov 11 2026' }))).status).toBe(400)
     expect((await d.revoke('alpha', 'not json')).status).toBe(400)
+  })
+
+  test('a since slightly ahead of this clock means now', async () => {
+    const d = await deployment()
+    const ahead = new Date(START_MS + 2_000).toISOString()
+    const res = await d.revoke('alpha', JSON.stringify({ since: ahead }))
+    expect(res.status).toBe(200)
+    expect((await res.json()).tokensValidSince).toBe(new Date(START_MS).toISOString())
   })
 
   test('never moves backwards', async () => {
