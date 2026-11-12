@@ -231,3 +231,98 @@ describe('a Private repository', () => {
     expect(res.headers.get('www-authenticate')).toContain(READ_CHALLENGE_SCHEME)
   })
 })
+
+/**
+ * Per-source rate limits, keyed on the tenant (`src/rate-limit.ts`). Hosted
+ * agents share cloud addresses, so a verified token's `sub` is the bucket when
+ * it carries one, and the address is when it does not.
+ */
+describe('rate limits with scoped tokens', () => {
+  function limitedDeployment(env: CapabilityEnv = { WALGIT_MAX_PUSHES_PER_SOURCE: '1' }) {
+    const refusals: (string | undefined)[] = []
+    const handler = createHttpHandler({
+      reposDir: '/srv/repos',
+      tokens: ['admin-token'],
+      capabilities: capabilitiesFrom(env),
+      scopedTokenKeys: PUBLIC_KEY,
+      tokenNow: () => NOW_MS,
+      ensureRepo: (repo) => repo,
+      runBackend: async (req) => {
+        refusals.push(req.env?.WALGIT_REFUSE)
+        return new Response('backend ran')
+      },
+    })
+    const push = (repo: string, credential: string, ip?: string) =>
+      handler(
+        new Request(`https://walgit.test/${repo}.git/git-receive-pack`, {
+          method: 'POST',
+          headers: {
+            authorization: `Bearer ${credential}`,
+            ...(ip ? { 'cf-connecting-ip': ip } : {}),
+          },
+          body: '0000',
+        }),
+      )
+    return { push, refusals }
+  }
+
+  test('two tenants on one address get separate buckets', async () => {
+    const { push, refusals } = limitedDeployment()
+    await push('alpha', await token({ sub: 'tenant-a' }), '203.0.113.7')
+    await push('alpha', await token({ sub: 'tenant-b' }), '203.0.113.7')
+    expect(refusals).toEqual([undefined, undefined])
+    await push('alpha', await token({ sub: 'tenant-a' }), '203.0.113.7')
+    expect(refusals[2]).toContain('one tenant push 1 time')
+    expect(refusals[2]).toContain("Counted per tenant (your token's sub)")
+  })
+
+  test('one tenant on two addresses, across two repositories, shares one bucket', async () => {
+    const { push, refusals } = limitedDeployment()
+    await push('alpha', await token({ sub: 'tenant-a' }), '203.0.113.7')
+    await push('beta', await token({ repo: 'beta', sub: 'tenant-a' }), '198.51.100.4')
+    expect(refusals[0]).toBeUndefined()
+    expect(refusals[1]).toContain('walgit: refused')
+  })
+
+  test('a tenant is counted even where no address is visible', async () => {
+    const { push, refusals } = limitedDeployment()
+    await push('alpha', await token({ sub: 'tenant-a' }))
+    await push('alpha', await token({ sub: 'tenant-a' }))
+    expect(refusals[1]).toContain('walgit: refused')
+  })
+
+  test('a token without sub falls back to its address', async () => {
+    const { push, refusals } = limitedDeployment()
+    await push('alpha', await token(), '203.0.113.7')
+    await push('beta', await token({ repo: 'beta' }), '198.51.100.4')
+    // Same address as the first: one bucket, and the message is the per-client one.
+    await push('alpha', await token(), '203.0.113.7')
+    expect(refusals[0]).toBeUndefined()
+    expect(refusals[1]).toBeUndefined()
+    expect(refusals[2]).toContain('one client push 1 time')
+    expect(refusals[2]).not.toContain('per tenant')
+  })
+
+  test('a sub never shares a bucket with the address it spells', async () => {
+    const { push, refusals } = limitedDeployment()
+    await push('alpha', await token(), '203.0.113.7')
+    await push('alpha', await token({ sub: '203.0.113.7' }), '198.51.100.4')
+    expect(refusals).toEqual([undefined, undefined])
+  })
+
+  test('the admin credential is counted by address, as before', async () => {
+    const { push, refusals } = limitedDeployment()
+    await push('alpha', await token({ sub: 'tenant-a' }), '203.0.113.7')
+    await push('alpha', 'admin-token', '203.0.113.7')
+    await push('alpha', 'admin-token', '203.0.113.7')
+    expect(refusals[0]).toBeUndefined()
+    expect(refusals[1]).toBeUndefined()
+    expect(refusals[2]).toContain('one client push 1 time')
+  })
+
+  test('with no limit set, tenants are not counted at all', async () => {
+    const { push, refusals } = limitedDeployment({})
+    for (let i = 0; i < 5; i++) await push('alpha', await token({ sub: 'tenant-a' }), '203.0.113.7')
+    expect(refusals.every((r) => r === undefined)).toBe(true)
+  })
+})
