@@ -130,7 +130,10 @@ function facts(caps: Capabilities): string[] {
   // one and pays for every sentence out of a byte budget — the long form is
   // `/llms.txt`.
   if (caps.sourceLimited) {
-    const per = `per client per ${describeWindow(caps.rateWindowSeconds)}`
+    // Per tenant only where a scoped token can name one; elsewhere a client is
+    // its address, and the sentence reads exactly as it always has.
+    const who = caps.scopedTokens ? 'tenant (token sub) or client' : 'client'
+    const per = `per ${who} per ${describeWindow(caps.rateWindowSeconds)}`
     const parts: string[] = []
     if (caps.maxNewReposPerSource !== null) {
       parts.push(`${caps.maxNewReposPerSource} new repositories`)
