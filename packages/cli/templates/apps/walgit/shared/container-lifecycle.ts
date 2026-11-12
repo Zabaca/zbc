@@ -130,7 +130,7 @@ export function inactivityTimeoutMs(sleepAfterMs: number): number {
  * drops a response without reading or cancelling its body leaves a stream that
  * may never finish, and one such request would keep the container up forever:
  * the alarm sees it in flight and re-arms, every time. An hour is far past any
- * clone or push this host takes (the push cap is 99 MiB), so a request still
+ * clone or push this host takes (the public push cap is 90 MiB), so a request still
  * counted after it is let go of, and the idle clock starts.
  */
 export const INFLIGHT_MAX_MS = 60 * 60 * 1000

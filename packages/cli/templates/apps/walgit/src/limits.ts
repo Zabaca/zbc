@@ -9,6 +9,9 @@
  * refused only AFTER all 104,879,625 bytes have gone up — 37 s of upload to
  * learn the answer, reported as `RPC failed; HTTP 413` and `unexpected
  * disconnect`. That reads like a dropped network, so an agent retries it.
+ * Behind Cloudflare the same cutoff is the plan's request-body limit, 100 MB
+ * (decimal) on Free and Pro, so a cap set from the Fly number would be one the
+ * edge enforces first; the public instance's is 90 MiB for that reason.
  *
  * So walgit enforces its own caps, and it does so in `pre-receive`: the pack is
  * sitting in the quarantine, its size is known exactly, and nothing has been
