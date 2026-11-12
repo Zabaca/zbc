@@ -24,6 +24,13 @@
 import { eventsFromChanges } from '../shared/events'
 import { ANNOUNCE_PATH, SIGNERS_REF } from '../shared/protocol'
 import type { RefChange } from '../shared/wal-index'
+import {
+  type DeliverOptions,
+  type WebhookConfig,
+  deliverWebhook,
+  webhookConfigFromEnv,
+  webhookEventsFromChanges,
+} from '../shared/webhook'
 
 export interface AnnounceConfig {
   /** The deployment's own public origin — the Worker in front of this container. */
@@ -107,4 +114,46 @@ export async function announce(
     process.stderr.write(`walgit: ref-event announce failed: ${(err as Error).message}\n`)
     return false
   }
+}
+
+/** Everything a push can be announced to. Either half may be absent. */
+export interface PublishConfig {
+  events: AnnounceConfig | null
+  webhook: WebhookConfig | null
+}
+
+/** What this environment announces to, or null when it announces to nothing. */
+export function publishConfigFromEnv(
+  env: Record<string, string | undefined> = process.env,
+): PublishConfig | null {
+  const config = { events: announceConfigFromEnv(env), webhook: webhookConfigFromEnv(env) }
+  return config.events || config.webhook ? config : null
+}
+
+/**
+ * The one place a moved ref is announced: to the ref-event stream and to the
+ * push webhook (shared/webhook.ts), from the same changes. Anything that moves
+ * a ref and calls this fires both, so a new way of moving one cannot forget
+ * the webhook. Never throws.
+ *
+ * The webhook's retries are awaited here, which is why this runs in the
+ * detached announcer (src/announce-main.ts) and never on the push path.
+ */
+export async function publish(
+  config: PublishConfig,
+  repoId: string,
+  changes: readonly RefChange[],
+  merged: Readonly<Record<string, string[]>> = {},
+  options: { fetchImpl?: typeof fetch; webhook?: DeliverOptions } = {},
+): Promise<void> {
+  const fetchImpl = options.fetchImpl ?? fetch
+  const work: Promise<unknown>[] = []
+  if (config.events) work.push(announce(config.events, repoId, changes, fetchImpl, merged))
+  if (config.webhook) {
+    const webhook = config.webhook
+    for (const event of webhookEventsFromChanges(repoId, changes, merged)) {
+      work.push(deliverWebhook(webhook, event, { fetchImpl, ...options.webhook }))
+    }
+  }
+  await Promise.allSettled(work)
 }

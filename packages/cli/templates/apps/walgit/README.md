@@ -790,7 +790,9 @@ Optional instance configuration (plain env, not secrets): `WALGIT_APPEND_ONLY`,
 `WALGIT_PUBLIC`, `WALGIT_SIGNER_LISTS`, `WALGIT_WEB` (the web view above) —
 each unset means the behaviour is off
 and `GET /` does not claim it. `WALGIT_EVENTS_URL` and `WALGIT_EVENTS_TOKEN` (a
-secret) turn on the ref-event stream below, `WALGIT_PUSH_CERT_SEED` (a secret)
+secret) turn on the ref-event stream below, `WALGIT_WEBHOOK_URL` and
+`WALGIT_WEBHOOK_SECRET` (a secret) turn on the push webhook below,
+`WALGIT_PUSH_CERT_SEED` (a secret)
 turns on signed pushes, and `WALGIT_PRIVATE_REPOS` (a secret) turns on read
 gating.
 
@@ -1108,6 +1110,65 @@ rate, which is sound only because events are latest state: the sha you receive
 when the window elapses is the one you would have converged to anyway. The cost
 is that a push can reach a subscriber up to half a second late when its ref is
 already moving.
+
+## Push webhook
+
+The stream needs a client that can hold a socket open. A serverless receiver
+cannot, so a deployment can also POST every ref move to one URL its operator
+configures. Set both `WALGIT_WEBHOOK_URL` and `WALGIT_WEBHOOK_SECRET` (a shared
+secret, in `workerSecrets`) to turn it on; with either unset nothing is sent and
+walgit behaves exactly as without it. The URL is never published — `/llms.txt`
+says only that the webhook is on.
+
+Each moved ref is one POST with a JSON body. The names are the stream's, plus
+`oldSha`, an `id` and a `timestamp`:
+
+```json
+{
+  "id": "01JD3Q8X6M2P4R7T9V0WXYZABC",
+  "repo": "my-thing",
+  "ref": "refs/heads/main",
+  "oldSha": "9f2c…",
+  "sha": "0ab7…",
+  "timestamp": "2026-11-11T12:00:00.000Z"
+}
+```
+
+`oldSha` is `null` when the push created the ref and `sha` is `null` when it
+deleted it; `merged` (the Proposals the move landed) appears exactly when it does
+on the stream. The headers are `X-Walgit-Event` (the `id` again),
+`X-Walgit-Timestamp` (Unix seconds at the attempt) and `X-Walgit-Signature`:
+`sha256=` and the hex HMAC-SHA256, keyed by the secret, of
+`<timestamp>.<raw body>`.
+
+It fires from the same `post-receive` announcer as the stream
+(`publish` in `src/announce.ts`), so it fires only once the push is durable,
+never for a push that lost the compare-and-swap, and for anything that moves a
+ref through that path. Delivery is **at least once**: a network failure, a 5xx,
+a 408 or a 429 is retried with backoff (1, 2, 4, 8 seconds — five attempts, five
+seconds each), every attempt carries the same `id` and body, and the timestamp
+is re-stamped so a late retry is still fresh. Any other 4xx is not repeated.
+It all runs in the detached announcer, so a receiver that is down never fails
+or slows a push; an event whose attempts all fail is logged by id and dropped,
+because the refs are in `index.json` regardless. The secret is never logged.
+
+Verify on the receiver against the **raw** body — parse it after:
+
+```ts
+import { createHmac, timingSafeEqual } from 'node:crypto'
+
+function verify(secret: string, raw: string, headers: Headers): boolean {
+  const timestamp = headers.get('x-walgit-timestamp') ?? ''
+  const signature = headers.get('x-walgit-signature') ?? ''
+  // Refuse a replay: five minutes covers clock skew, and every retry is re-stamped.
+  if (!/^\d+$/.test(timestamp) || Math.abs(Date.now() / 1000 - Number(timestamp)) > 300) return false
+  const expected = `sha256=${createHmac('sha256', secret).update(`${timestamp}.${raw}`).digest('hex')}`
+  return signature.length === expected.length && timingSafeEqual(Buffer.from(signature), Buffer.from(expected))
+}
+```
+
+Then de-duplicate on `id`. `verifyWebhook` in `shared/webhook.ts` is the same
+check in WebCrypto, for a receiver on Workers.
 
 ## Authorization, today
 

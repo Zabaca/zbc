@@ -60,6 +60,8 @@ type CapabilityVar = Extract<
   | 'WALGIT_MAX_REPO_BYTES'
   | 'WALGIT_EVENTS_URL'
   | 'WALGIT_EVENTS_TOKEN'
+  | 'WALGIT_WEBHOOK_URL'
+  | 'WALGIT_WEBHOOK_SECRET'
   | 'WALGIT_PUSH_CERT_SEED'
   | 'WALGIT_SIGNER_LISTS'
   | 'WALGIT_PRIVATE_REPOS'
@@ -108,6 +110,12 @@ export type Capabilities = {
    * since an agent writes the client before finding out.
    */
   events: boolean
+  /**
+   * Every moved ref is also POSTed, signed, to the operator's webhook
+   * (shared/webhook.ts). Both halves, read as `webhookConfigFromEnv` reads
+   * them. Says only THAT it is on: the URL is the operator's, never published.
+   */
+  webhook: boolean
   /**
    * A signed push is accepted, and who made it is recorded.
    *
@@ -300,6 +308,7 @@ export function capabilitiesFrom(
     // (`src/announce.ts`) makes of the same two variables — the config the push
     // path announces with and this advertisement cannot be allowed to disagree.
     events: nonBlank(env.WALGIT_EVENTS_URL) && nonBlank(env.WALGIT_EVENTS_TOKEN),
+    webhook: nonBlank(env.WALGIT_WEBHOOK_URL) && nonBlank(env.WALGIT_WEBHOOK_SECRET),
     signedPushes,
     namesCanRefuse,
     namesCanBeClaimed,

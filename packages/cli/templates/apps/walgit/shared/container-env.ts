@@ -71,6 +71,11 @@ export const CONTAINER_ENV = [
   // stranger fabricating events (shared/events.ts).
   'WALGIT_EVENTS_URL',
   'WALGIT_EVENTS_TOKEN',
+  // The push webhook's two halves (shared/webhook.ts). Delivered from the same
+  // detached announcer as the stream, inside the container, so the container
+  // is the side that needs the URL and the signing secret.
+  'WALGIT_WEBHOOK_URL',
+  'WALGIT_WEBHOOK_SECRET',
   // Signed pushes. The seed is what `git-receive-pack` derives its nonce from,
   // and receive-pack runs inside the container — so this is the variable that
   // decides whether the capability is advertised at all (src/push-cert.ts).
