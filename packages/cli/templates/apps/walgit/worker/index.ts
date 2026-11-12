@@ -238,6 +238,13 @@ export interface Env extends ContainerBindings {
    * whoever mints tokens holds the private half, and walgit never does.
    */
   WALGIT_TOKEN_PUBLIC_KEYS?: string
+  /**
+   * `1` to let the host merge a branch on request — fast-forward or squash, as
+   * a compare-and-swap (`src/merge.ts`, docs/adr/0022). Off unless set, and
+   * then `POST /_walgit/merge` does not exist. Only forwarded: the route and the
+   * push it makes are the container's.
+   */
+  WALGIT_MERGE?: string
   WALGIT_EVENTS: DurableObjectNamespace<WalgitEvents>
 }
 

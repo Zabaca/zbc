@@ -36,6 +36,7 @@ import {
   ADMIN_REPOS_HTTP,
   BASIC_CHALLENGE,
   BROWSE_PATH,
+  MERGE_PATH,
   CHALLENGE_PATH,
   EXPIRE_PATH,
   HEALTH_PATH,
@@ -52,6 +53,7 @@ import {
   type ContainerRejectKind,
 } from '../shared/protocol'
 import { MAX_SEED_BYTES, parseSeed, type AdminOps } from './admin'
+import { MAX_MERGE_BODY_BYTES, parseMergeRequest, type MergeOps, type MergeResult } from './merge'
 import { emptyReadResponse } from './empty-read'
 import { renderInstructions } from '../shared/instructions'
 import { acceptedNonces, readAllowed, readChallengeNonce, renderReadChallenge } from './private'
@@ -221,6 +223,13 @@ export type HttpHandlerDeps = {
    * exist, as they do not on a deployment with no `tokens` at all.
    */
   admin?: AdminOps
+  /**
+   * Merge one branch into another on request (`src/merge.ts`, docs/adr/0022).
+   * The route exists only where the capabilities say `merge` AND this is
+   * wired — absent without a store, where there is no Index to compare-and-swap
+   * on — so with `WALGIT_MERGE` unset it is a 404.
+   */
+  merge?: MergeOps
 }
 
 /** Everything the Private gate needs, present or absent as a whole. */
@@ -981,6 +990,34 @@ function createRouter(deps: HttpHandlerDeps): (req: Request) => Promise<Response
     }
   }
 
+  /** One merge request, already authenticated. */
+  async function merge(ops: MergeOps, request: Request, url: URL): Promise<Response> {
+    let resolved: ResolvedRepo
+    try {
+      resolved = resolveRepo(deps.reposDir, url.searchParams.get('repo') ?? '')
+    } catch {
+      return NOT_FOUND()
+    }
+    const declared = Number(request.headers.get('content-length') ?? '0')
+    const tooLarge = () =>
+      reject(413, 'invalid', `walgit: a merge request is at most ${MAX_MERGE_BODY_BYTES} bytes\n`)
+    if (Number.isFinite(declared) && declared > MAX_MERGE_BODY_BYTES) return tooLarge()
+    const text = await readBounded(request, MAX_MERGE_BODY_BYTES)
+    if (text === null) return tooLarge()
+    const parsed = parseMergeRequest(text)
+    if (!parsed.ok) return reject(400, 'invalid', `walgit: ${parsed.message}\n`)
+
+    let result: MergeResult
+    try {
+      result = await ops.merge(resolved, parsed.request)
+    } catch (err) {
+      // The store or the Cache. Nothing moved: every way a merge moves a ref
+      // is a push that succeeded, and a push that succeeded returns.
+      return reject(503, 'unavailable', `walgit: ${(err as Error).message}\n`)
+    }
+    return mergeAnswer(result)
+  }
+
   return async (request) => {
     const url = new URL(request.url)
 
@@ -1199,6 +1236,19 @@ function createRouter(deps: HttpHandlerDeps): (req: Request) => Promise<Response
       return browse(deps.browse, request, url)
     }
 
+    // A merge the host performs (docs/adr/0022). Below the credential gate, so
+    // it takes exactly the credential a push takes: a `write` scoped token for
+    // this repository (a `read` one and another repository's were refused 403
+    // above, by `scopeTargetOf` naming this path a write), or the deployment
+    // credential. Every rule a push meets after that it meets too, because the
+    // merge IS a push into the Cache (`src/merge.ts`).
+    if (url.pathname === MERGE_PATH) {
+      const offered = (deps.capabilities ?? ADVERTISES_NOTHING).merge
+      if (!offered || !deps.merge) return NOT_FOUND()
+      if (request.method !== 'POST') return NOT_FOUND()
+      return merge(deps.merge, request, url)
+    }
+
     // What Proposals a repository holds (docs/adr/0018). Beside the provenance
     // read and gated identically — the deployment credential above, then the
     // Read Challenge below — because it answers the same kind of question about
@@ -1400,6 +1450,88 @@ function createRouter(deps: HttpHandlerDeps): (req: Request) => Promise<Response
       request,
       ...(refusal ? { env: { [REFUSE_ENV]: refusal } } : {}),
     })
+  }
+}
+
+/**
+ * A merge's result as HTTP. Every refusal is JSON with an `error` that says
+ * which one it is, because a client choosing between "read the target again"
+ * (`stale`, `contended`), "resolve it in a clone" (`conflict`) and "this will
+ * never work here" (`signed`) must not have to parse a sentence to know which.
+ */
+function mergeAnswer(result: MergeResult): Response {
+  // A refusal carries the kind the edge counts refusals by, as `reject` does:
+  // a lost race or a conflict is a `collision`, the rest name themselves.
+  const kindOf = (status: number): ContainerRejectKind =>
+    status === 409
+      ? 'collision'
+      : status === 404
+        ? 'not-found'
+        : status === 403
+          ? 'unauthorized'
+          : 'invalid'
+  const answer = (status: number, body: Record<string, unknown>) =>
+    new Response(`${JSON.stringify(body)}\n`, {
+      status,
+      headers: {
+        'content-type': 'application/json; charset=utf-8',
+        'cache-control': 'no-store',
+        ...(status >= 400 ? { [REJECT_HEADER]: kindOf(status) } : {}),
+      },
+    })
+  switch (result.kind) {
+    case 'merged': {
+      const { kind: _kind, summary, ...rest } = result
+      return answer(200, {
+        ...rest,
+        ...(summary ?? { files: null, totals: null, truncated: true }),
+      })
+    }
+    case 'not-found':
+      return answer(404, { error: 'not-found', message: `walgit: ${result.message}` })
+    case 'invalid':
+      return answer(400, { error: 'invalid', message: `walgit: ${result.message}` })
+    case 'unrelated':
+      return answer(400, {
+        error: 'unrelated',
+        message: 'walgit: the source and the target share no history, so there is nothing to merge',
+      })
+    case 'stale':
+      return answer(409, {
+        error: 'stale',
+        ref: result.ref,
+        expected: result.expected,
+        actual: result.actual,
+        message: `walgit: ${result.ref} is at ${result.actual}, not ${result.expected} — read it again and decide whether to merge onto it`,
+      })
+    case 'contended':
+      return answer(409, {
+        error: 'contended',
+        ref: result.ref,
+        message: `walgit: ${result.message}`,
+      })
+    case 'not-fast-forward':
+      return answer(409, {
+        error: 'not-fast-forward',
+        ref: result.ref,
+        message: `walgit: ${result.ref} is not an ancestor of the source, so this is not a fast-forward — squash it, or merge in a clone`,
+      })
+    case 'up-to-date':
+      return answer(409, {
+        error: 'up-to-date',
+        ref: result.ref,
+        message: `walgit: ${result.ref} already holds everything the source would bring`,
+      })
+    case 'conflict':
+      return answer(409, {
+        error: 'conflict',
+        conflicts: result.paths,
+        message: `walgit: the squash conflicts in ${result.paths.length} path${result.paths.length === 1 ? '' : 's'} — resolve it in a clone and push`,
+      })
+    case 'signed':
+      return answer(403, { error: 'signed', message: `walgit: ${result.message}` })
+    case 'refused':
+      return answer(422, { error: 'refused', message: result.message })
   }
 }
 

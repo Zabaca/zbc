@@ -96,6 +96,9 @@ export const CONTAINER_ENV = [
   // nonce and mints nothing — it only widens what `pre-receive` accepts on a
   // claimed name, and the hook that widens runs in the container.
   'WALGIT_PROPOSALS',
+  // Host merges (docs/adr/0022). A plain flag: the merge route and the push it
+  // makes are both the container's, so it is the container that must know.
+  'WALGIT_MERGE',
   // The web view (`shared/repo-list.ts`). The only variable on this list that
   // nothing inside the container reads: the list is answered at the edge, off
   // the log, precisely so a browse does not wake the container. It is here

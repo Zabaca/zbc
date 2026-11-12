@@ -144,8 +144,11 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
-/** A git ident half: what `commit-tree` would otherwise strip or choke on. */
-function identPart(value: unknown): value is string {
+/**
+ * A git ident half: what `commit-tree` would otherwise strip or choke on.
+ * Shared with `src/merge.ts`, whose squash commit takes an author too.
+ */
+export function identPart(value: unknown): value is string {
   return (
     typeof value === 'string' && value.trim() !== '' && !/[<>]/.test(value) && !hasControl(value)
   )

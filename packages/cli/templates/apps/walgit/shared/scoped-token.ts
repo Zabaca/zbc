@@ -29,6 +29,7 @@ import { seedValue } from './policy'
 import {
   BASIC_CHALLENGE,
   BROWSE_PATH,
+  MERGE_PATH,
   EVENTS_PATH,
   MCP_PATH,
   PROPOSALS_HTTP,
@@ -369,6 +370,14 @@ export function scopeTargetOf(method: string, pathname: string, search: string):
     return repo === null
       ? { kind: 'elsewhere' }
       : { kind: 'repo', repo: canonical(repo), write: false }
+  }
+  // A host merge (docs/adr/0022) moves a ref, so it is a write whatever the
+  // method: a `read` token is refused it exactly as it is refused a push.
+  if (pathname === MERGE_PATH) {
+    const repo = new URLSearchParams(search).get('repo')
+    return repo === null
+      ? { kind: 'elsewhere' }
+      : { kind: 'repo', repo: canonical(repo), write: true }
   }
   if (pathname === MCP_PATH || pathname === EVENTS_PATH) return { kind: 'per-message' }
   if (pathname === REPOS_PATH) return { kind: 'list' }

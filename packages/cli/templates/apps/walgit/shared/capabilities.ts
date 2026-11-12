@@ -66,6 +66,7 @@ type CapabilityVar = Extract<
   | 'WALGIT_SIGNER_LISTS'
   | 'WALGIT_PRIVATE_REPOS'
   | 'WALGIT_PROPOSALS'
+  | 'WALGIT_MERGE'
   | 'WALGIT_WEB'
   | 'WALGIT_TOKEN_PUBLIC_KEYS'
   | 'WALGIT_RATE_WINDOW_SECONDS'
@@ -212,6 +213,13 @@ export type Capabilities = {
    * repository, read or write. Off unless `WALGIT_TOKEN_PUBLIC_KEYS` is set.
    */
   scopedTokens: boolean
+  /**
+   * The host merges on request (`src/merge.ts`, docs/adr/0022): `POST
+   * /_walgit/merge` moves a branch by fast-forward or squash, as a
+   * compare-and-swap, through the same push path a client's push takes. Off
+   * unless `WALGIT_MERGE` is set, and then the route does not exist.
+   */
+  merge: boolean
   /** A repository is collected this many hours after its last push. */
   retentionHours: number | null
   /**
@@ -327,6 +335,7 @@ export function capabilitiesFrom(
     proposals: namesCanRefuse && signedPushes && flagEnabled(env.WALGIT_PROPOSALS),
     web: flagEnabled(env.WALGIT_WEB),
     scopedTokens: seedValue(env.WALGIT_TOKEN_PUBLIC_KEYS) !== null,
+    merge: flagEnabled(env.WALGIT_MERGE),
     retentionHours,
     claimedRetentionHours:
       namesCanBeClaimed &&

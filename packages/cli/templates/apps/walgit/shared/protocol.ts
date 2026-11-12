@@ -247,6 +247,20 @@ export const REPOS_PATH = '/repos'
 export const BROWSE_PATH = '/_walgit/browse'
 
 /**
+ * A merge the host performs (docs/adr/0022): `POST ?repo=<name>` with a JSON
+ * body naming the source, the target, the method and the commit the target is
+ * expected to be at (`src/merge.ts`).
+ *
+ * Its own path rather than an op of `BROWSE_PATH`, because it is a WRITE: a
+ * browse is a read a `read` token may make and the web view's flag governs,
+ * and a merge is neither. The name rides the query string as the compare's
+ * does, so the scope check reads it the same way. It exists only where the
+ * deployment sets `WALGIT_MERGE`; everywhere else it is the 404 any path walgit
+ * does not serve is.
+ */
+export const MERGE_PATH = '/_walgit/merge'
+
+/**
  * The browse URLs a person types: `/<name>`, and `/<name>/<kind>/<rest>` for
  * each of the four GitHub-shaped reads.
  *
