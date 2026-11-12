@@ -17,9 +17,11 @@ import { capabilitiesFrom } from '../shared/capabilities'
 import { BOOT_MARKER } from '../shared/container-snapshot'
 import { parseTokens } from '../shared/credentials'
 import { tokenPublicKeysConfigError } from '../shared/scoped-token'
+import { createAdminOps } from './admin'
 import { compareRevs, listCommits, listTree, readBlob, statBlob } from './browse'
 import { clearBootResidue } from './boot-residue'
 import { ensureBareRepo } from './cache'
+import { configuredDeleteGraceMs } from './delete-repo'
 import { publishUploadPackAtBoot } from './edge-refs'
 import { configuredClaimedExpiryMs, configuredExpiryMs, expireRepos } from './expire'
 import { createHttpHandler, type SweepOptions } from './http'
@@ -218,6 +220,18 @@ try {
     syncRepo: (repo) => syncRepo(store, repo),
     runBackend: runGitHttpBackend,
     capabilities: caps,
+    // Create, delete and measure one repository for a server holding the admin
+    // credential (`src/admin.ts`). Absent without a store, where there is no
+    // Index to claim a name in; the handler also withholds the routes from a
+    // deployment with no admin credential configured.
+    admin: store
+      ? createAdminOps({
+          store,
+          ensureRepo: ensureBareRepo,
+          syncRepo: (repo) => syncRepo(store, repo),
+          graceMs: configuredDeleteGraceMs(),
+        })
+      : undefined,
     // Only when there is both a log to sweep and a window to sweep by. An
     // instance with no retention configured has expiry off entirely, and the
     // endpoint should not exist for it — `expireRepos` would return an empty

@@ -249,6 +249,14 @@ _Avoid_: auth server, IdP
 **Scope**:
 The one repository and mode a Scoped Token's claims grant. "Out of scope" is a 403; a token that does not verify at all (expired, badly signed, wrong key, malformed, the wrong `alg`) is a 401.
 
+**Admin Route**:
+`/_walgit/admin/repos/<name>` — create (optionally with a **Seed**), delete, and `…/usage` — answered only to the admin token, so a server holding no store credentials can manage repositories. A Scoped Token is refused there with 403 whatever its Scope; a deployment with no admin token has no Admin Routes (404).
+_Avoid_: management API, control plane
+
+**Seed**:
+The first commit an Admin Route create may carry: files, a message, an author and a branch. It is built in a scratch repository and **pushed**, so the hooks judge it as they judge any push — never written into the Index directly.
+_Avoid_: template, import
+
 ## The MCP endpoint
 
 **MCP Endpoint**:
