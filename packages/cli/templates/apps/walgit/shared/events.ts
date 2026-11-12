@@ -216,6 +216,20 @@ export function parseWatch(raw: string): Parsed<WatchEntry[]> {
 export interface Announcement {
   events: RefEvent[]
   readersChanged: string[]
+  /**
+   * Repositories whose scoped tokens were revoked (docs/adr/0021), with the
+   * tokens-valid-since instant now in force. A socket watching on a scoped
+   * token for one of them, issued before it, is closed. Sent by the admin
+   * revoke rather than a push, with no events; absent reads as empty.
+   */
+  tokensRevoked: TokensRevoked[]
+}
+
+/** One repository's revocation, as the admin revoke announces it. */
+export interface TokensRevoked {
+  repo: string
+  /** ISO instant: scoped tokens for `repo` issued before it are refused. */
+  since: string
 }
 
 /** The announcement the push path publishes, validated at the door. */
@@ -236,6 +250,23 @@ export function parseAnnounce(body: unknown): Parsed<Announcement> {
         error: `invalid repository name in "readersChanged": ${JSON.stringify(repo ?? null)}`,
       }
     }
+  }
+
+  const revokedRaw = (body as { tokensRevoked?: unknown }).tokensRevoked ?? []
+  if (!Array.isArray(revokedRaw)) return { ok: false, error: '"tokensRevoked" is not an array' }
+  const tokensRevoked: TokensRevoked[] = []
+  for (const item of revokedRaw) {
+    const { repo, since } = (item ?? {}) as { repo?: unknown; since?: unknown }
+    if (typeof repo !== 'string' || !REPO_ID.test(repo)) {
+      return {
+        ok: false,
+        error: `invalid repository name in "tokensRevoked": ${JSON.stringify(repo ?? null)}`,
+      }
+    }
+    if (typeof since !== 'string' || !Number.isFinite(Date.parse(since))) {
+      return { ok: false, error: `invalid "since" in "tokensRevoked" for ${repo}` }
+    }
+    tokensRevoked.push({ repo, since })
   }
 
   const parsed: RefEvent[] = []
@@ -286,7 +317,10 @@ export function parseAnnounce(body: unknown): Parsed<Announcement> {
       ...(Array.isArray(merged) && merged.length > 0 ? { merged: [...(merged as string[])] } : {}),
     })
   }
-  return { ok: true, value: { events: parsed, readersChanged: [...(changed as string[])] } }
+  return {
+    ok: true,
+    value: { events: parsed, readersChanged: [...(changed as string[])], tokensRevoked },
+  }
 }
 
 /**

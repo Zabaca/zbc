@@ -116,6 +116,41 @@ export async function announce(
   }
 }
 
+/**
+ * Tell the fan-out a repository's scoped tokens were revoked (docs/adr/0021),
+ * so a socket already open on one of them is closed now rather than served
+ * until its `exp`. Never throws, for the reason `announce` never does: the
+ * revocation is already in the Index, and every new request reads it there.
+ * Returns whether the fan-out acknowledged it.
+ */
+export async function announceTokensRevoked(
+  config: AnnounceConfig,
+  repoId: string,
+  since: string,
+  fetchImpl: typeof fetch = fetch,
+): Promise<boolean> {
+  try {
+    const response = await fetchImpl(`${config.url}${ANNOUNCE_PATH}`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        authorization: `Bearer ${config.token}`,
+      },
+      body: JSON.stringify({ events: [], tokensRevoked: [{ repo: repoId, since }] }),
+      signal: AbortSignal.timeout(ANNOUNCE_TIMEOUT_MS),
+    })
+    await response.body?.cancel()
+    if (!response.ok) {
+      process.stderr.write(`walgit: token revocation announce refused (${response.status})\n`)
+      return false
+    }
+    return true
+  } catch (err) {
+    process.stderr.write(`walgit: token revocation announce failed: ${(err as Error).message}\n`)
+    return false
+  }
+}
+
 /** Everything a push can be announced to. Either half may be absent. */
 export interface PublishConfig {
   events: AnnounceConfig | null

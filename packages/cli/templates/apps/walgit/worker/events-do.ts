@@ -25,6 +25,7 @@ import { DurableObject } from 'cloudflare:workers'
 import { capabilitiesFrom } from '../shared/capabilities'
 import {
   type RefEvent,
+  type TokensRevoked,
   type WatchEntry,
   authorizeSubscribe,
   encode,
@@ -39,6 +40,9 @@ import { parseTokens } from '../shared/credentials'
 import { scopedAccessOf, scopedTokenExpired, scopedWatchRefusal } from '../shared/scoped-token'
 import { INTERNAL_HEADER, READ_VERDICT_PATH, REFS_PATH } from '../shared/protocol'
 import { RefCache } from '../shared/ref-cache'
+import { s3StoreFrom } from '../shared/store'
+import { revocationOf, TokenRevocationReader, tokenRevoked } from '../shared/token-revocation'
+import { AwsClient } from 'aws4fetch'
 import { type ContainerBindings, containerFor } from './container-binding'
 
 /** Only the bindings this object touches — the Worker's Env is a superset. */
@@ -63,6 +67,16 @@ export interface EventsEnv extends ContainerBindings {
    */
   WALGIT_TOKEN_PUBLIC_KEYS?: string
   WALGIT_HTTP_TOKENS?: string
+  /**
+   * The object store, read for one thing only: whether a scoped token's
+   * repository has revoked its tokens since it was issued
+   * (`shared/token-revocation.ts`). The same variables the Worker reads it by.
+   */
+  WALGIT_S3_ENDPOINT?: string
+  WALGIT_S3_BUCKET?: string
+  WALGIT_S3_ACCESS_KEY_ID?: string
+  WALGIT_S3_SECRET_ACCESS_KEY?: string
+  WALGIT_S3_REGION?: string
 }
 
 /** The Worker's internal call to fan an announcement out. Never client-reachable. */
@@ -100,6 +114,9 @@ export class WalgitEvents extends DurableObject<EventsEnv> {
    */
   private readonly outboxes = new WeakMap<WebSocket, Outbox>()
 
+  /** Revocation reads for watches on scoped tokens (`shared/token-revocation.ts`). */
+  private readonly revocations = new TokenRevocationReader()
+
   async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url)
 
@@ -117,6 +134,10 @@ export class WalgitEvents extends DurableObject<EventsEnv> {
       // bounds its own wait, and a revocation deferred to a timer is one that
       // may never run on an object about to hibernate.
       await this.revoke(parsed.value.readersChanged)
+      // The same, for a repository whose scoped tokens an admin just revoked
+      // (docs/adr/0021): the sockets watching on one issued before it close
+      // now, rather than at the token's `exp`.
+      this.revokeTokens(parsed.value.tokensRevoked)
       return Response.json({ ok: true, delivered })
     }
 
@@ -187,7 +208,18 @@ export class WalgitEvents extends DurableObject<EventsEnv> {
         ...(this.env.WALGIT_EVENTS_TOKEN ? [this.env.WALGIT_EVENTS_TOKEN] : []),
       ],
     })
-    const scopeRefused = scopedWatchRefusal(scoped, watchedRepos(parsed.value))
+    let scopeRefused = scopedWatchRefusal(scoped, watchedRepos(parsed.value))
+    // Revoked since it was issued (`shared/token-revocation.ts`): read from
+    // the Index here too, because the watch can arrive long after the upgrade
+    // the Worker judged. Unreadable is refused, never read as valid.
+    if (!scopeRefused && scoped.kind === 'scoped') {
+      const verdict = await revocationOf(
+        scoped.claims,
+        s3StoreFrom(this.env, (credentials) => new AwsClient(credentials)),
+        this.revocations,
+      )
+      if (verdict.kind !== 'valid') scopeRefused = 'unauthorized'
+    }
     if (scopeRefused) {
       ws.send(encode({ error: scopeRefused }))
       try {
@@ -242,7 +274,9 @@ export class WalgitEvents extends DurableObject<EventsEnv> {
     ws.serializeAttachment({
       credential,
       watch: parsed.value,
-      ...(scoped.kind === 'scoped' ? { expires: scoped.claims.exp } : {}),
+      ...(scoped.kind === 'scoped'
+        ? { expires: scoped.claims.exp, issued: scoped.claims.iat, scopedRepo: scoped.claims.repo }
+        : {}),
     } satisfies Subscription)
 
     let refsByRepo: Record<string, Record<string, string>>
@@ -312,6 +346,34 @@ export class WalgitEvents extends DurableObject<EventsEnv> {
         ws.close(1008, 'walgit: read access revoked')
       } catch {
         // Already gone; nothing to close.
+      }
+    }
+  }
+
+  /**
+   * Close every socket watching on a scoped token that one of these
+   * revocations covers: issued before `since`, for that repository. A scoped
+   * socket accepted before this code shipped carries neither field, and is
+   * closed by any revocation — the client reconnects and is judged afresh,
+   * which costs it a reconnect and never lets it outlive one.
+   */
+  private revokeTokens(revoked: readonly TokensRevoked[]): void {
+    if (revoked.length === 0) return
+    for (const ws of this.ctx.getWebSockets()) {
+      const { watch, expires, issued, scopedRepo } = readSubscription(ws)
+      // Unscoped sockets carry no `expires`; a scoped one always does.
+      if (!watch || expires === undefined) continue
+      const hit = revoked.some(
+        (r) =>
+          (scopedRepo === undefined || scopedRepo === r.repo) &&
+          (issued === undefined || tokenRevoked(issued, r.since)),
+      )
+      if (!hit) continue
+      try {
+        ws.send(encode({ error: 'unauthorized' }))
+        ws.close(1008, 'walgit: token revoked')
+      } catch {
+        // Already gone.
       }
     }
   }
@@ -455,6 +517,10 @@ interface Subscription {
   watch: WatchEntry[] | null
   /** A scoped token's `exp`, in seconds, when the watch was accepted on one. */
   expires?: number
+  /** Its `iat`, in seconds — what a revocation is compared with. */
+  issued?: number
+  /** Its claimed repository — the one Index whose revocation applies to it. */
+  scopedRepo?: string
 }
 
 /** What this socket carries, whatever vintage of this code attached it. */
@@ -466,11 +532,13 @@ function readSubscription(ws: WebSocket): Subscription {
     // credential — which, on a Private deployment, is an unproven reader.
     if (Array.isArray(attachment)) return { credential: null, watch: attachment as WatchEntry[] }
     if (attachment && typeof attachment === 'object') {
-      const { credential, watch, expires } = attachment as Partial<Subscription>
+      const { credential, watch, expires, issued, scopedRepo } = attachment as Partial<Subscription>
       return {
         credential: typeof credential === 'string' ? credential : null,
         watch: Array.isArray(watch) ? watch : null,
         ...(typeof expires === 'number' ? { expires } : {}),
+        ...(typeof issued === 'number' ? { issued } : {}),
+        ...(typeof scopedRepo === 'string' ? { scopedRepo } : {}),
       }
     }
   } catch {
