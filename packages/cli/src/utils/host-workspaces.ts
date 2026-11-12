@@ -32,6 +32,9 @@ export async function hostWorkspaceGlobs(repoTop: string): Promise<string[]> {
   return globs
 }
 
+// `./apps/*/` and `apps/*` are the same glob to a package manager.
+const strip = (glob: string) => glob.replace(/^\.\//, '').replace(/\/+$/, '')
+
 /**
  * The host globs that cover the zbc project folder (`subdir`, top-level
  * relative) or the `packages/infra` package inside it — either one is a
@@ -43,7 +46,6 @@ export async function hostWorkspaceGlobsCovering(
   subdir: string,
 ): Promise<string[]> {
   const globs = await hostWorkspaceGlobs(repoTop)
-  const strip = (g: string) => g.replace(/^\.\//, '').replace(/\/+$/, '')
   const includes = globs.filter((g) => !g.startsWith('!')).map(strip)
   const excludes = globs.filter((g) => g.startsWith('!')).map((g) => strip(g.slice(1)))
   const candidates = [subdir, `${subdir}/packages/infra`]

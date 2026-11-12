@@ -5,6 +5,23 @@ only add or fix things are described by their `release(cli): @zabaca/zbc <x.y.z>
 commit message and the PRs it names; this file exists for the ones a consumer
 has to read before upgrading.
 
+## Unreleased
+
+### `zbc init` no longer writes `.claude/settings.json` into an existing repo
+
+The scaffolded settings grant Claude Code tool permissions (`bun`, `git`, `gh`,
+…) and enable the `zbc` plugin. `init` used to write them in every mode; it now
+writes them by default only for a greenfield project at the repo's top level. In
+an existing Bun workspace, in a subfolder of another repo (`--dir`), or where
+`.claude/` already exists, it skips them and says so. Pass `--claude` to get the
+old behaviour, or `--no-claude` to skip them in any mode. A project already
+scaffolded is untouched.
+
+`init --dir <path>` is new: it puts the zbc project in a folder of its own, the
+route for a repo that is not a Bun workspace. The subtree prefix is derived from
+that folder (`deploy/zbc/vendor/zbc`); a project at the top level is vendored and
+stamped exactly as before.
+
 ## 0.25.0
 
 ### The `inbox` app template is removed
