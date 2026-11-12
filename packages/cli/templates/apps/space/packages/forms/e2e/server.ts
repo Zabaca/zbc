@@ -2,7 +2,6 @@
 // transform) served by `vite preview` over a local D1 and R2, with a throwaway seal and master key in .dev.vars.
 // Access cannot be local, so ALLOW_UNAUTHENTICATED=1 makes the browser the operator, on localhost only; the
 // sign-in check is the company layer's, and the door is tested with signed assertions in test/app.test.ts and test/company.test.ts.
-import { dlopen, ptr } from 'bun:ffi'
 import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { createServer } from 'node:net'
 import { fileURLToPath } from 'node:url'
@@ -17,20 +16,8 @@ export interface Server {
   kill(): Promise<void>
   /** Resident memory (KB) and CPU seconds of workerd, the process the Worker runs in. */
   sample(): { rssKb: number; cpuSeconds: number; pids: number[] }
-  /** Resident memory (KB) only, cheap enough to poll in a tight loop. */
-  rss(): number
   /** The seal certificates this server was started with. */
   certs: Awaited<ReturnType<typeof makeSealCerts>>
-}
-
-// Resident memory of one process in microseconds, from libSystem's proc_pidinfo (PROC_PIDTASKINFO, whose second
-// 64-bit field is the resident size), so a sampler can poll fast enough to catch the peak of a request that takes
-// 70 ms. `ps` takes longer than that to answer.
-const libSystem = dlopen('/usr/lib/libSystem.B.dylib', { proc_pidinfo: { args: ['i32', 'i32', 'u64', 'ptr', 'i32'], returns: 'i32' } })
-const taskInfo = new BigUint64Array(12)
-export function residentKb(pid: number): number {
-  const n = libSystem.symbols.proc_pidinfo(pid, 4, 0n, ptr(taskInfo), 96)
-  return n === 96 ? Number(taskInfo[1]! / 1024n) : 0
 }
 
 const escaped = (s: string) => s.replace(/\n/g, '\\n')
@@ -139,7 +126,6 @@ export async function startServer(opts: { portEnv?: string; build?: boolean; cli
     proc.kill()
     throw new Error(`preview server never became ready on ${base}`)
   }
-  let workerdPids: number[] | null = null
   return {
     base,
     pid: proc.pid,
@@ -164,10 +150,6 @@ export async function startServer(opts: { portEnv?: string; build?: boolean; cli
       for (let i = 0; i < 30 && left().length > 0; i++) await Bun.sleep(100)
       if (previous === null) rmSync(devVars, { force: true })
       else writeFileSync(devVars, previous)
-    },
-    rss() {
-      workerdPids ??= descendants(proc.pid).filter((d) => /workerd/.test(d.command)).map((d) => d.pid)
-      return workerdPids.reduce((n, pid) => n + residentKb(pid), 0)
     },
     sample() {
       const workerd = descendants(proc.pid).filter((d) => /workerd/.test(d.command))

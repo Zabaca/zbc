@@ -100,6 +100,10 @@ async function issue(opts: {
   notAfterCap?: Date
   ca: boolean
 }): Promise<{ der: Uint8Array }> {
+  // pkijs keeps its crypto engine in one of two places, chosen by whether a global `window` exists at the moment it is set or read,
+  // and sets it once on import. A test that registers a DOM around that import (or around this call) leaves the engine where the
+  // read will not look, so set it here, under the globals the reads below will see.
+  pkijs.setEngine('webcrypto', new pkijs.CryptoEngine({ name: 'webcrypto', crypto: globalThis.crypto }))
   const cert = new pkijs.Certificate()
   cert.version = 2
   const serial = crypto.getRandomValues(new Uint8Array(16))
