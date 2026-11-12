@@ -27,6 +27,13 @@ export interface VendorStamp {
   cliVersion: string
   /** zbc-core ref pulled, for subtree mode. */
   coreRef?: string
+  /**
+   * The subtree prefix as git saw it, recorded for information only when the
+   * project is a subfolder of its repository (`deploy/zbc/vendor/zbc`); absent
+   * means `vendor/zbc`. The commands always derive it again, and `zbc update`
+   * warns when the two disagree (the folder was moved).
+   */
+  prefix?: string
   /** ISO timestamp of the vendoring. */
   vendoredAt: string
 }
@@ -47,6 +54,7 @@ export async function readStamp(projectRoot: string): Promise<VendorStamp | null
       mode: raw.mode,
       cliVersion: raw.cliVersion,
       coreRef: typeof raw.coreRef === 'string' ? raw.coreRef : undefined,
+      prefix: typeof raw.prefix === 'string' ? raw.prefix : undefined,
       vendoredAt: typeof raw.vendoredAt === 'string' ? raw.vendoredAt : '',
     }
   } catch {
@@ -62,6 +70,8 @@ export async function writeStamp(
     mode: stamp.mode,
     cliVersion: stamp.cliVersion,
     ...(stamp.coreRef ? { coreRef: stamp.coreRef } : {}),
+    // A project at the top level writes exactly the stamp it always did.
+    ...(stamp.prefix && stamp.prefix !== VENDOR_PREFIX ? { prefix: stamp.prefix } : {}),
     vendoredAt: stamp.vendoredAt ?? new Date().toISOString(),
   }
   // The engine's stamp and the vendored apps' share the file, and each writer
