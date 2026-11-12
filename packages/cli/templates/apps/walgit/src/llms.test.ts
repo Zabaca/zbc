@@ -731,7 +731,7 @@ describe('renderLlms: per-source limits', () => {
         WALGIT_TOKEN_PUBLIC_KEYS: 'a'.repeat(43),
       }),
     )
-    expect(doc).toContain('300 pushes per tenant per hour')
+    expect(doc).toContain('300 pushes per tenant or client per hour')
     expect(doc).toContain("A tenant is your scoped token's `sub` claim")
   })
 })

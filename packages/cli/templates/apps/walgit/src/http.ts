@@ -1163,16 +1163,6 @@ function createRouter(deps: HttpHandlerDeps): (req: Request) => Promise<Response
 }
 
 /**
- * The client this request is attributed to, or `null` when walgit cannot
- * attribute it.
- *
- * `cf-connecting-ip` first: the container is reachable only through the Worker,
- * and Cloudflare sets that header at the edge over whatever the client sent, so
- * it is the one address here a client cannot choose for itself.
- * `x-forwarded-for` is the fallback for a deployment fronted by something else,
- * and its FIRST entry is the client — the rest are proxies.
- */
-/**
  * Who a push is counted against (`src/rate-limit.ts`): the tenant, when a
  * verified scoped token carries `sub`, else the address `sourceOf` attributes.
  * A tenant is counted even when no address is visible — the token, not the
@@ -1184,6 +1174,16 @@ function rateSourceOf(request: Request, claims: ScopedClaims | null): RateSource
   return address === null ? null : { per: 'address', address }
 }
 
+/**
+ * The client this request is attributed to, or `null` when walgit cannot
+ * attribute it.
+ *
+ * `cf-connecting-ip` first: the container is reachable only through the Worker,
+ * and Cloudflare sets that header at the edge over whatever the client sent, so
+ * it is the one address here a client cannot choose for itself.
+ * `x-forwarded-for` is the fallback for a deployment fronted by something else,
+ * and its FIRST entry is the client — the rest are proxies.
+ */
 function sourceOf(request: Request): string | null {
   const direct = request.headers.get('cf-connecting-ip')?.trim()
   if (direct) return direct

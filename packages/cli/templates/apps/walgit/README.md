@@ -982,7 +982,7 @@ no scoped token, and the admin credential (`WALGIT_HTTP_TOKENS`) are all
 counted by address, exactly as before. Only a claim the handler has verified is
 ever a key, and tenants and addresses are kept in separate key spaces, so a
 `sub` of `203.0.113.7` is not that address. The refusal says which it counted:
-`one tenant` with a line naming the `sub`, or `one client`.
+`one tenant`, counted across its repositories and addresses, or `one client`.
 
 `GET /` and `/llms.txt` state each limit that is on, from the same
 `Capabilities` the handler enforces — and say "per tenant" only on a deployment

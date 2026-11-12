@@ -141,7 +141,7 @@ export function renderLlms(
     const window = describeWindow(caps.rateWindowSeconds)
     // Who "per" means. Only a deployment that verifies scoped tokens can tell
     // tenants apart, so only there is the tenant named.
-    const who = caps.scopedTokens ? 'tenant' : 'client'
+    const who = caps.scopedTokens ? 'tenant or client' : 'client'
     if (caps.maxNewReposPerSource !== null) {
       limits.push(
         `- **You may create ${caps.maxNewReposPerSource} new repositories per ${who} per ${window}.** Pushing to a name you already created does not count against it.`,

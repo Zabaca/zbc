@@ -132,7 +132,7 @@ function facts(caps: Capabilities): string[] {
   if (caps.sourceLimited) {
     // Per tenant only where a scoped token can name one; elsewhere a client is
     // its address, and the sentence reads exactly as it always has.
-    const who = caps.scopedTokens ? 'tenant (token sub) or client' : 'client'
+    const who = caps.scopedTokens ? 'tenant or client' : 'client'
     const per = `per ${who} per ${describeWindow(caps.rateWindowSeconds)}`
     const parts: string[] = []
     if (caps.maxNewReposPerSource !== null) {

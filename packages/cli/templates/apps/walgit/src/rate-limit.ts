@@ -226,7 +226,9 @@ type Who = 'tenant' | 'client'
 
 /** Whose spend a refusal is about: the tenant the token names, or this client. */
 const counted = (who: Who): string[] =>
-  who === 'tenant' ? ["Counted per tenant (your token's sub), across all its repositories."] : []
+  who === 'tenant'
+    ? ["Counted per tenant (your token's sub), across all its repositories and addresses."]
+    : []
 
 /**
  * Product copy, and the same discipline the size caps are written with: say
@@ -275,7 +277,6 @@ function tooManyBytes(spent: number, bytes: number, cap: number, window: string,
     '',
     `You have pushed ${describeBytes(spent)} in the last ${window} and this push adds`,
     `${describeBytes(bytes)}.`,
-    `This host lets one ${who} push ${describeBytes(cap)} per ${window}.`,
     ...counted(who),
     'This is a walgit limit, not a network failure. Retrying now will be refused',
     'again in the same way.',

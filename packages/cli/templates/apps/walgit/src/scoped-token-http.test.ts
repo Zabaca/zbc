@@ -238,7 +238,10 @@ describe('a Private repository', () => {
  * it carries one, and the address is when it does not.
  */
 describe('rate limits with scoped tokens', () => {
-  function limitedDeployment(env: CapabilityEnv = { WALGIT_MAX_PUSHES_PER_SOURCE: '1' }) {
+  function limitedDeployment(
+    env: CapabilityEnv = { WALGIT_MAX_PUSHES_PER_SOURCE: '1' },
+    extra: Partial<HttpHandlerDeps> = {},
+  ) {
     const refusals: (string | undefined)[] = []
     const handler = createHttpHandler({
       reposDir: '/srv/repos',
@@ -251,6 +254,7 @@ describe('rate limits with scoped tokens', () => {
         refusals.push(req.env?.WALGIT_REFUSE)
         return new Response('backend ran')
       },
+      ...extra,
     })
     const push = (repo: string, credential: string, ip?: string) =>
       handler(
@@ -318,6 +322,33 @@ describe('rate limits with scoped tokens', () => {
     expect(refusals[0]).toBeUndefined()
     expect(refusals[1]).toBeUndefined()
     expect(refusals[2]).toContain('one client push 1 time')
+  })
+
+  test('an empty sub is no tenant: it falls back to the address', async () => {
+    const { push, refusals } = limitedDeployment()
+    await push('alpha', await token(), '203.0.113.7')
+    await push('alpha', await token({ sub: '' }), '203.0.113.7')
+    expect(refusals[1]).toContain('one client push 1 time')
+  })
+
+  test('a token that does not verify cannot spend a tenant it names', async () => {
+    const { push, refusals } = limitedDeployment()
+    const expired = await token({ sub: 'tenant-a', iat: NOW - 7200, exp: NOW - 3600 })
+    expect((await push('alpha', expired, '198.51.100.4')).status).toBe(401)
+    await push('alpha', await token({ sub: 'tenant-a' }), '203.0.113.7')
+    expect(refusals).toEqual([undefined])
+  })
+
+  test('the new-repository refusal says it counted the tenant', async () => {
+    const { push, refusals } = limitedDeployment(
+      { WALGIT_MAX_NEW_REPOS_PER_SOURCE: '1' },
+      // An Index holding no refs anywhere, so every name is a new one.
+      { readRefs: async (): Promise<Record<string, string>> => ({}) },
+    )
+    await push('alpha', await token({ sub: 'tenant-a' }), '203.0.113.7')
+    await push('beta', await token({ repo: 'beta', sub: 'tenant-a' }), '198.51.100.4')
+    expect(refusals[1]).toContain('one tenant create 1 repository')
+    expect(refusals[1]).toContain("Counted per tenant (your token's sub)")
   })
 
   test('with no limit set, tenants are not counted at all', async () => {
