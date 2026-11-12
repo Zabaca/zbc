@@ -191,6 +191,24 @@ export const MCP_PATH = '/_walgit/mcp'
 export const ANNOUNCE_PATH = '/_walgit/announce'
 
 /**
+ * The admin routes: one repository created (optionally seeded), deleted, or
+ * measured, by a server holding the admin credential and no store credentials
+ * (`src/admin.ts`).
+ *
+ *   POST   /_walgit/admin/repos/<name>         create; an optional JSON seed
+ *   DELETE /_walgit/admin/repos/<name>         delete, with the delete grace
+ *   GET    /_walgit/admin/repos/<name>/usage   what the log holds for it
+ *
+ * Group 1 is the repository, group 2 is `/usage` or absent. Under the reserved
+ * prefix, so no repository name can reach it: a repository id begins with a
+ * letter or a digit (`REPO_ID`), never `_`, and a repository is cloned at
+ * `/<name>.git/…` anyway. A scoped token is never accepted here — the path is
+ * none of the repository surfaces `scopeTargetOf` names, so it is judged
+ * `elsewhere` and refused 403 at the edge and again in the container.
+ */
+export const ADMIN_REPOS_HTTP = /^\/_walgit\/admin\/repos\/([^/]+)(\/usage)?$/
+
+/**
  * The repository list — the web view's one page that is about the deployment
  * rather than about a name (`shared/repo-list.ts`).
  *
