@@ -20,6 +20,8 @@ import { tokenPublicKeysConfigError } from '../shared/scoped-token'
 import { createAdminOps } from './admin'
 import { createMergeOps } from './merge'
 import { signerListsEnabled } from './signers'
+import { announceConfigFromEnv, announceTokensRevoked } from './announce'
+import { TokenRevocationReader } from '../shared/token-revocation'
 import { compareRevs, listCommits, listTree, readBlob, statBlob } from './browse'
 import { clearBootResidue } from './boot-residue'
 import { ensureBareRepo } from './cache'
@@ -181,6 +183,12 @@ console.log(
     `store=${store ? 'configured' : 'MISSING'}`,
 )
 
+/** One reader for the process's life, so an unchanged Index costs a 304. */
+function revocationLookup(logStore: ObjectStore): (repoId: string) => Promise<string | null> {
+  const reader = new TokenRevocationReader()
+  return (repoId) => reader.validSince(logStore, repoId)
+}
+
 /**
  * One sweep, for real. `--yes` is the CLI's opt-in because a human at a
  * terminal should have to ask; a scheduled sweep IS the asking, and a dry run
@@ -211,6 +219,10 @@ async function runSweep(logStore: ObjectStore, windowMs: number, opts: SweepOpti
   }
 }
 
+// The ref-event stream, when configured: a token revocation is announced to
+// it so held sockets close (`src/admin.ts`). Pushes announce from the hooks.
+const announceTo = announceConfigFromEnv()
+
 let handler
 try {
   handler = createHttpHandler({
@@ -218,6 +230,9 @@ try {
     tokens,
     public: isPublic,
     scopedTokenKeys: process.env.WALGIT_TOKEN_PUBLIC_KEYS,
+    // A scoped token is refused once its repository's tokens are revoked
+    // (`shared/token-revocation.ts`), read from the Index on every request.
+    ...(store ? { tokensValidSince: revocationLookup(store) } : {}),
     ensureRepo: ensureBareRepo,
     syncRepo: (repo) => syncRepo(store, repo),
     runBackend: runGitHttpBackend,
@@ -232,6 +247,12 @@ try {
           ensureRepo: ensureBareRepo,
           syncRepo: (repo) => syncRepo(store, repo),
           graceMs: configuredDeleteGraceMs(),
+          ...(announceTo
+            ? {
+                announceRevoked: (repoId: string, since: string) =>
+                  announceTokensRevoked(announceTo, repoId, since),
+              }
+            : {}),
         })
       : undefined,
     // Merge one branch into another on request (`src/merge.ts`,

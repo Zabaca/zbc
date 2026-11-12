@@ -29,6 +29,7 @@ by layer:
 | `shared/protocol.ts`                                 | the wire contract: header names, internal paths, the smart-HTTP grammar, the repo-id and ref-name grammars, the zero oid, the refusal vocabulary |
 | `shared/credentials.ts`                              | reading a credential off the wire: the two auth forms, the token list, the constant-time compare                                                 |
 | `shared/scoped-token.ts`                             | scoped tokens: the Ed25519 JWT verifier, what a request reaches, the 401/403 verdict (ADR-0021)                                                  |
+| `shared/token-revocation.ts`                         | revocation: a repository's tokens-valid-since, read from the Index on every scoped request (ADR-0021)                                            |
 | `shared/policy.ts`                                   | reading a limit from the environment, and saying what it is — so the cap stated and the cap enforced are one number                              |
 | `shared/events.ts`, `shared/outbox.ts`               | the ref-event protocol and the per-ref coalesce window that bounds a subscriber's message rate — every decision, pure                            |
 | `shared/telemetry.ts`                                | classifying a request and a refusal into the datapoint the Worker writes                                                                         |
@@ -216,8 +217,15 @@ curl -X POST -H "Authorization: Bearer $ADMIN" -H 'content-type: application/jso
 # delete it: 200 { "repo", "status", "collectAfter"?, "deleted", "retained" }
 curl -X DELETE -H "Authorization: Bearer $ADMIN" https://<host>/_walgit/admin/repos/my-thing
 
-# its storage usage: 200, the `walgit usage` row for this one repository
+# its storage usage: 200, the `walgit usage` row for this one repository,
+# plus `tokensValidSince` (null until its tokens are revoked)
 curl -H "Authorization: Bearer $ADMIN" https://<host>/_walgit/admin/repos/my-thing/usage
+
+# revoke every scoped token for it issued before now: 200 { "repo", "tokensValidSince", "announced" }
+curl -X POST -H "Authorization: Bearer $ADMIN" https://<host>/_walgit/admin/repos/my-thing/revoke-tokens
+# …or before a given instant, no later than now
+curl -X POST -H "Authorization: Bearer $ADMIN" -H 'content-type: application/json' \
+  https://<host>/_walgit/admin/repos/my-thing/revoke-tokens --data '{ "since": "2026-11-11T12:00:00Z" }'
 ```
 
 - **Create** claims the name by writing an empty `index.json` under an
@@ -246,6 +254,11 @@ curl -H "Authorization: Bearer $ADMIN" https://<host>/_walgit/admin/repos/my-thi
   200 — harmless, and safe to retry. The cron sweep's collect-only run finishes
   a tombstone nobody asks about again.
 - **Usage** answers `404` for a name with no Index.
+- **Revoke tokens** moves the repository's *tokens valid since* forward — see
+  [revocation](#revoking-a-repositorys-tokens). It answers `404` for a name with
+  no Index and creates none; a `since` more than a minute later than now, or one
+  that is not an ISO 8601 instant, is a **400** (one a little ahead is taken as
+  now).
 
 Only the admin credential may call these, over Bearer or Basic like every other
 credential. No credential (or a wrong one) is a **401**; a [scoped
@@ -1400,8 +1413,8 @@ Claims: `repo` (required, an **exact** repository id — no prefix, no wildcard)
 `mode` (required, `read` | `write`), `exp` and `iat` (required, seconds since the
 epoch; 60 seconds of clock skew is allowed either way, and an `iat` further in
 the future is refused), `sub` (optional, the tenant — the bucket the [per-source limits](#per-source-limits)
-count it in). `iat` is required so that
-revocation can later refuse every token issued before an instant.
+count it in). `iat` is required because [revocation](#revoking-a-repositorys-tokens)
+refuses every token issued before an instant.
 
 - **Where it works:** on its own repository, on every surface — git smart HTTP
   (`info/refs`, `git-upload-pack`, `git-receive-pack`), the web view and raw
@@ -1423,12 +1436,54 @@ revocation can later refuse every token issued before an instant.
   `Authorization` header, and a Private repository answers only the signature.
 - **One keypair per deployment.** There is no `aud` claim; the key is the
   boundary, so a token for `my-thing` on one walgit does not open `my-thing` on
-  another. `nbf` is honoured when present. walgit sets no maximum lifetime —
-  keep it short, since a token cannot be revoked before `exp` yet.
+  another. `nbf` is honoured when present. walgit sets no maximum lifetime;
+  a leaked one is ended by [revoking](#revoking-a-repositorys-tokens) its
+  repository's tokens, which also ends that repository's other tokens.
 - **An open `watch`** is closed by the first ref event after its token expires.
 - **Where it's checked:** at the edge Worker first, so a bad credential never
   wakes the container, and again in the container with the same function
   (`shared/scoped-token.ts`).
+
+#### Revoking a repository's tokens
+
+A scoped token is stateless, so there is nothing per token to delete. Each
+repository instead carries one optional instant in its `index.json`,
+`tokens_valid_since`: every scoped token **for that repository** whose `iat` is
+earlier is refused with **401**, on every surface above. One admin call sets it
+(`POST /_walgit/admin/repos/<name>/revoke-tokens`, [above](#the-same-three-over-http)):
+it revokes every token minted for the name so far, and tokens minted after it
+work. Other repositories' tokens and the admin credential are unaffected. Absent
+(the default) means nothing is revoked.
+
+- **Propagation: the next request.** Nothing caches the verdict. The edge, the
+  container and the event fan-out each read the token's repository's Index on
+  every scoped request — a conditional GET, so an unchanged Index costs a `304` —
+  and a store that cannot be read refuses the token (**503**) rather than
+  letting it through — including an edge with no object store configured,
+  which has no Index to read and so refuses scoped tokens outright. A `watch`
+  already open is closed when the revoke lands: the container announces it to
+  the fan-out, which closes every socket watching on a token it covers, and the
+  response's `announced` says whether that was acknowledged. If it was not, the
+  socket is still re-judged against the Index before the next event it would
+  be sent, so it is never served after the revocation.
+- **Deleting the repository discards its revocation**, with everything else in
+  `index.json` — an admin delete once collected, and retention expiry alike.
+  The name is then first-come again, and a revoked `write` token that has not
+  reached `exp` could re-create it. To end every token for good, rotate the
+  signing key (`WALGIT_TOKEN_PUBLIC_KEYS`); keep lifetimes short regardless.
+- **Rolling back** to a walgit older than this field ignores it, which makes
+  every revoked token valid again until `exp`.
+- **It only moves forward.** An older `since` than the one stored leaves the
+  stored one standing, so a revocation cannot be undone by accident. To restore
+  a revoked token, mint a new one.
+- **Whole seconds.** `iat` is in seconds and the instant in milliseconds, so a
+  token minted in the same second as the revocation, after it, is refused too —
+  mint again a second later. An issuer whose clock runs ahead can mint an `iat`
+  up to the 60-second skew past a revocation; revoke from the issuer's clock, or
+  wait out the skew, if that matters.
+- **A name with no repository** has no Index to revoke in, and a `write` token
+  can still create it on first push. To shut such a token out, create the
+  repository first (`POST …/repos/<name>`), then revoke.
 
 `WALGIT_TOKEN_PUBLIC_KEYS` unset (the default) means every credential is judged
 exactly as before. A malformed entry is reported at the container's boot and

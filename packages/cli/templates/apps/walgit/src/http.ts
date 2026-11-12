@@ -52,8 +52,9 @@ import {
   SMART_HTTP,
   type ContainerRejectKind,
 } from '../shared/protocol'
-import { MAX_SEED_BYTES, parseSeed, type AdminOps } from './admin'
 import { MAX_MERGE_BODY_BYTES, parseMergeRequest, type MergeOps, type MergeResult } from './merge'
+import { MAX_SEED_BYTES, parseRevoke, parseSeed, type AdminOps } from './admin'
+import { revokedMessage, tokenRevoked } from '../shared/token-revocation'
 import { emptyReadResponse } from './empty-read'
 import { renderInstructions } from '../shared/instructions'
 import { acceptedNonces, readAllowed, readChallengeNonce, renderReadChallenge } from './private'
@@ -216,6 +217,12 @@ export type HttpHandlerDeps = {
   scopedTokenKeys?: string
   /** The clock scoped tokens are checked against; injectable for tests. */
   tokenNow?: () => number
+  /**
+   * A repository's tokens-valid-since instant from its Index, or `null`
+   * (`shared/token-revocation.ts`). A scoped token issued before it is refused
+   * 401. Absent without a store, where there is no Index to revoke in.
+   */
+  tokensValidSince?: (repoId: string) => Promise<string | null>
   /**
    * Create, delete and measure one repository over HTTP (`src/admin.ts`),
    * answered only to the admin credential. Absent without a store — there is
@@ -925,7 +932,7 @@ function createRouter(deps: HttpHandlerDeps): (req: Request) => Promise<Response
     admin: AdminOps,
     request: Request,
     name: string,
-    usage: boolean,
+    suffix: string | undefined,
   ): Promise<Response> {
     let resolved: ResolvedRepo
     try {
@@ -938,10 +945,24 @@ function createRouter(deps: HttpHandlerDeps): (req: Request) => Promise<Response
       )
     }
     try {
-      if (usage) {
+      if (suffix === '/usage') {
         if (request.method !== 'GET') return NOT_FOUND()
         const row = await admin.usage(resolved.repoId)
         return row ? json(row) : NOT_FOUND()
+      }
+      if (suffix === '/revoke-tokens') {
+        if (request.method !== 'POST') return NOT_FOUND()
+        const declared = Number(request.headers.get('content-length') ?? '0')
+        if (Number.isFinite(declared) && declared > MAX_REVOKE_BYTES) return revokeTooLarge()
+        const text = await readBounded(request, MAX_REVOKE_BYTES)
+        if (text === null) return revokeTooLarge()
+        const parsed = parseRevoke(text)
+        if (!parsed.ok) return reject(400, 'invalid', `walgit: ${parsed.message}\n`)
+        const revoked = await admin.revokeTokens(resolved.repoId, parsed.since)
+        if (revoked === 'later-than-now') {
+          return reject(400, 'invalid', 'walgit: "since" must not be later than now\n')
+        }
+        return revoked ? json(revoked) : NOT_FOUND()
       }
       if (request.method === 'DELETE') {
         const result = await admin.delete(resolved)
@@ -1162,7 +1183,7 @@ function createRouter(deps: HttpHandlerDeps): (req: Request) => Promise<Response
     if (adminRoute && scoped.kind !== 'scoped') {
       if (!deps.admin || deps.tokens.length === 0) return NOT_FOUND()
       if (!authorizedBy(request.headers.get('authorization'), deps.tokens)) return UNAUTHORIZED()
-      return administer(deps.admin, request, adminRoute[1]!, adminRoute[2] !== undefined)
+      return administer(deps.admin, request, adminRoute[1]!, adminRoute[2])
     }
 
     if (scoped.kind === 'scoped') {
@@ -1176,6 +1197,27 @@ function createRouter(deps: HttpHandlerDeps): (req: Request) => Promise<Response
         target.kind === 'per-message' ? { kind: 'elsewhere' } : target,
       )
       if (refused) return reject(refused.status, 'unauthorized', refused.message)
+      // Revoked (`shared/token-revocation.ts`): the claimed repository's
+      // Index says tokens issued before some instant are no longer good, read
+      // on every request so a revocation holds from the next one. A read that
+      // fails refuses rather than lets the token through.
+      if (deps.tokensValidSince) {
+        let since: string | null
+        try {
+          since = await deps.tokensValidSince(scoped.claims.repo)
+        } catch (err) {
+          return reject(
+            503,
+            'unavailable',
+            `walgit: could not check token revocation: ${(err as Error).message}\n`,
+          )
+        }
+        if (since !== null && tokenRevoked(scoped.claims.iat, since)) {
+          return reject(401, 'unauthorized', revokedMessage(scoped.claims.repo, since), {
+            'www-authenticate': BASIC_CHALLENGE,
+          })
+        }
+      }
     } else if (!deps.public && !authorizedBy(request.headers.get('authorization'), deps.tokens)) {
       return UNAUTHORIZED()
     }
@@ -1579,6 +1621,12 @@ function declaredBytes(request: Request): number {
   const declared = Number(request.headers.get('content-length') ?? '0')
   return Number.isFinite(declared) && declared > 0 ? declared : 0
 }
+
+/** A revoke body is `{"since": "<ISO instant>"}` at most. */
+const MAX_REVOKE_BYTES = 1024
+
+const revokeTooLarge = () =>
+  reject(413, 'size-cap', `walgit: a revoke body is at most ${MAX_REVOKE_BYTES} bytes\n`)
 
 const seedTooLarge = () =>
   reject(413, 'size-cap', `walgit: a seed body is at most ${MAX_SEED_BYTES} bytes\n`)

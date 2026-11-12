@@ -256,8 +256,12 @@ _Avoid_: auth server, IdP
 **Scope**:
 The one repository and mode a Scoped Token's claims grant. "Out of scope" is a 403; a token that does not verify at all (expired, badly signed, wrong key, malformed, the wrong `alg`) is a 401.
 
+**Tokens Valid Since**:
+A repository's revocation instant, `tokens_valid_since` in its Index: every Scoped Token for that repository whose `iat` is earlier is refused with 401, on every surface. Set by the Admin Route `…/revoke-tokens` (to now, or to a given instant no later than now) and only ever moved forward. Absent means nothing is revoked. It revokes every token for the name issued so far — there is no per-token denylist. Propagation is the next request: the edge, the container and the event fan-out read the Index on every scoped request (an unreadable one refuses), and an open Watch on a covered token is closed when the revoke is announced. Other repositories and the admin token are untouched.
+_Avoid_: denylist, blocklist, revoked tokens list
+
 **Admin Route**:
-`/_walgit/admin/repos/<name>` — create (optionally with a **Seed**), delete, and `…/usage` — answered only to the admin token, so a server holding no store credentials can manage repositories. A Scoped Token is refused there with 403 whatever its Scope; a deployment with no admin token has no Admin Routes (404).
+`/_walgit/admin/repos/<name>` — create (optionally with a **Seed**), delete, `…/usage`, and `…/revoke-tokens` (moves **Tokens Valid Since** forward) — answered only to the admin token, so a server holding no store credentials can manage repositories. A Scoped Token is refused there with 403 whatever its Scope; a deployment with no admin token has no Admin Routes (404).
 _Avoid_: management API, control plane
 
 **Seed**:

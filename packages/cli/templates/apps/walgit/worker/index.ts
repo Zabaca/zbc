@@ -87,6 +87,7 @@ import { browseResponse } from '../shared/browse'
 import { type ContainerBindings, containerFor } from './container-binding'
 import { WalgitDurableContainer } from './durable-container'
 import { refsAtEdge, uploadPackKeyFor } from '../shared/edge-refs'
+import { revocationOf, revokedMessage, TokenRevocationReader } from '../shared/token-revocation'
 import { BROADCAST_PATH, EVENTS_OBJECT_NAME, WalgitEvents } from './events-do'
 import { handleMcp } from './mcp'
 // The card's picture, as bytes in the bundle (wrangler.jsonc's `Data` rule).
@@ -449,6 +450,43 @@ export default {
         bytesServed: 0,
       })
       return scopedRefusal
+    }
+
+    // Revoked (`shared/token-revocation.ts`): the token's own repository's
+    // Index says tokens issued before some instant are no longer good. Read
+    // here, on every scoped request and before any surface — git, the pages,
+    // the list, MCP, the event socket — so a revocation is in force from the
+    // next request, and judged again by the container and the fan-out on what
+    // reaches them. A store this edge cannot read refuses rather than passes.
+    if (scoped) {
+      const revocation = await revocationOf(scoped, edgeStore(env), edgeRevocations)
+      if (revocation.kind !== 'valid') {
+        const revoked = revocation.kind === 'revoked'
+        record(env, ctx, {
+          ...base(classifyRequest(request.method, url.pathname, url.search), request),
+          outcome: 'reject',
+          reject: revoked ? 'unauthorized' : 'unavailable',
+          status: revoked ? 401 : 503,
+          served: false,
+          cold: false,
+          ttfbMs: Date.now() - startedAt,
+          totalMs: Date.now() - startedAt,
+          bytesServed: 0,
+        })
+        return revoked
+          ? new Response(revokedMessage(scoped.repo, revocation.since), {
+              status: 401,
+              headers: {
+                'content-type': 'text/plain; charset=utf-8',
+                'cache-control': 'no-store',
+                'www-authenticate': BASIC_CHALLENGE,
+              },
+            })
+          : new Response(`${revocation.reason}\n`, {
+              status: 503,
+              headers: { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' },
+            })
+      }
     }
 
     // The browser half of `/`, answered at the edge (shared/landing.ts). Placed
@@ -1294,6 +1332,12 @@ async function absentAtEdge(env: Env, caps: Capabilities, repo: string): Promise
     return false
   }
 }
+
+/**
+ * The isolate's revocation reader: it remembers each Index's etag so an
+ * unchanged one costs a 304, and never answers without asking the store.
+ */
+const edgeRevocations = new TokenRevocationReader()
 
 function edgeStore(env: Env): ObjectStore | null {
   return s3StoreFrom(env, (credentials) => new AwsClient(credentials))
