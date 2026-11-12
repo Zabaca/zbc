@@ -118,6 +118,18 @@ export interface WalIndex {
    */
   created_at?: string
   /**
+   * Tokens valid since: the ISO instant before which no scoped token for this
+   * repository is honoured (docs/adr/0021). A token whose `iat` is earlier is
+   * refused 401 on every surface, which is how one admin write revokes every
+   * token minted for the name so far — scoped tokens are otherwise stateless
+   * and stay valid until `exp`.
+   *
+   * Absent means nothing is revoked, which is every Index until an admin asks
+   * (`src/admin.ts`). It only ever moves forward. Carried through every push
+   * by `nextIndex`'s spread, like `created_at` above it.
+   */
+  tokens_valid_since?: string
+  /**
    * Push provenance: ref → who signed the push that moved it to the sha `refs`
    * currently holds, and when (docs/adr/0011).
    *

@@ -213,7 +213,72 @@ export interface AdminOps {
   create(repo: ResolvedRepo, seed: Seed | null): Promise<CreateResult>
   delete(repo: ResolvedRepo): Promise<DeleteResult>
   /** `null` when the log holds no Index for this name. */
-  usage(repoId: string): Promise<RepoUsage | null>
+  usage(repoId: string): Promise<AdminUsage | null>
+  /**
+   * Revoke the repository's scoped tokens issued before `since` (default now)
+   * by moving its `tokens_valid_since` forward. `null` when the log holds no
+   * Index for this name; `'later-than-now'` for a `since` in the future, which
+   * would revoke tokens not minted yet — a different request from this one.
+   */
+  revokeTokens(repoId: string, since: Date | null): Promise<RevokeResult | 'later-than-now' | null>
+}
+
+/** The usage row, with what only the admin surface reports beside it. */
+export type AdminUsage = RepoUsage & {
+  /** The repository's tokens-valid-since instant, or `null` when none. */
+  tokensValidSince: string | null
+}
+
+export interface RevokeResult {
+  repo: string
+  /**
+   * The instant in force after this request. Never earlier than it was: an
+   * older `since` than the one already stored leaves the stored one standing,
+   * because moving it back would quietly make revoked tokens valid again.
+   */
+  tokensValidSince: string
+  /**
+   * Whether the event fan-out acknowledged the revocation, so sockets already
+   * open were closed. `false` when it did not, or no stream is configured:
+   * the revocation still holds for every request, and a held socket is
+   * re-judged before the next event it would be sent.
+   */
+  announced: boolean
+}
+
+/**
+ * How far ahead of this clock a supplied `since` may be and still mean "now":
+ * a client sending its own now from a slightly fast clock. Clamped to now.
+ */
+export const REVOKE_SKEW_MS = 60_000
+
+/** An ISO 8601 instant with a date, a time and a zone — what the docs promise. */
+const ISO_INSTANT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:\d{2})$/
+
+export type RevokeParse = { ok: true; since: Date | null } | { ok: false; message: string }
+
+/**
+ * Read a revoke request's body: empty means now, and otherwise
+ * `{"since": "<ISO instant>"}`. Whether it is later than now is the admin
+ * operation's question, asked on its own clock.
+ */
+export function parseRevoke(text: string): RevokeParse {
+  if (text.trim() === '') return { ok: true, since: null }
+  let body: unknown
+  try {
+    body = JSON.parse(text)
+  } catch {
+    return { ok: false, message: 'the body is not JSON' }
+  }
+  if (!isRecord(body)) return { ok: false, message: 'the body must be a JSON object' }
+  const since = body.since
+  if (since === undefined) return { ok: true, since: null }
+  if (typeof since !== 'string') {
+    return { ok: false, message: '"since" must be an ISO 8601 instant' }
+  }
+  const ms = ISO_INSTANT.test(since) ? Date.parse(since) : Number.NaN
+  if (!Number.isFinite(ms)) return { ok: false, message: '"since" must be an ISO 8601 instant' }
+  return { ok: true, since: new Date(ms) }
 }
 
 export interface AdminDeps {
@@ -222,6 +287,12 @@ export interface AdminDeps {
   syncRepo: (repo: ResolvedRepo) => Promise<unknown>
   /** `WALGIT_DELETE_GRACE_MS`, read once by the caller. */
   graceMs: number
+  /**
+   * Tell the event fan-out a repository's tokens were revoked, so sockets
+   * already open on one of them are closed rather than served until `exp`.
+   * Absent where no event stream is configured; must never throw.
+   */
+  announceRevoked?: (repoId: string, since: string) => Promise<boolean>
   now?: () => Date
 }
 
@@ -295,7 +366,38 @@ export function createAdminOps(deps: AdminDeps): AdminOps {
 
     async usage(repoId) {
       const { index, etag } = await loadIndex(deps.store, repoId)
-      return etag === null ? null : usageOfIndex(index)
+      if (etag === null) return null
+      return { ...usageOfIndex(index), tokensValidSince: index.tokens_valid_since ?? null }
+    },
+
+    async revokeTokens(repoId, since) {
+      const at = now()
+      if (since && since.getTime() > at.getTime() + REVOKE_SKEW_MS) return 'later-than-now'
+      const asked = (since && since.getTime() < at.getTime() ? since : at).toISOString()
+      // A compare-and-swap loop rather than `updateIndex`, because an absent
+      // Index must stay absent: revoking a name nobody holds would claim it,
+      // and creating is the create route's job. To revoke for a name a write
+      // token could still create, create it first.
+      for (let attempt = 0; attempt < 8; attempt += 1) {
+        const { index, etag } = await loadIndex(deps.store, repoId)
+        if (etag === null) return null
+        const existing = index.tokens_valid_since
+        const effective =
+          existing !== undefined && Date.parse(existing) >= Date.parse(asked) ? existing : asked
+        if (effective !== existing) {
+          const written = await commitIndex(
+            deps.store,
+            { ...index, tokens_valid_since: effective },
+            etag,
+          )
+          if (!written.ok) continue
+        }
+        const announced = deps.announceRevoked
+          ? await deps.announceRevoked(repoId, effective)
+          : false
+        return { repo: repoId, tokensValidSince: effective, announced }
+      }
+      throw new Error('the Index is contended; try again')
     },
   }
 }

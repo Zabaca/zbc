@@ -198,15 +198,18 @@ export const ANNOUNCE_PATH = '/_walgit/announce'
  *   POST   /_walgit/admin/repos/<name>         create; an optional JSON seed
  *   DELETE /_walgit/admin/repos/<name>         delete, with the delete grace
  *   GET    /_walgit/admin/repos/<name>/usage   what the log holds for it
+ *   POST   /_walgit/admin/repos/<name>/revoke-tokens
+ *                                              revoke its scoped tokens issued
+ *                                              before now (or a given time)
  *
- * Group 1 is the repository, group 2 is `/usage` or absent. Under the reserved
+ * Group 1 is the repository, group 2 is `/usage`, `/revoke-tokens` or absent. Under the reserved
  * prefix, so no repository name can reach it: a repository id begins with a
  * letter or a digit (`REPO_ID`), never `_`, and a repository is cloned at
  * `/<name>.git/…` anyway. A scoped token is never accepted here — the path is
  * none of the repository surfaces `scopeTargetOf` names, so it is judged
  * `elsewhere` and refused 403 at the edge and again in the container.
  */
-export const ADMIN_REPOS_HTTP = /^\/_walgit\/admin\/repos\/([^/]+)(\/usage)?$/
+export const ADMIN_REPOS_HTTP = /^\/_walgit\/admin\/repos\/([^/]+)(\/usage|\/revoke-tokens)?$/
 
 /**
  * The repository list — the web view's one page that is about the deployment
