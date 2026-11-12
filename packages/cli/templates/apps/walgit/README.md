@@ -28,6 +28,7 @@ by layer:
 | ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `shared/protocol.ts`                                 | the wire contract: header names, internal paths, the smart-HTTP grammar, the repo-id and ref-name grammars, the zero oid, the refusal vocabulary |
 | `shared/credentials.ts`                              | reading a credential off the wire: the two auth forms, the token list, the constant-time compare                                                 |
+| `shared/scoped-token.ts`                             | scoped tokens: the Ed25519 JWT verifier, what a request reaches, the 401/403 verdict (ADR-0021)                                                  |
 | `shared/policy.ts`                                   | reading a limit from the environment, and saying what it is — so the cap stated and the cap enforced are one number                              |
 | `shared/events.ts`, `shared/outbox.ts`               | the ref-event protocol and the per-ref coalesce window that bounds a subscriber's message rate — every decision, pure                            |
 | `shared/telemetry.ts`                                | classifying a request and a refusal into the datapoint the Worker writes                                                                         |
@@ -776,6 +777,9 @@ cloudflare instance's `workerSecrets`):
 
 - `WALGIT_HTTP_TOKENS` — comma-separated bearer tokens (comma-separated so a
   credential can be rotated without a window where neither works).
+- `WALGIT_TOKEN_PUBLIC_KEYS` — optional: comma-separated Ed25519 public keys
+  (base64url, 32 raw bytes) that verify [scoped tokens](#scoped-tokens). Public
+  keys, so not strictly a secret; off unless set.
 - `WALGIT_S3_ENDPOINT`, `WALGIT_S3_BUCKET`, `WALGIT_S3_ACCESS_KEY_ID`,
   `WALGIT_S3_SECRET_ACCESS_KEY` — the write-ahead log's home (the `r2` module
   instance and its S3-API credentials). Without them the host serves reads from
@@ -1186,9 +1190,70 @@ check in WebCrypto, for a receiver on Workers.
 
 ## Authorization, today
 
-One trust boundary: any HTTP token can read and write any repository. Per-repo
-authorization is deferred until the repo namespace exists in the WAL — the
-`tokens` list is the seam it plugs into.
+The admin token (`WALGIT_HTTP_TOKENS`) is one trust boundary: any holder can
+read and write any repository. Per-repository credentials are **scoped tokens**,
+below.
+
+### Scoped tokens
+
+A scoped token ([ADR-0021](../../../../../docs/adr/0021-a-scoped-token-opens-one-repository.md))
+grants `read` or `write` on **exactly one repository**, for a short time. It is
+a compact JWT signed with Ed25519 (`alg: EdDSA` — every other `alg`, `none`
+included, is refused) by an **issuer** that holds the private key. walgit holds
+only the public keys, so a compromised walgit cannot mint one.
+
+```sh
+# The issuer's keypair. Keep key.pem with the issuer; never put it on walgit.
+bun src/cli.ts token keygen --out key.pem       # prints the public key
+# …or with openssl, which writes the same PKCS#8 file:
+openssl genpkey -algorithm ed25519 -out key.pem
+bun src/cli.ts token public-key --key key.pem   # the WALGIT_TOKEN_PUBLIC_KEYS entry
+
+# Configure walgit with the public half (comma-separate several to rotate):
+#   WALGIT_TOKEN_PUBLIC_KEYS=<base64url of the 32 raw public-key bytes>
+
+# Mint one for testing (an issuer in production uses its own JWT library):
+TOKEN=$(bun src/cli.ts token mint --key key.pem --repo my-thing --mode write --ttl 1h --sub tenant-1)
+git clone "https://walgit:$TOKEN@$HOST/my-thing.git"   # or: Authorization: Bearer $TOKEN
+```
+
+Claims: `repo` (required, an **exact** repository id — no prefix, no wildcard),
+`mode` (required, `read` | `write`), `exp` and `iat` (required, seconds since the
+epoch; 60 seconds of clock skew is allowed either way, and an `iat` further in
+the future is refused), `sub` (optional, the tenant). `iat` is required so that
+revocation can later refuse every token issued before an instant.
+
+- **Where it works:** on its own repository, on every surface — git smart HTTP
+  (`info/refs`, `git-upload-pack`, `git-receive-pack`), the web view and raw
+  files, the Provenance Read, Proposals, a ref-event `watch`, and every MCP tool
+  call. The repository list (`/repos`) shows it its own repository and nothing
+  else.
+- **Where it doesn't:** any other repository, and any other route, is **403** —
+  even where an anonymous request would be served. A client that wants the
+  anonymous view sends no credential. A `read` token is 403 at
+  `git-receive-pack`, including the advertisement, so git stops before it sends
+  a pack.
+- **A token that does not verify** — expired, badly signed, signed by a key not
+  configured, malformed, the wrong `alg` — is **401** with the Basic challenge.
+- **Create on first push:** a `write` token may create the repository it names,
+  exactly as the admin token can.
+- **On top, unchanged:** Private repositories, Reader Lists, Signer Lists,
+  signed pushes and per-source rate limits. A scoped token **cannot** open a
+  Private repository: it and a Read Challenge signature both travel in the one
+  `Authorization` header, and a Private repository answers only the signature.
+- **One keypair per deployment.** There is no `aud` claim; the key is the
+  boundary, so a token for `my-thing` on one walgit does not open `my-thing` on
+  another. `nbf` is honoured when present. walgit sets no maximum lifetime —
+  keep it short, since a token cannot be revoked before `exp` yet.
+- **An open `watch`** is closed by the first ref event after its token expires.
+- **Where it's checked:** at the edge Worker first, so a bad credential never
+  wakes the container, and again in the container with the same function
+  (`shared/scoped-token.ts`).
+
+`WALGIT_TOKEN_PUBLIC_KEYS` unset (the default) means every credential is judged
+exactly as before. A malformed entry is reported at the container's boot and
+refuses scoped tokens with a 503 naming the entry; the admin token keeps
+working.
 
 `WALGIT_PUBLIC` removes that boundary entirely: reads, writes and ref-event
 subscriptions all serve anyone, with no credential. It is an **explicit opt-in

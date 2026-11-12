@@ -35,6 +35,8 @@ import {
   watchedRepos,
 } from '../shared/events'
 import { Outbox } from '../shared/outbox'
+import { parseTokens } from '../shared/credentials'
+import { scopedAccessOf, scopedTokenExpired, scopedWatchRefusal } from '../shared/scoped-token'
 import { INTERNAL_HEADER, READ_VERDICT_PATH, REFS_PATH } from '../shared/protocol'
 import { RefCache } from '../shared/ref-cache'
 import { type ContainerBindings, containerFor } from './container-binding'
@@ -55,6 +57,12 @@ export interface EventsEnv extends ContainerBindings {
   WALGIT_PRIVATE_REPOS?: string
   WALGIT_SIGNER_LISTS?: string
   WALGIT_PUSH_CERT_SEED?: string
+  /**
+   * Scoped tokens (docs/adr/0021): the keys a watch's credential is verified
+   * against, and the deployment's own secrets, which are never judged as one.
+   */
+  WALGIT_TOKEN_PUBLIC_KEYS?: string
+  WALGIT_HTTP_TOKENS?: string
 }
 
 /** The Worker's internal call to fan an announcement out. Never client-reachable. */
@@ -168,6 +176,28 @@ export class WalgitEvents extends DurableObject<EventsEnv> {
 
     const credential = readSubscription(ws).credential
 
+    // A scoped token (docs/adr/0021) may watch its own repository and nothing
+    // else. Judged here, on the message that names the repositories, with the
+    // same verifier the edge ran at the upgrade — and refused whole, like the
+    // Private gate below, because a subscriber silently narrowed waits forever.
+    const scoped = await scopedAccessOf(credential, {
+      keys: this.env.WALGIT_TOKEN_PUBLIC_KEYS,
+      known: [
+        ...parseTokens(this.env.WALGIT_HTTP_TOKENS),
+        ...(this.env.WALGIT_EVENTS_TOKEN ? [this.env.WALGIT_EVENTS_TOKEN] : []),
+      ],
+    })
+    const scopeRefused = scopedWatchRefusal(scoped, watchedRepos(parsed.value))
+    if (scopeRefused) {
+      ws.send(encode({ error: scopeRefused }))
+      try {
+        ws.close(1008, "walgit: outside this token's scope")
+      } catch {
+        // Already gone.
+      }
+      return
+    }
+
     // The Private gate, on the only transport that can ask it here: the
     // container verifies the signature and answers per repository, and
     // `authorizeSubscribe` turns that into one verdict for the whole watch.
@@ -207,7 +237,13 @@ export class WalgitEvents extends DurableObject<EventsEnv> {
       }
     }
 
-    ws.serializeAttachment({ credential, watch: parsed.value } satisfies Subscription)
+    // A scoped token's `exp` rides on the socket, so the fan-out below stops
+    // serving it when the token would have stopped being accepted anywhere else.
+    ws.serializeAttachment({
+      credential,
+      watch: parsed.value,
+      ...(scoped.kind === 'scoped' ? { expires: scoped.claims.exp } : {}),
+    } satisfies Subscription)
 
     let refsByRepo: Record<string, Record<string, string>>
     try {
@@ -318,8 +354,20 @@ export class WalgitEvents extends DurableObject<EventsEnv> {
   private broadcast(events: readonly RefEvent[]): number {
     let delivered = 0
     for (const ws of this.ctx.getWebSockets()) {
-      const { watch } = readSubscription(ws)
+      const { watch, expires } = readSubscription(ws)
       if (!watch) continue
+      // A scoped token that has expired since its watch was accepted
+      // (docs/adr/0021): told, closed, and sent nothing. The client
+      // reconnects with a fresh token and is judged again.
+      if (expires !== undefined && scopedTokenExpired(expires)) {
+        try {
+          ws.send(encode({ error: 'token expired' }))
+          ws.close(1008, 'walgit: token expired')
+        } catch {
+          // Already gone.
+        }
+        continue
+      }
       const wanted = events.filter((event) => watchCovers(watch, event))
       if (wanted.length === 0) continue
       // Through the outbox rather than straight to the socket: it holds each
@@ -405,6 +453,8 @@ interface Subscription {
   credential: string | null
   /** Null until the client sends a valid `watch`. */
   watch: WatchEntry[] | null
+  /** A scoped token's `exp`, in seconds, when the watch was accepted on one. */
+  expires?: number
 }
 
 /** What this socket carries, whatever vintage of this code attached it. */
@@ -416,10 +466,11 @@ function readSubscription(ws: WebSocket): Subscription {
     // credential — which, on a Private deployment, is an unproven reader.
     if (Array.isArray(attachment)) return { credential: null, watch: attachment as WatchEntry[] }
     if (attachment && typeof attachment === 'object') {
-      const { credential, watch } = attachment as Partial<Subscription>
+      const { credential, watch, expires } = attachment as Partial<Subscription>
       return {
         credential: typeof credential === 'string' ? credential : null,
         watch: Array.isArray(watch) ? watch : null,
+        ...(typeof expires === 'number' ? { expires } : {}),
       }
     }
   } catch {

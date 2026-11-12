@@ -23,6 +23,10 @@
  * per-user model needs the repo namespace milestone 3 introduces. git sends the
  * credential this way, so accepting it is what makes `git clone https://…`
  * work with a bare token at all.
+ *
+ * A scoped token (docs/adr/0021) is read here too, and nowhere else: what this
+ * returns is what `shared/scoped-token.ts` judges, so the admin token and a
+ * scoped one cannot arrive by two parsers that disagree about the header.
  */
 export function presentedCredential(header: string): string | null {
   const bearer = /^Bearer (.+)$/i.exec(header)

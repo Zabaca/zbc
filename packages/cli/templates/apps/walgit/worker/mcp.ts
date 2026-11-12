@@ -40,6 +40,7 @@ import { Hono } from 'hono'
 
 import type { Capabilities } from '../shared/capabilities'
 import { parseTokens } from '../shared/credentials'
+import type { ScopedClaims } from '../shared/scoped-token'
 import { authorizeSubscribe } from '../shared/events'
 import {
   type McpDeps,
@@ -82,8 +83,9 @@ export async function handleMcp(
   caps: Capabilities,
   operator: Operator | null,
   host: string,
+  scoped: ScopedClaims | null = null,
 ): Promise<Response> {
-  const server = createAgentgitMcp(deps(request, env, caps, operator, host))
+  const server = createAgentgitMcp(deps(request, env, caps, operator, host, scoped))
   const transport = new StreamableHTTPTransport()
   await server.connect(transport)
   const app = new Hono()
@@ -97,6 +99,7 @@ function deps(
   caps: Capabilities,
   operator: Operator | null,
   host: string,
+  scoped: ScopedClaims | null,
 ): McpDeps {
   // The caller's own credential, forwarded unchanged to every gated read. An
   // MCP client sends it as an ordinary Authorization header, which is the same
@@ -136,7 +139,14 @@ function deps(
       return { ok: true, repo: name, provenance: read.provenance }
     },
 
-    watch: (name, ref, timeoutMs) => watchRef(env, caps, authorization, name, ref, timeoutMs),
+    watch: (name, ref, timeoutMs) =>
+      watchRef(env, caps, authorization, name, ref, timeoutMs, scoped !== null),
+
+    // A scoped token (docs/adr/0021) reaches the endpoint — the edge let it
+    // through, because the repositories here are named per tool call — and
+    // every tool refuses a name outside its claim before any of the reads
+    // above runs, so such a name never wakes the container (`shared/mcp.ts`).
+    scopedTo: scoped?.repo ?? null,
   }
 }
 
@@ -211,11 +221,16 @@ async function watchRef(
   repo: string,
   ref: string | null,
   timeoutMs: number,
+  scoped: boolean,
 ): Promise<WatchOutcome> {
   if (!caps.events) {
     throw new Error('this deployment does not serve the ref-event stream')
   }
+  // A scoped token stands in for the deployment credential, as it does on the
+  // socket route (`events()` in `index.ts`); its claim was checked by the
+  // caller and is checked again by the Durable Object.
   if (
+    !scoped &&
     !authorizeSubscribe({
       authorization,
       tokens: parseTokens(env.WALGIT_HTTP_TOKENS),

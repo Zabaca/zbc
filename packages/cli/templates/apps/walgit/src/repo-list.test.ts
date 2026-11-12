@@ -440,3 +440,34 @@ describe('the view is read-only', () => {
     expect(res.status).toBe(200)
   })
 })
+
+describe('a scoped token (docs/adr/0021)', () => {
+  test('sees its own repository and no other, not even the count of them', async () => {
+    const store = await storeWith({ alpha: {}, beta: {}, gamma: {} })
+    for (const deployment of [GATED, OPEN]) {
+      const res = await repoListResponse(JSON_REQ, {
+        store,
+        caps: deployment,
+        tokens: TOKENS,
+        scopedTo: 'beta',
+      })
+      expect(res.status).toBe(200)
+      const listing = JSON.parse(res.body)
+      expect(listing.repos.map((row: { name: string }) => row.name)).toEqual(['beta'])
+      expect(listing.total).toBe(1)
+      // Narrowed for a credential, so never held by a shared cache.
+      expect(res.headers['cache-control']).toBe('private, no-store')
+    }
+  })
+
+  test('a repository the log does not hold lists nothing', async () => {
+    const store = await storeWith({ alpha: {} })
+    const res = await repoListResponse(JSON_REQ, {
+      store,
+      caps: GATED,
+      tokens: TOKENS,
+      scopedTo: 'beta',
+    })
+    expect(JSON.parse(res.body)).toMatchObject({ repos: [], total: 0 })
+  })
+})
