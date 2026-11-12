@@ -17,7 +17,7 @@ import { capabilitiesFrom } from '../shared/capabilities'
 import { BOOT_MARKER } from '../shared/container-snapshot'
 import { parseTokens } from '../shared/credentials'
 import { tokenPublicKeysConfigError } from '../shared/scoped-token'
-import { listCommits, listTree, readBlob, statBlob } from './browse'
+import { compareRevs, listCommits, listTree, readBlob, statBlob } from './browse'
 import { clearBootResidue } from './boot-residue'
 import { ensureBareRepo } from './cache'
 import { publishUploadPackAtBoot } from './edge-refs'
@@ -300,6 +300,7 @@ try {
           statBlob: (repo, rev, path) => statBlob(repo.dir, rev, path),
           readBlob: (repo, rev, path) => readBlob(repo.dir, rev, path),
           listCommits: (repo, rev, before, limit) => listCommits(repo.dir, rev, before, limit),
+          compare: (repo, base, head, limits) => compareRevs(repo.dir, base, head, limits),
         }
       : undefined,
     // Read gating, and only where all three halves exist (docs/adr/0013): the

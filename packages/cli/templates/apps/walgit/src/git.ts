@@ -185,6 +185,37 @@ export function gitBytes(
   }
 }
 
+/**
+ * git, where the output is deliberately BOUNDED rather than merely buffered.
+ *
+ * One caller: the compare's unified diff (`src/browse.ts`), whose size is
+ * whatever two refs make it and is not something a request may let grow to
+ * `MAX_BUFFER`. Past `limit` bytes the child is killed and what was read so
+ * far comes back cut at `limit`, with `overflowed` saying so — the cut is the
+ * caller's to present (a `truncated` flag), never a failure. A zero exit is
+ * not trusted for completeness here either: the runtime reports an overrun as
+ * `ENOBUFS` with a killed child, and that is the one signal read.
+ */
+export function gitBounded(
+  args: readonly string[],
+  limit: number,
+  opts: GitOptions = {},
+): { status: number; stdout: Uint8Array; stderr: string; overflowed: boolean } {
+  const res = spawnSync('git', argv(args, opts), {
+    input: opts.input,
+    maxBuffer: limit,
+    env: childEnv(opts),
+  })
+  const overflowed = (res.error as NodeJS.ErrnoException | undefined)?.code === 'ENOBUFS'
+  const stdout = res.stdout ?? new Uint8Array()
+  return {
+    status: overflowed ? 0 : (res.status ?? 1),
+    stdout: stdout.byteLength > limit ? stdout.subarray(0, limit) : stdout,
+    stderr: res.stderr?.toString('utf8') ?? '',
+    overflowed: overflowed || stdout.byteLength > limit,
+  }
+}
+
 /** git, where a non-zero exit is a bug rather than an answer. */
 export function gitOrThrow(args: readonly string[], opts: GitOptions = {}): GitResult {
   const res = git(args, opts)

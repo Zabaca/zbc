@@ -20,8 +20,15 @@
  * command line (`src/git.ts`). Nothing here concatenates either into `args`.
  */
 
-import { OID, type Commit, type TreeEntry } from '../shared/browse'
-import { git, gitBytes } from './git'
+import {
+  OID,
+  type Commit,
+  type CompareFile,
+  type CompareStatus,
+  type Comparison,
+  type TreeEntry,
+} from '../shared/browse'
+import { git, gitBounded, gitBytes } from './git'
 
 /** git's modes, as the four kinds a reader can actually see apart. */
 const SYMLINK_MODE = '120000'
@@ -227,4 +234,154 @@ export async function listCommits(
     commits.push({ oid, author, date, subject: subject ?? '' })
   }
   return commits
+}
+
+/** The bounds one compare works under. The handler's, like `LOG_PAGE`. */
+export interface CompareLimits {
+  maxFiles: number
+  maxDiffBytes: number
+}
+
+/**
+ * The flags every diff below runs with, whatever the repository's own config.
+ *
+ * `-M` because a rename shown as a delete and an add is the wrong review, and
+ * git's `diff.renames` default is a config this process should not depend on.
+ * No colour, no external diff driver and no textconv: the output is read by a
+ * program, and a driver is a command the repository could name.
+ */
+const DIFF_FLAGS = ['-M', '--no-color', '--no-ext-diff', '--no-textconv']
+
+/**
+ * The head against its merge base with the base — three-dot, the diff a review
+ * reads — or `null` when the Cache cannot resolve one of the two, or
+ * `'unrelated'` when they share no history and there is no merge base to diff
+ * against.
+ *
+ * Three commands. `merge-base`; one `diff --raw --numstat -z` for the whole
+ * summary, which is cheap (no content is printed) and so read whole, so the
+ * totals are true even when the list is capped; and one `diff` for the text,
+ * limited to the listed files and cut off in the subprocess at the byte cap.
+ * Both revisions are full oids by the time they arrive (`src/http.ts`), and
+ * they go in as operands all the same.
+ */
+export async function compareRevs(
+  gitDir: string,
+  base: string,
+  head: string,
+  limits: CompareLimits,
+): Promise<Comparison | 'unrelated' | null> {
+  for (const rev of [base, head]) {
+    const known = git(['cat-file', '-e'], { gitDir, operands: [`${rev}^{commit}`] })
+    if (known.status !== 0) return null
+  }
+  const mb = git(['merge-base'], { gitDir, operands: [base, head] })
+  // Exit 1 with no output is "no common ancestor": two histories, both real.
+  if (mb.status !== 0) return mb.status === 1 && mb.stdout.trim() === '' ? 'unrelated' : null
+  const mergeBase = mb.stdout.trim()
+  if (!OID.test(mergeBase)) return null
+
+  const summary = git(['diff', ...DIFF_FLAGS, '--raw', '--numstat', '-z'], {
+    gitDir,
+    operands: [mergeBase, head],
+  })
+  if (summary.status !== 0) return null
+  const all = parseSummary(summary.stdout)
+
+  const totals = { files: all.length, additions: 0, deletions: 0 }
+  for (const file of all) {
+    totals.additions += file.additions
+    totals.deletions += file.deletions
+  }
+  const files = all.slice(0, limits.maxFiles)
+  let truncated = files.length < all.length
+
+  let diff = ''
+  if (files.length > 0) {
+    // Only the listed files, when the list was capped — so the diff a reader
+    // gets describes exactly the files they were shown. A rename needs both
+    // of its paths in the pathspec or git cannot pair them. Literal pathspecs,
+    // because a file may be called `*` and that is a name, not a glob.
+    const paths = truncated
+      ? files.flatMap((file) => (file.previousPath ? [file.previousPath, file.path] : [file.path]))
+      : []
+    const text = gitBounded(['diff', ...DIFF_FLAGS], limits.maxDiffBytes, {
+      gitDir,
+      operands: [mergeBase, head],
+      paths,
+      env: { GIT_LITERAL_PATHSPECS: '1' },
+    })
+    if (!text.overflowed && text.status !== 0) return null
+    let bytes = text.stdout
+    if (text.overflowed) {
+      truncated = true
+      // On a line boundary, so the last line shown is a whole one and a
+      // multi-byte character is never split.
+      const cut = bytes.lastIndexOf(0x0a)
+      bytes = bytes.subarray(0, cut + 1)
+    }
+    diff = new TextDecoder().decode(bytes)
+  }
+
+  return { mergeBase, files, totals, diff, truncated }
+}
+
+/**
+ * `git diff --raw --numstat -z`: every raw record, then every numstat record,
+ * in the same order.
+ *
+ * A raw record is `:<modes> <oids> <status>` then one path, or two for a
+ * rename. A numstat record is `<added>\t<deleted>\t<path>`, or for a rename
+ * `<added>\t<deleted>\t` followed by the two paths as their own fields. `-`
+ * for both counts is git's word for binary.
+ */
+function parseSummary(out: string): CompareFile[] {
+  const fields = out.split('\0')
+  const raw: { path: string; previousPath?: string; status: CompareStatus }[] = []
+  const counts: { additions: number; deletions: number; binary: boolean }[] = []
+  let i = 0
+  while (i < fields.length) {
+    const field = fields[i++]!
+    if (field === '') continue
+    if (field.startsWith(':')) {
+      const letter = field.slice(field.lastIndexOf(' ') + 1)
+      if (letter.startsWith('R') || letter.startsWith('C')) {
+        const previousPath = fields[i++] ?? ''
+        const path = fields[i++] ?? ''
+        raw.push(
+          letter.startsWith('R')
+            ? { path, previousPath, status: 'renamed' }
+            : // A copy is only reported under `-C`, which is not asked for; were
+              // one ever to arrive, the new file is what a reviewer reads.
+              { path, status: 'added' },
+        )
+      } else {
+        const path = fields[i++] ?? ''
+        raw.push({ path, status: statusOf(letter) })
+      }
+      continue
+    }
+    const [added, deleted, path] = field.split('\t')
+    // A rename's numstat names its paths as the next two fields.
+    if (path === '') i += 2
+    const binary = added === '-' && deleted === '-'
+    counts.push({
+      additions: binary ? 0 : Number(added) || 0,
+      deletions: binary ? 0 : Number(deleted) || 0,
+      binary,
+    })
+  }
+  return raw.map((file, n) => ({
+    ...file,
+    ...(counts[n] ?? { additions: 0, deletions: 0, binary: false }),
+  }))
+}
+
+/** git's one-letter status, as the four a reviewer reads apart. */
+function statusOf(letter: string): CompareStatus {
+  if (letter === 'A') return 'added'
+  if (letter === 'D') return 'deleted'
+  // `M`, and `T` — a type change (a file become a symlink) is a modification
+  // of the path as far as a review is concerned.
+  return 'modified'
 }

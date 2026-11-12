@@ -152,6 +152,67 @@ export interface BrowseLogAnswer extends BrowseRefsAnswer {
 }
 
 /**
+ * How many files one compare lists, and diffs: 300.
+ *
+ * GitHub's own figure for a compare, and a bound on work done on the request
+ * path in the one container that is also serving pushes. The totals are still
+ * counted over EVERY changed file — the per-file summary is one `git diff
+ * --numstat` either way — so a reader is told how much was left out, not merely
+ * that something was.
+ */
+export const COMPARE_MAX_FILES = 300
+
+/**
+ * How much unified diff one compare carries: 1 MiB.
+ *
+ * Enforced on git's OUTPUT as it is read (`gitBounded`, `src/git.ts`), so a
+ * diff past it is cut off in the subprocess rather than buffered whole and
+ * then trimmed. The cut lands on a line boundary. A reader wanting the rest
+ * clones the repository, or compares fewer changes.
+ */
+export const COMPARE_MAX_DIFF_BYTES = 1024 * 1024
+
+/** What one file did between the merge base and the head. */
+export type CompareStatus = 'added' | 'modified' | 'deleted' | 'renamed'
+
+/** One changed file, as `git diff --raw --numstat -M` reports it. */
+export interface CompareFile {
+  /** The path at the head; for a deletion, the path that was deleted. */
+  path: string
+  /** For a rename only: the path at the merge base. */
+  previousPath?: string
+  status: CompareStatus
+  /** Lines added. `0` for a binary file, which has no lines to count. */
+  additions: number
+  /** Lines deleted. `0` for a binary file. */
+  deletions: number
+  binary: boolean
+}
+
+/** A compare, as the Cache answers it — before the Index facts join it. */
+export interface Comparison {
+  /** The commit the head is diffed against: `git merge-base base head`. */
+  mergeBase: string
+  /** The changed files, in git's path order, capped at `COMPARE_MAX_FILES`. */
+  files: CompareFile[]
+  /** Counted over every changed file, including any `files` leaves out. */
+  totals: { files: number; additions: number; deletions: number }
+  /** The unified diff of the listed files, cut at `COMPARE_MAX_DIFF_BYTES`. */
+  diff: string
+  /** A cap was hit: `files` is not every changed file, or `diff` was cut. */
+  truncated: boolean
+}
+
+/**
+ * What `op=compare` answers: the repository, the two refs as resolved, and the
+ * comparison of the head against their merge base (three-dot).
+ */
+export interface BrowseCompareAnswer extends BrowseRefsAnswer, Comparison {
+  base: { ref: string; oid: string }
+  head: { ref: string; oid: string }
+}
+
+/**
  * The README a directory listing holds, by the fixed preference order.
  *
  * `README`, then `README.md`, then `README.txt`, case-insensitively — the names

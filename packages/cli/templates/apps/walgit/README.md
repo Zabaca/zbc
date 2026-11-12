@@ -642,6 +642,51 @@ Both bounds — one tree level, fifty commits — are bounds on work done on the
 request path in the one container that is also serving pushes. A reader who
 wants the whole history clones it, which is what walgit is.
 
+### Comparing two refs
+
+`GET /_walgit/browse?repo=<name>&op=compare&base=<ref>&head=<ref>` is a review of
+a branch without a checkout: the head **against its merge base with the base**
+(three-dot, as code review reads it), so whatever the base gained after the
+branch was cut is not in the answer. Both refs resolve the way every browse ref
+does — an Index key, `refs/heads/` or `refs/tags/` optional, or a full oid. It
+answers JSON:
+
+```json
+{
+  "repo": "my-thing",
+  "base": { "ref": "refs/heads/main", "oid": "…" },
+  "head": { "ref": "refs/heads/feature/x", "oid": "…" },
+  "mergeBase": "…",
+  "files": [
+    { "path": "src/new.ts", "previousPath": "src/old.ts", "status": "renamed", "additions": 2, "deletions": 1, "binary": false }
+  ],
+  "totals": { "files": 1, "additions": 2, "deletions": 1 },
+  "truncated": false,
+  "diff": "diff --git a/src/old.ts b/src/new.ts\n…"
+}
+```
+
+alongside the ref list every browse answer carries. `status` is `added`,
+`modified`, `deleted` or `renamed` (`git diff -M`; a type change is
+`modified`), and a binary file has `binary: true` with zero counts.
+`?format=diff`, or `Accept: text/x-diff` / `text/plain` without
+`application/json`, answers the unified diff alone as `text/plain` with
+`X-Walgit-Truncated` and `X-Walgit-Merge-Base` headers.
+
+- **Bounded.** At most **300 files** are listed and diffed, and at most
+  **1 MiB** of diff is carried, cut on a line boundary — the byte cap is
+  enforced on git's output as it is read, so a huge diff is stopped in the
+  subprocess rather than buffered. Hitting either sets `truncated: true`;
+  `totals` still counts every changed file.
+- **Refusals.** An unknown ref, or an oid the Cache does not hold, is `404`; a
+  request naming no `base` or no `head`, or two refs sharing no history (there
+  is no merge base), is `400`.
+- **Gated as a browse.** It is one more `op` of the browse endpoint, so it
+  exists only with `WALGIT_WEB` on, never creates a name, and is read under the
+  same deployment credential, Read Challenge and Scoped Token rules: a `read`
+  or `write` token for the repository may compare, another repository's token
+  is `403`, and a public deployment answers it with no credential at all.
+
 `WALGIT_WEB` is on `CONTAINER_ENV`, which is what makes the browse endpoint
 above possible at all: `caps.web` is read on both sides — at the edge to claim
 the routes, in the container to decide whether `/_walgit/browse` exists — and a

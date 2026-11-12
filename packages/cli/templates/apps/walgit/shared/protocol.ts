@@ -209,8 +209,10 @@ export const REPOS_PATH = '/repos'
 /**
  * One repository's refs and one level of its tree, read on the Cache.
  *
- * `?repo=&op=refs|tree&ref=&path=`, and under `/_walgit/` for the reason every
- * endpoint above is: the prefix is reserved and a repository is reached at
+ * `?repo=&op=refs|tree|blob|raw|log&ref=&path=`, and `?repo=&op=compare&base=&head=`
+ * — the one op a client calls directly rather than through a page, a review of
+ * a branch with no checkout (README, *Comparing two refs*). Under `/_walgit/`
+ * for the reason every endpoint above is: the prefix is reserved and a repository is reached at
  * `/<name>.git/…`, so it cannot shadow one.
  *
  * It is for the EDGE rather than for a client — the two browse pages are
