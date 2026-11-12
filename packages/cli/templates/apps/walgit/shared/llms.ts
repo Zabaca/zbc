@@ -31,6 +31,7 @@ import {
   CHALLENGE_PATH,
   EVENTS_PATH,
   MCP_PATH,
+  MERGE_PATH,
   PROVENANCE_PATH,
   READ_CHALLENGE_NAMESPACE,
   REPOS_PATH,
@@ -897,7 +898,22 @@ curl 'https://${host}${BROWSE_PATH}?repo=$NAME&op=compare&base=main&head=feature
 A review without a checkout: \`head\` against its merge base with \`base\` (three-dot), as JSON — \`mergeBase\`, \`files\` (\`path\`, \`previousPath\` for a rename, \`status\` added/modified/deleted/renamed, \`additions\`, \`deletions\`, \`binary\`), \`totals\` and the unified \`diff\`. Add \`&format=diff\` for the diff alone as text. At most 300 files and 1 MiB of diff; past either, \`truncated\` is true and \`totals\` still counts everything. An unknown ref is 404; two refs with no history in common are 400; a comparison too large to compute in ten seconds is 503 — compare it in a clone.
 `
     : ''
-}
+}${
+    // Host merges (docs/adr/0022), named only where the route exists. A sentence
+    // about an endpoint that 404s is an agent sent after nothing.
+    caps.merge
+      ? `
+## Merge without a checkout
+
+\`\`\`sh
+curl -X POST 'https://${host}${MERGE_PATH}?repo=$NAME'${caps.publicAccess ? '' : ' -u walgit:$TOKEN'} -H 'content-type: application/json' \\
+  -d '{"source":"feature/x","target":"main","method":"squash","expected":"<full oid main is at>","message":"Land feature/x","author":{"name":"…","email":"…"}}'
+\`\`\`
+
+The host merges \`source\` into the branch \`target\` and answers the new commit with the files it changed. \`method\` is \`fast-forward\` (refused 409 when it is not one) or \`squash\` (one commit on top of \`target\`, the three-way merge of both; \`message\` and \`author\` required). \`expected\` is required: the commit \`target\` stood at when you reviewed it. If it has moved since, the answer is 409 \`stale\` with the \`actual\` commit and nothing changes — read the target again, then decide. A squash that conflicts is 409 \`conflict\` with the paths; resolve those in a clone. It is a push the host makes, so the same size caps and rules apply, and Watchers see the move.${caps.namesCanRefuse ? ' A name holding a Signer List refuses it (403 `signed`): the host cannot sign, so merge in a clone and push signed.' : ''}${caps.proposals ? ' A squash-merged Proposal does not read as merged — fast-forward it if it should.' : ''}
+`
+      : ''
+  }
 ## Ask this host directly
 
 This host speaks the Model Context Protocol at \`https://${host}${MCP_PATH}\` (Streamable HTTP). There is nothing to install and nothing to spawn — point a client at the URL:
