@@ -23,7 +23,10 @@
  * missing configuration).
  */
 
+import * as fs from 'node:fs'
 import * as path from 'node:path'
+
+import { base64UrlEncode, mintScopedToken, type ScopedMode } from '../shared/scoped-token'
 
 import { compact, configuredGraceMs, type CompactResult } from './compact'
 import { configuredDeleteGraceMs, deleteRepo } from './delete-repo'
@@ -60,6 +63,12 @@ const KNOWN_VALUE_FLAGS = new Set([
   'claimed-after',
   'since',
   'top',
+  'key',
+  'out',
+  'repo',
+  'mode',
+  'ttl',
+  'sub',
 ])
 
 export function parseArgs(argv: readonly string[]): ParsedArgs {
@@ -95,6 +104,10 @@ const USAGE = `walgit — operator CLI for a WAL-backed git host
   walgit delete <repo_id...>            remove repositories entirely (dry run)
   walgit usage                          what the log says this service holds
   walgit expire [repo_id...]            collect repos idle past the window (dry run)
+  walgit token keygen --out <file>      make an Ed25519 keypair for scoped tokens
+  walgit token public-key --key <file>  print a private key's WALGIT_TOKEN_PUBLIC_KEYS entry
+  walgit token mint --key <file> --repo <name> --mode read|write [--ttl 1h] [--sub <tenant>]
+                                        mint a scoped token for one repository
 
 Options
   --repos-dir <dir>   where bare repos live (default: $WALGIT_REPOS_DIR)
@@ -110,6 +123,7 @@ Options
   --collect-only      expire: collect tombstoned repos, tombstone nothing new
   --since <duration>  usage: push window, e.g. 24h, 7d, 30m (default 24h)
   --top <n>           usage: how many repositories to name (0 = all, default 10)
+  --ttl <duration>    token mint: lifetime, e.g. 15m, 1h, 7d (default 1h)
 
 The object store is read from the environment the app itself uses:
 WALGIT_S3_ENDPOINT / _BUCKET / _ACCESS_KEY_ID / _SECRET_ACCESS_KEY, or
@@ -478,6 +492,125 @@ async function usageCommand(args: ParsedArgs, env: NodeJS.ProcessEnv): Promise<n
   return OK
 }
 
+// ── Scoped tokens (docs/adr/0021) ──────────────────────────────────────────
+//
+// An operator's tool for testing and docs. An issuer in production signs with
+// whatever JWT library it already has — EdDSA over Ed25519 is the standard
+// shape, which is why the format was chosen — and walgit itself never holds a
+// private key: these commands run wherever the key is, not in the container.
+
+const PEM_LABEL = 'PRIVATE KEY'
+
+function pem(der: Uint8Array): string {
+  let binary = ''
+  for (const byte of der) binary += String.fromCharCode(byte)
+  const lines = btoa(binary).match(/.{1,64}/g) ?? []
+  return `-----BEGIN ${PEM_LABEL}-----\n${lines.join('\n')}\n-----END ${PEM_LABEL}-----\n`
+}
+
+/**
+ * Read a PKCS#8 Ed25519 private key — what `token keygen` writes and what
+ * `openssl genpkey -algorithm ed25519` writes too.
+ */
+async function readPrivateKey(file: string): Promise<CryptoKey> {
+  const text = fs.readFileSync(file, 'utf8')
+  const body = new RegExp(
+    `-----BEGIN ${PEM_LABEL}-----([\\s\\S]+?)-----END ${PEM_LABEL}-----`,
+  ).exec(text)
+  if (!body) throw new Error(`${file} is not a PEM "${PEM_LABEL}" (PKCS#8) file`)
+  const der = Uint8Array.from(atob(body[1]!.replace(/\s+/g, '')), (c) => c.charCodeAt(0))
+  try {
+    return await crypto.subtle.importKey('pkcs8', der, { name: 'Ed25519' }, true, ['sign'])
+  } catch {
+    throw new Error(`${file} is not an Ed25519 private key`)
+  }
+}
+
+/** The public half, as one `WALGIT_TOKEN_PUBLIC_KEYS` entry: the JWK's `x`. */
+async function publicKeyOf(privateKey: CryptoKey): Promise<string> {
+  const jwk = await crypto.subtle.exportKey('jwk', privateKey)
+  if (typeof jwk.x !== 'string') throw new Error('could not derive the public key')
+  return jwk.x
+}
+
+function stringFlag(args: ParsedArgs, name: string): string | undefined {
+  const value = args.flags[name]
+  return typeof value === 'string' && value !== '' ? value : undefined
+}
+
+async function tokenCommand(args: ParsedArgs): Promise<number> {
+  const sub = args.positional[0]
+  if (sub === 'keygen') {
+    const out = stringFlag(args, 'out')
+    if (!out) {
+      console.error('walgit: token keygen needs --out <file> for the private key')
+      return MISUSE
+    }
+    // Never overwrite: replacing a signing key in place is a rotation nobody
+    // planned, and every token the old one minted stops verifying.
+    if (fs.existsSync(out)) {
+      console.error(`walgit: ${out} already exists; refusing to overwrite a key`)
+      return MISUSE
+    }
+    const pair = (await crypto.subtle.generateKey({ name: 'Ed25519' }, true, [
+      'sign',
+      'verify',
+    ])) as CryptoKeyPair
+    const der = new Uint8Array(await crypto.subtle.exportKey('pkcs8', pair.privateKey))
+    fs.writeFileSync(out, pem(der), { mode: 0o600, flag: 'wx' })
+    const raw = new Uint8Array(await crypto.subtle.exportKey('raw', pair.publicKey))
+    emit(
+      args,
+      { privateKey: out, publicKey: base64UrlEncode(raw) },
+      `private key written to ${out} (keep it with the issuer, never on walgit)\n` +
+        `WALGIT_TOKEN_PUBLIC_KEYS entry: ${base64UrlEncode(raw)}`,
+    )
+    return OK
+  }
+
+  if (sub === 'public-key') {
+    const key = stringFlag(args, 'key')
+    if (!key) {
+      console.error('walgit: token public-key needs --key <private key file>')
+      return MISUSE
+    }
+    const publicKey = await publicKeyOf(await readPrivateKey(key))
+    emit(args, { publicKey }, publicKey)
+    return OK
+  }
+
+  if (sub === 'mint') {
+    const key = stringFlag(args, 'key')
+    const repoFlag = stringFlag(args, 'repo')
+    const mode = stringFlag(args, 'mode')
+    if (!key || !repoFlag || (mode !== 'read' && mode !== 'write')) {
+      console.error(
+        'walgit: token mint needs --key <file> --repo <name> --mode read|write [--ttl 1h] [--sub <tenant>]',
+      )
+      return MISUSE
+    }
+    // The same grammar every entry point applies, and the canonical spelling:
+    // a claim is an exact name, never `name.git`.
+    const repo = normalizeRepoId(repoFlag)
+    const ttlMs = parseDuration(stringFlag(args, 'ttl') ?? '1h')
+    if (!(ttlMs > 0)) throw new Error('--ttl must be longer than zero')
+    const iat = Math.floor(Date.now() / 1000)
+    const tenant = stringFlag(args, 'sub')
+    const token = await mintScopedToken(await readPrivateKey(key), {
+      repo,
+      mode: mode as ScopedMode,
+      iat,
+      exp: iat + Math.ceil(ttlMs / 1000),
+      ...(tenant ? { sub: tenant } : {}),
+    })
+    emit(args, { token, repo, mode, exp: iat + Math.ceil(ttlMs / 1000) }, token)
+    return OK
+  }
+
+  console.error(`walgit: token needs keygen, public-key or mint\n\n${USAGE}`)
+  return MISUSE
+}
+
 // ── Entry point ─────────────────────────────────────────────────────────────
 
 export async function main(
@@ -508,6 +641,8 @@ export async function main(
         return await usageCommand(args, env)
       case 'expire':
         return await expireCommand(args, env)
+      case 'token':
+        return await tokenCommand(args)
       default:
         console.error(`walgit: unknown command "${args.command}"\n\n${USAGE}`)
         return MISUSE
