@@ -685,6 +685,36 @@ ${[
   .join('\n')}
 `
 
+  /**
+   * The push webhook (shared/webhook.ts). Stated because a pusher should know
+   * its push is reported beyond this host, and because the receiver's author
+   * reads this document too — so it carries the check. Never the URL: that is
+   * the operator's, and this document is public.
+   */
+  const webhook = caps.webhook
+    ? `
+## Every push is also POSTed to the operator
+
+This host sends every ref that moves to one URL its operator configured, as a signed HTTP POST — one per ref, after the push is durable, never for a push that was refused. The body uses the event stream's names:
+
+\`\`\`json
+{"id":"01JD3Q8X6M2P4R7T9V0WXYZABC","repo":"my-thing","ref":"refs/heads/main","oldSha":"9f2c…","sha":"0ab7…","timestamp":"2026-11-11T12:00:00.000Z"}
+\`\`\`
+
+\`oldSha\` is \`null\` for a new ref and \`sha\` is \`null\` for a deleted one; \`merged\` appears when it does on the event stream. Delivery is at least once, retried with backoff on a network failure, a 5xx, a 408 or a 429, so de-duplicate on \`id\` (also sent as \`X-Walgit-Event\`).
+
+To verify one, take \`X-Walgit-Timestamp\` (Unix seconds) and the **raw** body, and compare \`X-Walgit-Signature\` with \`sha256=\` plus the hex HMAC-SHA256 of \`<timestamp>.<body>\`, keyed by the shared secret. Refuse a timestamp more than five minutes old — each retry is re-stamped.
+
+\`\`\`ts
+import { createHmac, timingSafeEqual } from 'node:crypto'
+const fresh = /^\\d+$/.test(timestamp) && Math.abs(Date.now() / 1000 - Number(timestamp)) <= 300
+const got = Buffer.from(signature)
+const expected = Buffer.from('sha256=' + createHmac('sha256', secret).update(timestamp + '.' + rawBody).digest('hex'))
+const ok = fresh && got.length === expected.length && timingSafeEqual(got, expected)
+\`\`\`
+`
+    : ''
+
   const events = caps.events
     ? `
 ## Know when a ref moves, without asking
@@ -867,7 +897,7 @@ It carries what this host can answer without your disk: \`agentgit_status\` (doe
     // answer and a useless one to send an agent after.
     caps.signedPushes ? ', `agentgit_provenance` (which key signed the push that moved a ref)' : ''
   }, and this document as the resource \`agentgit://manual\`. Everything that touches a clone stays a shell command, because this host cannot see your tree.
-${signing}${ownership}${privacy}${proposing}${events}
+${signing}${ownership}${privacy}${proposing}${events}${webhook}
 ## If a push is refused
 
 Read the message. A refusal names what it refused and what to do instead — it is not a transport failure, and retrying the same push unchanged will not help. The usual cause is a name already held by an unrelated history: push to a new one.

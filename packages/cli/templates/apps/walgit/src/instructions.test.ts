@@ -415,10 +415,11 @@ function everyConfiguration(): Capabilities[] {
   // four-digit bound — `describeHours` prints days for a multiple of 24 at or
   // above 48, so the multiples are the SHORT ones.
   const HOURS = ['1', '24', '47', '168', '999', '1000', '9999']
-  // Live (99 MiB, 250 MiB), the GiB boundary, and two GiB-scale shapes that
+  // Live (90 MiB, 250 MiB), the old public push cap (99 MiB), the GiB boundary, and two GiB-scale shapes that
   // trade width against each other: two decimals on a smaller raw count, or a
   // bare `100 GiB` beside a twelve-digit one.
   const BYTES = [
+    String(90 * 1024 ** 2),
     String(99 * 1024 ** 2),
     String(250 * 1024 ** 2),
     String(1024 ** 3),

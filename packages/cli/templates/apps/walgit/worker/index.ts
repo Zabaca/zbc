@@ -170,6 +170,14 @@ export interface Env extends ContainerBindings {
   WALGIT_EVENTS_TOKEN?: string
   WALGIT_EVENTS_URL?: string
   /**
+   * The push webhook (shared/webhook.ts): one HMAC-signed POST per moved ref
+   * to `WALGIT_WEBHOOK_URL`. Off unless BOTH are set. The Worker only forwards
+   * them — the container's `post-receive` announcer delivers — and the secret
+   * belongs in `workerSecrets`, never `workerVars`.
+   */
+  WALGIT_WEBHOOK_URL?: string
+  WALGIT_WEBHOOK_SECRET?: string
+  /**
    * The nonce seed that makes signed pushes possible (src/push-cert.ts). Unset
    * is the default and means the container never advertises the capability, so
    * a client asking for `--signed=yes` is refused by its own git. A secret:
