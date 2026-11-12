@@ -1454,29 +1454,30 @@ function createRouter(deps: HttpHandlerDeps): (req: Request) => Promise<Response
 }
 
 /**
+ * The kind the edge counts a merge refusal by, as `reject` names one: a lost
+ * race or a conflict is a `collision`, and the rest name themselves.
+ */
+function mergeRejectKind(status: number): ContainerRejectKind {
+  if (status === 409) return 'collision'
+  if (status === 404) return 'not-found'
+  if (status === 403) return 'unauthorized'
+  return 'invalid'
+}
+
+/**
  * A merge's result as HTTP. Every refusal is JSON with an `error` that says
  * which one it is, because a client choosing between "read the target again"
  * (`stale`, `contended`), "resolve it in a clone" (`conflict`) and "this will
  * never work here" (`signed`) must not have to parse a sentence to know which.
  */
 function mergeAnswer(result: MergeResult): Response {
-  // A refusal carries the kind the edge counts refusals by, as `reject` does:
-  // a lost race or a conflict is a `collision`, the rest name themselves.
-  const kindOf = (status: number): ContainerRejectKind =>
-    status === 409
-      ? 'collision'
-      : status === 404
-        ? 'not-found'
-        : status === 403
-          ? 'unauthorized'
-          : 'invalid'
   const answer = (status: number, body: Record<string, unknown>) =>
     new Response(`${JSON.stringify(body)}\n`, {
       status,
       headers: {
         'content-type': 'application/json; charset=utf-8',
         'cache-control': 'no-store',
-        ...(status >= 400 ? { [REJECT_HEADER]: kindOf(status) } : {}),
+        ...(status >= 400 ? { [REJECT_HEADER]: mergeRejectKind(status) } : {}),
       },
     })
   switch (result.kind) {
