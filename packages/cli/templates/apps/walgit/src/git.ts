@@ -193,3 +193,24 @@ export function gitOrThrow(args: readonly string[], opts: GitOptions = {}): GitR
   }
   return res
 }
+
+/**
+ * `git` without blocking the event loop, for the one caller that runs git on
+ * the request path of a process also serving pushes: an admin seed
+ * (`src/admin.ts`), whose push runs the hooks and their network round trips.
+ * Same environment and argv rules as `git`; `input` is written to stdin.
+ */
+export async function gitAsync(args: readonly string[], opts: GitOptions = {}): Promise<GitResult> {
+  const child = Bun.spawn(['git', ...argv(args, opts)], {
+    env: childEnv(opts),
+    stdin: opts.input === undefined ? 'ignore' : new TextEncoder().encode(opts.input),
+    stdout: 'pipe',
+    stderr: 'pipe',
+  })
+  const [stdout, stderr, status] = await Promise.all([
+    new Response(child.stdout).text(),
+    new Response(child.stderr).text(),
+    child.exited,
+  ])
+  return { status, stdout, stderr }
+}

@@ -30,6 +30,7 @@ import {
   type ScopedClaims,
 } from '../shared/scoped-token'
 import {
+  ADMIN_REPOS_HTTP,
   BASIC_CHALLENGE,
   BROWSE_PATH,
   CHALLENGE_PATH,
@@ -47,6 +48,7 @@ import {
   SMART_HTTP,
   type ContainerRejectKind,
 } from '../shared/protocol'
+import { MAX_SEED_BYTES, parseSeed, type AdminOps } from './admin'
 import { emptyReadResponse } from './empty-read'
 import { renderInstructions } from '../shared/instructions'
 import { acceptedNonces, readAllowed, readChallengeNonce, renderReadChallenge } from './private'
@@ -209,6 +211,13 @@ export type HttpHandlerDeps = {
   scopedTokenKeys?: string
   /** The clock scoped tokens are checked against; injectable for tests. */
   tokenNow?: () => number
+  /**
+   * Create, delete and measure one repository over HTTP (`src/admin.ts`),
+   * answered only to the admin credential. Absent without a store — there is
+   * no Index to claim a name in or to measure — and then the routes do not
+   * exist, as they do not on a deployment with no `tokens` at all.
+   */
+  admin?: AdminOps
 }
 
 /** Everything the Private gate needs, present or absent as a whole. */
@@ -754,6 +763,81 @@ function createRouter(deps: HttpHandlerDeps): (req: Request) => Promise<Response
     return json({ ...common, ref: at.ref, path, entries, ...(readme ? { readme } : {}) })
   }
 
+  /**
+   * One admin request, already authenticated. The verbs are the routes:
+   * POST creates, DELETE deletes, GET of `/usage` measures, and anything else
+   * on the prefix is a 404 rather than a 405 — the same answer every path
+   * walgit does not serve gets.
+   */
+  async function administer(
+    admin: AdminOps,
+    request: Request,
+    name: string,
+    usage: boolean,
+  ): Promise<Response> {
+    let resolved: ResolvedRepo
+    try {
+      resolved = resolveRepo(deps.reposDir, name)
+    } catch {
+      return reject(
+        400,
+        'invalid',
+        `walgit: ${JSON.stringify(name)} is not a repository name walgit serves\n`,
+      )
+    }
+    try {
+      if (usage) {
+        if (request.method !== 'GET') return NOT_FOUND()
+        const row = await admin.usage(resolved.repoId)
+        return row ? json(row) : NOT_FOUND()
+      }
+      if (request.method === 'DELETE') {
+        const result = await admin.delete(resolved)
+        return json({
+          repo: result.repoId,
+          status: result.status,
+          ...(result.collectAfter ? { collectAfter: result.collectAfter } : {}),
+          deleted: result.deleted.length,
+          retained: result.retained.length,
+        })
+      }
+      if (request.method !== 'POST') return NOT_FOUND()
+
+      // Bounded before it is read whole: a declared length over the cap is
+      // refused unread, and a chunked body is cut off at the cap.
+      const declared = Number(request.headers.get('content-length') ?? '0')
+      if (Number.isFinite(declared) && declared > MAX_SEED_BYTES) return seedTooLarge()
+      const text = await readBounded(request, MAX_SEED_BYTES)
+      if (text === null) return seedTooLarge()
+      const parsed = parseSeed(text)
+      if (!parsed.ok) return reject(400, 'invalid', `walgit: ${parsed.message}\n`)
+
+      const created = await admin.create(resolved, parsed.seed)
+      if (created.kind === 'exists') {
+        const when = created.collectAfter
+          ? ` and is being deleted — the name is free once it is collected after ${created.collectAfter}`
+          : ''
+        return reject(
+          409,
+          'collision',
+          `walgit: the repository "${created.repo}" already exists${when}\n`,
+        )
+      }
+      if (created.kind === 'refused') {
+        return reject(422, 'invalid', `walgit: ${created.message}\n`)
+      }
+      const { kind: _kind, ...body } = created
+      return new Response(`${JSON.stringify(body)}\n`, {
+        status: 201,
+        headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' },
+      })
+    } catch (err) {
+      // The store, most often. Refused rather than thrown past the router, so
+      // the answer carries the `served` stamp and a reason.
+      return reject(503, 'unavailable', `walgit: ${(err as Error).message}\n`)
+    }
+  }
+
   return async (request) => {
     const url = new URL(request.url)
 
@@ -887,6 +971,20 @@ function createRouter(deps: HttpHandlerDeps): (req: Request) => Promise<Response
     if (scoped.kind === 'misconfigured') {
       return reject(503, 'unavailable', `${scoped.reason}\n`)
     }
+    // The admin routes (`src/admin.ts`). Here, below the scoped-token gate and
+    // above the deployment one, because their credential is neither: a scoped
+    // token has already been refused 403 above (the path is none of its
+    // repository's surfaces), and the admin credential is demanded even on a
+    // public deployment, whose gate below admits everyone. With no admin
+    // credential configured the routes do not exist — a public instance has
+    // nobody who could call them — and a 404 says exactly that.
+    const adminRoute = ADMIN_REPOS_HTTP.exec(url.pathname)
+    if (adminRoute && scoped.kind !== 'scoped') {
+      if (!deps.admin || deps.tokens.length === 0) return NOT_FOUND()
+      if (!authorizedBy(request.headers.get('authorization'), deps.tokens)) return UNAUTHORIZED()
+      return administer(deps.admin, request, adminRoute[1]!, adminRoute[2] !== undefined)
+    }
+
     if (scoped.kind === 'scoped') {
       const target = scopeTargetOf(request.method, url.pathname, url.search)
       // `per-message` is a promise that each named repository is judged, and
@@ -1204,6 +1302,35 @@ function sourceOf(request: Request): string | null {
 function declaredBytes(request: Request): number {
   const declared = Number(request.headers.get('content-length') ?? '0')
   return Number.isFinite(declared) && declared > 0 ? declared : 0
+}
+
+const seedTooLarge = () =>
+  reject(413, 'size-cap', `walgit: a seed body is at most ${MAX_SEED_BYTES} bytes\n`)
+
+/** A request body as text, or `null` once it passes `limit` bytes. */
+async function readBounded(request: Request, limit: number): Promise<string | null> {
+  if (!request.body) return ''
+  const reader = request.body.getReader()
+  const chunks: Uint8Array[] = []
+  let total = 0
+  for (;;) {
+    const { done, value } = await reader.read()
+    if (done) break
+    total += value.byteLength
+    if (total > limit) {
+      // Stop the upload rather than leave the rest of it in flight.
+      await reader.cancel().catch(() => {})
+      return null
+    }
+    chunks.push(value)
+  }
+  const joined = new Uint8Array(total)
+  let at = 0
+  for (const chunk of chunks) {
+    joined.set(chunk, at)
+    at += chunk.byteLength
+  }
+  return new TextDecoder().decode(joined)
 }
 
 /**

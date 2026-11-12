@@ -111,6 +111,13 @@ export interface WalIndex {
    */
   deletion?: RepoDeletion
   /**
+   * When an admin create claimed this name (`src/admin.ts`), for a repository
+   * that may hold no entry yet. Expiry dates a repository by its last push,
+   * and one created empty has none — without this it would be kept forever.
+   * Absent on every Index a push created.
+   */
+  created_at?: string
+  /**
    * Push provenance: ref → who signed the push that moved it to the sha `refs`
    * currently holds, and when (docs/adr/0011).
    *
