@@ -14,7 +14,8 @@
  * handshake to catch up through. So it is AT LEAST ONCE, with a bounded retry,
  * and every event carries a stable `id` — generated once, sent identically on
  * every attempt — for the receiver to de-duplicate on. It is still not a log
- * (docs/adr/0009): an event whose attempts all fail is dropped, logged, and
+ * (docs/adr/0009): an event whose attempts all fail is dropped — its line goes
+ * to the announcer's stderr, which `post-receive` detaches from the client — and
  * nothing replays it; `index.json` holds the refs regardless.
  *
  * Signing is HMAC-SHA256 over `<timestamp>.<body>` with the shared secret. The
@@ -73,6 +74,11 @@ export const DEFAULT_TOLERANCE_SECONDS = 300
 export const WEBHOOK_ATTEMPTS = 5
 export const WEBHOOK_BACKOFF_MS = 1_000
 export const WEBHOOK_TIMEOUT_MS = 5_000
+/**
+ * At most this many events of one push in flight at once. A mirror push moves
+ * hundreds of refs, and a receiver should not meet all of them at once.
+ */
+export const WEBHOOK_CONCURRENCY = 4
 
 /**
  * The webhook's configuration, or null when this deployment has none.
@@ -84,8 +90,10 @@ export function webhookConfigFromEnv(
   env: Record<string, string | undefined>,
 ): WebhookConfig | null {
   const url = (env.WALGIT_WEBHOOK_URL ?? '').trim()
-  const secret = (env.WALGIT_WEBHOOK_SECRET ?? '').trim()
-  if (!url || !secret) return null
+  const secret = env.WALGIT_WEBHOOK_SECRET ?? ''
+  // Blank reads as unset, but a real secret is the HMAC key VERBATIM: the
+  // receiver holds its own copy, and one trimmed here would never verify there.
+  if (!url || !secret.trim()) return null
   return { url, secret }
 }
 
@@ -188,6 +196,27 @@ export interface DeliverOptions {
 }
 
 /**
+ * Deliver every event of one push, at most `WEBHOOK_CONCURRENCY` at a time.
+ * Never throws; resolves once every event is delivered or given up on.
+ */
+export async function deliverWebhooks(
+  config: WebhookConfig,
+  events: readonly WebhookEvent[],
+  options: DeliverOptions = {},
+  concurrency: number = WEBHOOK_CONCURRENCY,
+): Promise<void> {
+  let next = 0
+  const lane = async () => {
+    while (next < events.length) {
+      const event = events[next]!
+      next += 1
+      await deliverWebhook(config, event, options)
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(concurrency, events.length) }, lane))
+}
+
+/**
  * POST one event until a 2xx, a refusal that is not worth repeating, or the
  * attempts run out. Never throws; true when the receiver accepted it.
  *
@@ -224,6 +253,9 @@ export async function deliverWebhook(
         },
         body,
         signal: AbortSignal.timeout(timeoutMs),
+        // Never followed: a 307 would re-send the signed body to whatever host
+        // the receiver names, and a 301 would turn it into a GET that "succeeds".
+        redirect: 'manual',
       })
       // Drained so a kept-alive connection is free for the next attempt.
       await response.body?.cancel().catch(() => {})
@@ -240,7 +272,10 @@ export async function deliverWebhook(
       log(`walgit: webhook ${event.id} ${outcome}; giving up after ${attempts} attempts`)
       return false
     }
-    await sleep(backoffMs * 2 ** (attempt - 1))
+    // Jittered, so the events of one large push that all met the same outage
+    // do not all come back at the same instant.
+    const base = backoffMs * 2 ** (attempt - 1)
+    await sleep(Math.round(base * (0.75 + Math.random() * 0.5)))
   }
   return false
 }

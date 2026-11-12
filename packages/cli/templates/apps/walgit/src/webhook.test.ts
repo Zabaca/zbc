@@ -165,7 +165,11 @@ describe('delivery', () => {
     })
     expect(ok).toBe(true)
     expect(seen).toHaveLength(3)
-    expect(waits).toEqual([1_000, 2_000])
+    // Exponential, jittered ±25%.
+    expect(waits[0]).toBeGreaterThanOrEqual(750)
+    expect(waits[0]).toBeLessThanOrEqual(1_250)
+    expect(waits[1]).toBeGreaterThanOrEqual(1_500)
+    expect(waits[1]).toBeLessThanOrEqual(2_500)
     expect(new Set(seen.map((s) => s.body)).size).toBe(1)
   })
 
@@ -191,6 +195,16 @@ describe('delivery', () => {
     }) as unknown as typeof fetch
     expect(await deliverWebhook(CONFIG, event(), { fetchImpl, ...noSleep })).toBe(true)
     expect(calls).toBe(2)
+  })
+
+  test('a redirect is neither followed nor repeated', async () => {
+    let init: RequestInit | undefined
+    const fetchImpl = (async (_url: string, i: RequestInit) => {
+      init = i
+      return new Response('', { status: 307, headers: { location: 'https://elsewhere.example' } })
+    }) as unknown as typeof fetch
+    expect(await deliverWebhook(CONFIG, event(), { fetchImpl, ...noSleep })).toBe(false)
+    expect(init!.redirect).toBe('manual')
   })
 
   test('a 4xx refusal is not repeated', async () => {

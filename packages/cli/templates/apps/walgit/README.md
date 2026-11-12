@@ -1147,10 +1147,15 @@ never for a push that lost the compare-and-swap, and for anything that moves a
 ref through that path. Delivery is **at least once**: a network failure, a 5xx,
 a 408 or a 429 is retried with backoff (1, 2, 4, 8 seconds — five attempts, five
 seconds each), every attempt carries the same `id` and body, and the timestamp
-is re-stamped so a late retry is still fresh. Any other 4xx is not repeated.
-It all runs in the detached announcer, so a receiver that is down never fails
-or slows a push; an event whose attempts all fail is logged by id and dropped,
-because the refs are in `index.json` regardless. The secret is never logged.
+is re-stamped so a late retry is still fresh. Any other 4xx, and any redirect,
+is not repeated — a redirect is never followed, so the signed body only ever
+goes to the configured URL. One push's events go out at most four at a time,
+with jittered backoff. It all runs in the detached announcer, so a receiver
+that is down never fails or slows a push. That is also the limit of "at least
+once": an event whose attempts all fail is dropped, and so is one still being
+retried when the container restarts — nothing replays it, because the refs are
+in `index.json` regardless. The secret is used verbatim as the HMAC key
+(surrounding whitespace included) and is never logged.
 
 Verify on the receiver against the **raw** body — parse it after:
 
@@ -1159,11 +1164,14 @@ import { createHmac, timingSafeEqual } from 'node:crypto'
 
 function verify(secret: string, raw: string, headers: Headers): boolean {
   const timestamp = headers.get('x-walgit-timestamp') ?? ''
-  const signature = headers.get('x-walgit-signature') ?? ''
+  const signature = Buffer.from(headers.get('x-walgit-signature') ?? '')
   // Refuse a replay: five minutes covers clock skew, and every retry is re-stamped.
   if (!/^\d+$/.test(timestamp) || Math.abs(Date.now() / 1000 - Number(timestamp)) > 300) return false
-  const expected = `sha256=${createHmac('sha256', secret).update(`${timestamp}.${raw}`).digest('hex')}`
-  return signature.length === expected.length && timingSafeEqual(Buffer.from(signature), Buffer.from(expected))
+  const expected = Buffer.from(
+    `sha256=${createHmac('sha256', secret).update(`${timestamp}.${raw}`).digest('hex')}`,
+  )
+  // Lengths compared as bytes, so a forged multibyte header is refused, not thrown on.
+  return signature.length === expected.length && timingSafeEqual(signature, expected)
 }
 ```
 

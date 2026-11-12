@@ -27,7 +27,7 @@ import type { RefChange } from '../shared/wal-index'
 import {
   type DeliverOptions,
   type WebhookConfig,
-  deliverWebhook,
+  deliverWebhooks,
   webhookConfigFromEnv,
   webhookEventsFromChanges,
 } from '../shared/webhook'
@@ -150,10 +150,12 @@ export async function publish(
   const work: Promise<unknown>[] = []
   if (config.events) work.push(announce(config.events, repoId, changes, fetchImpl, merged))
   if (config.webhook) {
-    const webhook = config.webhook
-    for (const event of webhookEventsFromChanges(repoId, changes, merged)) {
-      work.push(deliverWebhook(webhook, event, { fetchImpl, ...options.webhook }))
-    }
+    work.push(
+      deliverWebhooks(config.webhook, webhookEventsFromChanges(repoId, changes, merged), {
+        fetchImpl,
+        ...options.webhook,
+      }),
+    )
   }
   await Promise.allSettled(work)
 }

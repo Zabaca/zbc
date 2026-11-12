@@ -694,14 +694,16 @@ This host sends every ref that moves to one URL its operator configured, as a si
 {"id":"01JD3Q8X6M2P4R7T9V0WXYZABC","repo":"my-thing","ref":"refs/heads/main","oldSha":"9f2c…","sha":"0ab7…","timestamp":"2026-11-11T12:00:00.000Z"}
 \`\`\`
 
-\`oldSha\` is \`null\` for a new ref and \`sha\` is \`null\` for a deleted one. Delivery is at least once, retried with backoff on a 5xx, so de-duplicate on \`id\` (also sent as \`X-Walgit-Event\`).
+\`oldSha\` is \`null\` for a new ref and \`sha\` is \`null\` for a deleted one; \`merged\` appears when it does on the event stream. Delivery is at least once, retried with backoff on a network failure, a 5xx, a 408 or a 429, so de-duplicate on \`id\` (also sent as \`X-Walgit-Event\`).
 
 To verify one, take \`X-Walgit-Timestamp\` (Unix seconds) and the **raw** body, and compare \`X-Walgit-Signature\` with \`sha256=\` plus the hex HMAC-SHA256 of \`<timestamp>.<body>\`, keyed by the shared secret. Refuse a timestamp more than five minutes old — each retry is re-stamped.
 
 \`\`\`ts
 import { createHmac, timingSafeEqual } from 'node:crypto'
-const expected = 'sha256=' + createHmac('sha256', secret).update(timestamp + '.' + rawBody).digest('hex')
-const ok = signature.length === expected.length && timingSafeEqual(Buffer.from(signature), Buffer.from(expected))
+const fresh = /^\\d+$/.test(timestamp) && Math.abs(Date.now() / 1000 - Number(timestamp)) <= 300
+const got = Buffer.from(signature)
+const expected = Buffer.from('sha256=' + createHmac('sha256', secret).update(timestamp + '.' + rawBody).digest('hex'))
+const ok = fresh && got.length === expected.length && timingSafeEqual(got, expected)
 \`\`\`
 `
     : ''
