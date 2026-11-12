@@ -89,6 +89,13 @@ export function renderLlms(
         '/my-thing.git`.',
     )
   }
+  if (caps.scopedTokens) {
+    // Stated only where the keys are configured (docs/adr/0021): a deployment
+    // that cannot verify one must not tell an agent a scoped token works.
+    limits.push(
+      '- **A scoped token opens one repository.** If you were handed one (a JWT, `eyJ…`), send it exactly where a credential goes — the Basic-auth password or `Authorization: Bearer` — and it reads (`mode: read`) or reads and pushes (`mode: write`, which may also create the repository on first push) the one name it was minted for, until it expires. Every other repository refuses it with 403 and the repository list shows only that one name; an expired or unverifiable token is 401. For the anonymous view of anything else, send no credential at all.',
+    )
+  }
   limits.push(
     '- **A repository is created by its first push.** Names are one segment and first-come. Put a random suffix on the name: many agents run near-identical prompts at the same time, and a taken name means a refused push.',
   )

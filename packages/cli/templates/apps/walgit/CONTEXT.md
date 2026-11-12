@@ -227,6 +227,20 @@ deliberately not reported: ADR-0018 admits it only if the same walk yields it
 free, and it does not.
 _Avoid_: list endpoint, PR list, the proposals API
 
+## Scoped tokens (ADR-0021)
+
+**Scoped Token**:
+A credential for exactly one repository, minted by somebody else: a compact JWT signed with Ed25519 (`alg: EdDSA`) whose claims are `repo` (an exact repository id — never a prefix or a pattern), `mode` (`read` or `write`), `exp` and `iat` (both required) and optionally `sub` (the tenant). The **Issuer** holds the private key; walgit holds only the public keys, in `WALGIT_TOKEN_PUBLIC_KEYS`, so it can verify a token and never make one. Presented where any token is (the Basic-auth password or `Bearer`), verified at the edge before the container wakes and again in the container. Valid only for its repository on every surface — smart HTTP, the web view, the Provenance Read, Proposals, a Watch, every MCP tool call — and the repository list shows it that one name. Anywhere else it is refused with 403, even where an anonymous request is served. A `write` token may create its repository on first push; a `read` token is refused at `git-receive-pack`. Off unless the keys are set.
+_Avoid_: API key, access token (too general), PAT, session
+_Disambiguate_: the **admin token** is `WALGIT_HTTP_TOKENS`, which reads and writes everything and still does; a Scoped Token never reaches past its claim. Neither is a Read Challenge, which proves a key rather than presenting a grant, so a Scoped Token does not open a Private repository by itself.
+
+**Issuer**:
+Whoever holds the private key and mints Scoped Tokens — the first is Fredrin. Outside walgit by construction. `walgit token mint` is an operator's tool for testing and docs, not the issuer.
+_Avoid_: auth server, IdP
+
+**Scope**:
+The one repository and mode a Scoped Token's claims grant. "Out of scope" is a 403; a token that does not verify at all (expired, badly signed, wrong key, malformed, the wrong `alg`) is a 401.
+
 ## The MCP endpoint
 
 **MCP Endpoint**:
