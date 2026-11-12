@@ -19,7 +19,7 @@ import * as path from 'node:path'
 
 import { capabilitiesFrom } from '../shared/capabilities'
 import { REFUSE_ENV, ZERO_OID } from '../shared/protocol'
-import { announceConfigFromEnv } from './announce'
+import { publishConfigFromEnv } from './announce'
 import { appendOnlyEnabled, checkAppendOnly } from './append-only'
 import { configuredThreshold, isCompactionDue } from './compact'
 import { checkSize, limitsEnforced, limitsOf, liveBytes } from './limits'
@@ -353,8 +353,11 @@ async function main(): Promise<number> {
     // never reaches this line, so nobody is ever told about one. See
     // src/announce.ts, which swallows every failure for the same reason the
     // rest of this branch does.
-    const events = announceConfigFromEnv()
-    if (events) {
+    // The push webhook (shared/webhook.ts) rides the same detached announcer,
+    // so a deployment with either configured spawns it and one with neither
+    // pays nothing.
+    const announceTo = publishConfigFromEnv()
+    if (announceTo) {
       const changes = parseRefChanges(stdin).filter((c) => c.ref.startsWith('refs/'))
       // What this push MERGED rides the same announcement (docs/adr/0018), so a
       // Watcher on `main` learns a Proposal landed from the move rather than by

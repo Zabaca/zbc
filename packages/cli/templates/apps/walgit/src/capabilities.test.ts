@@ -285,6 +285,7 @@ test('an unconfigured deployment advertises nothing, and says so in every field'
     publicAccess: false,
     appendOnly: false,
     events: false,
+    webhook: false,
     signedPushes: false,
     namesCanRefuse: false,
     namesCanBeClaimed: false,

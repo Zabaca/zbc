@@ -10,14 +10,18 @@
  * the one path this project promises to keep fast, for a feature whose entire
  * purpose is to stop clients spending time on staleness.
  *
- * Failures are logged and swallowed, and there is nothing to retry: the push is
- * already durable and `index.json` already carries the refs this would have
- * announced, so a subscriber's next handshake reads the truth from there
- * regardless. A dropped announcement costs one subscriber one push of
- * freshness, never correctness.
+ * Failures are logged and swallowed, and the stream's announcement is not
+ * retried: the push is already durable and `index.json` already carries the
+ * refs this would have announced, so a subscriber's next handshake reads the
+ * truth from there regardless. A dropped announcement costs one subscriber one
+ * push of freshness, never correctness.
+ *
+ * The push webhook is the exception, because a receiver behind a URL has no
+ * handshake to catch up through: its delivery is retried with backoff here
+ * (shared/webhook.ts), in this process, which nobody is waiting on.
  */
 
-import { announce, announceConfigFromEnv } from './announce'
+import { publish, publishConfigFromEnv } from './announce'
 import type { RefChange } from '../shared/wal-index'
 
 const repoId = process.argv[2]
@@ -32,12 +36,16 @@ const mergedPayload = process.argv[4]
 async function main(): Promise<void> {
   if (!repoId || !payload)
     throw new Error('usage: announce-main <repo-id> <changes-json> [merged-json]')
-  const config = announceConfigFromEnv()
+  const config = publishConfigFromEnv()
   // Not an error: the environment can change between the spawn and the start,
-  // and a deployment with no stream configured simply has nothing to tell.
+  // and a deployment with neither the stream nor the webhook configured simply
+  // has nothing to tell.
   if (!config) return
   const merged = mergedPayload ? (JSON.parse(mergedPayload) as Record<string, string[]>) : {}
-  await announce(config, repoId, JSON.parse(payload) as RefChange[], fetch, merged)
+  // The stream and the push webhook (shared/webhook.ts) together. The
+  // webhook's retries are why this process can outlive the push by seconds,
+  // and why that costs the pusher nothing: nobody is waiting on it.
+  await publish(config, repoId, JSON.parse(payload) as RefChange[], merged)
 }
 
 main().catch((err) => {

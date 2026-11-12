@@ -97,7 +97,7 @@ The first of `README`, `README.md`, `README.txt` at a tree ROOT, case-insensitiv
 
 **Ref Event**:
 A message telling a subscriber that a watched ref is now at a given sha. Latest-state, never a replayed history: there is no cursor, no `since`, and no sequence number on the wire. A deletion is the same message with a null sha. When the ref is a branch and the move landed Proposals, it also carries `merged` — their ids — so a Watcher on `main` learns a Proposal landed without a second call; the field is absent, never empty, when it landed none, and a Handshake never carries it, because nothing moved. That is not a second kind of state: it is a property of the move, computed in `post-receive` by the same ancestry walk the Proposal read surface uses, and a subscriber that was disconnected reads what is open from `GET /<name>.git/proposals` instead.
-_Avoid_: notification (implies delivery to an endpoint, which is exactly what this is not), webhook
+_Avoid_: notification (implies delivery to an endpoint, which is exactly what this is not), webhook (that is the **Push Webhook**, below)
 
 **Watch**:
 A subscriber's declared interest — a repository, optionally narrowed to named refs. Omitting the refs means every ref in that repository. Capped per connection at 64 repositories and 256 refs each, with no wildcard across repositories.
@@ -111,6 +111,10 @@ _Avoid_: the hub, the broker
 
 **Announce**:
 The container telling the Fan-out that refs moved, over `/_walgit/announce`, from `post-receive` — after the compare-and-swap has won and the push is durable, never from `reference-transaction`, which would announce a push that then loses. Authenticated, off the push's latency path, and never able to fail a push.
+
+**Push Webhook**:
+One HMAC-SHA256-signed POST per moved ref to the single URL a deployment's operator configured (`WALGIT_WEBHOOK_URL` + `WALGIT_WEBHOOK_SECRET`), for a receiver that cannot hold a Watch open. It is the Announce's sibling, not a second source of truth: the same `post-receive` announcer produces both from the same ref changes, so it fires only for a durable push and for anything that moves a ref through that path. Unlike a Ref Event it is delivered at least once — bounded retry with backoff, a stable event `id` to de-duplicate on — because a URL has no Handshake to catch up through; it is still not a log, and an event whose attempts all fail, or whose retries a container restart interrupts, is dropped. Its delivery never fails or slows a push.
+_Avoid_: callback, notification (for the stream, which this is not)
 
 **Coalesce Window**:
 The 250 ms in which one socket gets at most one message for a given repository and ref. A second move inside it REPLACES the queued message rather than joining it, so what a subscriber receives when the window elapses is the newest sha, once. It is a rate bound and not a reaction to a slow reader: the Workers runtime reports no backlog for a socket (no `bufferedAmount`), so there is nothing to react to. Sound only because a Ref Event is latest-state.
