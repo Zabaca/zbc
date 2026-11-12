@@ -95,6 +95,9 @@ export const updateCommand = defineCommand({
       console.warn(
         `⚠ ${STAMP_FILE} records the subtree at ${recordedPrefix}/, but this project's is ${prefix}/ (the folder moved?) — using ${prefix}/.`,
       )
+      console.warn(
+        `  git's subtree history names ${recordedPrefix}/, so a pull at ${prefix}/ may be refused as never added; re-vendor at ${prefix}/ if it is.`,
+      )
     }
 
     if (!(await isVendorMode(projectRoot))) {
@@ -111,7 +114,7 @@ export const updateCommand = defineCommand({
         const fromTop =
           top === null || prefix === VENDOR_PREFIX
             ? ''
-            : `-C ${path.relative(process.cwd(), top) || '.'} `
+            : `-C ${JSON.stringify(path.relative(process.cwd(), top) || '.')} `
         console.error(
           `  Re-vendor it: git ${fromTop}subtree add --prefix=${prefix} ${DEFAULT_CORE_URL} ${stamp.coreRef ?? coreRefForVersion(pkg.version)} --squash`,
         )

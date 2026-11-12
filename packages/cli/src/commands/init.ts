@@ -46,8 +46,16 @@ async function layWorkflows(tplRoot: string, repoTop: string, subdir: string): P
   }
   for (const name of await fs.readdir(wfSrc)) {
     const body = await Bun.file(path.join(wfSrc, name)).text()
-    const defaults = `defaults:\n  run:\n    working-directory: ${subdir}\n\njobs:`
-    await writeIfMissing(path.join(wfDest, name), body.replace(/^jobs:/m, defaults))
+    // JSON-quoted: a double-quoted YAML scalar, whatever the folder is called.
+    const defaults = `defaults:\n  run:\n    working-directory: ${JSON.stringify(subdir)}\n\njobs:`
+    const dest = path.join(wfDest, name)
+    if (await Bun.file(dest).exists()) {
+      console.warn(
+        `  warn: ${path.relative(process.cwd(), dest)} already exists (the host's own?) — zbc's ${name} was not written; merge it in by hand with working-directory: ${subdir}`,
+      )
+      continue
+    }
+    await writeIfMissing(dest, body.replace(/^jobs:/m, defaults))
   }
 }
 
@@ -111,8 +119,18 @@ export const initCommand = defineCommand({
     await ensureDir(cwd)
     const projectName = args.project ?? path.basename(cwd)
     const tplRoot = templatesRoot()
-    const repoTop = gitTopLevel(cwd)
-    const subdir = projectSubdir(cwd)
+    // The host: the git top level, or — for `--dir` outside any git work tree
+    // (copy mode needs no git) — the folder init was run from, so the folder
+    // is still treated as a subfolder of the repo that holds it.
+    let repoTop = gitTopLevel(cwd)
+    let subdir = projectSubdir(cwd)
+    if (repoTop === null && args.dir) {
+      const rel = path.relative(process.cwd(), cwd)
+      if (rel !== '' && !rel.startsWith('..') && !path.isAbsolute(rel)) {
+        repoTop = process.cwd()
+        subdir = rel.split(path.sep).join('/')
+      }
+    }
 
     console.log(`zbc init: ${projectName}`)
     console.log(`  cwd:       ${cwd}`)
