@@ -23,7 +23,7 @@ import { capabilitiesFrom } from '../shared/capabilities'
 import { BROWSE_PATH, READ_CHALLENGE_SCHEME } from '../shared/protocol'
 import { base64UrlEncode, mintScopedToken, type ScopedClaims } from '../shared/scoped-token'
 import { compareRevs } from './browse'
-import { git } from './git'
+import { git, gitBounded } from './git'
 import { createHttpHandler, type BrowseReads, type HttpHandlerDeps } from './http'
 
 let work = ''
@@ -82,6 +82,31 @@ beforeAll(() => {
   write('main-only.txt', 'later\n')
   oids.main = commit('main moves on')
 
+  // From the base: a file replaced by a directory of the same name, a name
+  // git has to quote, and one more file so a cap can fall between them.
+  git(['-C', work, 'checkout', '--quiet', '-b', 'swap', oids.base!])
+  fs.rmSync(path.join(work, 'gone.txt'))
+  write('gone.txt/inner.txt', 'inside\n')
+  write('tab\there.txt', 'tabbed\n')
+  write('zzz.txt', 'last\n')
+  oids.swap = commit('swap')
+  git([
+    '-C',
+    work,
+    '-c',
+    'user.email=walgit@example.test',
+    '-c',
+    'user.name=walgit',
+    'tag',
+    '-a',
+    '-m',
+    'annotated',
+    'v-feature',
+    oids.feature!,
+  ])
+  oids.tag = git(['rev-parse', 'v-feature'], { gitDir }).stdout.trim()
+  git(['-C', work, 'checkout', '--quiet', 'main'])
+
   // A history sharing nothing with either.
   git(['-C', work, 'checkout', '--quiet', '--orphan', 'island'])
   git(['-C', work, 'rm', '-rf', '--quiet', '.'])
@@ -92,12 +117,22 @@ beforeAll(() => {
 
 afterAll(() => fs.rmSync(work, { recursive: true, force: true }))
 
-const LIMITS = { maxFiles: COMPARE_MAX_FILES, maxDiffBytes: COMPARE_MAX_DIFF_BYTES }
+const LIMITS = {
+  maxFiles: COMPARE_MAX_FILES,
+  maxDiffBytes: COMPARE_MAX_DIFF_BYTES,
+  timeoutMs: 10_000,
+}
+
+/** The comparison, or a failure naming what came back instead. */
+function comparison(result: Awaited<ReturnType<typeof compareRevs>>) {
+  if (result === null || typeof result === 'string')
+    throw new Error(`expected a comparison, got ${result}`)
+  return result
+}
 
 describe('compareRevs', () => {
   test('diffs the head against the merge base, not against the base', async () => {
-    const result = await compareRevs(gitDir, oids.main!, oids.feature!, LIMITS)
-    if (result === null || result === 'unrelated') throw new Error('expected a comparison')
+    const result = comparison(await compareRevs(gitDir, oids.main!, oids.feature!, LIMITS))
     expect(result.mergeBase).toBe(oids.base!)
     expect(result.diff).not.toContain('main-only.txt')
     expect(result.files.map((file) => file.path)).not.toContain('main-only.txt')
@@ -105,8 +140,7 @@ describe('compareRevs', () => {
   })
 
   test('names an add, a modify, a delete, a rename and a binary change apart', async () => {
-    const result = await compareRevs(gitDir, oids.main!, oids.feature!, LIMITS)
-    if (result === null || result === 'unrelated') throw new Error('expected a comparison')
+    const result = comparison(await compareRevs(gitDir, oids.main!, oids.feature!, LIMITS))
     const byPath = Object.fromEntries(result.files.map((file) => [file.path, file]))
     expect(byPath['added.txt']).toEqual({
       path: 'added.txt',
@@ -149,8 +183,7 @@ describe('compareRevs', () => {
   })
 
   test('the unified diff is git’s own, renames and binaries included', async () => {
-    const result = await compareRevs(gitDir, oids.main!, oids.feature!, LIMITS)
-    if (result === null || result === 'unrelated') throw new Error('expected a comparison')
+    const result = comparison(await compareRevs(gitDir, oids.main!, oids.feature!, LIMITS))
     expect(result.diff).toContain('diff --git a/edit.txt b/edit.txt')
     expect(result.diff).toContain('-two\n+TWO\n')
     expect(result.diff).toContain('rename from old-name.txt\nrename to src/new-name.txt')
@@ -159,22 +192,24 @@ describe('compareRevs', () => {
   })
 
   test('the same ref on both sides is an empty comparison, not a refusal', async () => {
-    const result = await compareRevs(gitDir, oids.feature!, oids.feature!, LIMITS)
+    const result = comparison(await compareRevs(gitDir, oids.feature!, oids.feature!, LIMITS))
     expect(result).toEqual({
       mergeBase: oids.feature!,
       files: [],
       totals: { files: 0, additions: 0, deletions: 0 },
       diff: '',
       truncated: false,
+      peeled: { base: oids.feature!, head: oids.feature! },
     })
   })
 
   test('the file cap lists and diffs only the first files, and still counts them all', async () => {
-    const result = await compareRevs(gitDir, oids.main!, oids.feature!, {
-      ...LIMITS,
-      maxFiles: 2,
-    })
-    if (result === null || result === 'unrelated') throw new Error('expected a comparison')
+    const result = comparison(
+      await compareRevs(gitDir, oids.main!, oids.feature!, {
+        ...LIMITS,
+        maxFiles: 2,
+      }),
+    )
     expect(result.truncated).toBe(true)
     expect(result.files).toHaveLength(2)
     expect(result.totals.files).toBe(5)
@@ -186,29 +221,81 @@ describe('compareRevs', () => {
   test('the file cap keeps a listed rename paired', async () => {
     // Capped so the rename is the LAST file listed: its diff is only paired
     // when both of its paths are in the pathspec.
-    const all = await compareRevs(gitDir, oids.main!, oids.feature!, LIMITS)
-    if (all === null || all === 'unrelated') throw new Error('expected a comparison')
+    const all = comparison(await compareRevs(gitDir, oids.main!, oids.feature!, LIMITS))
     const at = all.files.findIndex((file) => file.status === 'renamed')
-    const capped = await compareRevs(gitDir, oids.main!, oids.feature!, {
-      ...LIMITS,
-      maxFiles: at + 1,
-    })
-    if (capped === null || capped === 'unrelated') throw new Error('expected a comparison')
+    const capped = comparison(
+      await compareRevs(gitDir, oids.main!, oids.feature!, {
+        ...LIMITS,
+        maxFiles: at + 1,
+      }),
+    )
     expect(capped.files[at]?.status).toBe('renamed')
     expect(capped.diff).toContain('rename from old-name.txt\nrename to src/new-name.txt')
   })
 
   test('the byte cap cuts the diff on a line boundary and says so', async () => {
-    const result = await compareRevs(gitDir, oids.main!, oids.feature!, {
-      ...LIMITS,
-      maxDiffBytes: 200,
-    })
-    if (result === null || result === 'unrelated') throw new Error('expected a comparison')
+    const result = comparison(
+      await compareRevs(gitDir, oids.main!, oids.feature!, {
+        ...LIMITS,
+        maxDiffBytes: 200,
+      }),
+    )
     expect(result.truncated).toBe(true)
     expect(new TextEncoder().encode(result.diff).byteLength).toBeLessThanOrEqual(200)
     expect(result.diff.endsWith('\n')).toBe(true)
     // The summary is not what was cut.
     expect(result.files).toHaveLength(5)
+  })
+
+  test('a capped diff carries only the listed files, not what a pathspec prefix drags in', async () => {
+    const all = comparison(await compareRevs(gitDir, oids.base!, oids.swap!, LIMITS))
+    expect(all.files.map((file) => file.path)).toEqual([
+      'gone.txt',
+      'gone.txt/inner.txt',
+      'tab\there.txt',
+      'zzz.txt',
+    ])
+    const one = comparison(
+      await compareRevs(gitDir, oids.base!, oids.swap!, { ...LIMITS, maxFiles: 1 }),
+    )
+    expect(one.truncated).toBe(true)
+    expect(one.diff).toContain('diff --git a/gone.txt b/gone.txt')
+    expect(one.diff).not.toContain('inner.txt')
+    // A name git quotes in the header is still recognised as listed.
+    const three = comparison(
+      await compareRevs(gitDir, oids.base!, oids.swap!, { ...LIMITS, maxFiles: 3 }),
+    )
+    expect(three.diff).toContain('diff --git "a/tab\\there.txt" "b/tab\\there.txt"')
+    expect(three.diff).not.toContain('zzz.txt')
+    expect(three.diff.match(/^diff --git /gm)).toHaveLength(3)
+  })
+
+  test('an annotated tag is peeled to the commit it names', async () => {
+    const result = comparison(await compareRevs(gitDir, oids.main!, oids.tag!, LIMITS))
+    expect(oids.tag).not.toBe(oids.feature)
+    expect(result.peeled.head).toBe(oids.feature!)
+    expect(result.mergeBase).toBe(oids.base!)
+  })
+
+  test('past the time budget git is killed, and says so', () => {
+    // A command that outlives its budget, deterministically: an alias that
+    // sleeps. The compare maps this outcome to `too-large`.
+    const res = gitBounded(['-c', 'alias.slow=!sleep 5', 'slow'], { limit: 1024, timeoutMs: 100 })
+    expect(res.outcome).toBe('timed-out')
+  })
+
+  test('only stdout overrunning is a truncation; stderr overrunning is a failure', () => {
+    const out = gitBounded(['-c', 'alias.loud=!yes hello | head -c 100000', 'loud'], {
+      limit: 1000,
+      timeoutMs: 5000,
+    })
+    expect(out.outcome).toBe('overflowed')
+    expect(out.stdout.byteLength).toBe(1000)
+    const err = gitBounded(['-c', 'alias.noisy=!yes hello | head -c 100000 >&2', 'noisy'], {
+      limit: 1000,
+      timeoutMs: 5000,
+    })
+    expect(err.outcome).toBe('failed')
   })
 
   test('an oid the Cache does not hold is null', async () => {
@@ -255,6 +342,8 @@ function deployment(
               'refs/heads/main': oids.main!,
               'refs/heads/feature/x': oids.feature!,
               'refs/heads/island': oids.island!,
+              'refs/heads/swap': oids.swap!,
+              'refs/tags/v-feature': oids.tag!,
             },
             lastPush: null,
           },
@@ -337,9 +426,66 @@ describe('GET /_walgit/browse?op=compare', () => {
     }
   })
 
+  test('a capped diff says so in its header', async () => {
+    const capped = createHttpHandler({
+      reposDir: '/srv/repos',
+      tokens: [],
+      public: true,
+      capabilities: capabilitiesFrom({ WALGIT_WEB: '1' }),
+      ensureRepo: (repo) => repo,
+      runBackend: async () => new Response('backend ran'),
+      browse: {
+        readIndex: async () => ({ refs: { 'refs/heads/main': oids.main! }, lastPush: null }),
+        listTree: async () => [],
+        statBlob: async () => null,
+        readBlob: async () => null,
+        listCommits: async () => [],
+        compare: (_repo, base, head, limits) =>
+          compareRevs(gitDir, base, head, { ...limits, maxDiffBytes: 100 }),
+      },
+    })
+    const res = await capped(
+      new Request(
+        `https://walgit.test${BROWSE_PATH}?repo=alpha&op=compare&base=main&head=${oids.feature!}&format=diff`,
+      ),
+    )
+    expect(res.status).toBe(200)
+    expect(res.headers.get('x-walgit-truncated')).toBe('true')
+    expect(new TextEncoder().encode(await res.text()).byteLength).toBeLessThanOrEqual(100)
+  })
+
+  test('reports the commit a tag names, not the tag object', async () => {
+    const res = await deployment().ask('?repo=alpha&op=compare&base=main&head=v-feature')
+    const answer = (await res.json()) as BrowseCompareAnswer
+    expect(answer.head).toEqual({ ref: 'refs/tags/v-feature', oid: oids.feature! })
+  })
+
+  test('a compare too large for its budget is a 503', async () => {
+    const { ask } = deployment({
+      overrides: {
+        browse: {
+          readIndex: async () => ({ refs: { 'refs/heads/main': oids.main! }, lastPush: null }),
+          listTree: async () => [],
+          statBlob: async () => null,
+          readBlob: async () => null,
+          listCommits: async () => [],
+          compare: async () => 'too-large',
+        },
+      },
+    })
+    const res = await ask('?repo=alpha&op=compare&base=main&head=main')
+    expect(res.status).toBe(503)
+    expect(await res.text()).toContain('too large')
+  })
+
   test('a client naming JSON, or anything, gets JSON', async () => {
     const { ask } = deployment()
-    for (const accept of ['*/*', 'application/json, text/plain, */*']) {
+    for (const accept of [
+      '*/*',
+      'application/json, text/plain, */*',
+      'text/plain;q=0',
+      'text/plain;q=0.5, application/json',
+    ]) {
       const res = await ask(COMPARE, { accept })
       expect(res.headers.get('content-type')).toBe('application/json; charset=utf-8')
     }

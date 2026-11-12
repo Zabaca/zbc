@@ -669,8 +669,8 @@ answers JSON:
 alongside the ref list every browse answer carries. `status` is `added`,
 `modified`, `deleted` or `renamed` (`git diff -M`; a type change is
 `modified`), and a binary file has `binary: true` with zero counts.
-`?format=diff`, or `Accept: text/x-diff` / `text/plain` without
-`application/json`, answers the unified diff alone as `text/plain` with
+`?format=diff`, or an `Accept` preferring `text/x-diff` or `text/plain` to
+`application/json` by q-value, answers the unified diff alone as `text/plain` with
 `X-Walgit-Truncated` and `X-Walgit-Merge-Base` headers.
 
 - **Bounded.** At most **300 files** are listed and diffed, and at most
@@ -678,9 +678,16 @@ alongside the ref list every browse answer carries. `status` is `added`,
   enforced on git's output as it is read, so a huge diff is stopped in the
   subprocess rather than buffered. Hitting either sets `truncated: true`;
   `totals` still counts every changed file.
+  Every git command of one compare also runs under a shared **10-second**
+  budget, because git is synchronous in the process that serves pushes; a
+  comparison that needs longer, or whose summary alone runs past 16 MiB, is
+  `503` (`unavailable`) rather than a partial answer — compare it in a clone.
+  When the file cap is hit, only the listed files' sections are kept in the
+  diff.
 - **Refusals.** An unknown ref, or an oid the Cache does not hold, is `404`; a
   request naming no `base` or no `head`, or two refs sharing no history (there
-  is no merge base), is `400`.
+  is no merge base), is `400`. `base.oid` and `head.oid` are the commits
+  compared, so an annotated tag reports the commit it names.
 - **Gated as a browse.** It is one more `op` of the browse endpoint, so it
   exists only with `WALGIT_WEB` on, never creates a name, and is read under the
   same deployment credential, Read Challenge and Scoped Token rules: a `read`

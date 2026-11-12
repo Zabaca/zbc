@@ -215,7 +215,7 @@ export const REPOS_PATH = '/repos'
  * for the reason every endpoint above is: the prefix is reserved and a repository is reached at
  * `/<name>.git/…`, so it cannot shadow one.
  *
- * It is for the EDGE rather than for a client — the two browse pages are
+ * Every other op is for the EDGE rather than for a client — the browse pages are
  * rendered from its answer (`shared/browse.ts`) — but it is gated as the
  * Provenance Read beside it is, by the deployment credential and then the Read
  * Challenge, rather than by `INTERNAL_HEADER`: it answers a question about one

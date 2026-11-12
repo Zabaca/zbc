@@ -886,7 +886,7 @@ Three more reads on the same split: \`/$NAME/blob/<ref>/<path>\` is one file (up
 curl 'https://${host}${BROWSE_PATH}?repo=$NAME&op=compare&base=main&head=feature/x'${caps.publicAccess ? '' : ' -u walgit:$TOKEN'}
 \`\`\`
 
-A review without a checkout: \`head\` against its merge base with \`base\` (three-dot), as JSON — \`mergeBase\`, \`files\` (\`path\`, \`previousPath\` for a rename, \`status\` added/modified/deleted/renamed, \`additions\`, \`deletions\`, \`binary\`), \`totals\` and the unified \`diff\`. Add \`&format=diff\` for the diff alone as text. At most 300 files and 1 MiB of diff; past either, \`truncated\` is true and \`totals\` still counts everything. An unknown ref is 404; two refs with no history in common are 400.
+A review without a checkout: \`head\` against its merge base with \`base\` (three-dot), as JSON — \`mergeBase\`, \`files\` (\`path\`, \`previousPath\` for a rename, \`status\` added/modified/deleted/renamed, \`additions\`, \`deletions\`, \`binary\`), \`totals\` and the unified \`diff\`. Add \`&format=diff\` for the diff alone as text. At most 300 files and 1 MiB of diff; past either, \`truncated\` is true and \`totals\` still counts everything. An unknown ref is 404; two refs with no history in common are 400; a comparison too large to compute in ten seconds is 503 — compare it in a clone.
 `
     : ''
 }

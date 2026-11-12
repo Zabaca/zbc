@@ -298,8 +298,9 @@ export type BrowseReads = {
   ) => Promise<Commit[] | null>
   /**
    * The head against its merge base with the base (three-dot), within the
-   * bounds given; `null` when the Cache cannot resolve one of the two, and
-   * `'unrelated'` when they share no history.
+   * bounds given, with both sides peeled to the commits it was read at; `null`
+   * when the Cache cannot resolve one of the two, `'unrelated'` when they share
+   * no history, and `'too-large'` when it cannot be computed inside the bounds.
    *
    * Optional, unlike the four readers above it: a deployment wired without one
    * answers `op=compare` with the 404 every absent read gets, rather than every
@@ -309,8 +310,10 @@ export type BrowseReads = {
     repo: ResolvedRepo,
     base: string,
     head: string,
-    limits: { maxFiles: number; maxDiffBytes: number },
-  ) => Promise<Comparison | 'unrelated' | null>
+    limits: { maxFiles: number; maxDiffBytes: number; timeoutMs: number },
+  ) => Promise<
+    (Comparison & { peeled: { base: string; head: string } }) | 'unrelated' | 'too-large' | null
+  >
 }
 
 /** What a browse reads out of one Index. */
@@ -390,19 +393,34 @@ const LOG_PAGE = 50
 /**
  * Does this compare want the unified diff alone, as text, rather than JSON?
  *
- * `?format=diff`, or an `Accept` naming `text/x-diff` or `text/plain` — and
- * not merely accepting them: `*\/*`, which is what curl and a default fetch
- * send, keeps the JSON answer, so the documented shape is what an unadorned
- * request gets.
+ * `?format=diff`, or an `Accept` that prefers `text/x-diff` or `text/plain` to
+ * `application/json` by q-value — so `*\/*`, which is what curl and a default
+ * fetch send, keeps the JSON answer, and a client listing both at the same
+ * weight (axios's `application/json, text/plain, *\/*`) is a JSON client.
  */
 function wantsDiffText(request: Request, url: URL): boolean {
   if (url.searchParams.get('format') === 'diff') return true
-  const accept = (request.headers.get('accept') ?? '').toLowerCase()
-  // A client naming JSON at all gets JSON, whatever else it lists — axios's
-  // default `application/json, text/plain, */*` is a JSON client.
-  if (accept.includes('application/json')) return false
-  return /(^|,)\s*text\/(x-diff|plain)\b/.test(accept)
+  let text = 0
+  let json = 0
+  for (const range of (request.headers.get('accept') ?? '').split(',')) {
+    const [type = '', ...params] = range.split(';').map((part) => part.trim().toLowerCase())
+    const qParam = params.find((param) => param.startsWith('q='))
+    const q = qParam === undefined ? 1 : Number(qParam.slice(2))
+    if (!Number.isFinite(q)) continue
+    if (type === 'text/x-diff' || type === 'text/plain') text = Math.max(text, q)
+    if (type === 'application/json') json = Math.max(json, q)
+  }
+  return text > 0 && text > json
 }
+
+/**
+ * How long one compare may run git for, in all: ten seconds.
+ *
+ * Every git call here is synchronous in the one process that also serves
+ * pushes, so this is the longest a compare can hold that process. A comparison
+ * that needs longer is refused (503), and is one to run against a clone.
+ */
+const COMPARE_TIMEOUT_MS = 10_000
 
 /**
  * One blob, as bytes, with the type its CONTENT earns and never its name.
@@ -822,9 +840,20 @@ function createRouter(deps: HttpHandlerDeps): (req: Request) => Promise<Response
     const result = await reads.compare(repo, baseOid, headOid, {
       maxFiles: COMPARE_MAX_FILES,
       maxDiffBytes: COMPARE_MAX_DIFF_BYTES,
+      timeoutMs: COMPARE_TIMEOUT_MS,
     })
     // An oid the Cache does not hold: absent, as an unknown ref is.
     if (result === null) return NOT_FOUND()
+    // Refused rather than answered partially: past the deadline there is no
+    // honest partial answer — the totals are the first thing computed after
+    // the merge base, and a list with no totals is a list nobody can trust.
+    if (result === 'too-large') {
+      return reject(
+        503,
+        'unavailable',
+        'walgit: this comparison is too large to compute on the request path — clone the repository to compare it locally\n',
+      )
+    }
     if (result === 'unrelated') {
       return reject(
         400,
@@ -833,24 +862,27 @@ function createRouter(deps: HttpHandlerDeps): (req: Request) => Promise<Response
       )
     }
 
+    const { peeled, ...comparison } = result
     if (wantsDiffText(request, url)) {
-      return new Response(result.diff, {
+      return new Response(comparison.diff, {
         headers: {
           'content-type': 'text/plain; charset=utf-8',
           'x-content-type-options': 'nosniff',
           'cache-control': 'no-store',
           'x-robots-tag': 'noindex',
           // The one fact the JSON carries that the text cannot.
-          'x-walgit-truncated': result.truncated ? 'true' : 'false',
-          'x-walgit-merge-base': result.mergeBase,
+          'x-walgit-truncated': comparison.truncated ? 'true' : 'false',
+          'x-walgit-merge-base': comparison.mergeBase,
         },
       })
     }
     return json({
       ...common,
-      base: { ref: base, oid: baseOid },
-      head: { ref: head, oid: headOid },
-      ...result,
+      // The COMMITS compared, peeled: an annotated tag's Index entry is the
+      // tag object, which is not what a reviewer diffed.
+      base: { ref: base, oid: peeled.base },
+      head: { ref: head, oid: peeled.head },
+      ...comparison,
     })
   }
 
