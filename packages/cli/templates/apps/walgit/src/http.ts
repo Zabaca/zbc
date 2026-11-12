@@ -12,6 +12,8 @@
 
 import {
   BLOB_MAX_BYTES,
+  COMPARE_MAX_DIFF_BYTES,
+  COMPARE_MAX_FILES,
   cleanPath,
   defaultBranch,
   OID,
@@ -19,6 +21,7 @@ import {
   resolveRef,
   splitRefPath,
   type Commit,
+  type Comparison,
   type TreeEntry,
 } from '../shared/browse'
 import { capabilitiesFrom, type Capabilities } from '../shared/capabilities'
@@ -313,6 +316,24 @@ export type BrowseReads = {
     before: string | null,
     limit: number,
   ) => Promise<Commit[] | null>
+  /**
+   * The head against its merge base with the base (three-dot), within the
+   * bounds given, with both sides peeled to the commits it was read at; `null`
+   * when the Cache cannot resolve one of the two, `'unrelated'` when they share
+   * no history, and `'too-large'` when it cannot be computed inside the bounds.
+   *
+   * Optional, unlike the four readers above it: a deployment wired without one
+   * answers `op=compare` with the 404 every absent read gets, rather than every
+   * wiring of a browse having to grow one at once.
+   */
+  compare?: (
+    repo: ResolvedRepo,
+    base: string,
+    head: string,
+    limits: { maxFiles: number; maxDiffBytes: number; timeoutMs: number },
+  ) => Promise<
+    (Comparison & { peeled: { base: string; head: string } }) | 'unrelated' | 'too-large' | null
+  >
 }
 
 /** What a browse reads out of one Index. */
@@ -388,6 +409,38 @@ const json = (body: unknown): Response =>
  * history clones it — that is what walgit is.
  */
 const LOG_PAGE = 50
+
+/**
+ * Does this compare want the unified diff alone, as text, rather than JSON?
+ *
+ * `?format=diff`, or an `Accept` that prefers `text/x-diff` or `text/plain` to
+ * `application/json` by q-value — so `*\/*`, which is what curl and a default
+ * fetch send, keeps the JSON answer, and a client listing both at the same
+ * weight (axios's `application/json, text/plain, *\/*`) is a JSON client.
+ */
+function wantsDiffText(request: Request, url: URL): boolean {
+  if (url.searchParams.get('format') === 'diff') return true
+  let textQ = 0
+  let jsonQ = 0
+  for (const range of (request.headers.get('accept') ?? '').split(',')) {
+    const [type = '', ...params] = range.split(';').map((part) => part.trim().toLowerCase())
+    const qParam = params.find((param) => param.startsWith('q='))
+    const q = qParam === undefined ? 1 : Number(qParam.slice(2))
+    if (!Number.isFinite(q)) continue
+    if (type === 'text/x-diff' || type === 'text/plain') textQ = Math.max(textQ, q)
+    if (type === 'application/json') jsonQ = Math.max(jsonQ, q)
+  }
+  return textQ > 0 && textQ > jsonQ
+}
+
+/**
+ * How long one compare may run git for, in all: ten seconds.
+ *
+ * Every git call here is synchronous in the one process that also serves
+ * pushes, so this is the longest a compare can hold that process. A comparison
+ * that needs longer is refused (503), and is one to run against a clone.
+ */
+const COMPARE_TIMEOUT_MS = 10_000
 
 /**
  * One blob, as bytes, with the type its CONTENT earns and never its name.
@@ -621,6 +674,7 @@ function createRouter(deps: HttpHandlerDeps): (req: Request) => Promise<Response
 
     const op = url.searchParams.get('op')
     if (op === 'refs') return json(common)
+    if (op === 'compare') return compare(reads, request, url, resolved, index.refs, common)
     if (op !== 'tree' && op !== 'blob' && op !== 'raw' && op !== 'log') return NOT_FOUND()
 
     // The history cursor, checked before anything else this request would do.
@@ -761,6 +815,95 @@ function createRouter(deps: HttpHandlerDeps): (req: Request) => Promise<Response
     }
 
     return json({ ...common, ref: at.ref, path, entries, ...(readme ? { readme } : {}) })
+  }
+
+  /**
+   * `op=compare`: the head against its merge base with the base, three-dot.
+   *
+   * Reached only from `browse`, after the Private gate and the Index — so a
+   * compare is read under exactly the rules every other browse read is, and a
+   * name nobody has pushed to is still the 404 that creates nothing. Both refs
+   * resolve the way a browse ref does: an Index key (prefix optional) or a full
+   * oid, and nothing else reaches git.
+   */
+  async function compare(
+    reads: BrowseReads,
+    request: Request,
+    url: URL,
+    resolved: ResolvedRepo,
+    refs: Record<string, string>,
+    common: Record<string, unknown>,
+  ): Promise<Response> {
+    if (!reads.compare) return NOT_FOUND()
+    const baseName = url.searchParams.get('base') ?? ''
+    const headName = url.searchParams.get('head') ?? ''
+    // 400, not 404: a compare that names no side is a malformed request rather
+    // than one about a ref that might have existed.
+    if (baseName === '' || headName === '') {
+      return reject(400, 'invalid', 'walgit: a compare names both a base and a head\n')
+    }
+    const base = resolveRef(refs, baseName)
+    const head = resolveRef(refs, headName)
+    if (base === null || head === null) return NOT_FOUND()
+    const baseOid = refs[base] ?? base
+    const headOid = refs[head] ?? head
+
+    const repo = deps.ensureRepo(resolved)
+    if (deps.syncRepo) {
+      try {
+        await deps.syncRepo(repo)
+      } catch (err) {
+        return reject(503, 'unavailable', `walgit: ${(err as Error).message}\n`)
+      }
+    }
+
+    const result = await reads.compare(repo, baseOid, headOid, {
+      maxFiles: COMPARE_MAX_FILES,
+      maxDiffBytes: COMPARE_MAX_DIFF_BYTES,
+      timeoutMs: COMPARE_TIMEOUT_MS,
+    })
+    // An oid the Cache does not hold: absent, as an unknown ref is.
+    if (result === null) return NOT_FOUND()
+    // Refused rather than answered partially: past the deadline there is no
+    // honest partial answer — the totals are the first thing computed after
+    // the merge base, and a list with no totals is a list nobody can trust.
+    if (result === 'too-large') {
+      return reject(
+        503,
+        'unavailable',
+        'walgit: this comparison is too large to compute on the request path — clone the repository to compare it locally\n',
+      )
+    }
+    if (result === 'unrelated') {
+      return reject(
+        400,
+        'invalid',
+        `walgit: ${baseName} and ${headName} share no history, so there is no merge base to compare against\n`,
+      )
+    }
+
+    const { peeled, ...comparison } = result
+    if (wantsDiffText(request, url)) {
+      return new Response(comparison.diff, {
+        headers: {
+          'content-type': 'text/plain; charset=utf-8',
+          'x-content-type-options': 'nosniff',
+          'cache-control': 'no-store',
+          'x-robots-tag': 'noindex',
+          // The one fact the JSON carries that the text cannot.
+          'x-walgit-truncated': comparison.truncated ? 'true' : 'false',
+          'x-walgit-merge-base': comparison.mergeBase,
+        },
+      })
+    }
+    return json({
+      ...common,
+      // The COMMITS compared, peeled: an annotated tag's Index entry is the
+      // tag object, which is not what a reviewer diffed.
+      base: { ref: base, oid: peeled.base },
+      head: { ref: head, oid: peeled.head },
+      ...comparison,
+    })
   }
 
   /**

@@ -185,6 +185,49 @@ export function gitBytes(
   }
 }
 
+/**
+ * git, where both the output and the time are deliberately BOUNDED rather than
+ * merely buffered.
+ *
+ * One caller: the compare (`src/browse.ts`), whose cost is whatever two refs
+ * make it and is not something a request may let grow to `MAX_BUFFER` or hold
+ * the process for. Past `limit` bytes of stdout the child is killed and what
+ * was read so far comes back cut at `limit` as `overflowed` — the cut is the
+ * caller's to present, never a failure. Past `timeoutMs` the child is killed
+ * and the answer is `timed-out`. A zero exit is not trusted for completeness:
+ * the runtime reports an overrun as `ENOBUFS` with a killed child, and that is
+ * the signal read — and only when it was STDOUT that overran, since stderr
+ * filling the same buffer raises the same code with nothing on stdout.
+ */
+export function gitBounded(
+  args: readonly string[],
+  bounds: { limit: number; timeoutMs: number },
+  opts: GitOptions = {},
+): {
+  outcome: 'ok' | 'overflowed' | 'timed-out' | 'failed'
+  stdout: Uint8Array
+  stderr: string
+} {
+  const res = spawnSync('git', argv(args, opts), {
+    input: opts.input,
+    maxBuffer: bounds.limit,
+    timeout: bounds.timeoutMs,
+    env: childEnv(opts),
+  })
+  const code = (res.error as NodeJS.ErrnoException | undefined)?.code
+  const stdout = res.stdout ?? new Uint8Array()
+  const stderr = res.stderr?.toString('utf8') ?? ''
+  if (code === 'ETIMEDOUT') return { outcome: 'timed-out', stdout: new Uint8Array(), stderr }
+  if (
+    stdout.byteLength >= bounds.limit &&
+    (code === 'ENOBUFS' || stdout.byteLength > bounds.limit)
+  ) {
+    return { outcome: 'overflowed', stdout: stdout.subarray(0, bounds.limit), stderr }
+  }
+  if (res.error || res.status !== 0) return { outcome: 'failed', stdout, stderr }
+  return { outcome: 'ok', stdout, stderr }
+}
+
 /** git, where a non-zero exit is a bug rather than an answer. */
 export function gitOrThrow(args: readonly string[], opts: GitOptions = {}): GitResult {
   const res = git(args, opts)

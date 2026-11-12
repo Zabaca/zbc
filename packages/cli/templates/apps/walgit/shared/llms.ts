@@ -27,6 +27,7 @@ import { MAX_REFS_PER_ENTRY, MAX_WATCH_ENTRIES } from './events'
 import { describeBytes, describeWindow } from './policy'
 import { CONTENT_SIGNAL } from './robots'
 import {
+  BROWSE_PATH,
   CHALLENGE_PATH,
   EVENTS_PATH,
   MCP_PATH,
@@ -888,6 +889,12 @@ curl -H 'accept: application/json' https://${host}/$NAME${caps.publicAccess ? ''
 One repository: its refs, its default branch and one level of the default branch's tree. \`/$NAME/tree/<ref>/<path>\` is any directory at any ref — a branch name containing slashes resolves, because the host splits the ref from the path against its own Index. Same gate as a clone${caps.namesCanBePrivate ? ', so a Private name is refused here exactly as `info/refs` is' : ''}.
 
 Three more reads on the same split: \`/$NAME/blob/<ref>/<path>\` is one file (up to 1 MiB, otherwise its size alone), \`/$NAME/raw/<ref>/<path>\` is its bytes — always \`text/plain\` or an \`application/octet-stream\` attachment, chosen by content and never by extension — and \`/$NAME/commits/<ref>\` is fifty commits per page with \`?before=<full oid>\` as the cursor.
+
+\`\`\`sh
+curl 'https://${host}${BROWSE_PATH}?repo=$NAME&op=compare&base=main&head=feature/x'${caps.publicAccess ? '' : ' -u walgit:$TOKEN'}
+\`\`\`
+
+A review without a checkout: \`head\` against its merge base with \`base\` (three-dot), as JSON — \`mergeBase\`, \`files\` (\`path\`, \`previousPath\` for a rename, \`status\` added/modified/deleted/renamed, \`additions\`, \`deletions\`, \`binary\`), \`totals\` and the unified \`diff\`. Add \`&format=diff\` for the diff alone as text. At most 300 files and 1 MiB of diff; past either, \`truncated\` is true and \`totals\` still counts everything. An unknown ref is 404; two refs with no history in common are 400; a comparison too large to compute in ten seconds is 503 — compare it in a clone.
 `
     : ''
 }
