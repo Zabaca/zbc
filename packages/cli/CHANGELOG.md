@@ -5,7 +5,7 @@ only add or fix things are described by their `release(cli): @zabaca/zbc <x.y.z>
 commit message and the PRs it names; this file exists for the ones a consumer
 has to read before upgrading.
 
-## Unreleased
+## 0.26.0
 
 ### `zbc init` no longer writes `.claude/settings.json` into an existing repo
 
