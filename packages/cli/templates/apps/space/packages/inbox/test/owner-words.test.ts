@@ -40,6 +40,9 @@ describe('Northfield’s owner and the words that name them', () => {
     expect(words.draftChangedAfterInstruction(tessa)).toBe(
       'This draft was changed after Tessa gave the instruction, by someone other than you, so he has not agreed to these words. Nothing was sent. Do not retry: go back to Tessa, show him the draft as it is now, and send only on a new instruction from him.',
     )
+    expect(words.draftRecordChangedAfterInstruction(tessa)).toBe(
+      "This draft's record changed after Tessa gave the instruction (it was imported, marked or unmarked as sent, a send of it was settled, or it was talked over with the assistant), so he has not agreed to it as it is now. Nothing was sent. Do not retry: go back to Tessa, show him the draft as it is now, and send only on a new instruction from him.",
+    )
     expect(words.draftCreatedAfterInstruction(tessa)).toBe(
       'This draft was created after Tessa gave the instruction, even if by you, so he has not agreed to it. Nothing was sent. Do not retry: go back to Tessa, show him the draft, and send only on a new instruction from him.',
     )

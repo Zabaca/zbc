@@ -200,8 +200,8 @@ addresses you type come before the thread's people that copyEveryone adds, and c
 leaves exactly the ones you typed. \`drafts\` prints copiesEveryone (whether that is on) and ccTyped (what was typed).
 At most 20 people in all, the recipient and the Cc together. \`edit\` takes the same cc and REPLACES the whole Cc with
 it ([] takes every address off), so send the whole list you want. A change of the recipients (the Cc) after
-the owner's instruction stops your send, even a change you made, and so does a draft you created after it: tell the owner
-who is on the draft now and ask again. A draft with an em dash is refused. A draft on an email conversation
+the owner's instruction stops your send, even a change you made, and so does a draft you created, imported or put back after it:
+tell the owner who is on the draft now and ask again. A draft with an em dash is refused. A draft on an email conversation
 needs no address and no subject: it is a reply, to the Reply-To of the newest message
 that came in (else its sender), as "Re: <the conversation's subject>". Claude drafts every
 message, so the owner can see it, and sends only when they say so.

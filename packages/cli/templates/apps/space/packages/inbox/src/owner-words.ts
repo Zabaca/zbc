@@ -35,6 +35,10 @@ export const draftChangedAfterInstruction = (owner: string): string =>
 export const draftCreatedAfterInstruction = (owner: string): string =>
   `This draft was created after ${owner} gave the instruction, even if by you, so he has not agreed to it. Nothing was sent. Do not retry: go back to ${owner}, show him the draft, and send only on a new instruction from him.`
 
+/** An instruction covers the draft as it stood when it was given. Anything else the inbox recorded on it afterwards (it was imported, marked or unmarked sent, a send was tried) means it is not that draft any more. */
+export const draftRecordChangedAfterInstruction = (owner: string): string =>
+  `This draft's record changed after ${owner} gave the instruction (it was imported, marked or unmarked as sent, a send of it was settled, or it was talked over with the assistant), so he has not agreed to it as it is now. Nothing was sent. Do not retry: go back to ${owner}, show him the draft as it is now, and send only on a new instruction from him.`
+
 /** An instruction covers a message to the people it named. A change of who the draft goes to (its To or Cc) after it was given, even Claude's own, is a message the owner has not agreed to. */
 export const recipientsChangedAfterInstruction = (owner: string): string =>
   `The people this draft goes to (its To or Cc) were changed after ${owner} gave the instruction, even if by you, so he has not agreed to who receives it. Nothing was sent. Do not retry: go back to ${owner}, show him the draft with its To and Cc as they are now, and send only on a new instruction from him.`

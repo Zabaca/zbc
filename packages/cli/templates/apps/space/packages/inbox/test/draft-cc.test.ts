@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test'
+import { GmailError } from '../src/gmail/google'
 import type { MessageRow } from '../src/types'
 import { AGENT, AGENT_ID, count, harness, OWNER } from '../test-support/harness'
 import { as, ownerRequest } from '../test-support/owner-requests'
@@ -570,6 +571,68 @@ describe('who a draft goes to is covered by the instruction, Claude’s own chan
       instruction: anew,
     })
     expect(ok.status, JSON.stringify(ok.json)).toBe(200)
+  })
+
+  test('an Outbox import after the instruction puts a draft in place that he never saw: its send is refused, and so is the send of one that was marked sent and then unmarked', async () => {
+    const h = harness()
+    await live(h, group(h))
+    expect((await ownerRequest(h, 'PUT', '/api/settings/claude-sending', { enabled: true })).status).toBe(200)
+    // An entry the Outbox marked sent is filed as sent before he speaks.
+    const old = {
+      id: 'o-1',
+      to: 'Stranger',
+      address: 'stranger@example.net',
+      body: 'Old note.',
+      subject: 'Hello',
+      created: '2026-10-19T10:00:00Z',
+      sentAt: '2026-10-19T11:00:00Z',
+    }
+    expect((await h.request(AGENT, 'POST', '/api/import/outbox', { entries: [old] })).status).toBe(200)
+    const marked = h.db.query(`SELECT id, rev FROM message WHERE status = 'manual-sent'`).get() as {
+      id: string
+      rev: number
+    }
+    h.tick()
+    const said = { ...SAID, at: new Date(h.now()).toISOString() }
+    h.tick()
+    const attempt = (draft: { id: string; rev: number }) =>
+      h.request(AGENT, 'POST', `/api/drafts/${draft.id}/send`, { rev: draft.rev, instruction: said })
+
+    // (a) After "send it", Claude imports a new entry: its created time is Claude's own input, but the audit's is the inbox's.
+    const fresh = {
+      id: 'o-2',
+      to: 'Stranger',
+      address: 'stranger@example.net',
+      body: 'Imported later.',
+      subject: 'Hello',
+      created: '2026-10-01T10:00:00Z',
+    }
+    expect((await h.request(AGENT, 'POST', '/api/import/outbox', { entries: [fresh] })).status).toBe(200)
+    const imported = ((await h.request(AGENT, 'GET', '/api/drafts')).json as MessageRow[]).find(
+      (d) => d.body === 'Imported later.',
+    ) as MessageRow
+    const before = snapshot(h)
+    const first = await attempt(imported)
+    expect(first.status, JSON.stringify(first.json)).toBe(409)
+    expect(first.json.error).toContain('record changed after Tessa gave the instruction')
+    expect(snapshot(h)).toBe(before)
+
+    // (b) After "send it", Claude puts the earlier entry back as a draft.
+    const back = await h.request(AGENT, 'POST', `/api/messages/${marked.id}/unmark-sent`)
+    expect(back.status, JSON.stringify(back.json)).toBe(200)
+    const second = await attempt(back.json)
+    expect(second.status).toBe(409)
+    expect(second.json.error).toContain('record changed after Tessa gave the instruction')
+    expect(sent(h)).toHaveLength(0)
+  })
+
+  test('a refused send that put the draft back is still one attempt of the same word: the send path’s own record does not end the instruction', async () => {
+    const h = harness()
+    const { made, send } = await instructed(h)
+    h.google.failNext('send', new GmailError('Invalid To header', 400))
+    expect((await send(made)).status).toBe(422)
+    h.tick()
+    expect((await send(made)).status).toBe(200)
   })
 
   test('Tessa’s own Cc change after the instruction still stops the send, in the old words about someone other than Claude', async () => {

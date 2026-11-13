@@ -54,6 +54,7 @@ import {
   claudeSendingOff,
   draftChangedAfterInstruction,
   draftCreatedAfterInstruction,
+  draftRecordChangedAfterInstruction,
   instructionBeforeReply,
   instructionInTheFuture,
   instructionOnlyFromOwnerInSession,
@@ -224,6 +225,9 @@ function emailPeople(list: ParsedAddress[]): { kind: IdentityKind; address: stri
  * not an email the owner wrote; Gmail's own limit is far above it and a Worker's memory is not.
  */
 export const MAX_SEND_BODY = 100_000
+
+/** The audit actions the send path itself writes on a draft it is trying to send: they leave the draft as it was, so they do not end an instruction (a refused send goes back to a draft and may be tried again on the same word). */
+const SEND_ATTEMPT_ACTIONS: ReadonlySet<string> = new Set(['message.sending', 'message.send-refused'])
 
 /** Whether an audit entry's draft before and after go to different people: another recipient, or another set of Cc addresses (order and names do not matter). An entry with no draft before it (its creation) changes nobody. */
 function recipientsDiffer(before: unknown, after: unknown): boolean {
@@ -2357,26 +2361,33 @@ export class MailStore extends TelegramStore {
   }
 
   /**
-   * Why the owner's instruction at `at` no longer covers the draft, in words for Claude, or null when it still does. Three things void it, all found in the audit (every creation and every edit is there, with who and
-   * when, and ANY such change counts, not only the last, so a later edit by Claude cannot hide an earlier one): somebody other than Claude wrote or edited the draft after it, or ANYBODY, Claude included, created the
-   * draft after it (an instruction covers a draft that existed when it was given: a draft Claude makes afterwards, with whoever on its Cc, was never seen) or changed who it goes to (its To or Cc: the owner agreed to a message
-   * for those people). Claude's own edit of the words is not held against it.
+   * Why the owner's instruction at `at` no longer covers the draft, in words for Claude, or null when it still does. An ALLOW-LIST: after the instruction, ANY entry the audit holds on this message voids it (the audit has every
+   * creation, edit, import, mark and unmark, with who and when, so a way of putting a sendable draft in place that is added later is covered without anyone remembering to list it), except two things that leave the draft
+   * as the owner saw it: Claude's own edit of it that does not change who it goes to (its To and Cc), the change decision 15 lets an instruction survive, and the send path's own record of an attempt on this same draft
+   * (`message.sending`, `message.send-refused`: a refused send puts it back as it was, so Claude may retry on the same instruction). Every entry counts, not only the last, so a later edit by Claude cannot hide an earlier one.
+   * The words say what happened: somebody other than Claude changed it; it was created; its recipients changed; or its record changed in another way (imported, marked or unmarked sent, a send resolved, a chat on it).
    */
   private instructionVoidedBy(msg: MessageRow, at: string): string | null {
     const since = Date.parse(at)
-    let voided: string | null = null
+    const owner = this.owner.name
+    let created = false
+    let recipients = false
+    let other = false
     for (const a of this.sql
-      .exec(
-        `SELECT actor, action, at, before, after FROM audit WHERE subject = ?1 AND action IN ('draft.create', 'draft.update')`,
-        `message:${msg.id}`,
-      )
+      .exec(`SELECT actor, action, at, before, after FROM audit WHERE subject = ?1`, `message:${msg.id}`)
       .toArray()) {
       if (Date.parse(text(a.at)) <= since) continue
-      if (!isAgent(text(a.actor))) return draftChangedAfterInstruction(this.owner.name)
-      if (a.action === 'draft.create') return draftCreatedAfterInstruction(this.owner.name)
-      if (recipientsDiffer(a.before, a.after)) voided = recipientsChangedAfterInstruction(this.owner.name)
+      const action = text(a.action)
+      if (!isAgent(text(a.actor)) && (action === 'draft.create' || action === 'draft.update')) {
+        return draftChangedAfterInstruction(owner)
+      }
+      if (action === 'draft.create') created = true
+      else if (action === 'draft.update') recipients = recipients || recipientsDiffer(a.before, a.after)
+      else if (!SEND_ATTEMPT_ACTIONS.has(action)) other = true
     }
-    return voided
+    if (created) return draftCreatedAfterInstruction(owner)
+    if (recipients) return recipientsChangedAfterInstruction(owner)
+    return other ? draftRecordChangedAfterInstruction(owner) : null
   }
 
   /**
