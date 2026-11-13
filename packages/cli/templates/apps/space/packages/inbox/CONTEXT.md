@@ -67,7 +67,7 @@ pressed it. Not a Signing Link.
 _Avoid_: accept (for a Suggestion), attach, tag
 
 **Mailbox**:
-One account on one channel. It has four kinds. A **Gmail mailbox** (a Gmail account the owner connected; the inbox takes several, each connected by the owner, any address) is where Gmail keeps the mail and the inbox keeps a working copy; each has its own grant, history cursor and watch, and its conversations carry its short label as a pill (for example `northfield`).
+One account on one channel. It has four kinds. A **Gmail mailbox** (a Gmail account the owner connected; the inbox takes several, each connected by the owner, any address) is where Gmail keeps the mail and the inbox keeps a working copy; each has its own grant, history cursor and watch, and its conversations carry its short label as a pill (for example `northfield`), and the menu lists it under Mailboxes by that same label, first of the mailboxes, with its own count of rows (a lapsed or disconnected account stays listed: its mail is still held).
 A Gmail account whose grant Google no longer accepts (a Google app in testing mode ends a grant after 7 days) is **lapsed**: it is said so by name, nothing syncs or sends for it, and connecting it again ends the lapse. A
 **Cloudflare mailbox**, a **Telegram mailbox** and a **JMAP mailbox** are the other kinds, below. Slack is a later channel. A
 conversation with no mailbox is a manual one.

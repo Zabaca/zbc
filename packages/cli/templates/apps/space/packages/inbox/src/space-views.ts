@@ -333,6 +333,7 @@ export function createSpaceViews(deps: SpaceDeps, asOwner: AsOwner, asPerson: As
           id: g.id,
           name: g.name,
           address: g.address,
+          ...(rows.mailboxes[g.id] ?? none),
           connected: g.connected,
           state: g.state,
           lastPushAt: orNull(g.lastPushAt),

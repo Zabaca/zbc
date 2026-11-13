@@ -183,6 +183,21 @@ describe('the menu counts rows, as the list does', () => {
     expect({ count: acme.count, unread: acme.unread }).toEqual({ count: inClient.count, unread: inClient.unread })
   })
 
+  test('a Gmail account is a mailbox of the menu like Ridgeway’s: its own count equals the rows of its list, and the business mailbox’s mail is not in it', async () => {
+    const s = await world()
+    const menu = await s.nav()
+    expect(menu.gmailAccounts.map((g) => g.name)).toEqual(['northfield'])
+    const account = menu.gmailAccounts[0]!
+    const inAccount = await s.rows(`mailbox:${account.id}`)
+    expect({ count: account.count, unread: account.unread }).toEqual({ count: inAccount.count, unread: inAccount.unread })
+    // Gmail's open mail that is not Bulk: Dana, Ben, the seller, the Craigslist seller (Priya's is Ridgeway's).
+    expect(account.count).toBe(4)
+    expect(account.unread).toBeGreaterThan(0)
+    expect(await s.named(`mailbox:${account.id}`)).not.toContain('Priya Nair')
+    // The account's count and the business mailbox's are the whole Inbox between them.
+    expect(account.count + (menu.mailboxes[0]?.count ?? 0)).toBe(menu.views.inbox.count)
+  })
+
   test('the numbers of this world are the rows a person would count', async () => {
     const s = await world()
     const menu = await s.nav()

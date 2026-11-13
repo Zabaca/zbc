@@ -36,6 +36,7 @@ Status: accepted. The owner works through several Gmail accounts (for example `t
    catches up; a stale cursor takes the resync that already existed. Disconnect also clears it. Nothing notifies the owner that a grant lapsed: the menu foot is where it shows.
 6. **A conversation carries the account it came through, as the business mailboxes' do.** The mark on a conversation (`mailbox`) is now set for a Gmail conversation too, with the
    account's short label as its name (for example "northfield"; the address itself when two accounts would wear the same label), and `mailboxKind` says which kind it is.
+   That mark is what makes an account a place in the menu's Mailboxes tree (first of them, by the same name, with its own count of rows, a lapsed or disconnected account too), narrowing the list as a business mailbox's does.
    What only a Cloudflare mailbox has (files, the spam check's lines, the assistant) still keys on the kind, not on the mark.
 7. **A reply goes from the account its conversation came through; a new email from the one chosen.** A reply's account is its conversation's mailbox, as a Cloudflare reply's already
    was. A new email records its account on the draft when it is made (the message's `mailbox_id`, the column a Cloudflare draft already used): the one the person chose (the owner at the space's compose box; Claude through `from` on the draft route, [ADR 0001](0001-the-inbox-is-its-own-worker-over-gmail.md) decision 26, which refuses a disconnected or lapsed account), else the

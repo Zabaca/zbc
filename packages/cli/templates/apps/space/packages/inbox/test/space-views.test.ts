@@ -240,9 +240,17 @@ describe('the menu: the inbox’s own counts, in one read', () => {
     expect(nav.clients.map((c) => [c.id, c.name])).toEqual(clients.map((c) => [c.id, c.name]))
     expect(nav.clients.find((c) => c.name === 'Acme Legal')).toMatchObject({ count: 1, listed: true })
     expect(nav.contacts).toBe((await h.request(AGENT, 'GET', '/api/contacts')).json.length)
+    // The Gmail account is a place in the menu like the business mailbox, and counts the rows its list holds.
     expect(nav.gmailAccounts).toMatchObject([
-      { address: 'tessa@northfield.example', name: 'northfield', connected: true, state: 'live' },
+      {
+        address: 'tessa@northfield.example',
+        name: 'northfield',
+        connected: true,
+        state: 'live',
+        ...(await rowsIn(undefined, (l) => l.open && !l.bulk && l.mailbox?.id === nav.gmailAccounts[0]?.id)),
+      },
     ])
+    expect(nav.gmailAccounts[0]?.count).toBeGreaterThan(0)
   })
 
   test('a person with several conversations is one row, and a thread two people are on is one row, under the one who wrote', async () => {

@@ -81,7 +81,7 @@ export interface InboxNav {
   mailboxes: InboxNavMailbox[]
   clients: InboxNavClient[]
   contacts: number
-  /** Each Gmail account's line at the foot of the menu, oldest first; empty until one was connected. `reason` is why it needs a look (a lapsed grant says so), or null. */
+  /** Each Gmail account the person is on, oldest first; empty until one was connected: a place in the Mailboxes tree with its counts and a line at the foot. `reason` is why it needs a look (a lapsed grant says so), or null. */
   gmailAccounts: InboxNavGmail[]
   /** The Telegram mailbox, once the bridge has said anything; null before, and ABSENT from an inbox that predates it: the menu then has no Telegram line. */
   telegram?: InboxNavTelegram | null
@@ -111,11 +111,16 @@ export interface InboxNavJmap extends InboxMailbox {
   reason: string | null
 }
 
-/** One Gmail account in the menu's foot: its id and pill name, and the line that says whether it is well. */
+/**
+ * One Gmail account in the menu: a place in the Mailboxes tree like a business mailbox (its open conversations that are not Bulk, counted as rows; `name` is the short label its pill wears), and the line at the foot that says
+ * whether it is well. A lapsed or disconnected account stays in the tree: its mail is still in the store and a list of it still opens.
+ */
 export interface InboxNavGmail {
   id: string
   name: string
   address: string
+  count: number
+  unread: number
   connected: boolean
   state: (typeof GMAIL_STATES)[number]
   lastPushAt: number | null

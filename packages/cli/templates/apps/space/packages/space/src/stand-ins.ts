@@ -508,7 +508,7 @@ export function standInInbox(
         mailboxes: views.state.mailboxes.map((m) => ({ id: m.id, name: m.name, address: m.address, ...count(plain.filter((t) => t.mailbox?.id === m.id)), lastArrivalAt: m.lastArrivalAt, reason: m.reasons[0] ?? null })),
         clients: [...known.values()].map((c) => ({ ...c, ...count(plain.filter((t) => clientIdsOf(t).includes(c.id))) })).sort((a, b) => Number(b.listed) - Number(a.listed) || a.name.localeCompare(b.name)),
         contacts: contacts.length,
-        gmailAccounts: gmailAccounts.map((g) => ({ id: g.id, name: g.name, address: g.address, connected: g.connected, state: g.state, lastPushAt: g.lastPushAt, reason: g.reasons[0] ?? null })),
+        gmailAccounts: gmailAccounts.map((g) => ({ id: g.id, name: g.name, address: g.address, ...count(plain.filter((t) => t.mailbox?.id === g.id)), connected: g.connected, state: g.state, lastPushAt: g.lastPushAt, reason: g.reasons[0] ?? null })),
         // The Telegram mailbox, counted from its threads as a business mailbox's are; null while the stand-in holds none.
         ...(views.state.jmap !== undefined && { jmap: views.state.jmap.map((m) => ({ id: m.id, name: m.name, address: m.address, ...count(plain.filter((t) => t.mailbox?.id === m.id)), state: m.state, lastSyncAt: m.lastSyncAt, reason: m.reasons[0] ?? null })) }),
         ...(views.state.telegram !== undefined && { telegram: views.state.telegram === null ? null : { id: views.state.telegram.id, name: views.state.telegram.name, address: views.state.telegram.address, ...count(plain.filter((t) => t.mailbox?.id === views.state.telegram?.id)), state: views.state.telegram.state, checkedInAt: views.state.telegram.checkedInAt, lastPushAt: views.state.telegram.lastPushAt } }),

@@ -19,7 +19,7 @@ The code does not depend on these being done first, but no account outside the i
 
 - **Store:** migration 14 (store version 15): `mailbox.grant_lapsed_at` (NULL) and a label for the existing Gmail row (in its `display_name`, which was empty for a Gmail row). Nothing is dropped or rewritten. **One-way:** a build from before it refuses a store at version 15 (`migrate`), so never redeploy an older commit as it was.
 - **The Mailroom** works every connected account, isolated from each other; a push is routed by the address in its body; the daily pass renews each account's watch.
-- **The space:** Settings, Mailboxes shows a card per account with Connect Gmail (adds one), Connect again (that account, Google hinted to offer it first), Sync now and Disconnect; the menu's foot has a line per account; the New email From box lists each working account.
+- **The space:** Settings, Mailboxes shows a card per account with Connect Gmail (adds one), Connect again (that account, Google hinted to offer it first), Sync now and Disconnect; the menu's foot has a line per account, and the menu's Mailboxes list each account first, by its pill's name, with its count of rows (a lapsed or disconnected one stays: its mail is still held; picking one narrows the Inbox to that account's mail); the New email From box lists each working account.
 - **The contract** (`../../../workspace`): `InboxMailboxes.gmail` and `InboxNav.gmail` became `gmailAccounts` lists; `InboxGmail` gained `id`, `name`, `lapsedAt` and the state `lapsed`; `changeGmail` and `gmailSignIn` take the account's id; `InboxFrom` for Gmail may name an account. The inbox and the space are one Worker, so they deploy together.
 - **Claude's script:** `mailbox` answers `{ accounts: [...] }` (it answered `{ mailbox: ... }`). Nothing else changed.
 - No new binding, secret, route, queue or infra instance. Gmail's push, the Google client and the topic are as they were.
@@ -38,7 +38,7 @@ The code does not depend on these being done first, but no account outside the i
 
 1. `scripts/inbox.ts mailbox` answers `{ "accounts": [ ... ] }` with the one account that was connected, `state: "live"`, a `name` (the label), and the same `messages` and `conversations` as before.
 2. The business mailboxes' numbers are the same. A new email to the connected address shows within a minute (the push route still works for the one account).
-3. The space's Inbox shows each Gmail conversation with the account's pill beside the business ones.
+3. The space's Inbox shows each Gmail conversation with the account's pill beside the business ones. The menu's Mailboxes list the account first, and picking it narrows the Inbox to its rows, as many as its count says.
 
 ## What the owner does to connect each account
 

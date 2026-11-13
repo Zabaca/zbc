@@ -3,7 +3,7 @@
 // Meet has a menu of its own, the same way (Chat / Channels / Calls and Phone are a Meet top level nav): All, Chat, Channels, Calls and, for a person with a phone, Phone.
 //
 //   VIEWS      Inbox, Unread, Sent, Drafts, Bulk, Closed, each with its count of rows (and, in the accent, how many of those rows are unread); Sent has no count, as Gmail's has none
-//   MAILBOXES  each business mailbox with its count, and Telegram's
+//   MAILBOXES  each Gmail account (by the short label its pill wears), then each business mailbox, each mailbox on the mail server and Telegram's, each with its count; a Gmail account that lapsed or was disconnected stays, its mail is still held
 //   CLIENTS    each Client with the rows of its open conversations
 //   (no People group: it would only link to People, which is a tab of its own)
 //   Settings   at the foot, with the lines the inbox says there: Gmail live and its last push, each mailbox's last mail, the Telegram bridge's state
@@ -138,8 +138,9 @@ export function treeOf(nav: InboxNav, current: ListView, onList: boolean): { vie
       count: c === null ? null : c.count,
       active: lit(view),
     })),
-    // The business mailboxes, then the ones on the mail server (a business mailbox to a person), then Telegram's: each narrows the list to its rows the same way (a conversation carries the mailbox it is in).
-    mailboxes: [...nav.mailboxes, ...(nav.jmap ?? []), ...(nav.telegram ? [nav.telegram] : [])].map((m) => ({
+    // The owner's Gmail accounts first (a lapsed or disconnected one too: its mail is still held and its list still opens), then the business mailboxes, the ones on the mail server (a business mailbox to a person) and Telegram's:
+    // each narrows the list to its rows the same way (a conversation carries the mailbox it is in).
+    mailboxes: [...nav.gmailAccounts, ...nav.mailboxes, ...(nav.jmap ?? []), ...(nav.telegram ? [nav.telegram] : [])].map((m) => ({
       key: `mailbox:${m.id}`,
       label: m.name,
       href: viewHref(`mailbox:${m.id}`),

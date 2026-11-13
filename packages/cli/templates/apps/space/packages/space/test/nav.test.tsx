@@ -35,7 +35,7 @@ const NAV: InboxNav = {
     { id: 9, name: 'Lumena', listed: true, count: 0, unread: 0 },
   ],
   contacts: 141,
-  gmailAccounts: [{ id: 'gm-northfield', name: 'northfield', address: 'tessa@northfield.example', connected: true, state: 'live', lastPushAt: NOW - 3 * 60_000, reason: null }],
+  gmailAccounts: [{ id: 'gm-northfield', name: 'northfield', address: 'tessa@northfield.example', count: 14, unread: 2, connected: true, state: 'live', lastPushAt: NOW - 3 * 60_000, reason: null }],
 }
 
 describe("Meet's menu", () => {
@@ -127,6 +127,7 @@ describe('the entries of the tree', () => {
   test('each mailbox with its count and nothing under it (the knowledge base is the Knowledge tab’s); each Client with its open count; no Contacts item', () => {
     const t = treeOf(NAV, 'all', true)
     expect(t.mailboxes.map((m) => [m.label, m.count])).toEqual([
+      ['northfield', 14],
       ['Ridgeway Cycles', 0],
       ['ShiftLantern', 0],
     ])
@@ -136,9 +137,41 @@ describe('the entries of the tree', () => {
     expect('contacts' in treeOf(NAV, 'all', true)).toBe(false)
   })
 
+  test('each Gmail account the person is on is the first of the Mailboxes, by the short name its pill wears, with its own counts, and a lapsed or disconnected one stays (its mail is still held)', () => {
+    const account = (id: string, name: string, over: Partial<InboxNav['gmailAccounts'][number]> = {}): InboxNav['gmailAccounts'][number] => ({ id, name, address: `tessa@${name}.example`, count: 0, unread: 0, connected: true, state: 'live', lastPushAt: null, reason: null, ...over })
+    const nav: InboxNav = {
+      ...NAV,
+      gmailAccounts: [account('gm-northfield', 'northfield', { count: 14, unread: 2 }), account('gm-ashgrove', 'ashgrove', { count: 5, unread: 1, state: 'lapsed', reason: 'Connect it again.' }), account('gm-fernway', 'fernway', { connected: false, state: 'disconnected', count: 2 })],
+      jmap: [{ id: 'harborline', name: 'Harborline', address: 'test@harborline.example', count: 1, unread: 1, state: 'live', lastSyncAt: null, reason: null }],
+      telegram: { id: 'tg', name: 'Telegram', address: '7000000001', count: 2, unread: 1, state: 'live', checkedInAt: null, lastPushAt: null },
+    }
+    const t = treeOf(nav, 'mailbox:gm-ashgrove', true)
+    // Gmail accounts first, then the business mailboxes, then the mail server's, then Telegram.
+    expect(t.mailboxes.map((m) => [m.label, m.count, m.unread])).toEqual([
+      ['northfield', 14, 2],
+      ['ashgrove', 5, 1],
+      ['fernway', 2, 0],
+      ['Ridgeway Cycles', 0, 0],
+      ['ShiftLantern', 0, 0],
+      ['Harborline', 1, 1],
+      ['Telegram', 2, 1],
+    ])
+    // Each narrows the list the way a business mailbox does, and the address is its title.
+    expect(t.mailboxes.slice(0, 3).map((m) => [m.href, m.title])).toEqual([
+      ['/inbox?view=mailbox%3Agm-northfield', 'tessa@northfield.example'],
+      ['/inbox?view=mailbox%3Agm-ashgrove', 'tessa@ashgrove.example'],
+      ['/inbox?view=mailbox%3Agm-fernway', 'tessa@fernway.example'],
+    ])
+    expect(viewOf(new URL(`https://x${viewHref('mailbox:gm-ashgrove')}`).search)).toBe('mailbox:gm-ashgrove')
+    expect([...t.views, ...t.mailboxes, ...t.clients].filter((i) => i.active).map((i) => i.label)).toEqual(['ashgrove'])
+    expect(currentOf(nav, 'mailbox:gm-ashgrove')).toEqual({ label: 'ashgrove', count: 5 })
+    // No account connected: no Gmail entry, and the Mailboxes start with the business ones.
+    expect(treeOf({ ...NAV, gmailAccounts: [] }, 'all', true).mailboxes.map((m) => m.label)).toEqual(['Ridgeway Cycles', 'ShiftLantern'])
+  })
+
   test('the markup has the inbox’s groups, in its order, and has no footnote about the counts', () => {
     const markup = html(<TreeBody nav={NAV} view="bulk" onList go={noop} />)
-    const order = ['Inbox', 'Unread', 'Drafts', 'Bulk', 'Closed', 'Mailboxes', 'Ridgeway Cycles', 'ShiftLantern', 'Clients', 'Corin Pike', 'Tamarack Print Supply', 'Lumena']
+    const order = ['Inbox', 'Unread', 'Drafts', 'Bulk', 'Closed', 'Mailboxes', 'northfield', 'Ridgeway Cycles', 'ShiftLantern', 'Clients', 'Corin Pike', 'Tamarack Print Supply', 'Lumena']
     let at = 0
     for (const word of order) {
       const next = markup.indexOf(word, at)
@@ -148,8 +181,8 @@ describe('the entries of the tree', () => {
     expect(markup).not.toContain('Counts are the inbox’s own')
     expect(markup).not.toContain('Contacts')
     expect(markup.match(/aria-current="page"/g)).toHaveLength(1)
-    // A tree with no business mailbox and no Client has neither heading.
-    const bare = html(<TreeBody nav={{ ...NAV, mailboxes: [], clients: [] }} view="all" onList go={noop} />)
+    // A tree with no Gmail account, no business mailbox and no Client has neither heading.
+    const bare = html(<TreeBody nav={{ ...NAV, gmailAccounts: [], mailboxes: [], clients: [] }} view="all" onList go={noop} />)
     expect(bare).not.toContain('Mailboxes')
     expect(bare).not.toContain('Clients')
   })
@@ -172,7 +205,7 @@ describe('the foot: Settings, and the lines the inbox says under it', () => {
   })
 
   test('a line that needs a look is amber and says why: a list that has gone quiet is never trusted without it', () => {
-    const account = (over: Partial<InboxNav['gmailAccounts'][number]> = {}): InboxNav['gmailAccounts'][number] => ({ id: 'gm-northfield', name: 'northfield', address: 'tessa@northfield.example', connected: true, state: 'live', lastPushAt: null, reason: null, ...over })
+    const account = (over: Partial<InboxNav['gmailAccounts'][number]> = {}): InboxNav['gmailAccounts'][number] => ({ id: 'gm-northfield', name: 'northfield', address: 'tessa@northfield.example', count: 0, unread: 0, connected: true, state: 'live', lastPushAt: null, reason: null, ...over })
     const lines = statusLines({ ...NAV, gmailAccounts: [account({ reason: 'No push for two days.' })], mailboxes: [{ ...(NAV.mailboxes[0] as InboxNav['mailboxes'][number]), reason: 'One message is not filed.' }] }, NOW)
     expect(lines.map((l) => [l.text, l.amber, l.title])).toEqual([
       ['northfield Gmail needs a look', true, 'No push for two days.'],
@@ -191,8 +224,8 @@ describe('the foot: Settings, and the lines the inbox says under it', () => {
         ...NAV,
         mailboxes: [],
         gmailAccounts: [
-          { id: 'gm-northfield', name: 'northfield', address: 'tessa@northfield.example', connected: true, state: 'live', lastPushAt: NOW - 60_000, reason: null },
-          { id: 'gm-ashgrove', name: 'ashgrove', address: 'tessa@ashgrove.example', connected: true, state: 'lapsed', lastPushAt: null, reason: lapsed },
+          { id: 'gm-northfield', name: 'northfield', address: 'tessa@northfield.example', count: 3, unread: 0, connected: true, state: 'live', lastPushAt: NOW - 60_000, reason: null },
+          { id: 'gm-ashgrove', name: 'ashgrove', address: 'tessa@ashgrove.example', count: 0, unread: 0, connected: true, state: 'lapsed', lastPushAt: null, reason: lapsed },
         ],
       },
       NOW,
@@ -320,14 +353,20 @@ describe('the menu, pressed', () => {
     const items = () => [...document.querySelectorAll('.rail [data-testid="tree-item"]')] as HTMLElement[]
     // The tree is under Inbox in the rail, with the inbox's own counts and the current view lit.
     expect(inbox.views.calls.map((c) => c.method)).toContain('navigation')
-    expect(items().map((i) => i.getAttribute('data-key'))).toEqual(['all', 'unread', 'sent', 'drafts', 'bulk', 'closed', 'mailbox:ridgeway', 'mailbox:shiftlantern', 'mailbox:harborline', 'mailbox:telegram', 'client:7', 'client:9', 'client:3', 'client:12'])
+    expect(items().map((i) => i.getAttribute('data-key'))).toEqual(['all', 'unread', 'sent', 'drafts', 'bulk', 'closed', 'mailbox:gmail-northfield', 'mailbox:gmail-ashgrove', 'mailbox:ridgeway', 'mailbox:shiftlantern', 'mailbox:harborline', 'mailbox:telegram', 'client:7', 'client:9', 'client:3', 'client:12'])
     expect(items().filter((i) => i.getAttribute('aria-current') === 'page').map((i) => i.getAttribute('data-key'))).toEqual(['bulk'])
     expect(document.querySelectorAll('.rail [data-testid="status-line"]').length).toBe(6)
+    // A Gmail account is picked like any mailbox: it goes to that account's list.
+    await act(async () => {
+      items().find((i) => i.getAttribute('data-key') === 'mailbox:gmail-ashgrove')?.click()
+      await sleep(20)
+    })
+    expect(gone).toEqual(['/inbox?view=mailbox%3Agmail-ashgrove'])
     await act(async () => {
       items().find((i) => i.getAttribute('data-key') === 'client:7')?.click()
       await sleep(20)
     })
-    expect(gone).toEqual(['/inbox?view=client%3A7'])
+    expect(gone).toEqual(['/inbox?view=mailbox%3Agmail-ashgrove', '/inbox?view=client%3A7'])
     void useNavData
     await act(async () => root.unmount())
     expect(q('views-sheet')).toBeNull()
@@ -361,7 +400,7 @@ describe('the menu, pressed', () => {
     })
     expect(q('views-sheet')).not.toBeNull()
     expect(document.activeElement).toBe(q('views-sheet'))
-    expect(document.querySelectorAll('[data-testid="views-sheet"] [data-testid="tree-item"]').length).toBe(14)
+    expect(document.querySelectorAll('[data-testid="views-sheet"] [data-testid="tree-item"]').length).toBe(16)
     expect(document.querySelectorAll('[data-testid="views-sheet"] [data-testid="status-line"]').length).toBe(6)
     expect(q('views-sheet')?.textContent).toContain('Settings')
     // Escape shuts it, goes nowhere, and focus is back on the button that opened it.
