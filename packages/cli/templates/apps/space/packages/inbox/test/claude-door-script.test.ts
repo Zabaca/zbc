@@ -221,6 +221,28 @@ describe('everything the script does at the address, it does on the path', () =>
     expect(text.exitCode).toBe(1)
     expect(text.output).toContain('Only an email draft can have a Cc')
     expect(parse(await run('drafts'))).toHaveLength(1)
+    // A draft to a bare address, new or already a contact, with an entry that is no address: refused both times, nothing drafted (the probe that was accepted live while the store still ran the old code).
+    const probe = JSON.stringify({
+      address: 'cc-probe@example.com',
+      subject: 'probe',
+      why: 'probe',
+      body: 'probe',
+      cc: ['not an address'],
+    })
+    for (const attempt of [1, 2]) {
+      if (attempt === 2)
+        parse(
+          await run(
+            'draft',
+            JSON.stringify({ address: 'cc-probe@example.com', subject: 'real', why: 'x', body: 'real' }),
+          ),
+        )
+      const refusedProbe = await run('draft', probe)
+      expect(refusedProbe.exitCode, `attempt ${attempt}`).toBe(1)
+      expect(refusedProbe.output).toContain('422')
+      expect(refusedProbe.output).toContain('not an address')
+    }
+    expect(parse(await run('drafts'))).toHaveLength(2)
     // The help names the field where the draft fields are listed.
     expect((await run()).output).toContain('"cc": ["a@example.com"]')
   })

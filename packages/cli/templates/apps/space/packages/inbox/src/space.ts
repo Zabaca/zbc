@@ -118,6 +118,7 @@ import {
 import { createSpaceOperator } from './space-operator'
 import { createSpacePeople } from './space-people'
 import { createSpaceViews } from './space-views'
+import { parseCcList } from './store/address'
 import type { SpaceConversation, SpaceParty } from './store/space'
 import type { Result } from './store/store'
 import { telegramFileNote } from './telegram/media'
@@ -318,8 +319,10 @@ function readEdit(edit: unknown): { id: string; patch: DraftPatch } | Refused {
   if (edit.text !== undefined && typeof edit.text !== 'string') return BAD('The words are text.')
   if (edit.copyEveryone !== undefined && typeof edit.copyEveryone !== 'boolean')
     return BAD('copyEveryone is yes or no.')
-  if (edit.cc !== undefined && !(Array.isArray(edit.cc) && edit.cc.every((a) => typeof a === 'string')))
-    return BAD('cc is a list of email addresses.')
+  if (edit.cc !== undefined) {
+    const listed = parseCcList(edit.cc)
+    if (!listed.ok) return BAD(listed.error)
+  }
   if (edit.takeOutPicture !== undefined && edit.takeOutPicture !== true)
     return BAD('takeOutPicture is true, or left out.')
   if (

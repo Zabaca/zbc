@@ -155,6 +155,73 @@ describe('an explicit Cc when a draft is made', () => {
   })
 })
 
+describe('Claude’s door refuses a bad Cc itself, whatever the store behind it knows', () => {
+  /** A store that has not been told about `cc` (the object keeps answering with the code before it for some minutes after a deploy): it makes any draft it is asked for and edits any draft it is asked about. */
+  function lagging() {
+    const calls: string[] = []
+    let real: H['store'] | undefined
+    const h = harness({
+      store: () =>
+        ({
+          call: async (method: string, ...args: unknown[]) => {
+            if (method === 'createDraft' || method === 'updateDraft') {
+              calls.push(method)
+              return { ok: true, value: { id: 'made' } }
+            }
+            if (!real) throw new Error('the store is not made yet')
+            return (real.call as (m: string, ...a: unknown[]) => unknown)(method, ...args)
+          },
+        }) as never,
+    })
+    real = h.store
+    return { h, calls }
+  }
+
+  test('a new-address draft or an edit with an entry that is no address is a 422 at the door, and the store is never asked', async () => {
+    const { h, calls } = lagging()
+    for (const cc of [['not an address'], ['ann@example.org', 'nobody'], null, 'ann@example.org', [7]]) {
+      const made = await h.request(AGENT, 'POST', '/api/drafts', {
+        address: 'cc-probe@example.com',
+        subject: 'probe',
+        why: 'probe',
+        body: 'probe',
+        cc,
+      })
+      expect([JSON.stringify(cc), made.status]).toEqual([JSON.stringify(cc), 422])
+      const edited = await h.request(AGENT, 'PATCH', '/api/drafts/d1', { rev: 0, cc })
+      expect([JSON.stringify(cc), edited.status]).toEqual([JSON.stringify(cc), 422])
+    }
+    expect(calls).toEqual([])
+    // A good list goes through to the store, which is the one that decides the rest.
+    const good = await h.request(AGENT, 'POST', '/api/drafts', {
+      address: 'cc-probe@example.com',
+      subject: 'probe',
+      why: 'probe',
+      body: 'probe',
+      cc: ['ann@example.org'],
+    })
+    expect(good.status).toBe(201)
+    expect(calls).toEqual(['createDraft'])
+  })
+
+  test('the same with the store itself, for an address that is a contact already and for one that is new: nothing drafted either time', async () => {
+    const h = harness()
+    await live(h, group(h))
+    const before = snapshot(h)
+    for (const address of ['cc-probe@example.com', 'dana@example.com']) {
+      const res = await h.request(AGENT, 'POST', '/api/drafts', {
+        address,
+        subject: 'probe',
+        why: 'probe',
+        body: 'probe',
+        cc: ['not an address'],
+      })
+      expect([address, res.status]).toEqual([address, 422])
+    }
+    expect(snapshot(h)).toBe(before)
+  })
+})
+
 describe('an explicit Cc and "copy everyone"', () => {
   test('the typed addresses come first and the people copied after them, each once', async () => {
     const h = harness()

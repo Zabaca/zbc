@@ -45,7 +45,6 @@ import type { SuggestionContact } from '../clients'
 import { reasonLines } from '../cloudflare/spam-check'
 import { type DeliveryEvent, type HeldEvent, notesFor } from '../delivery'
 import { lapsedReason, workingGrantSql } from '../gmail/health'
-import { isBareAddress } from '../gmail/mime'
 import { parseAddressList, tidyLine } from '../gmail/parse'
 import { inPlay, LABEL } from '../gmail/types'
 import type { MailboxContent } from '../mailbox-content'
@@ -104,7 +103,7 @@ import {
   type SendsFrom,
   type SpamCall,
 } from '../types'
-import { type Classified, classifyAddress } from './address'
+import { type Classified, classifyAddress, parseCcList } from './address'
 import {
   domainIsOurs,
   EMAIL_KINDS,
@@ -2493,21 +2492,10 @@ export class Inbox {
       : null
   }
 
-  /** The addresses an explicit Cc names, each as the one spelling of an email address a send accepts (printable ASCII, bare), none twice. A list with anything else in it is refused whole. */
+  /** The addresses an explicit Cc names (`parseCcList`, src/store/address.ts): the list, or the 422 that refuses it whole. */
   private ccAddresses(raw: unknown): Result<string[]> {
-    if (!Array.isArray(raw)) return fail(422, 'cc is a list of email addresses.')
-    const out: string[] = []
-    for (const entry of raw) {
-      const c = typeof entry === 'string' ? classifyAddress(entry) : null
-      if (c?.kind !== 'email' || !isBareAddress(c.address)) {
-        return fail(
-          422,
-          `That is not an email address the inbox can copy: ${String(entry).slice(0, 80)}. Nothing was changed.`,
-        )
-      }
-      if (!out.includes(c.address)) out.push(c.address)
-    }
-    return ok(out)
+    const listed = parseCcList(raw)
+    return listed.ok ? ok(listed.value) : fail(422, listed.error)
   }
 
   /** `list` less the draft's own recipient and what `isOurs` says is the sending mailbox's: a send refuses the second and would deliver the first twice. */

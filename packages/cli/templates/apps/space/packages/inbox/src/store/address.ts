@@ -1,3 +1,4 @@
+import { isBareAddress } from '../gmail/mime'
 import type { IdentityKind } from '../types'
 
 /**
@@ -49,4 +50,25 @@ export function classifyAddress(raw: string): Classified | null {
   }
 
   return { kind: 'manual', address: trimmed.toLowerCase().replace(/\s+/g, ' ') }
+}
+
+/**
+ * The addresses an explicit Cc names (a draft's `cc`, ADR 0001 decision 35), each as the one spelling a send accepts (a bare, lower case address of printable ASCII), none twice; or the sentence that refuses
+ * the whole list: anything that is not a list, and any entry that is not an email address (a name, a phone number, a handle, nothing). Asked by the store, which owns the rule, and by the router in front of it, so a draft
+ * the store would refuse never reaches a store that has not yet been told about `cc`.
+ */
+export function parseCcList(raw: unknown): { ok: true; value: string[] } | { ok: false; error: string } {
+  if (!Array.isArray(raw)) return { ok: false, error: 'cc is a list of email addresses.' }
+  const out: string[] = []
+  for (const entry of raw) {
+    const c = typeof entry === 'string' ? classifyAddress(entry) : null
+    if (c?.kind !== 'email' || !isBareAddress(c.address)) {
+      return {
+        ok: false,
+        error: `That is not an email address the inbox can copy: ${String(entry).slice(0, 80)}. Nothing was changed.`,
+      }
+    }
+    if (!out.includes(c.address)) out.push(c.address)
+  }
+  return { ok: true, value: out }
 }

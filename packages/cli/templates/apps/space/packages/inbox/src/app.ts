@@ -37,6 +37,7 @@ import { inboxOwnerOf } from './owner'
 import { canSee, type MailScope, planQueue, queueRows } from './queue'
 import type { Restores } from './restore'
 import { searchTerms } from './search'
+import { parseCcList } from './store/address'
 import type { MailStore } from './store/mail'
 import type { SpaceStore } from './store/space'
 import { type Result, text } from './store/store'
@@ -774,9 +775,13 @@ export function createApp(deps: Deps) {
     const body = await json(c.req.raw)
     if (!body.ok) return c.json({ error: body.error }, 400)
     const b = body.value
+    // An explicit Cc must be a list of email addresses, said here as well as by the store (which also refuses a Cc on a draft that is not an email): a draft the store would refuse never reaches a store that was not asked about `cc`.
+    if (b.cc !== undefined) {
+      const listed = parseCcList(b.cc)
+      if (!listed.ok) return c.json({ error: listed.error }, 422)
+    }
     const input: DraftInput = {
       ...(b.copyEveryone === true && { copyEveryone: true }),
-      // An explicit Cc, as a list of addresses; the store refuses (422) anything that is not one, and a Cc on a draft that is not an email.
       ...(b.cc !== undefined && { cc: b.cc as string[] }),
       body: text(b.body),
       subject: text(b.subject),
@@ -808,7 +813,11 @@ export function createApp(deps: Deps) {
       if (key in body.value) patch[key] = text(body.value[key])
     }
     if (typeof body.value.copyEveryone === 'boolean') patch.copyEveryone = body.value.copyEveryone
-    if (body.value.cc !== undefined) patch.cc = body.value.cc as string[]
+    if (body.value.cc !== undefined) {
+      const listed = parseCcList(body.value.cc)
+      if (!listed.ok) return c.json({ error: listed.error }, 422)
+      patch.cc = body.value.cc as string[]
+    }
     return answer(c, await store(c).call('updateDraft', id, patch, c.get('who').actor))
   })
 
