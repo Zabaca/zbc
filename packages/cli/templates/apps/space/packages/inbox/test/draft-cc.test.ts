@@ -535,6 +535,43 @@ describe('who a draft goes to is covered by the instruction, Claude’s own chan
     expect((await send(same)).status).toBe(200)
   })
 
+  test('a draft Claude CREATES after the instruction, with a stranger on its Cc, is not covered by it: refused until Tessa says it about that draft', async () => {
+    const h = harness()
+    await live(h, group(h))
+    expect((await ownerRequest(h, 'PUT', '/api/settings/claude-sending', { enabled: true })).status).toBe(200)
+    const first = (await reply(h, {}, AGENT)).json
+    h.tick()
+    const said = { ...SAID, at: new Date(h.now()).toISOString() }
+    h.tick()
+    // After "send it" about the first draft, Claude makes another one with somebody Tessa never saw.
+    const later = (await reply(h, { cc: ['stranger@example.net'] }, AGENT)).json
+    const through = (await detail(h, 't1')).through
+    const before = snapshot(h)
+    const refused = await h.request(AGENT, 'POST', `/api/drafts/${later.id}/send`, {
+      rev: later.rev,
+      through,
+      instruction: said,
+    })
+    expect(refused.status).toBe(409)
+    expect(refused.json.error).toContain('was created after Tessa gave the instruction, even if by you')
+    expect(snapshot(h)).toBe(before)
+    expect(sent(h)).toHaveLength(0)
+    // The draft that existed when he spoke is still covered, and a new "send it" covers the later one.
+    expect(
+      (await h.request(AGENT, 'POST', `/api/drafts/${first.id}/send`, { rev: first.rev, through, instruction: said }))
+        .status,
+    ).toBe(200)
+    h.tick()
+    const anew = { ...SAID, at: new Date(h.now()).toISOString() }
+    const fresh = (await detail(h, 't1')).through
+    const ok = await h.request(AGENT, 'POST', `/api/drafts/${later.id}/send`, {
+      rev: later.rev,
+      through: fresh,
+      instruction: anew,
+    })
+    expect(ok.status, JSON.stringify(ok.json)).toBe(200)
+  })
+
   test('Tessa’s own Cc change after the instruction still stops the send, in the old words about someone other than Claude', async () => {
     const h = harness()
     const { made, send } = await instructed(h)

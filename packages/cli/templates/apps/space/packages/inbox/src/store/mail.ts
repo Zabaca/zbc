@@ -53,6 +53,7 @@ import { cloudflareNotifyDecision, notifyDecision } from '../notify/rule'
 import {
   claudeSendingOff,
   draftChangedAfterInstruction,
+  draftCreatedAfterInstruction,
   instructionBeforeReply,
   instructionInTheFuture,
   instructionOnlyFromOwnerInSession,
@@ -2356,21 +2357,23 @@ export class MailStore extends TelegramStore {
   }
 
   /**
-   * Why the owner's instruction at `at` no longer covers the draft, in words for Claude, or null when it still does. Two things void it, both found in the audit (every creation and every edit is there, with who and
-   * when, and ANY such change counts, not only the last, so a later edit by Claude cannot hide an earlier one): somebody other than Claude wrote or edited the draft after it, or ANYBODY, Claude included, changed who the
-   * draft goes to (its To or Cc: the owner agreed to a message for those people). Claude's own edit of the words is not held against it.
+   * Why the owner's instruction at `at` no longer covers the draft, in words for Claude, or null when it still does. Three things void it, all found in the audit (every creation and every edit is there, with who and
+   * when, and ANY such change counts, not only the last, so a later edit by Claude cannot hide an earlier one): somebody other than Claude wrote or edited the draft after it, or ANYBODY, Claude included, created the
+   * draft after it (an instruction covers a draft that existed when it was given: a draft Claude makes afterwards, with whoever on its Cc, was never seen) or changed who it goes to (its To or Cc: the owner agreed to a message
+   * for those people). Claude's own edit of the words is not held against it.
    */
   private instructionVoidedBy(msg: MessageRow, at: string): string | null {
     const since = Date.parse(at)
     let voided: string | null = null
     for (const a of this.sql
       .exec(
-        `SELECT actor, at, before, after FROM audit WHERE subject = ?1 AND action IN ('draft.create', 'draft.update')`,
+        `SELECT actor, action, at, before, after FROM audit WHERE subject = ?1 AND action IN ('draft.create', 'draft.update')`,
         `message:${msg.id}`,
       )
       .toArray()) {
       if (Date.parse(text(a.at)) <= since) continue
       if (!isAgent(text(a.actor))) return draftChangedAfterInstruction(this.owner.name)
+      if (a.action === 'draft.create') return draftCreatedAfterInstruction(this.owner.name)
       if (recipientsDiffer(a.before, a.after)) voided = recipientsChangedAfterInstruction(this.owner.name)
     }
     return voided

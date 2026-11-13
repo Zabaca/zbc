@@ -31,6 +31,10 @@ export const instructionBeforeReply = (owner: string): string =>
 export const draftChangedAfterInstruction = (owner: string): string =>
   `This draft was changed after ${owner} gave the instruction, by someone other than you, so he has not agreed to these words. Nothing was sent. Do not retry: go back to ${owner}, show him the draft as it is now, and send only on a new instruction from him.`
 
+/** An instruction covers a draft that existed when it was given. A draft created after it, even Claude's own, is a message the owner has never seen. */
+export const draftCreatedAfterInstruction = (owner: string): string =>
+  `This draft was created after ${owner} gave the instruction, even if by you, so he has not agreed to it. Nothing was sent. Do not retry: go back to ${owner}, show him the draft, and send only on a new instruction from him.`
+
 /** An instruction covers a message to the people it named. A change of who the draft goes to (its To or Cc) after it was given, even Claude's own, is a message the owner has not agreed to. */
 export const recipientsChangedAfterInstruction = (owner: string): string =>
   `The people this draft goes to (its To or Cc) were changed after ${owner} gave the instruction, even if by you, so he has not agreed to who receives it. Nothing was sent. Do not retry: go back to ${owner}, show him the draft with its To and Cc as they are now, and send only on a new instruction from him.`
