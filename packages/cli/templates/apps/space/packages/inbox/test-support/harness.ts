@@ -720,6 +720,7 @@ export async function ownerDraft(
   const text = (v: unknown): string => (typeof v === 'string' ? v : '')
   const input = {
     ...(b.copyEveryone === true && { copyEveryone: true }),
+    ...(b.cc !== undefined && { cc: b.cc as string[] }),
     body: text(b.body),
     subject: text(b.subject),
     why: text(b.why),

@@ -100,7 +100,7 @@ export const USAGE = `usage: inbox.ts <command>
                                        go out from, and a Cloudflare mailbox's also in \`sentFrom\`, fixed when it was made; each draft's rev, and createdBy and
                                        updatedBy: a Claude draft the owner changed reads as edited by them)
   draft <@file|-|json>                 create a draft; fields below
-  edit <message-id> <@file|-|json>     change a draft's subject, body or why; the json must carry "rev": N (the rev drafts printed)
+  edit <message-id> <@file|-|json>     change a draft's subject, body, why or cc; the json must carry "rev": N (the rev drafts printed)
   delete-draft <message-id> <rev>
   picture <message-id> <rev> <file|none>
                                        put ONE picture (a PNG or a JPEG, at most 10 MB) on a draft in a Telegram chat (a person or
@@ -191,7 +191,16 @@ export const USAGE = `usage: inbox.ts <command>
 draft fields: body (required); one of address, contactId or conversationId; name (for
 a new contact), subject, why (one line for the owner; required from Claude), copyEveryone
 (true: on a reply, also Cc everyone on the message it answers; the Cc is on the draft
-for the owner to read). A draft with an em dash is refused. A draft on an email conversation
+for the owner to read), cc (an email draft only: a list of addresses to copy, like
+"cc": ["a@example.com"]; use it to add someone the message does not already name, and say so
+to the owner, because they are shown on the draft and the send goes to them). An entry that is not
+an email address, or any cc on a text or a direct message, is refused (422) and nothing is drafted
+or changed; duplicates, the draft's recipient and the sending mailbox's own address are dropped. The
+addresses come before whoever copyEveryone adds and stay when copyEveryone is changed later.
+\`edit\` takes the same cc and REPLACES the list with it ([] takes every address off), so send the
+whole list you want; it is an edit like any other (the rev rises, and a change by anyone but you
+after the owner's instruction stops the send). copyEveryone: false in an edit takes off only the
+people copyEveryone adds, and keeps an address the same edit names in cc. A draft with an em dash is refused. A draft on an email conversation
 needs no address and no subject: it is a reply, to the Reply-To of the newest message
 that came in (else its sender), as "Re: <the conversation's subject>". Claude drafts every
 message, so the owner can see it, and sends only when they say so.

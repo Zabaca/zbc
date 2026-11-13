@@ -1,7 +1,7 @@
 // The rules behind the New email box, the draft editor and the spam control, checked on their own: pure functions of literal values, no browser and no Worker.
 import { describe, expect, test } from 'bun:test'
 import { attached, newCompose, requestFor, typed } from '../src/client/compose'
-import { copiesNow, hasMoved, isDirty, onlyOffPageChanged } from '../src/client/DraftEdit'
+import { ccChanged, ccTextOf, copiesNow, hasMoved, isDirty, onlyOffPageChanged, parseCc, takesCc } from '../src/client/DraftEdit'
 import { suggestionsOf } from '../src/client/NewEmail'
 import { AUTOMATIC, addressOf, canChoose, canSendNew, filesAllowed, fromOf, fromOptions, nameIn, whyNotNew } from '../src/client/newmailRules'
 import { spamControl, spamNotice } from '../src/client/spam'
@@ -142,6 +142,31 @@ describe('the draft editor', () => {
     expect(isDirty(draft, ' Re: Hi ', 'Thank you.\n\n')).toBe(false)
     expect(isDirty(draft, 'Re: Hi', 'Thank you!')).toBe(true)
     expect(isDirty(draft, 'Re: Hello', 'Thank you.')).toBe(true)
+  })
+
+  test('the Cc box reads addresses however they are separated, once each, and Name <address> as the address; it changes the draft only when the people differ', () => {
+    expect(ccTextOf(draft)).toBe('marcus@x.example')
+    expect(ccTextOf({ cc: null })).toBe('')
+    expect(parseCc('a@x.example, B@y.example;c@z.example\nd@x.example  e@x.example')).toEqual(['a@x.example', 'B@y.example', 'c@z.example', 'd@x.example', 'e@x.example'])
+    expect(parseCc('Ann Lee <ann@x.example>, ann@X.example, , ')).toEqual(['ann@x.example'])
+    expect(parseCc('   ')).toEqual([])
+    expect(ccChanged(draft, 'marcus@x.example')).toBe(false)
+    expect(ccChanged(draft, ' MARCUS@x.example, ')).toBe(false)
+    expect(ccChanged(draft, 'marcus@x.example, ann@x.example')).toBe(true)
+    expect(ccChanged(draft, '')).toBe(true)
+    expect(ccChanged({ cc: [] }, '')).toBe(false)
+    expect(isDirty(draft, 'Re: Hi', 'Thank you.', true, 'marcus@x.example')).toBe(false)
+    expect(isDirty(draft, 'Re: Hi', 'Thank you.', true, 'marcus@x.example, ann@x.example')).toBe(true)
+    expect(isDirty(draft, 'Re: Hi', 'Thank you.', true, '')).toBe(true)
+  })
+
+  test('offers a Cc box on an email draft whose Cc the inbox told us, and on no other', () => {
+    expect(takesCc({ kind: 'email', cc: [] })).toBe(true)
+    expect(takesCc({ kind: 'email', cc: null })).toBe(false)
+    expect(takesCc({ kind: 'sms', cc: [] })).toBe(false)
+    expect(takesCc({ kind: 'manual', cc: [] })).toBe(false)
+    expect(takesCc({ kind: 'telegram', cc: [] })).toBe(false)
+    expect(takesCc({ kind: null, cc: [] })).toBe(false)
   })
 
   test('says when the words are the same and only who is copied or why it was drafted changed, as the inbox’s conflict does', () => {

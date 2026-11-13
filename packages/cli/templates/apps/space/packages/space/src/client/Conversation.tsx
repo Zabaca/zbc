@@ -317,14 +317,14 @@ export function DraftCard({ draft, state, onSend, onDismiss, onChanged }: { draf
             </>
           )}
         </div>
-        {draft.sendsFrom !== null && !byHand(draft) && (
-          <div className="sub" data-testid="draft-from">
-            From {draft.sendsFrom.name === draft.sendsFrom.address ? draft.sendsFrom.address : `${draft.sendsFrom.name} <${draft.sendsFrom.address}>`}
-          </div>
-        )}
         {draft.cc !== null && draft.cc.length > 0 && (
           <div className="sub" data-testid="draft-cc">
             Cc {draft.cc.map((c) => (c.name === c.address ? c.address : `${c.name} <${c.address}>`)).join(', ')}
+          </div>
+        )}
+        {draft.sendsFrom !== null && !byHand(draft) && (
+          <div className="sub" data-testid="draft-from">
+            From {draft.sendsFrom.name === draft.sendsFrom.address ? draft.sendsFrom.address : `${draft.sendsFrom.name} <${draft.sendsFrom.address}>`}
           </div>
         )}
         {editing ? (

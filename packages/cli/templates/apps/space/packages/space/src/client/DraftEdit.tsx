@@ -1,4 +1,4 @@
-// Editing a draft in its card: the inbox's own draft edit, in the space: the subject, the words and, on a reply, whether everyone on the message it answers is copied. The draft chat with the
+// Editing a draft in its card: the inbox's own draft edit, in the space: the subject, the words, on an email who else is copied (the Cc, as addresses the owner can add and take off) and, on a reply, whether everyone on the message it answers is copied. The draft chat with the
 // assistant stays beside it, as it was.
 //
 // REVISION-GUARDED, AS THE INBOX'S IS. A save names the revision the words were written over. When the draft has moved on meanwhile (Claude or the assistant edited it, or another tab), the
@@ -19,9 +19,38 @@ const WHO: Record<DraftAuthor, string> = { claude: 'Claude', assistant: 'The ass
 /** Whether the draft copies anyone: its Cc is not empty (the inbox's own reading). */
 export const copiesNow = (draft: Pick<DraftView, 'cc'>): boolean => (draft.cc?.length ?? 0) > 0
 
+/** The draft's Cc as the box shows it: the addresses, comma separated. */
+export const ccTextOf = (draft: Pick<DraftView, 'cc'>): string => (draft.cc ?? []).map((c) => c.address).join(', ')
+
+/**
+ * The addresses a Cc box holds: split on commas, semicolons, lines and spaces; an entry written `Name <a@x.example>` is the address in the brackets. Not judged here (the inbox refuses what is no address, saving
+ * nothing, and says so); only emptied and kept once each, in the order written.
+ */
+export function parseCc(text: string): string[] {
+  const out: string[] = []
+  for (const piece of text.split(/[,;\n]+/)) {
+    const angled = /<([^<>]*)>\s*$/.exec(piece)?.[1]
+    for (const entry of angled !== undefined ? [angled] : piece.split(/\s+/)) {
+      const address = entry.trim()
+      if (address !== '' && !out.some((o) => o.toLowerCase() === address.toLowerCase())) out.push(address)
+    }
+  }
+  return out
+}
+
+/** Whether the Cc box names other people than the draft copies: the same addresses in any order, any case, are no change. */
+export const ccChanged = (draft: Pick<DraftView, 'cc'>, ccText: string): boolean => {
+  const now = new Set((draft.cc ?? []).map((c) => c.address.toLowerCase()))
+  const wanted = parseCc(ccText).map((a) => a.toLowerCase())
+  return wanted.length !== now.size || wanted.some((a) => !now.has(a))
+}
+
+/** Whether the draft has a Cc the person can change: an email draft whose Cc the inbox told us (an answer without one is an inbox that predates it, and a Cc box would save over a list we cannot see). */
+export const takesCc = (draft: Pick<DraftView, 'kind' | 'cc'>): boolean => draft.kind === 'email' && draft.cc !== null
+
 /** Whether the boxes differ from the draft: the inbox trims a draft's words and subject, so an edit that only adds a trailing newline is no change. */
-export const isDirty = (draft: Pick<DraftView, 'subject' | 'text' | 'cc'>, subject: string, text: string, copy: boolean = copiesNow(draft)): boolean =>
-  subject.trim() !== draft.subject.trim() || text.trim() !== draft.text.trim() || copy !== copiesNow(draft)
+export const isDirty = (draft: Pick<DraftView, 'subject' | 'text' | 'cc'>, subject: string, text: string, copy: boolean = copiesNow(draft), ccText: string = ccTextOf(draft)): boolean =>
+  subject.trim() !== draft.subject.trim() || text.trim() !== draft.text.trim() || copy !== copiesNow(draft) || ccChanged(draft, ccText)
 
 /** Whether the draft on the card is not the revision the words in the boxes were written over: someone changed it meanwhile. */
 export const hasMoved = (draft: Pick<DraftView, 'rev'>, baseRev: number): boolean => draft.rev !== baseRev
@@ -67,12 +96,15 @@ export interface EditorProps {
   subject: string
   text: string
   copy: boolean
+  /** The Cc box's text. */
+  cc: string
   /** The revision the words were written over. */
   baseRev: number
   busy: boolean
   onSubject(v: string): void
   onText(v: string): void
   onCopy(v: boolean): void
+  onCc(v: string): void
   onSave(): void
   onCancel(): void
   onKeepMine(): void
@@ -84,7 +116,9 @@ export function DraftEditorView(p: EditorProps) {
   const moved = hasMoved(p.draft, p.baseRev)
   // The words of a draft that will carry a picture may be none: the picture speaks for itself.
   const carries = willCarryPicture(p.draft, p.pic)
-  const dirty = isDirty(p.draft, p.subject, p.text, p.copy) || pictureChanges(p.pic)
+  const dirty = isDirty(p.draft, p.subject, p.text, p.copy, p.cc) || pictureChanges(p.pic)
+  // Who is copied is changed one way at a time: the tick box recomputes the Cc on the inbox, so while it is changed the box is left as the draft has it, and the Cc is edited after it is saved.
+  const copyChanged = p.copy !== copiesNow(p.draft)
   const blank = p.text.trim() === '' && !carries
   const pictureWhy = whyNotSavePicture(p.draft, p.pic, p.text)
   const checking = p.pic?.chosen?.problem === 'checking'
@@ -149,6 +183,25 @@ export function DraftEditorView(p: EditorProps) {
           />
         </div>
       )}
+      {takesCc(p.draft) && (
+        <label className="de-field">
+          <span className="nm-label">Cc</span>
+          <input
+            type="text"
+            value={p.cc}
+            readOnly={p.busy || copyChanged}
+            placeholder="Addresses to copy, separated by commas"
+            onChange={(e) => p.onCc(e.target.value)}
+            aria-label="Cc"
+            data-testid="edit-cc"
+          />
+          {copyChanged && (
+            <span className="sub" data-testid="edit-cc-after-copy">
+              Save the tick box first, then edit the Cc.
+            </span>
+          )}
+        </label>
+      )}
       {p.draft.canCopyEveryone && (
         <label className="de-copy">
           <input type="checkbox" checked={p.copy} disabled={p.busy} onChange={(e) => p.onCopy(e.target.checked)} data-testid="edit-copy" />
@@ -185,6 +238,7 @@ export function DraftEditor({ draft, onChanged, onClose }: { draft: DraftView; o
   const [subject, setSubject] = useState(draft.subject)
   const [text, setText] = useState(draft.text)
   const [copy, setCopy] = useState(copiesNow(draft))
+  const [cc, setCc] = useState(ccTextOf(draft))
   const [baseRev, setBaseRev] = useState(draft.rev)
   // The picture: one chosen to go on (or over the one the draft has), kept in a compose of its own so the same rules as the reply box's judge it, and whether the draft's own is to be taken out. Only a Telegram draft in a
   // chat that can be answered carries one; the inbox decides again.
@@ -214,8 +268,10 @@ export function DraftEditor({ draft, onChanged, onClose }: { draft: DraftView; o
     if (action.busy || hasMoved(draft, baseRev)) return
     // As the inbox's card does: who is copied is named only when it changed, so a save of words alone leaves the Cc as it is.
     const copying = copy !== copiesNow(draft)
+    // The Cc is named only when the box changed (and the box is read-only while the tick box is changed, so the two are never both sent): a save of words alone leaves it as it is.
+    const copied = !copying && takesCc(draft) && ccChanged(draft, cc)
     const newPicture = chosen.picture?.file
-    const wordsChanged = isDirty(draft, subject, text, copy)
+    const wordsChanged = isDirty(draft, subject, text, copy, cc)
     const ok = await action.run(
       async () => {
         let rev = baseRev
@@ -226,7 +282,7 @@ export function DraftEditor({ draft, onChanged, onClose }: { draft: DraftView; o
           rev = put.value.rev
         }
         // Taking the draft's own picture out is a field of the edit, in the same change as the words.
-        return postView<InboxDraft>('draft-edit', { draftId: draft.id, rev, subject: subject.trim(), text: text.trim(), ...(copying && { copyEveryone: copy }), ...(removed && newPicture === undefined && { takeOutPicture: true }) })
+        return postView<InboxDraft>('draft-edit', { draftId: draft.id, rev, subject: subject.trim(), text: text.trim(), ...(copying && { copyEveryone: copy }), ...(copied && { cc: parseCc(cc) }), ...(removed && newPicture === undefined && { takeOutPicture: true }) })
       },
       () => 'Saved.',
     )
@@ -242,11 +298,16 @@ export function DraftEditor({ draft, onChanged, onClose }: { draft: DraftView; o
         subject={subject}
         text={text}
         copy={copy}
+        cc={cc}
         baseRev={baseRev}
         busy={action.busy}
         onSubject={setSubject}
         onText={setText}
-        onCopy={setCopy}
+        onCopy={(v) => {
+          setCopy(v)
+          setCc(ccTextOf(draft))
+        }}
+        onCc={setCc}
         onSave={() => void save()}
         onCancel={() => onClose(false)}
         onKeepMine={() => setBaseRev(draft.rev)}
@@ -254,6 +315,7 @@ export function DraftEditor({ draft, onChanged, onClose }: { draft: DraftView; o
           setSubject(draft.subject)
           setText(draft.text)
           setCopy(copiesNow(draft))
+          setCc(ccTextOf(draft))
           setChosen(newCompose())
           setRemoved(false)
           setBaseRev(draft.rev)

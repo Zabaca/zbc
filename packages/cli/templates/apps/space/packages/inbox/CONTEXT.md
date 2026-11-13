@@ -240,7 +240,7 @@ A draft says who wrote it and, when somebody else changed its words, who ("Claud
 you"); the owner's edits over a stored draft are never saved until they press Save or Send, and an edit or a
 delete names the revision it was drawn from, so a draft Claude changed meanwhile is never overwritten.
 A draft names its recipients on its face (a reply's default is the Reply-To of the newest message
-that came in, else its sender, and never us). The Drafts view lists every conversation with a draft
+that came in, else its sender, and never us); an email draft's Cc is its own list, of addresses the author typed and, when asked, everyone on the message it answers (ADR 0001 decision 35). The Drafts view lists every conversation with a draft
 waiting, open or closed (a draft is owed whatever state its conversation is in), and above them the
 drafts that sit on no conversation: a new email to a contact, a text, a DM, and a send that never
 finished and sat on none.

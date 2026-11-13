@@ -318,12 +318,15 @@ function readEdit(edit: unknown): { id: string; patch: DraftPatch } | Refused {
   if (edit.text !== undefined && typeof edit.text !== 'string') return BAD('The words are text.')
   if (edit.copyEveryone !== undefined && typeof edit.copyEveryone !== 'boolean')
     return BAD('copyEveryone is yes or no.')
+  if (edit.cc !== undefined && !(Array.isArray(edit.cc) && edit.cc.every((a) => typeof a === 'string')))
+    return BAD('cc is a list of email addresses.')
   if (edit.takeOutPicture !== undefined && edit.takeOutPicture !== true)
     return BAD('takeOutPicture is true, or left out.')
   if (
     edit.subject === undefined &&
     edit.text === undefined &&
     edit.copyEveryone === undefined &&
+    edit.cc === undefined &&
     edit.takeOutPicture === undefined
   ) {
     return BAD('Change the subject, the words, who is copied or the picture.')
@@ -331,6 +334,7 @@ function readEdit(edit: unknown): { id: string; patch: DraftPatch } | Refused {
   const patch: DraftPatch = { rev: edit.rev }
   if (edit.takeOutPicture === true) patch.takeOutPicture = true
   if (edit.copyEveryone !== undefined) patch.copyEveryone = edit.copyEveryone
+  if (edit.cc !== undefined) patch.cc = edit.cc as string[]
   if (edit.subject !== undefined) patch.subject = edit.subject
   if (edit.text !== undefined) patch.body = edit.text
   return { id: edit.draftId, patch }

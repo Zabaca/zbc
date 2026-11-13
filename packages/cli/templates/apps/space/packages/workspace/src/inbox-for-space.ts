@@ -492,8 +492,13 @@ export interface InboxDraftEdit {
   rev: number
   subject?: string
   text?: string
-  /** Copy everyone on the message it answers (true: the inbox recomputes the Cc) or no one (false: cleared), as the inbox's card has it. Only on an email draft on a conversation. Left out: the Cc stays as it is. */
+  /**
+   * Copy everyone on the message it answers (true: they are added to the Cc) or no one (false: they are taken off it, and nobody else), as the inbox's card has it. Only on an email draft on a conversation. Left out: the Cc stays as it is.
+   * An address in `cc` of the same edit is kept either way. Who is on the Cc when both are used is the inbox's ADR 0001 decision 35.
+   */
   copyEveryone?: boolean
+  /** The draft's Cc as a list of email addresses, which REPLACES the one it has (`[]` takes every address off): the owner adding someone to a reply, or taking someone off. Only on an email draft: `bad-request` for a malformed address or any address on a text or a direct message, with nothing changed. */
+  cc?: readonly string[]
   /** Take the draft's picture out (a Telegram draft that carries one), in the same change as the rest of the edit; `true` only. The edit may then change nothing else (the picture is what it changes). */
   takeOutPicture?: boolean
 }

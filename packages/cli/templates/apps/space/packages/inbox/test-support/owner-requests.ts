@@ -33,6 +33,7 @@ function editDraft(id: string, b: Body, call: Call): Promise<Answer> | Answer {
   const patch: Record<string, unknown> = { rev: b.rev }
   for (const key of ['subject', 'body', 'why'] as const) if (key in b) patch[key] = text(b[key])
   if (typeof b.copyEveryone === 'boolean') patch.copyEveryone = b.copyEveryone
+  if (b.cc !== undefined) patch.cc = b.cc
   return call('updateDraft', id, patch, OWNER_EMAIL)
 }
 

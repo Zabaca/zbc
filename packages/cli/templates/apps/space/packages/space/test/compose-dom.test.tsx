@@ -328,6 +328,59 @@ describe('editing a draft in its card', () => {
     void moveOn
   })
 
+  test('the Cc box shows who the draft copies, adds and removes addresses, and names the whole list in the save only when it changed', async () => {
+    const worker = standInWorker()
+    const { page, moveOn } = await openCard()
+    expect(ask(page.q('edit-cc'))).toBe('')
+    expect(page.q<HTMLButtonElement>('save-draft')?.disabled).toBe(true)
+    await page.type(page.q('edit-cc'), 'ann@example.org, Bob Jones <bob@example.net>')
+    expect(page.q<HTMLButtonElement>('save-draft')?.disabled).toBe(false)
+    await page.click(page.q('save-draft'))
+    const saved = worker.calls.filter((c) => c.path === '/api/inbox/draft-edit')
+    expect(saved).toHaveLength(1)
+    // The Cc alone: no words, no subject and no copy-everyone in the save.
+    expect(saved[0]?.body).toEqual({ draftId: 'd-1', rev: 1, subject: 'Re: Can you look at the menu page', text: 'Hi Lena, I will fix it today.', cc: ['ann@example.org', 'bob@example.net'] })
+    await page.unmount()
+    void moveOn
+  })
+
+  test('a draft that moved on takes its new Cc into the box with Use the new words, and taking one off saves the list that is left', async () => {
+    const worker = standInWorker()
+    const { page, moveOn } = await openCard()
+    await moveOn({ rev: 2, cc: [{ name: 'Marcus', address: 'marcus@example.net' }, { name: 'Ann', address: 'ann@example.org' }] })
+    // The draft moved on under the person (Claude copied two people): taking the new words takes the new Cc into the box too.
+    await page.click(page.q('use-theirs'))
+    expect(ask(page.q('edit-cc'))).toBe('marcus@example.net, ann@example.org')
+    await page.type(page.q('edit-cc'), 'ann@example.org')
+    await page.click(page.q('save-draft'))
+    expect(worker.calls.filter((c) => c.path === '/api/inbox/draft-edit')[0]?.body).toMatchObject({ draftId: 'd-1', rev: 2, cc: ['ann@example.org'] })
+    await page.unmount()
+  })
+
+  test('ticking copy-everyone and editing the Cc are not done at once: the box is left as the draft has it until the tick is saved', async () => {
+    const worker = standInWorker()
+    const { page } = await openCard()
+    await page.click(page.q('edit-copy'))
+    expect(page.q<HTMLInputElement>('edit-cc')?.readOnly).toBe(true)
+    expect(page.q('edit-cc-after-copy')?.textContent).toContain('Save the tick box first')
+    await page.click(page.q('save-draft'))
+    const body = worker.calls.filter((c) => c.path === '/api/inbox/draft-edit')[0]?.body as Record<string, unknown>
+    expect(body.copyEveryone).toBe(true)
+    expect(body).not.toHaveProperty('cc')
+    await page.unmount()
+  })
+
+  test('a draft that is not an email, or whose Cc the inbox did not say, has no Cc box', async () => {
+    standInWorker()
+    const { page, moveOn } = await openCard()
+    expect(page.q('edit-cc')).not.toBeNull()
+    await moveOn({ kind: 'sms' })
+    expect(page.q('edit-cc')).toBeNull()
+    await moveOn({ kind: 'email', cc: null })
+    expect(page.q('edit-cc')).toBeNull()
+    await page.unmount()
+  })
+
   test('where only who is copied changed, the conflict says the words are the same; a draft that cannot copy has no checkbox', async () => {
     standInWorker()
     const { page, moveOn } = await openCard()

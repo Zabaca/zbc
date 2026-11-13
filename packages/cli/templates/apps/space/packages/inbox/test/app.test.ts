@@ -21,6 +21,7 @@ const ownerPatch = async (h: H, id: string, body: Record<string, any>) => {
   for (const key of ['subject', 'body', 'why'])
     if (key in body) patch[key] = typeof body[key] === 'string' ? body[key] : ''
   if (typeof body.copyEveryone === 'boolean') patch.copyEveryone = body.copyEveryone
+  if (body.cc !== undefined) patch.cc = body.cc
   return asHttp(await h.store.call('updateDraft', id, patch as never, OWNER_EMAIL))
 }
 const ownerDelete = async (h: H, id: string, rev: number) =>

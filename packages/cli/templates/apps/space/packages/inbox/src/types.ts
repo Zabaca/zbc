@@ -732,6 +732,12 @@ export interface DraftInput {
    * default, because copying too few people is the safer mistake.
    */
   copyEveryone?: boolean
+  /**
+   * An explicit Cc: addresses to copy on an email draft, whoever the author is (ADR 0001 decision 35). Each must be an email address; a malformed one, or any Cc on a draft that is not an email, refuses
+   * the whole draft with nothing made. Duplicates, the recipient and the sending mailbox's own address (by the rule a send applies) are dropped. Written ahead of whoever `copyEveryone` adds, and kept when `copyEveryone`
+   * is later recomputed.
+   */
+  cc?: string[]
   /** File the draft under an existing conversation. */
   conversationId?: string
   /** Or address it to an existing contact. */
@@ -766,8 +772,10 @@ export interface DraftPatch {
    * applied unseen, whoever saves them.
    */
   rev: number
-  /** Recompute (true) or clear (false) the draft's Cc, as in DraftInput. */
+  /** Add (true) the people `copyEveryone` copies to the draft's Cc, or take (false) just those people off it. An address kept by `cc` in the same patch stays either way. See ADR 0001 decision 35. */
   copyEveryone?: boolean
+  /** REPLACE the draft's Cc with these addresses, as in DraftInput. `[]` takes every address off. Raises the revision like any edit. */
+  cc?: string[]
   subject?: string
   body?: string
   why?: string

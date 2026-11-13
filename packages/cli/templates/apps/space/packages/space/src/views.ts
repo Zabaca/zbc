@@ -368,6 +368,8 @@ const TEXT_MAX = 20_000
 
 /** The longest subject or draft body an edit is taken with: far past what anyone writes (the inbox's own send limit is 100 000 characters). */
 const DRAFT_MAX = 100_000
+/** The most addresses one draft's Cc may be sent here with: a send takes at most 20 people, and a longer list is refused before it reaches the inbox. */
+const CC_MAX = 50
 
 async function write<T>(ask: Asking, call: (inbox: NonNullable<Asking['apps']['inbox']>) => Promise<SpaceReply<T>>, valid: (v: unknown) => v is T): Promise<Parsed<ViewAnswer<unknown>>> {
   const { inbox } = ask.apps
@@ -463,10 +465,12 @@ export async function writeView(ask: Asking, name: WriteName, body: unknown, use
       if (!isCount(body.rev)) return bad('Say which revision of the draft you were shown (rev).')
       if ((body.subject !== undefined && !isText(body.subject)) || (body.text !== undefined && !isText(body.text))) return bad('The subject and the words are text.')
       if (body.copyEveryone !== undefined && !isBool(body.copyEveryone)) return bad('copyEveryone is yes or no.')
+      // `cc` is the whole list of addresses the draft copies (it replaces the draft's), as typed; the inbox decides which are addresses and refuses the rest with nothing changed.
+      if (body.cc !== undefined && !(isList(body.cc) && body.cc.length <= CC_MAX && body.cc.every((a) => isText(a) && a.length <= 320))) return bad('cc is a list of email addresses.')
       if (body.takeOutPicture !== undefined && body.takeOutPicture !== true) return bad('takeOutPicture is true, or left out.')
-      if (body.subject === undefined && body.text === undefined && body.copyEveryone === undefined && body.takeOutPicture === undefined) return bad('Change the subject, the words, who is copied or the picture.')
+      if (body.subject === undefined && body.text === undefined && body.copyEveryone === undefined && body.cc === undefined && body.takeOutPicture === undefined) return bad('Change the subject, the words, who is copied or the picture.')
       if ((body.subject?.length ?? 0) > DRAFT_MAX || (body.text?.length ?? 0) > DRAFT_MAX) return bad('That is longer than a draft can be.')
-      const edit = { draftId: body.draftId, rev: body.rev, ...(body.subject !== undefined && { subject: body.subject }), ...(body.text !== undefined && { text: body.text }), ...(body.copyEveryone !== undefined && { copyEveryone: body.copyEveryone }), ...(body.takeOutPicture === true && { takeOutPicture: true }) }
+      const edit = { draftId: body.draftId, rev: body.rev, ...(body.subject !== undefined && { subject: body.subject }), ...(body.text !== undefined && { text: body.text }), ...(body.copyEveryone !== undefined && { copyEveryone: body.copyEveryone }), ...(body.cc !== undefined && { cc: body.cc as string[] }), ...(body.takeOutPicture === true && { takeOutPicture: true }) }
       return write(ask, (i) => i.editDraft(a, edit), isDraftAnswer)
     }
     // A conversation called spam, or not: the inbox's own Mark as spam and Move to the Inbox. A boolean is required, so an empty body can never mean either.

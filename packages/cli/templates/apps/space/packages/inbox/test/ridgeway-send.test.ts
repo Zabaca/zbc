@@ -147,6 +147,35 @@ describe('a reply on a Ridgeway conversation', () => {
     expect(sendingCalls(h)).toEqual([])
   })
 
+  test('an explicit Cc is handed to Cloudflare as the draft names it, less the mailbox’s own address and its whole domain’s, which are dropped from the draft when it is made', async () => {
+    const h = harness()
+    const id = await ridgeway(h)
+    const draft = await reply(h, id, {
+      cc: ['Ann@Example.org', INFO, 'sales@ridgewaycycles.example', 'cy@example.net', 'ann@example.org'],
+    })
+    expect(draft.cc).toBe('ann@example.org, cy@example.net')
+    // An edit goes by the same rule: the mailbox's domain is dropped, and the draft's own recipient (here Tessa's Gmail address, the customer of this test conversation) is not copied on top of the To.
+    const edited = (await h.store.call(
+      'updateDraft',
+      draft.id,
+      {
+        rev: draft.rev,
+        cc: ['cy@example.net', 'ops@ridgewaycycles.example', 'tessa@northfield.example', 'dee@example.net'],
+      },
+      OWNER_EMAIL,
+    )) as {
+      ok: true
+      value: MessageRow
+    }
+    expect(edited.value.cc).toBe('cy@example.net, dee@example.net')
+    const res = await press(h, edited.value)
+    expect(res.status, JSON.stringify(res.json)).toBe(200)
+    expect(h.email.handed[0]).toMatchObject({
+      to: 'tessa@northfield.example',
+      cc: ['cy@example.net', 'dee@example.net'],
+    })
+  })
+
   test('is filed as sent by Tessa once Cloudflare accepts it, on the conversation it answered, which stays open, with its copy kept', async () => {
     const h = harness()
     const id = await ridgeway(h)

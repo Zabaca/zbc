@@ -45,6 +45,7 @@ import type { SuggestionContact } from '../clients'
 import { reasonLines } from '../cloudflare/spam-check'
 import { type DeliveryEvent, type HeldEvent, notesFor } from '../delivery'
 import { lapsedReason, workingGrantSql } from '../gmail/health'
+import { isBareAddress } from '../gmail/mime'
 import { parseAddressList, tidyLine } from '../gmail/parse'
 import { inPlay, LABEL } from '../gmail/types'
 import type { MailboxContent } from '../mailbox-content'
@@ -484,6 +485,23 @@ export interface CloudflareSender {
  */
 export const belongsToMailbox = (sender: CloudflareSender, address: string): boolean =>
   address === sender.address || address.endsWith(`@${sender.domain}`)
+
+/** Why a Cc is refused on a draft that is not an email: a text, a direct message and a Telegram message have no Cc. */
+const NOT_AN_EMAIL_DRAFT =
+  'Only an email draft can have a Cc: a text or a direct message goes to one person. Nothing was changed.'
+
+/** The email addresses a stored Cc names, in order, lower case, none twice. */
+const ccAddressesOf = (cc: string): string[] => {
+  const out: string[] = []
+  for (const p of parseAddressList(cc)) {
+    const c = classifyAddress(p.address)
+    if (c && c.kind === 'email' && !out.includes(c.address)) out.push(c.address)
+  }
+  return out
+}
+
+/** `first` then whoever of `more` it does not already hold, as a stored Cc: `a@x.example, b@y.example`. */
+const joinedUnion = (first: string[], more: string[]): string => [...new Set([...first, ...more])].join(', ')
 
 const cloudflareSender = (r: Row): CloudflareSender => {
   const address = text(r.address).toLowerCase()
@@ -2365,18 +2383,77 @@ export class Inbox {
     }
   }
 
-  /** A draft's Cc once `copyEveryone` (when given) is applied: recomputed from its conversation, or cleared. */
-  private ccAfterPatch(before: MessageRow, copyEveryone: boolean | undefined): Result<string> {
-    if (copyEveryone === undefined) return ok(before.cc)
-    if (!copyEveryone) return ok('')
+  /**
+   * A draft's Cc once the patch's `cc` and `copyEveryone` (when given) are applied (ADR 0001 decision 35). The stored Cc is one list and the store keeps no note of who put an address on it, so the rule is
+   * stated in the one thing it can see: the people `copyEveryone` copies on this conversation. `cc` replaces the list; `copyEveryone: true` adds those people; `copyEveryone: false` takes off exactly those
+   * people and nobody else, except an address the same patch's `cc` names. A Cc nobody asked to change is returned as it is stored.
+   */
+  private ccAfterPatch(before: MessageRow, patch: DraftPatch): Result<string> {
+    const { cc, copyEveryone } = patch
+    if (cc === undefined && copyEveryone === undefined) return ok(before.cc)
+    const email = before.kind === 'email'
+    if (cc !== undefined && cc.length > 0 && !email) return fail(422, NOT_AN_EMAIL_DRAFT)
+    let list = ccAddressesOf(before.cc)
+    let named = new Set<string>()
+    if (cc !== undefined) {
+      const listed = this.ccAddresses(cc)
+      if (!listed.ok) return listed
+      list = this.withoutOurs(listed.value, before.address, this.ownTestOfDraft(before))
+      named = new Set(list)
+    }
+    if (copyEveryone === undefined) return ok(list.join(', '))
     const plan = before.conversationId ? this.replyPlan(before.conversationId) : null
-    if (!plan) return fail(422, 'This draft is not on an email conversation, so there is nobody to copy.')
-    return ok(this.copyList(plan, before.address))
+    if (copyEveryone) {
+      if (!plan) return fail(422, 'This draft is not on an email conversation, so there is nobody to copy.')
+      return ok(joinedUnion(list, this.copyPeople(plan, before.address)))
+    }
+    const people = new Set(plan ? this.copyPeople(plan, before.address) : [])
+    return ok(list.filter((a) => named.has(a) || !people.has(a)).join(', '))
   }
 
-  /** The Cc a "copy everyone" draft to `to` takes on this conversation: everyone on the message it answers, less the recipient. */
-  private copyList(plan: ReplyPlan, to: string): string {
-    return plan.everyone.filter((a) => a !== to).join(', ')
+  /** The addresses an explicit Cc names, each as the one spelling of an email address a send accepts (printable ASCII, bare), none twice. A list with anything else in it is refused whole. */
+  private ccAddresses(raw: unknown): Result<string[]> {
+    if (!Array.isArray(raw)) return fail(422, 'cc is a list of email addresses.')
+    const out: string[] = []
+    for (const entry of raw) {
+      const c = typeof entry === 'string' ? classifyAddress(entry) : null
+      if (c?.kind !== 'email' || !isBareAddress(c.address)) {
+        return fail(
+          422,
+          `That is not an email address the inbox can copy: ${String(entry).slice(0, 80)}. Nothing was changed.`,
+        )
+      }
+      if (!out.includes(c.address)) out.push(c.address)
+    }
+    return ok(out)
+  }
+
+  /** `list` less the draft's own recipient and what `isOurs` says is the sending mailbox's: a send refuses the second and would deliver the first twice. */
+  private withoutOurs(list: string[], to: string, isOurs: (address: string) => boolean): string[] {
+    return list.filter((a) => a !== to.toLowerCase() && !isOurs(a))
+  }
+
+  /**
+   * What a send takes as the sending mailbox's own, which a Cc may not hold (`checkRecipients`): a business mailbox's address and its whole domain's, or, for the owner's Gmail, every address of the
+   * owner's. `business` is the mailbox the draft goes out from when it is a business one, else null.
+   */
+  private ownTest(business: CloudflareSender | null): (address: string) => boolean {
+    if (business) return (a) => belongsToMailbox(business, a)
+    const own = this.ownAddresses()
+    return (a) => own.has(a)
+  }
+
+  /** `ownTest` for a draft that is stored: the business mailbox its conversation is in, else the one recorded on it. */
+  private ownTestOfDraft(draft: MessageRow): (address: string) => boolean {
+    const business = draft.conversationId
+      ? (this.cloudflareSenderOf(draft.conversationId) ?? this.jmapSenderOf(draft.conversationId))
+      : (this.jmapSenderOfMessage(draft.id) ?? this.cloudflareSenderOfMessage(draft.id))
+    return this.ownTest(business)
+  }
+
+  /** The people a "copy everyone" draft to `to` copies on this conversation: everyone on the message it answers, less the recipient, each address once. */
+  private copyPeople(plan: ReplyPlan, to: string): string[] {
+    return plan.everyone.filter((a) => a !== to)
   }
 
   // ─── drafts ──────────────────────────────────────────────────────────
@@ -2532,6 +2609,16 @@ export class Inbox {
     if (input.copyEveryone && !input.conversationId) {
       return fail(422, 'Copying everyone needs a conversation to copy from: say which one.')
     }
+    // An explicit Cc is checked before anything is made, as the mailbox is below: a refused one must not leave a contact for the address behind. (That a draft to a contact or a conversation is an email is known only
+    // once the recipient is found, which makes nothing for those; one to a bare address is classified here.)
+    let typedCc: string[] = []
+    if (rawInput.cc !== undefined) {
+      const listed = this.ccAddresses(rawInput.cc)
+      if (!listed.ok) return listed
+      typedCc = listed.value
+      const byAddress = rawInput.address ? classifyAddress(rawInput.address) : null
+      if (typedCc.length > 0 && byAddress !== null && byAddress.kind !== 'email') return fail(422, NOT_AN_EMAIL_DRAFT)
+    }
     // A person drafts only on mail they may see and sends only from mailboxes they are on (Claude's scope is the owner's): the same rule as every read (src/queue.ts `canSee`), asked here as well as by the space's part.
     const scope = this.writerScope(actor)
     if (input.conversationId) {
@@ -2562,6 +2649,11 @@ export class Inbox {
       const sender = this.senderOfDraft(to.value, input, chosen, scope)
       if (!sender.ok) return sender
       const from = sender.value
+      if (typedCc.length > 0 && to.value.identity.kind !== 'email') return fail(422, NOT_AN_EMAIL_DRAFT)
+      // The Cc written into the draft: what the author typed (less the recipient and the sending mailbox's own address, as a send would refuse them), then everyone `copyEveryone` adds.
+      const business = from ? this.cloudflareMailboxSender(from.id) : null
+      const typed = this.withoutOurs(typedCc, to.value.identity.address, this.ownTest(business))
+      const people = input.copyEveryone && plan ? this.copyPeople(plan, to.value.identity.address) : []
       const draft = this.insertMessage({
         identityId: to.value.identity.id,
         conversationId: to.value.conversationId,
@@ -2574,7 +2666,7 @@ export class Inbox {
         sentAt: null,
         sentBy: null,
         sourceRef: null,
-        cc: input.copyEveryone && plan ? this.copyList(plan, to.value.identity.address) : '',
+        cc: joinedUnion(typed, people),
         mailboxId: from?.id ?? null,
       })
       if (to.value.conversationId) this.touchConversation(to.value.conversationId)
@@ -2689,7 +2781,7 @@ export class Inbox {
       // something it could not have written, or blank the why the owner reads.
       const refused = agentDraftRefusal(actor, subject, body, why, this.ports.owner.name)
       if (refused) return refused
-      const copied = this.ccAfterPatch(before, patch.copyEveryone)
+      const copied = this.ccAfterPatch(before, patch)
       if (!copied.ok) return copied
       const cc = copied.value
       // `rev` counts the edit: a send names the revision its author saw (migration 4).

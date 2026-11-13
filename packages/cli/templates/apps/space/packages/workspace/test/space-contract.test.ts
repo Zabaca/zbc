@@ -178,7 +178,7 @@ holds<Equal<keyof InboxContactProfile, keyof InboxContact | 'notes'>>()
 holds<Equal<Parameters<InboxForSpace['undoContactMerge']>[1], number>>()
 holds<Equal<keyof InboxChat, 'conversationId' | 'draftId' | 'rev' | 'instruction'>>()
 // A draft edit names the draft and the revision shown, always, and changes the words only; a spam call is a conversation and a boolean, never an empty request.
-holds<Equal<keyof InboxDraftEdit, 'draftId' | 'rev' | 'subject' | 'text' | 'copyEveryone' | 'takeOutPicture'>>()
+holds<Equal<keyof InboxDraftEdit, 'draftId' | 'rev' | 'subject' | 'text' | 'copyEveryone' | 'cc' | 'takeOutPicture'>>()
 holds<Equal<keyof InboxSpamMark, 'conversationId' | 'spam'>>()
 holds<Equal<keyof InboxSpamResult, 'conversationId' | 'spam' | 'bulk' | 'reasons'>>()
 // A new email says which mailbox it goes out from by Gmail or by a business mailbox's id, never by an address typed.

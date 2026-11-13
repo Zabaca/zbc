@@ -776,6 +776,8 @@ export function createApp(deps: Deps) {
     const b = body.value
     const input: DraftInput = {
       ...(b.copyEveryone === true && { copyEveryone: true }),
+      // An explicit Cc, as a list of addresses; the store refuses (422) anything that is not one, and a Cc on a draft that is not an email.
+      ...(b.cc !== undefined && { cc: b.cc as string[] }),
       body: text(b.body),
       subject: text(b.subject),
       why: text(b.why),
@@ -806,6 +808,7 @@ export function createApp(deps: Deps) {
       if (key in body.value) patch[key] = text(body.value[key])
     }
     if (typeof body.value.copyEveryone === 'boolean') patch.copyEveryone = body.value.copyEveryone
+    if (body.value.cc !== undefined) patch.cc = body.value.cc as string[]
     return answer(c, await store(c).call('updateDraft', id, patch, c.get('who').actor))
   })
 

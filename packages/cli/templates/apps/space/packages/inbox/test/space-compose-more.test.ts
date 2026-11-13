@@ -208,6 +208,48 @@ describe('what a draft’s card needs to edit it as the inbox’s card does', ()
     expect(off.cc).toEqual([])
   })
 
+  test('cc on an edit is the owner adding and removing Cc addresses: it replaces the list, raises the revision, and shows as the draft’s cc with the names the inbox knows', async () => {
+    const h = await world()
+    const d = await claudeDraft(h, 'dana@example.com', 'Quote')
+    const a = await assertion()
+    const added = unwrap(
+      await h
+        .space()
+        .editDraft(a, { draftId: d.id, rev: d.rev, cc: ['Ann@Example.org', 'ann@example.org', 'eli@example.com'] }),
+    )
+    expect(added.cc.map((c) => c.address)).toEqual(['ann@example.org', 'eli@example.com'])
+    expect(added).toMatchObject({ rev: d.rev + 1, editedBy: 'owner' })
+    // Taking one off is the same edit with the list as it should be; [] takes them all off.
+    const less = unwrap(await h.space().editDraft(a, { draftId: d.id, rev: added.rev, cc: ['eli@example.com'] }))
+    expect(less.cc.map((c) => c.address)).toEqual(['eli@example.com'])
+    expect(unwrap(await h.space().editDraft(a, { draftId: d.id, rev: less.rev, cc: [] })).cc).toEqual([])
+  })
+
+  test('cc is refused, with nothing changed, when it is not a list of addresses, holds one that is not an address, or is on a draft that is not an email', async () => {
+    const h = await world()
+    const d = await claudeDraft(h, 'dana@example.com', 'Quote')
+    const a = await assertion()
+    for (const cc of ['ann@example.org', [5], ['nobody'], ['ann@example.org', 'a@b']]) {
+      expect(
+        await h.space().editDraft(a, { draftId: d.id, rev: d.rev, cc: cc as never }),
+        JSON.stringify(cc),
+      ).toMatchObject({
+        ok: false,
+        reason: 'bad-request',
+      })
+    }
+    const text = await ownerDraft(h, { address: '+14155550123', body: 'Hi' })
+    expect(
+      await h.space().editDraft(a, { draftId: text.json.id, rev: text.json.rev, cc: ['ann@example.org'] }),
+    ).toMatchObject({
+      ok: false,
+      reason: 'bad-request',
+    })
+    const drafts = unwrap(await h.space().drafts(a))
+    expect(drafts.find((x) => x.id === d.id)).toMatchObject({ rev: d.rev, cc: [] })
+    expect(drafts.find((x) => x.id === text.json.id)?.rev).toBe(text.json.rev)
+  })
+
   test('copyEveryone is refused where there is nobody to copy or it is not yes or no, and an edit with nothing in it is bad-request', async () => {
     const h = await world()
     const mine = await ownerDraft(h, {

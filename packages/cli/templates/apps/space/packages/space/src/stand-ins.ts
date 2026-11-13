@@ -723,10 +723,18 @@ export function standInInbox(
       if (text === '' && (draft.picture === undefined || edit.takeOutPicture === true)) return refused('bad-request', 'A draft needs a body.')
       if (edit.takeOutPicture === true) delete draft.picture
       if (edit.copyEveryone !== undefined && draft.conversationId === null) return refused('bad-request', 'This draft is not on an email conversation, so there is nobody to copy.')
+      // An explicit Cc as the inbox takes it: a list of email addresses (anything else refuses the whole edit), on an email draft only, the recipient and duplicates dropped; it replaces the Cc.
+      const typed = edit.cc?.map((a) => a.trim().toLowerCase())
+      if (typed?.some((a) => !/^[^\s@<>,;]+@[^\s@<>,;]+\.[^\s@<>,;]+$/.test(a))) return refused('bad-request', 'That is not an email address the inbox can copy. Nothing was changed.')
+      if (typed !== undefined && typed.length > 0 && (draft.kind ?? 'email') !== 'email') return refused('bad-request', 'Only an email draft can have a Cc. Nothing was changed.')
       if (edit.subject !== undefined) draft.subject = edit.subject.trim()
+      if (typed !== undefined) draft.cc = [...new Set(typed)].filter((a) => a !== (draft.to ?? byId.get(draft.contactId)?.addresses[0])).map((a) => ({ name: [...byId.values()].find((c) => c.addresses.includes(a))?.name ?? a, address: a }))
       if (edit.copyEveryone !== undefined) {
         const on = threads.find((t) => t.id === draft.conversationId)?.on ?? []
-        draft.cc = edit.copyEveryone ? on.filter((id) => id !== draft.contactId).map((id) => ({ name: byId.get(id)?.name ?? id, address: byId.get(id)?.addresses[0] ?? '' })) : []
+        const people = on.filter((id) => id !== draft.contactId).map((id) => ({ name: byId.get(id)?.name ?? id, address: byId.get(id)?.addresses[0] ?? '' }))
+        const held = draft.cc ?? []
+        // On adds those people; off takes off just those people, and an address the same edit's `cc` names stays.
+        draft.cc = edit.copyEveryone ? [...held, ...people.filter((p) => !held.some((h) => h.address === p.address))] : held.filter((h) => typed?.includes(h.address) === true || !people.some((p) => p.address === h.address))
       }
       draft.editedBy = (draft.author ?? 'claude') === 'owner' ? null : 'owner'
       draft.text = text

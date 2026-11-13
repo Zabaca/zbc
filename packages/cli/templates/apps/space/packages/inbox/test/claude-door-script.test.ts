@@ -189,6 +189,42 @@ describe('everything the script does at the address, it does on the path', () =>
     expect(refused.output).toContain('em dash')
   })
 
+  test('cc: a draft takes a list of addresses, edit replaces it, and a malformed address or a Cc on a text comes back refused with nothing drafted', async () => {
+    const h = harness()
+    const { run } = script(h)
+    const made = parse(
+      await run(
+        'draft',
+        JSON.stringify({
+          address: 'dana@example.com',
+          subject: 'Hello',
+          body: 'Hi Dana',
+          why: 'She asked.',
+          cc: ['Ann@Example.org', 'dana@example.com'],
+        }),
+      ),
+    )
+    expect(made).toMatchObject({ status: 'draft', cc: 'ann@example.org', rev: 0 })
+    const edited = parse(
+      await run('edit', made.id, JSON.stringify({ rev: made.rev, cc: ['bob@example.net', 'ann@example.org'] })),
+    )
+    expect(edited).toMatchObject({ cc: 'bob@example.net, ann@example.org', rev: 1 })
+    expect(parse(await run('drafts'))[0]).toMatchObject({ cc: 'bob@example.net, ann@example.org' })
+
+    const malformed = await run('edit', made.id, JSON.stringify({ rev: edited.rev, cc: ['not an address'] }))
+    expect(malformed.exitCode).toBe(1)
+    expect(malformed.output).toContain('422')
+    const text = await run(
+      'draft',
+      JSON.stringify({ address: '626-555-0101', body: 'Hi', why: 'x', cc: ['ann@example.org'] }),
+    )
+    expect(text.exitCode).toBe(1)
+    expect(text.output).toContain('Only an email draft can have a Cc')
+    expect(parse(await run('drafts'))).toHaveLength(1)
+    // The help names the field where the draft fields are listed.
+    expect((await run()).output).toContain('"cc": ["a@example.com"]')
+  })
+
   test('the conversation commands: queue, search, conversation, close and reopen, and reading marks nothing', async () => {
     const h = harness()
     await connectedWithMail(h)

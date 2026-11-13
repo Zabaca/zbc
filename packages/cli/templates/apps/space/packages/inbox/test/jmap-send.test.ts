@@ -163,6 +163,16 @@ describe('a reply from the mailbox', () => {
     expect(h.jmapServer.submitted[0]).toMatchObject({ to: ['dana@example.com'], cc: ['ann@example.org'] })
   })
 
+  test('an explicit Cc is delivered by the server’s submission, less the mailbox’s own address and its whole domain’s, which are dropped from the draft when it is made', async () => {
+    const { h, conversation } = await world()
+    const draft = await reply(h, conversation, {
+      cc: ['Ann@Example.org', ADDRESS, 'anyone@harborline.example', 'dana@example.com', 'cy@example.net'],
+    })
+    expect(draft.cc).toBe('ann@example.org, cy@example.net')
+    expect(await press(h, draft)).toMatchObject({ ok: true })
+    expect(h.jmapServer.submitted[0]).toMatchObject({ to: ['dana@example.com'], cc: ['ann@example.org', 'cy@example.net'] })
+  })
+
   test('an address of the mailbox, or on its domain, cannot be drafted to on its conversation, and if one is on a draft anyway the send is refused before anything is claimed', async () => {
     const { h, conversation } = await world()
     for (const own of ['info@harborline.example', 'anyone@harborline.example', ADDRESS]) {

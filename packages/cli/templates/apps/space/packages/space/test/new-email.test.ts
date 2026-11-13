@@ -276,6 +276,17 @@ describe('editing a draft', () => {
     expect(opened.drafts[0]).toMatchObject({ rev: 2, subject: 'Re: Homepage', text: 'Thanks, all.' })
   })
 
+  test('a Cc replaces the draft’s list at the revision shown, alone or with the words, and [] takes every address off', async () => {
+    const s = await asOwner({ drafts: [draft()] })
+    const added = await s.view<{ rev: number; cc: { address: string }[] }>('draft-edit', { draftId: 'd-1', rev: 1, cc: ['ann@example.org', 'bob@example.net'] })
+    expect(added).toMatchObject({ result: 'ok', value: { rev: 2 } })
+    expect(s.inbox.asked.edits[0]).toEqual({ draftId: 'd-1', rev: 1, cc: ['ann@example.org', 'bob@example.net'] })
+    expect((await s.open('dana@harbor.example')).drafts[0]?.cc?.map((c: { address: string }) => c.address)).toEqual(['ann@example.org', 'bob@example.net'])
+    expect(await s.view('draft-edit', { draftId: 'd-1', rev: 2, cc: ['nobody'] })).toMatchObject({ result: 'refused', reason: 'bad-request' })
+    const cleared = await s.view<{ cc: unknown[] }>('draft-edit', { draftId: 'd-1', rev: 2, cc: [] })
+    expect(cleared).toMatchObject({ result: 'ok', value: { cc: [], rev: 3 } })
+  })
+
   test('a draft that changed since is a conflict in the inbox’s words, nothing is saved, and a repeat is the same conflict', async () => {
     const s = await asOwner({ drafts: [draft({ rev: 3 })] })
     const stale = await s.view('draft-edit', { draftId: 'd-1', rev: 1, text: 'Mine.' })
@@ -287,7 +298,7 @@ describe('editing a draft', () => {
 
   test('is refused before the inbox is asked: no draft, no revision, nothing to change, words or a subject that are not text, past a draft’s length', async () => {
     const s = await asOwner({ drafts: [draft()] })
-    for (const body of [{ rev: 1, text: 'x' }, { draftId: 'a/b', rev: 1, text: 'x' }, { draftId: 'd-1', text: 'x' }, { draftId: 'd-1', rev: '1', text: 'x' }, { draftId: 'd-1', rev: 1 }, { draftId: 'd-1', rev: 1, text: 7 }, { draftId: 'd-1', rev: 1, subject: null }, { draftId: 'd-1', rev: 1, text: 'x'.repeat(100_001) }]) {
+    for (const body of [{ rev: 1, text: 'x' }, { draftId: 'a/b', rev: 1, text: 'x' }, { draftId: 'd-1', text: 'x' }, { draftId: 'd-1', rev: '1', text: 'x' }, { draftId: 'd-1', rev: 1 }, { draftId: 'd-1', rev: 1, text: 7 }, { draftId: 'd-1', rev: 1, subject: null }, { draftId: 'd-1', rev: 1, text: 'x'.repeat(100_001) }, { draftId: 'd-1', rev: 1, cc: 'ann@example.org' }, { draftId: 'd-1', rev: 1, cc: [7] }, { draftId: 'd-1', rev: 1, cc: Array.from({ length: 51 }, (_, n) => `p${n}@example.org`) }]) {
       const res = await s.post('/api/inbox/draft-edit', body)
       expect([body, res.status]).toEqual([body, 400])
     }
