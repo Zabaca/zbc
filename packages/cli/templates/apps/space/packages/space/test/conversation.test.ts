@@ -398,6 +398,7 @@ describe('drafts waiting on this person', () => {
         why: '',
         editedBy: null,
         canCopyEveryone: true,
+        copiesEveryone: false,
         kind: null,
         sentFrom: null,
         sendsFrom: null,

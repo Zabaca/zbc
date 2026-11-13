@@ -422,6 +422,8 @@ export interface InboxDraft {
   editedBy?: DraftAuthor | null
   /** Whether it can copy everyone on the message it answers: an email draft on a conversation. Whether it does is `cc`. ABSENT from an inbox that predates it: read as false. */
   canCopyEveryone?: boolean
+  /** Whether it DOES copy everyone on the message it answers: "copy everyone" is on, whoever else was typed onto the Cc (`cc` says who is copied, this says why). The card's tick box shows it. ABSENT from an inbox that predates it: read as false. */
+  copiesEveryone?: boolean
   /**
    * How it goes: `email` (the inbox sends it), or `sms` or `manual` (a text, a LinkedIn or other direct message, which the inbox CANNOT send: the owner sends it themselves and marks it sent,
    * `markDraftSent`). ABSENT from an inbox that predates it: a caller then offers no Mark sent and treats the draft as it did before.
@@ -493,8 +495,8 @@ export interface InboxDraftEdit {
   subject?: string
   text?: string
   /**
-   * Copy everyone on the message it answers (true: they are added to the Cc) or no one (false: they are taken off it, and nobody else), as the inbox's card has it. Only on an email draft on a conversation. Left out: the Cc stays as it is.
-   * An address in `cc` of the same edit is kept either way. Who is on the Cc when both are used is the inbox's ADR 0001 decision 35.
+   * Copy everyone on the message it answers (true: they are added to the Cc) or no one (false: the Cc is just what was typed), as the inbox's card has it. Only on an email draft on a conversation. Left out: the Cc stays as it is.
+   * In an edit that also names `cc`, all of that list counts as typed. Who is on the Cc when both are used is the inbox's ADR 0001 decision 35.
    */
   copyEveryone?: boolean
   /** The draft's Cc as a list of email addresses, which REPLACES the one it has (`[]` takes every address off): the owner adding someone to a reply, or taking someone off. Only on an email draft: `bad-request` for a malformed address or any address on a text or a direct message, with nothing changed. */
@@ -606,6 +608,9 @@ export interface InboxFile {
  */
 export const INBOX_MOST_FILES = 10
 export const INBOX_MOST_FILE_BYTES = 15 * 1024 * 1024
+
+/** The most people (To and Cc together) one email goes to: a reply to a thread, not a mailing. Written once: the inbox refuses a draft or an edit past it, and the space refuses first. */
+export const INBOX_MOST_RECIPIENTS = 20
 
 /**
  * What a Telegram reply may carry, said by the page before Send and refused by the inbox again, each by the bytes where it holds them: ONE picture, a PNG or a JPEG, at most

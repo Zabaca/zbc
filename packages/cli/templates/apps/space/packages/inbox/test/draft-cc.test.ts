@@ -34,6 +34,13 @@ const group = (h: H) => () => {
   })
 }
 
+/** A push as Google delivers it, then the alarm it sets: the echo of whatever just happened in Gmail. */
+async function hear(h: H) {
+  expect((await h.push()).status).toBe(204)
+  h.tick()
+  await h.drain()
+}
+
 const convoId = (h: H, threadId: string): string =>
   (h.db.query(`SELECT id FROM conversation WHERE gmail_thread_id = ?`).get(threadId) as { id: string }).id
 
@@ -192,6 +199,77 @@ describe('an explicit Cc and "copy everyone"', () => {
     )
   })
 
+  test('unticking leaves exactly what was typed even when the thread has moved on: people copied earlier who dropped off it do not stay', async () => {
+    const h = harness()
+    await live(h, group(h))
+    const made = (await reply(h, { cc: ['ann@example.org'], copyEveryone: true })).json
+    expect(made).toMatchObject({
+      cc: 'ann@example.org, maryjo@example.com, bob@example.com',
+      copiesEveryone: true,
+      ccTyped: ['ann@example.org'],
+    })
+    // A later message names only Zed: the people copy-everyone would add today are Zed alone.
+    h.tick()
+    h.google.mailbox.add({
+      id: 'm2',
+      threadId: 't1',
+      labels: ['INBOX', 'UNREAD'],
+      subject: 'Re: Quote for the shop',
+      to: `Tessa Marlow <${TESSA}>, Zed <zed@example.com>`,
+    })
+    await hear(h)
+    const off = (await edit(h, made, { rev: made.rev, copyEveryone: false })).json
+    expect(off).toMatchObject({ cc: 'ann@example.org', copiesEveryone: false, ccTyped: ['ann@example.org'] })
+    // Ticking again copies the people it names now, after what was typed.
+    const on = (await edit(h, off, { rev: off.rev, copyEveryone: true })).json
+    expect(on).toMatchObject({ cc: 'ann@example.org, zed@example.com', copiesEveryone: true })
+
+    // The same with nothing typed: a draft that copied everyone goes back to no Cc at all.
+    const plain = (await reply(h, { copyEveryone: true })).json
+    expect((await edit(h, plain, { rev: plain.rev, copyEveryone: false })).json).toMatchObject({
+      cc: '',
+      copiesEveryone: false,
+    })
+  })
+
+  test('a typed address that is also one of the people stays on an untick, however it was typed: it is the author’s', async () => {
+    const h = harness()
+    await live(h, group(h))
+    const made = (await reply(h, { cc: ['bob@example.com'], copyEveryone: true })).json
+    expect(made).toMatchObject({ cc: 'bob@example.com, maryjo@example.com', ccTyped: ['bob@example.com'] })
+    const off = (await edit(h, made, { rev: made.rev, copyEveryone: false })).json
+    expect(off.cc).toBe('bob@example.com')
+    // And typed onto a draft that already copies everyone: it is typed from then on, not copied.
+    const all = (await reply(h, { copyEveryone: true })).json
+    const typed = (await edit(h, all, { rev: all.rev, cc: [...all.cc.split(', '), 'ann@example.org'] })).json
+    expect(typed).toMatchObject({ copiesEveryone: true, ccTyped: ['ann@example.org'] })
+    expect((await edit(h, typed, { rev: typed.rev, copyEveryone: false })).json.cc).toBe('ann@example.org')
+  })
+
+  test('taking a copied person off the Cc by hand switches the tick off: what is left is the author’s own list', async () => {
+    const h = harness()
+    await live(h, group(h))
+    const all = (await reply(h, { copyEveryone: true })).json
+    expect(all.cc).toBe('maryjo@example.com, bob@example.com')
+    const less = (await edit(h, all, { rev: all.rev, cc: ['maryjo@example.com'] })).json
+    expect(less).toMatchObject({ cc: 'maryjo@example.com', copiesEveryone: false, ccTyped: ['maryjo@example.com'] })
+  })
+
+  test('a draft made before the state was kept reads as copying everyone when it has a Cc, and a draft with none does not', async () => {
+    const h = harness()
+    await live(h, group(h))
+    const old = (await reply(h)).json
+    h.db.query(`UPDATE message SET cc_header = 'maryjo@example.com, bob@example.com' WHERE id = ?`).run(old.id)
+    h.db.query(`DELETE FROM setting WHERE key = ?`).run(`draft-cc:${old.id}`)
+    const listed = ((await h.request(AGENT, 'GET', '/api/drafts')).json as MessageRow[]).find((d) => d.id === old.id)
+    expect(listed).toMatchObject({ copiesEveryone: true, ccTyped: [] })
+    // Unticking it leaves nothing, as it always did; a draft with no Cc never claimed to copy anyone.
+    expect(
+      (await edit(h, listed as MessageRow, { rev: (listed as MessageRow).rev, copyEveryone: false })).json,
+    ).toMatchObject({ cc: '', copiesEveryone: false })
+    expect((await reply(h)).json).toMatchObject({ copiesEveryone: false, ccTyped: [] })
+  })
+
   test('a draft with a Cc and no copy-everyone edit is left as it is when only its words change', async () => {
     const h = harness()
     await live(h, group(h))
@@ -233,6 +311,54 @@ describe('changing the Cc is an edit of the draft', () => {
     expect(refused.status).toBe(422)
     expect(refused.json.error).toContain('Only an email draft can have a Cc')
     expect(row(h, text.id)).toMatchObject({ cc_header: '', rev: text.rev })
+  })
+
+  test('a cc that is null, or anything but a list, is a 422 with nothing changed, never a failure of the route', async () => {
+    const h = harness()
+    await live(h, group(h))
+    const made = (await reply(h, { cc: ['ann@example.org'] })).json
+    const before = snapshot(h)
+    for (const who of [OWNER, AGENT]) {
+      for (const cc of [null, 'ann@example.org', 7, {}, true]) {
+        expect((await edit(h, made, { rev: made.rev, cc }, who)).status, JSON.stringify(cc)).toBe(422)
+        expect((await reply(h, { cc }, who)).status, JSON.stringify(cc)).toBe(422)
+      }
+    }
+    expect(snapshot(h)).toBe(before)
+  })
+
+  test('a message goes to at most 20 people, said when the draft is made or edited and not only at the send: 19 on the Cc is allowed, 20 is refused, and so is a tick that would pass it', async () => {
+    const h = harness()
+    await live(h, group(h))
+    const many = (n: number) => Array.from({ length: n }, (_, i) => `p${i}@example.org`)
+    const before = snapshot(h)
+    expect((await reply(h, { cc: many(20) })).status).toBe(422)
+    expect(
+      (await ownerRequest(h, 'POST', '/api/drafts', { address: 'new.person@example.org', body: 'Hi', cc: many(20) }))
+        .status,
+    ).toBe(422)
+    expect((await reply(h, { cc: many(19), copyEveryone: true })).status).toBe(422)
+    expect(snapshot(h)).toBe(before)
+    const full = (await reply(h, { cc: many(19) })).json
+    expect(full.cc.split(', ')).toHaveLength(19)
+    const after = snapshot(h)
+    expect((await edit(h, full, { rev: full.rev, cc: many(20) })).status).toBe(422)
+    expect((await edit(h, full, { rev: full.rev, copyEveryone: true })).status).toBe(422)
+    expect(snapshot(h)).toBe(after)
+    const ok = await as(h, OWNER, 'POST', `/api/drafts/${full.id}/send`, {
+      rev: full.rev,
+      through: (await detail(h, 't1')).through,
+    })
+    expect(ok.status, JSON.stringify(ok.json)).toBe(200)
+  })
+
+  test('deleting a draft takes its Cc state with it', async () => {
+    const h = harness()
+    await live(h, group(h))
+    const made = (await reply(h, { cc: ['ann@example.org'], copyEveryone: true })).json
+    expect(h.db.query(`SELECT count(*) AS n FROM setting WHERE key = ?`).get(`draft-cc:${made.id}`)).toEqual({ n: 1 })
+    expect((await as(h, OWNER, 'DELETE', `/api/drafts/${made.id}?rev=${made.rev}`)).status).toBe(200)
+    expect(h.db.query(`SELECT count(*) AS n FROM setting WHERE key = ?`).get(`draft-cc:${made.id}`)).toEqual({ n: 0 })
   })
 
   test('is audited as the edit it is, by whoever made it', async () => {
@@ -290,6 +416,65 @@ describe('changing the Cc is an edit of the draft', () => {
     })
     expect(ok.status, JSON.stringify(ok.json)).toBe(200)
     expect(sent(h)).toHaveLength(1)
+  })
+})
+
+describe('who a draft goes to is covered by the instruction, Claude’s own changes included', () => {
+  /** Tessa's switch on, Claude's draft, her "send it" after it, and a send helper at the revision and position Claude read. */
+  async function instructed(h: H) {
+    await live(h, group(h))
+    expect((await ownerRequest(h, 'PUT', '/api/settings/claude-sending', { enabled: true })).status).toBe(200)
+    const made = (await reply(h, { cc: ['ann@example.org'] }, AGENT)).json
+    h.tick()
+    const said = { ...SAID, at: new Date(h.now()).toISOString() }
+    h.tick()
+    const through = (await detail(h, 't1')).through
+    const send = (draft: { id: string; rev: number }, instruction: unknown = said) =>
+      h.request(AGENT, 'POST', `/api/drafts/${draft.id}/send`, { rev: draft.rev, through, instruction })
+    return { made, said, send }
+  }
+
+  test('Claude adding someone to the Cc after the instruction stops its own send, with words that say the people changed; Tessa saying it again lets it go', async () => {
+    const h = harness()
+    const { made, send } = await instructed(h)
+    const changed = (await edit(h, made, { rev: made.rev, cc: ['ann@example.org', 'cy@example.net'] }, AGENT)).json
+    expect(changed.cc).toBe('ann@example.org, cy@example.net')
+    const before = snapshot(h)
+    const refused = await send(changed)
+    expect(refused.status).toBe(409)
+    expect(refused.json.error).toContain('(its To or Cc) were changed after Tessa gave the instruction')
+    expect(refused.json.error).toContain('even if by you')
+    expect(snapshot(h)).toBe(before)
+    expect(sent(h)).toHaveLength(0)
+    h.tick()
+    expect((await send(changed, { ...SAID, at: new Date(h.now()).toISOString() })).status).toBe(200)
+    expect(sent(h)).toHaveLength(1)
+  })
+
+  test('so does Claude taking someone off, or ticking copy-everyone, but not Claude’s edit of the words, nor a Cc edit that leaves the same people', async () => {
+    for (const change of [{ cc: [] }, { copyEveryone: true }]) {
+      const h = harness()
+      const { made, send } = await instructed(h)
+      const changed = (await edit(h, made, { rev: made.rev, ...change }, AGENT)).json
+      expect(changed.cc).not.toBe('ann@example.org')
+      expect((await send(changed)).status, JSON.stringify(change)).toBe(409)
+      expect(sent(h)).toHaveLength(0)
+    }
+    const h = harness()
+    const { made, send } = await instructed(h)
+    const words = (await edit(h, made, { rev: made.rev, body: 'Claude’s own words.' }, AGENT)).json
+    const same = (await edit(h, words, { rev: words.rev, cc: ['Ann@Example.org'] }, AGENT)).json
+    expect(same.cc).toBe('ann@example.org')
+    expect((await send(same)).status).toBe(200)
+  })
+
+  test('Tessa’s own Cc change after the instruction still stops the send, in the old words about someone other than Claude', async () => {
+    const h = harness()
+    const { made, send } = await instructed(h)
+    const changed = (await edit(h, made, { rev: made.rev, cc: [] })).json
+    const refused = await send(changed)
+    expect(refused.status).toBe(409)
+    expect(refused.json.error).toContain('by someone other than you')
   })
 })
 

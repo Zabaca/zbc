@@ -732,6 +732,7 @@ export function createSpaceInbox(deps: SpaceDeps): InboxForSpace {
     why: d.why,
     editedBy: draftEditedBy(d.createdBy, d.updatedBy, d.rev),
     canCopyEveryone: d.kind === 'email' && d.conversationId !== null,
+    copiesEveryone: d.copiesEveryone === true,
     kind: d.kind,
     ...(d.sentFrom !== undefined && { sentFrom: d.sentFrom }),
     ...(d.sendsFrom !== undefined && { sendsFrom: d.sendsFrom }),

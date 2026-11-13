@@ -240,6 +240,12 @@ export interface MessageRow {
   from: string
   to: string
   cc: string
+  /**
+   * On a draft only: whether "copy everyone" is on, so everyone on the message it answers is on `cc` (and the card's tick is ticked), and the addresses on `cc` the author typed, which are the rest of it less the people
+   * "copy everyone" added (ADR 0001 decision 35). A draft made before these were kept reads as copying everyone when it has a Cc and as having typed none of it.
+   */
+  copiesEveryone?: boolean
+  ccTyped?: string[]
   snippet: string
   bodyTruncated: boolean
   attachments: AttachmentInfo[]

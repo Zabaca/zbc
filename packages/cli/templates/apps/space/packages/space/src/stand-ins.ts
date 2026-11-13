@@ -204,6 +204,9 @@ export interface StandInDraft {
   editedBy?: InboxDraft['author'] | null
   /** Who it copies besides its contact (a draft made to reply to all). Omitted: copies no one. `null`: the answer has no `cc` at all, as an inbox that predates it. */
   cc?: InboxAddress[] | null
+  /** How the Cc came to be, as the inbox keeps it: the addresses typed, and whether "copy everyone" is on. Omitted: nothing typed, and on when there is a Cc (a draft from before they were kept). */
+  ccTyped?: string[]
+  copiesEveryone?: boolean
   /** How it goes: omitted is an inbox that does not say (the page offers nothing new on it). A `sms` or `manual` draft is one the inbox cannot send: Mark sent. */
   kind?: MailKind
   /** The business mailbox a stuck send went out of (no Sent folder to check): omitted is Tessa's Gmail. */
@@ -452,7 +455,7 @@ export function standInInbox(
   const order = (a: { id: string; at: number }, b: { id: string; at: number }) => a.at - b.at || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)
   const draftView = (d: StandInDraft): InboxDraft => {
     const c = byId.get(d.contactId)
-    const listed = { id: d.id, conversationId: d.conversationId, contactId: d.contactId, toName: c?.name ?? d.contactId, to: d.to ?? c?.addresses[0] ?? '', subject: d.subject, text: d.text, rev: d.rev ?? 1, author: d.author ?? 'claude', stuck: d.stuck ?? false, at: d.at, why: d.why ?? '', editedBy: d.editedBy ?? null, canCopyEveryone: d.conversationId !== null && (d.kind ?? 'email') === 'email', ...(d.kind !== undefined && { kind: d.kind }), ...(d.sentFrom !== undefined && { sentFrom: d.sentFrom }), ...(d.sendsFrom !== undefined && { sendsFrom: d.sendsFrom }), ...(d.refusal !== undefined && { refusal: d.refusal }), ...(d.picture !== undefined && { picture: { type: d.picture.type, size: d.picture.bytes.length } }) }
+    const listed = { id: d.id, conversationId: d.conversationId, contactId: d.contactId, toName: c?.name ?? d.contactId, to: d.to ?? c?.addresses[0] ?? '', subject: d.subject, text: d.text, rev: d.rev ?? 1, author: d.author ?? 'claude', stuck: d.stuck ?? false, at: d.at, why: d.why ?? '', editedBy: d.editedBy ?? null, canCopyEveryone: d.conversationId !== null && (d.kind ?? 'email') === 'email', copiesEveryone: d.copiesEveryone ?? (d.cc?.length ?? 0) > 0, ...(d.kind !== undefined && { kind: d.kind }), ...(d.sentFrom !== undefined && { sentFrom: d.sentFrom }), ...(d.sendsFrom !== undefined && { sendsFrom: d.sendsFrom }), ...(d.refusal !== undefined && { refusal: d.refusal }), ...(d.picture !== undefined && { picture: { type: d.picture.type, size: d.picture.bytes.length } }) }
     // A draft with `cc: null` is answered as an inbox that predates the field would: without it.
     return d.cc === null ? (listed as InboxDraft) : { ...listed, cc: d.cc ?? [] }
   }
@@ -724,17 +727,37 @@ export function standInInbox(
       if (edit.takeOutPicture === true) delete draft.picture
       if (edit.copyEveryone !== undefined && draft.conversationId === null) return refused('bad-request', 'This draft is not on an email conversation, so there is nobody to copy.')
       // An explicit Cc as the inbox takes it: a list of email addresses (anything else refuses the whole edit), on an email draft only, the recipient and duplicates dropped; it replaces the Cc.
-      const typed = edit.cc?.map((a) => a.trim().toLowerCase())
-      if (typed?.some((a) => !/^[^\s@<>,;]+@[^\s@<>,;]+\.[^\s@<>,;]+$/.test(a))) return refused('bad-request', 'That is not an email address the inbox can copy. Nothing was changed.')
-      if (typed !== undefined && typed.length > 0 && (draft.kind ?? 'email') !== 'email') return refused('bad-request', 'Only an email draft can have a Cc. Nothing was changed.')
+      const typedNow = edit.cc?.map((a) => a.trim().toLowerCase())
+      if (typedNow?.some((a) => !/^[^\s@<>,;]+@[^\s@<>,;]+\.[^\s@<>,;]+$/.test(a))) return refused('bad-request', 'That is not an email address the inbox can copy. Nothing was changed.')
+      if (typedNow !== undefined && typedNow.length > 0 && (draft.kind ?? 'email') !== 'email') return refused('bad-request', 'Only an email draft can have a Cc. Nothing was changed.')
       if (edit.subject !== undefined) draft.subject = edit.subject.trim()
-      if (typed !== undefined) draft.cc = [...new Set(typed)].filter((a) => a !== (draft.to ?? byId.get(draft.contactId)?.addresses[0])).map((a) => ({ name: [...byId.values()].find((c) => c.addresses.includes(a))?.name ?? a, address: a }))
+      // What was typed is kept apart from what "copy everyone" added, as the inbox keeps it: unticking leaves exactly the typed list.
+      const held = draft.cc ?? []
+      let typed = draft.ccTyped ?? []
+      let everyone = draft.copiesEveryone ?? held.length > 0
+      let list = held
+      const nameOf = (a: string) => [...byId.values()].find((c) => c.addresses.includes(a))?.name ?? a
+      if (typedNow !== undefined) {
+        const own = draft.to ?? byId.get(draft.contactId)?.addresses[0]
+        list = [...new Set(typedNow)].filter((a) => a !== own).map((a) => ({ name: nameOf(a), address: a }))
+        const copied = held.filter((h) => !typed.includes(h.address))
+        if (edit.copyEveryone === undefined && everyone && copied.every((c) => list.some((l) => l.address === c.address))) typed = list.map((l) => l.address).filter((a) => !copied.some((c) => c.address === a))
+        else {
+          typed = list.map((l) => l.address)
+          if (edit.copyEveryone === undefined) everyone = false
+        }
+      }
       if (edit.copyEveryone !== undefined) {
         const on = threads.find((t) => t.id === draft.conversationId)?.on ?? []
         const people = on.filter((id) => id !== draft.contactId).map((id) => ({ name: byId.get(id)?.name ?? id, address: byId.get(id)?.addresses[0] ?? '' }))
-        const held = draft.cc ?? []
-        // On adds those people; off takes off just those people, and an address the same edit's `cc` names stays.
-        draft.cc = edit.copyEveryone ? [...held, ...people.filter((p) => !held.some((h) => h.address === p.address))] : held.filter((h) => typed?.includes(h.address) === true || !people.some((p) => p.address === h.address))
+        everyone = edit.copyEveryone
+        const own = list.filter((l) => typed.includes(l.address) || !everyone)
+        list = edit.copyEveryone ? [...own, ...people.filter((p) => !own.some((o) => o.address === p.address))] : typed.map((a) => list.find((l) => l.address === a) ?? { name: nameOf(a), address: a })
+      }
+      if (typedNow !== undefined || edit.copyEveryone !== undefined) {
+        draft.cc = list
+        draft.ccTyped = typed
+        draft.copiesEveryone = everyone
       }
       draft.editedBy = (draft.author ?? 'claude') === 'owner' ? null : 'owner'
       draft.text = text

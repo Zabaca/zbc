@@ -10,8 +10,8 @@ import {
 } from '../src/cloudflare/send'
 import { MimeError } from '../src/gmail/mime'
 import { cloudflareNotifyDecision, messagePayload } from '../src/notify/rule'
+import { belongsToMailbox } from '../src/store/kinds'
 import type { CloudflareSendPlan } from '../src/store/mail'
-import { belongsToMailbox } from '../src/store/store'
 import { FakeEmailBinding } from '../test-support/fake-email'
 
 /**

@@ -131,11 +131,11 @@ describe('the people offered in the To box', () => {
 })
 
 describe('the draft editor', () => {
-  const draft = { subject: 'Re: Hi', text: 'Thank you.', rev: 4, cc: [{ name: 'Marcus', address: 'marcus@x.example' }] }
+  const draft = { subject: 'Re: Hi', text: 'Thank you.', rev: 4, cc: [{ name: 'Marcus', address: 'marcus@x.example' }], copiesEveryone: true }
   test('is changed by words, not by the spaces the inbox trims away, and by who is copied', () => {
     expect(copiesNow(draft)).toBe(true)
-    expect(copiesNow({ cc: [] })).toBe(false)
-    expect(copiesNow({ cc: null })).toBe(false)
+    // Only the inbox says whether the draft copies everyone: a Cc somebody typed does not tick the box.
+    expect(copiesNow({ copiesEveryone: false })).toBe(false)
     expect(isDirty(draft, 'Re: Hi', 'Thank you.', false)).toBe(true)
     expect(isDirty(draft, 'Re: Hi', 'Thank you.', true)).toBe(false)
     expect(isDirty(draft, 'Re: Hi', 'Thank you.')).toBe(false)

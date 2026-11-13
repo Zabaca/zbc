@@ -38,7 +38,7 @@
  * never spam, trash or one of the owner's unfinished drafts.
  */
 
-import type { CalendarSummary } from '@space/workspace'
+import { type CalendarSummary, INBOX_MOST_RECIPIENTS } from '@space/workspace'
 import { keptCalendar } from '../calendar-summary'
 import { messageIdOf } from '../cloudflare/send'
 import { subjectKey } from '../cloudflare/thread'
@@ -64,6 +64,7 @@ import {
   pictureNamedButNone,
   pictureNotNamed,
   pictureNotTheOneNamed,
+  recipientsChangedAfterInstruction,
   recordOwnersWords,
   sayWhenOwnerSaid,
   sayWhereOwnerTold,
@@ -93,9 +94,11 @@ import {
 } from '../types'
 import { classifyAddress } from './address'
 import {
+  belongsToMailbox,
   domainIsOurs,
   heldOnServer,
   idColumns,
+  isOurs,
   labelsAreTruth,
   type MailboxKind,
   sentIsAFolder,
@@ -105,8 +108,8 @@ import {
 import { personKey } from './people'
 import { MESSAGE_MAILBOX, scopeWhere } from './scope'
 import {
-  belongsToMailbox,
   type CloudflareSender,
+  ccAddressesOf,
   EM_DASH,
   fail,
   isoOrNull,
@@ -221,8 +224,22 @@ function emailPeople(list: ParsedAddress[]): { kind: IdentityKind; address: stri
  */
 export const MAX_SEND_BODY = 100_000
 
-/** The most recipients (To and Cc together) one message goes to. A reply to a thread, not a mailing. */
-export const MAX_RECIPIENTS = 20
+/** Whether an audit entry's draft before and after go to different people: another recipient, or another set of Cc addresses (order and names do not matter). An entry with no draft before it (its creation) changes nobody. */
+function recipientsDiffer(before: unknown, after: unknown): boolean {
+  const read = (v: unknown): { address: string; cc: string[] } | null => {
+    if (typeof v !== 'string') return null
+    try {
+      const row = JSON.parse(v) as { address?: unknown; cc?: unknown }
+      return { address: text(row.address), cc: ccAddressesOf(text(row.cc)).sort() }
+    } catch {
+      return null
+    }
+  }
+  const was = read(before)
+  const now = read(after)
+  if (was === null || now === null) return false
+  return was.address !== now.address || was.cc.join(',') !== now.cc.join(',')
+}
 
 /**
  * Everything a send needs, read and checked in one place BEFORE anything is claimed
@@ -1772,7 +1789,7 @@ export class MailStore extends TelegramStore {
    * either (the owner's mail must not read as machine-written, and a draft from before
    * this check, or one carried from the Outbox, is caught here too). Recipients that
    * are printable-ASCII bare addresses, none of them ours, no repeats, at most
-   * MAX_RECIPIENTS. A reply is refused (409) when something has come in on the
+   * INBOX_MOST_RECIPIENTS. A reply is refused (409) when something has come in on the
    * conversation since the page was shown (`through`, as Close is): a reply
    * must not go out over a message its author has not read.
    *
@@ -1814,17 +1831,13 @@ export class MailStore extends TelegramStore {
     const sendable = this.checkSendable(msg, input.rev)
     if (!sendable.ok) return sendable
     // For Claude: the draft is the one the owner agreed to. Their instruction covers it as it stood, so a draft anybody but Claude
-    // changed after they gave it is refused, like a reply that arrived: go back to them.
-    if (instruction !== null && this.changedByOthersAfter(msg, instruction.at)) {
-      return fail(409, draftChangedAfterInstruction(this.owner.name))
-    }
+    // changed after they gave it, or whose recipients Claude changed, is refused, like a reply that arrived: go back to them.
+    const voided = instruction === null ? null : this.instructionVoidedBy(msg, instruction.at)
+    if (voided !== null) return fail(409, voided)
     // Ours, for the recipients: the owner's own mail never goes to an address of theirs or of a mailbox's; a business mailbox's goes to anyone
     // but its own address and its domain's, the owner's Gmail address included (it is a person who writes to the business, and the
     // reply from the mailbox's address to it is how the path is proved).
-    const recipients = this.checkRecipients(
-      msg,
-      via.kind === 'gmail' ? undefined : (a) => belongsToMailbox(via.sender, a),
-    )
+    const recipients = this.checkRecipients(msg, via.kind === 'gmail' ? null : via.sender)
     if (!recipients.ok) return recipients
 
     const facts = { msg, input, instruction, recipients: recipients.value }
@@ -2200,9 +2213,8 @@ export class MailStore extends TelegramStore {
     const picture = chosen.value
     const sendable = this.checkSendable(msg, input.rev, true, picture !== null)
     if (!sendable.ok) return sendable
-    if (instruction !== null && this.changedByOthersAfter(msg, instruction.at)) {
-      return fail(409, draftChangedAfterInstruction(this.owner.name))
-    }
+    const voided = instruction === null ? null : this.instructionVoidedBy(msg, instruction.at)
+    if (voided !== null) return fail(409, voided)
     // Claude's send names the picture it is sending, so the owner's word covers the picture they approved and no other (a picture the owner puts on, replaces or takes out after they spoke is an edit by someone else, found just above; Claude's own is not held against it, its naming the fingerprint is its check).
     if (instruction !== null) {
       const named = this.checkPictureNamed(picture, input.picture)
@@ -2241,9 +2253,9 @@ export class MailStore extends TelegramStore {
     })
   }
 
-  /** The draft's To and Cc, each a bare address that is not ours, none twice, no more than MAX_RECIPIENTS. */
-  private checkRecipients(msg: MessageRow, isOwn?: (address: string) => boolean): Result<{ to: string; cc: string[] }> {
-    const own = isOwn ? { has: isOwn } : this.ownAddresses()
+  /** The draft's To and Cc, each a bare address that is not ours (`isOurs`, for the business mailbox it goes out through, if it is one), none twice, no more than INBOX_MOST_RECIPIENTS. */
+  private checkRecipients(msg: MessageRow, business: CloudflareSender | null): Result<{ to: string; cc: string[] }> {
+    const own = this.ownAddresses()
     const to = msg.address
     const cc = msg.cc
       .split(',')
@@ -2251,14 +2263,15 @@ export class MailStore extends TelegramStore {
       .filter((a) => a !== '')
     for (const a of [to, ...cc]) {
       if (!isBareAddress(a)) return fail(422, `That is not an address the inbox can send to: ${a.slice(0, 80)}`)
-      if (own.has(a.toLowerCase())) {
+      if (isOurs(business, own, a.toLowerCase())) {
         return fail(422, `${a} is your own address, so it would arrive in your own mailbox. Take it off the draft.`)
       }
     }
     if (new Set([to, ...cc].map((a) => a.toLowerCase())).size !== cc.length + 1) {
       return fail(422, 'An address appears twice on this draft.')
     }
-    if (cc.length + 1 > MAX_RECIPIENTS) return fail(422, `A message goes to at most ${MAX_RECIPIENTS} people.`)
+    if (cc.length + 1 > INBOX_MOST_RECIPIENTS)
+      return fail(422, `A message goes to at most ${INBOX_MOST_RECIPIENTS} people.`)
     return ok({ to, cc })
   }
 
@@ -2343,19 +2356,24 @@ export class MailStore extends TelegramStore {
   }
 
   /**
-   * Whether anybody other than Claude wrote or edited the draft after `at`: ANY such change counts, found in the audit (every
-   * creation and every edit is there, with who and when), not only the last one, so a later edit by Claude cannot hide the owner's.
-   * Claude's own edits are not held against it.
+   * Why the owner's instruction at `at` no longer covers the draft, in words for Claude, or null when it still does. Two things void it, both found in the audit (every creation and every edit is there, with who and
+   * when, and ANY such change counts, not only the last, so a later edit by Claude cannot hide an earlier one): somebody other than Claude wrote or edited the draft after it, or ANYBODY, Claude included, changed who the
+   * draft goes to (its To or Cc: the owner agreed to a message for those people). Claude's own edit of the words is not held against it.
    */
-  private changedByOthersAfter(msg: MessageRow, at: string): boolean {
+  private instructionVoidedBy(msg: MessageRow, at: string): string | null {
     const since = Date.parse(at)
-    return this.sql
+    let voided: string | null = null
+    for (const a of this.sql
       .exec(
-        `SELECT actor, at FROM audit WHERE subject = ?1 AND action IN ('draft.create', 'draft.update')`,
+        `SELECT actor, at, before, after FROM audit WHERE subject = ?1 AND action IN ('draft.create', 'draft.update')`,
         `message:${msg.id}`,
       )
-      .toArray()
-      .some((a) => !isAgent(text(a.actor)) && Date.parse(text(a.at)) > since)
+      .toArray()) {
+      if (Date.parse(text(a.at)) <= since) continue
+      if (!isAgent(text(a.actor))) return draftChangedAfterInstruction(this.owner.name)
+      if (recipientsDiffer(a.before, a.after)) voided = recipientsChangedAfterInstruction(this.owner.name)
+    }
+    return voided
   }
 
   /**

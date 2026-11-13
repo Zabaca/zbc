@@ -170,7 +170,10 @@ describe('a reply from the mailbox', () => {
     })
     expect(draft.cc).toBe('ann@example.org, cy@example.net')
     expect(await press(h, draft)).toMatchObject({ ok: true })
-    expect(h.jmapServer.submitted[0]).toMatchObject({ to: ['dana@example.com'], cc: ['ann@example.org', 'cy@example.net'] })
+    expect(h.jmapServer.submitted[0]).toMatchObject({
+      to: ['dana@example.com'],
+      cc: ['ann@example.org', 'cy@example.net'],
+    })
   })
 
   test('an address of the mailbox, or on its domain, cannot be drafted to on its conversation, and if one is on a draft anyway the send is refused before anything is claimed', async () => {

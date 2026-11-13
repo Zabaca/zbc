@@ -5,7 +5,7 @@
  * - **The server's labels are the truth** (Gmail and JMAP): a conversation is read and open by the labels its messages carry, which the server gives and the inbox only mirrors; a change a person makes is made on
  *   the server first. Cloudflare's and Telegram's conversations have no server behind them, and the inbox's own stamps are the whole state.
  * - **Our own addresses are the mailbox's and its domain** (Cloudflare and JMAP): the mailbox's address and every address on its domain are ours (never a recipient, never copied, never an outside participant); Gmail's own
- *   addresses are the owner's and every mailbox's.
+ *   addresses are the owner's and every mailbox's. `belongsToMailbox` and `isOurs` below are the one place that says it: a reply's plan, a draft's Cc and a send's recipients all ask them.
  * - **Email at all** (Gmail, Cloudflare, JMAP): the kinds a draft can be written for, a spam call made on and an address sent from; Telegram's chats are none of these.
  * - **Where the server's ids are kept**: Gmail's in `gmail_id` and `gmail_thread_id`, JMAP's in `jmap_id` and `jmap_thread_id` (migration 18). Gmail's columns keep meaning Gmail.
  */
@@ -22,6 +22,25 @@ export const labelsAreTruth = (kind: MailboxKind | null): boolean => kind === 'g
 
 /** The mailbox's address and its whole domain are ours (Cloudflare, JMAP). */
 export const domainIsOurs = (kind: MailboxKind | null): boolean => kind === 'cloudflare' || kind === 'jmap'
+
+/** What the own-address rule needs of a business mailbox (a Cloudflare or JMAP one): its address and the domain whose addresses are all ours. */
+export interface MailboxDomain {
+  /** Lower case, bare. */
+  address: string
+  /** Lower case: the part after the @. */
+  domain: string
+}
+
+/** Whether an address is a business mailbox's own or on its domain: never a recipient of a reply, never copied, never an outside participant, never a sender whose mail notifies. */
+export const belongsToMailbox = (mailbox: MailboxDomain, address: string): boolean =>
+  address === mailbox.address || address.endsWith(`@${mailbox.domain}`)
+
+/**
+ * Whether `address` is ours for a message that goes out (or came in) through `business`, a business mailbox, or through Gmail when `business` is null: a business mailbox's address and its whole domain,
+ * else every address of the owner's (`own`, lower case: the owner's and each mailbox's).
+ */
+export const isOurs = (business: MailboxDomain | null, own: ReadonlySet<string>, address: string): boolean =>
+  business ? belongsToMailbox(business, address) : own.has(address)
 
 /** The columns a mailbox's server ids are kept in. A closed table, so a name here is safe to put in SQL. */
 export interface IdColumns {

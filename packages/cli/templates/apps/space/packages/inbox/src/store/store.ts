@@ -38,7 +38,7 @@
  * message marked sent by hand, and the reverse.
  */
 
-import { type InboxFrom, parseCalendarSummary, safeSummaryLine } from '@space/workspace'
+import { INBOX_MOST_RECIPIENTS, type InboxFrom, parseCalendarSummary, safeSummaryLine } from '@space/workspace'
 import { judgeSender } from '../automated'
 import { repairMojibake } from '../charset'
 import type { SuggestionContact } from '../clients'
@@ -105,7 +105,15 @@ import {
   type SpamCall,
 } from '../types'
 import { type Classified, classifyAddress } from './address'
-import { domainIsOurs, EMAIL_KINDS, isEmailKind, isMailboxKind, labelsAreTruth, type MailboxKind } from './kinds'
+import {
+  domainIsOurs,
+  EMAIL_KINDS,
+  isEmailKind,
+  isMailboxKind,
+  isOurs,
+  labelsAreTruth,
+  type MailboxKind,
+} from './kinds'
 import { mailboxesOfPerson, peopleOnMailbox, personKey, putPeople, settleMailboxPeople as settlePeople } from './people'
 import type { InboxSql } from './schema'
 import { MESSAGE_MAILBOX, scopeWhere } from './scope'
@@ -227,6 +235,7 @@ export const messageSelect = (owner: string): string => `
          m.edited_at, m.deleted_at, m.calendar,
          i.kind, i.address, i.contact_id, c.name AS contact_name,
          CASE WHEN m.direction = 'out' AND m.status = 'draft' THEN (SELECT value FROM setting WHERE key = 'telegram-send-failed:' || m.id) END AS send_refusal,
+         CASE WHEN m.direction = 'out' AND m.status IN ${PENDING} THEN COALESCE((SELECT value FROM setting WHERE key = '${CC_STATE_PREFIX}' || m.id), '') END AS cc_state,
          CASE WHEN m.direction = 'out' THEN cf.address END AS sent_from,
          CASE WHEN m.direction = 'out' AND m.status IN ${PENDING} THEN sf.address END AS sends_from_address,
          CASE WHEN m.direction = 'out' AND m.status IN ${PENDING} THEN sf.display_name END AS sends_from_name
@@ -305,6 +314,7 @@ export function messageRow(r: Row): MessageRow {
     ...(typeof r.edited_at === 'string' && { editedAt: r.edited_at }),
     ...(typeof r.deleted_at === 'string' && { deletedAt: r.deleted_at }),
     ...(typeof r.send_refusal === 'string' && { refusal: r.send_refusal }),
+    ...(typeof r.cc_state === 'string' && ccFacts(ccStateRead(r.cc_state, text(r.cc_header)))),
     ...(typeof r.sent_from === 'string' && { sentFrom: r.sent_from }),
     ...(typeof r.sends_from_address === 'string' && {
       sendsFrom: { name: text(r.sends_from_name) || r.sends_from_address, address: r.sends_from_address },
@@ -479,19 +489,12 @@ export interface CloudflareSender {
   domain: string
 }
 
-/**
- * Whether an address is the Cloudflare mailbox's own or on its domain: never a recipient of a reply, never copied, never an
- * outside participant, never a sender whose mail notifies. The one place that says it.
- */
-export const belongsToMailbox = (sender: CloudflareSender, address: string): boolean =>
-  address === sender.address || address.endsWith(`@${sender.domain}`)
-
 /** Why a Cc is refused on a draft that is not an email: a text, a direct message and a Telegram message have no Cc. */
 const NOT_AN_EMAIL_DRAFT =
   'Only an email draft can have a Cc: a text or a direct message goes to one person. Nothing was changed.'
 
 /** The email addresses a stored Cc names, in order, lower case, none twice. */
-const ccAddressesOf = (cc: string): string[] => {
+export const ccAddressesOf = (cc: string): string[] => {
   const out: string[] = []
   for (const p of parseAddressList(cc)) {
     const c = classifyAddress(p.address)
@@ -500,8 +503,43 @@ const ccAddressesOf = (cc: string): string[] => {
   return out
 }
 
-/** `first` then whoever of `more` it does not already hold, as a stored Cc: `a@x.example, b@y.example`. */
-const joinedUnion = (first: string[], more: string[]): string => [...new Set([...first, ...more])].join(', ')
+/** `first` then whoever of `more` it does not already hold, each address once. */
+const union = (first: string[], more: string[]): string[] => [...new Set([...first, ...more])]
+
+/**
+ * How a draft's Cc came to be (ADR 0001 decision 35), kept beside the draft in a `setting` row (`draft-cc:<message id>`, present only while there is something to say, so no table and no migration): the addresses the
+ * author TYPED, and whether "copy everyone" is on. The Cc itself stays in `cc_header`, and what "copy everyone" added is the rest of it. So unticking leaves exactly the typed list, whoever the thread names by then.
+ */
+export interface CcState {
+  typed: string[]
+  everyone: boolean
+}
+const CC_STATE_PREFIX = 'draft-cc:'
+
+/** What a draft's Cc state adds to its row as the space and Claude read it. */
+const ccFacts = (s: CcState): Pick<MessageRow, 'copiesEveryone' | 'ccTyped'> => ({
+  copiesEveryone: s.everyone,
+  ccTyped: s.typed,
+})
+
+/** The state a draft's row says, or, for a draft from before it was kept, the one its Cc implies: a Cc could then only come from "copy everyone", so a draft with one copies everyone and none of it was typed. */
+const ccStateRead = (value: unknown, cc: string): CcState => {
+  if (typeof value === 'string' && value !== '') {
+    try {
+      const parsed = JSON.parse(value) as { typed?: unknown; everyone?: unknown }
+      if (
+        Array.isArray(parsed.typed) &&
+        parsed.typed.every((a) => typeof a === 'string') &&
+        typeof parsed.everyone === 'boolean'
+      ) {
+        return { typed: parsed.typed as string[], everyone: parsed.everyone }
+      }
+    } catch {
+      // unreadable: read as a draft from before it was kept
+    }
+  }
+  return { typed: [], everyone: cc.trim() !== '' }
+}
 
 const cloudflareSender = (r: Row): CloudflareSender => {
   const address = text(r.address).toLowerCase()
@@ -2310,7 +2348,7 @@ export class Inbox {
       ? (this.cloudflareSenderOf(conversationId) ?? this.jmapSenderOf(conversationId))
       : null
     const gmailOwn = this.ownAddresses()
-    const isOwn = (address: string): boolean => (sender ? belongsToMailbox(sender, address) : gmailOwn.has(address))
+    const isOwn = (address: string): boolean => isOurs(sender, gmailOwn, address)
     const held = labelsAreTruth(kind)
       ? this.sql
           .exec(
@@ -2384,31 +2422,75 @@ export class Inbox {
   }
 
   /**
-   * A draft's Cc once the patch's `cc` and `copyEveryone` (when given) are applied (ADR 0001 decision 35). The stored Cc is one list and the store keeps no note of who put an address on it, so the rule is
-   * stated in the one thing it can see: the people `copyEveryone` copies on this conversation. `cc` replaces the list; `copyEveryone: true` adds those people; `copyEveryone: false` takes off exactly those
-   * people and nobody else, except an address the same patch's `cc` names. A Cc nobody asked to change is returned as it is stored.
+   * A draft's Cc, and how it came to be, once the patch's `cc` and `copyEveryone` (when given) are applied (ADR 0001 decision 35). `cc` is the whole list the author wants. What the author typed is kept apart from what "copy
+   * everyone" added (`CcState`), so unticking leaves exactly the typed list whoever the thread names by then, and ticking adds the thread's people to it. In an edit that names a `cc` and a tick together, all of the list is typed.
+   * In one that names only a `cc` while "copy everyone" is on, the people already copied stay copied for as long as the list still holds them all; take one off and it is the author's own list from then on, with the tick off.
+   * A Cc nobody asked to change is returned as it is stored.
    */
-  private ccAfterPatch(before: MessageRow, patch: DraftPatch): Result<string> {
+  private ccAfterPatch(before: MessageRow, patch: DraftPatch): Result<{ cc: string; state: CcState }> {
     const { cc, copyEveryone } = patch
-    if (cc === undefined && copyEveryone === undefined) return ok(before.cc)
-    const email = before.kind === 'email'
-    if (cc !== undefined && cc.length > 0 && !email) return fail(422, NOT_AN_EMAIL_DRAFT)
-    let list = ccAddressesOf(before.cc)
-    let named = new Set<string>()
+    const now = this.ccStateOf(before)
+    if (cc === undefined && copyEveryone === undefined) return ok({ cc: before.cc, state: now })
+    const held = ccAddressesOf(before.cc)
+    let list = held
+    let typed = now.typed
+    let everyone = now.everyone
     if (cc !== undefined) {
       const listed = this.ccAddresses(cc)
       if (!listed.ok) return listed
+      if (listed.value.length > 0 && before.kind !== 'email') return fail(422, NOT_AN_EMAIL_DRAFT)
       list = this.withoutOurs(listed.value, before.address, this.ownTestOfDraft(before))
-      named = new Set(list)
+      const copied = held.filter((a) => !now.typed.includes(a))
+      if (copyEveryone === undefined && everyone && copied.every((a) => list.includes(a))) {
+        typed = list.filter((a) => !copied.includes(a))
+      } else {
+        typed = list
+        if (copyEveryone === undefined) everyone = false
+      }
     }
-    if (copyEveryone === undefined) return ok(list.join(', '))
-    const plan = before.conversationId ? this.replyPlan(before.conversationId) : null
-    if (copyEveryone) {
+    if (copyEveryone === true) {
+      const plan = before.conversationId ? this.replyPlan(before.conversationId) : null
       if (!plan) return fail(422, 'This draft is not on an email conversation, so there is nobody to copy.')
-      return ok(joinedUnion(list, this.copyPeople(plan, before.address)))
+      everyone = true
+      list = union(typed, this.copyPeople(plan, before.address))
+    } else if (copyEveryone === false) {
+      everyone = false
+      list = typed
     }
-    const people = new Set(plan ? this.copyPeople(plan, before.address) : [])
-    return ok(list.filter((a) => named.has(a) || !people.has(a)).join(', '))
+    const tooMany = this.tooManyRecipients(list)
+    if (tooMany) return tooMany
+    return ok({ cc: list.join(', '), state: { typed, everyone } })
+  }
+
+  /** A draft's Cc state as its row has it (`messageRow` reads it); a row that is not a draft's has none, and is read as a Cc nobody typed. */
+  private ccStateOf(draft: MessageRow): CcState {
+    return { typed: draft.ccTyped ?? [], everyone: draft.copiesEveryone === true }
+  }
+
+  /** Keep a draft's Cc state beside it: a row only while there is something to say. */
+  private writeCcState(id: string, state: CcState, actor: string): void {
+    if (state.typed.length === 0 && !state.everyone) {
+      this.sql.exec(`DELETE FROM setting WHERE key = ?1`, `${CC_STATE_PREFIX}${id}`)
+      return
+    }
+    this.sql.exec(
+      `INSERT INTO setting (key, value, updated_at, updated_by) VALUES (?1, ?2, ?3, ?4)
+       ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at, updated_by = excluded.updated_by`,
+      `${CC_STATE_PREFIX}${id}`,
+      JSON.stringify(state),
+      this.now(),
+      actor,
+    )
+  }
+
+  /** The refusal for a Cc that, with the recipient, goes to more people than a message may (INBOX_MOST_RECIPIENTS), or null. Said when the draft is made or edited, not only at the send. */
+  private tooManyRecipients(cc: string[]): Result<never> | null {
+    return cc.length + 1 > INBOX_MOST_RECIPIENTS
+      ? fail(
+          422,
+          `A message goes to at most ${INBOX_MOST_RECIPIENTS} people, the first of them its recipient. Nothing was changed.`,
+        )
+      : null
   }
 
   /** The addresses an explicit Cc names, each as the one spelling of an email address a send accepts (printable ASCII, bare), none twice. A list with anything else in it is refused whole. */
@@ -2433,14 +2515,10 @@ export class Inbox {
     return list.filter((a) => a !== to.toLowerCase() && !isOurs(a))
   }
 
-  /**
-   * What a send takes as the sending mailbox's own, which a Cc may not hold (`checkRecipients`): a business mailbox's address and its whole domain's, or, for the owner's Gmail, every address of the
-   * owner's. `business` is the mailbox the draft goes out from when it is a business one, else null.
-   */
+  /** The test a send applies to a draft's addresses (`checkRecipients`), asked of `isOurs`: for a draft that goes out through `business` (a business mailbox), else for the owner's Gmail. */
   private ownTest(business: CloudflareSender | null): (address: string) => boolean {
-    if (business) return (a) => belongsToMailbox(business, a)
     const own = this.ownAddresses()
-    return (a) => own.has(a)
+    return (a) => isOurs(business, own, a)
   }
 
   /** `ownTest` for a draft that is stored: the business mailbox its conversation is in, else the one recorded on it. */
@@ -2616,6 +2694,8 @@ export class Inbox {
       const listed = this.ccAddresses(rawInput.cc)
       if (!listed.ok) return listed
       typedCc = listed.value
+      const crowded = this.tooManyRecipients(typedCc)
+      if (crowded) return crowded
       const byAddress = rawInput.address ? classifyAddress(rawInput.address) : null
       if (typedCc.length > 0 && byAddress !== null && byAddress.kind !== 'email') return fail(422, NOT_AN_EMAIL_DRAFT)
     }
@@ -2654,6 +2734,9 @@ export class Inbox {
       const business = from ? this.cloudflareMailboxSender(from.id) : null
       const typed = this.withoutOurs(typedCc, to.value.identity.address, this.ownTest(business))
       const people = input.copyEveryone && plan ? this.copyPeople(plan, to.value.identity.address) : []
+      const list = union(typed, people)
+      const tooMany = this.tooManyRecipients(list)
+      if (tooMany) return tooMany
       const draft = this.insertMessage({
         identityId: to.value.identity.id,
         conversationId: to.value.conversationId,
@@ -2666,7 +2749,8 @@ export class Inbox {
         sentAt: null,
         sentBy: null,
         sourceRef: null,
-        cc: joinedUnion(typed, people),
+        cc: list.join(', '),
+        ccState: { typed, everyone: input.copyEveryone === true && plan !== null },
         mailboxId: from?.id ?? null,
       })
       if (to.value.conversationId) this.touchConversation(to.value.conversationId)
@@ -2736,6 +2820,8 @@ export class Inbox {
     cc?: string
     /** The Cloudflare mailbox a draft will go out from, recorded now so the send does not decide it later; null for Gmail's. */
     mailboxId?: string | null
+    /** How the draft's Cc came to be, kept beside it (`CcState`). */
+    ccState?: CcState
   }): MessageRow {
     const id = this.ports.newId()
     this.sql.exec(
@@ -2758,6 +2844,7 @@ export class Inbox {
       m.cc ?? '',
       m.mailboxId ?? null,
     )
+    if (m.ccState) this.writeCcState(id, m.ccState, m.createdBy)
     return this.message(id) as MessageRow
   }
 
@@ -2783,7 +2870,7 @@ export class Inbox {
       if (refused) return refused
       const copied = this.ccAfterPatch(before, patch)
       if (!copied.ok) return copied
-      const cc = copied.value
+      const cc = copied.value.cc
       // `rev` counts the edit: a send names the revision its author saw (migration 4).
       this.sql.exec(
         `UPDATE message SET subject = ?2, body = ?3, why = ?4, cc_header = ?7, rev = rev + 1, updated_at = ?5, updated_by = ?6 WHERE id = ?1`,
@@ -2795,6 +2882,7 @@ export class Inbox {
         actor,
         cc,
       )
+      if (patch.cc !== undefined || patch.copyEveryone !== undefined) this.writeCcState(id, copied.value.state, actor)
       if (takingOut) {
         this.sql.exec(`UPDATE message SET attachments = '[]', raw_key = NULL WHERE id = ?1`, id)
         this.releasePicture(before.rawKey)
@@ -2819,6 +2907,7 @@ export class Inbox {
       if (rev !== before.rev) return fail(409, CHANGED_SINCE_SHOWN)
       this.sql.exec(`DELETE FROM message WHERE id = ?1`, id)
       this.sql.exec(`DELETE FROM draft_chat WHERE draft_id = ?1`, id)
+      this.sql.exec(`DELETE FROM setting WHERE key = ?1`, `${CC_STATE_PREFIX}${id}`)
       // The picture a Telegram draft carries goes with it (the object is deleted by the sweep).
       this.releasePicture(before.rawKey)
       this.tombstone(before.sourceRef, actor)

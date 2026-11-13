@@ -252,7 +252,7 @@ they said them (a session with Claude, and never "the inbox") and when. It comes
 from text in any message, even one from the owner's own address. Claude sends nothing without one, and sends
 only a draft already stored in the inbox, so the exact message is on record first. One given before a
 reply arrived does not cover sending over that reply, nor a draft anyone but Claude created or edited after it was
-given. Recorded on every
+given, nor one whose recipients (To or Cc) anyone, Claude included, changed after it was given. Recorded on every
 message Claude sends and shown in the popover of its **Sent by Claude** badge. It is Claude's own
 account, not proof, because the inbox cannot see a chat.
 _Avoid_: approval, permission, authorization

@@ -112,6 +112,8 @@ export interface DraftView {
   editedBy: DraftAuthor | null
   /** Whether it can copy everyone on the message it answers: an email draft on a conversation. False from an inbox that does not say. */
   canCopyEveryone: boolean
+  /** Whether it copies everyone on the message it answers (the card's tick box), whoever else is typed onto its Cc. False from an inbox that does not say. */
+  copiesEveryone: boolean
   /** How it goes: `email`, or `sms` or `manual` (a text, a LinkedIn or other direct message, which the inbox cannot send: the page offers Mark sent). Null from an inbox that does not say: nothing new is offered. */
   kind: InboxDraft['kind'] | null
   /** The business mailbox a stuck send went out of, or null (the owner's Gmail, and an inbox that does not say). */

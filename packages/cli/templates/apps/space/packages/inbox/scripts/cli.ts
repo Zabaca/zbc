@@ -196,11 +196,12 @@ for the owner to read), cc (an email draft only: a list of addresses to copy, li
 to the owner, because they are shown on the draft and the send goes to them). An entry that is not
 an email address, or any cc on a text or a direct message, is refused (422) and nothing is drafted
 or changed; duplicates, the draft's recipient and the sending mailbox's own address are dropped. The
-addresses come before whoever copyEveryone adds and stay when copyEveryone is changed later.
-\`edit\` takes the same cc and REPLACES the list with it ([] takes every address off), so send the
-whole list you want; it is an edit like any other (the rev rises, and a change by anyone but you
-after the owner's instruction stops the send). copyEveryone: false in an edit takes off only the
-people copyEveryone adds, and keeps an address the same edit names in cc. A draft with an em dash is refused. A draft on an email conversation
+addresses you type come before the thread's people that copyEveryone adds, and copyEveryone: false later
+leaves exactly the ones you typed. \`drafts\` prints copiesEveryone (whether that is on) and ccTyped (what was typed).
+At most 20 people in all, the recipient and the Cc together. \`edit\` takes the same cc and REPLACES the whole Cc with
+it ([] takes every address off), so send the whole list you want. A change of the recipients (the Cc) after
+the owner's instruction stops your send, even a change you made: tell the owner who is on the Cc now and ask
+again. A draft with an em dash is refused. A draft on an email conversation
 needs no address and no subject: it is a reply, to the Reply-To of the newest message
 that came in (else its sender), as "Re: <the conversation's subject>". Claude drafts every
 message, so the owner can see it, and sends only when they say so.

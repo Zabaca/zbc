@@ -29,6 +29,7 @@ export function draftViewOf(d: InboxDraft, thread: Pick<ThreadView, 'through' | 
     why: d.why ?? '',
     editedBy: d.editedBy ?? null,
     canCopyEveryone: d.canCopyEveryone === true,
+    copiesEveryone: d.copiesEveryone === true,
     kind: d.kind ?? null,
     sentFrom: d.sentFrom ?? null,
     sendsFrom: d.sendsFrom ?? null,

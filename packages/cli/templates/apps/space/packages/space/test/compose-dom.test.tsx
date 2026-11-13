@@ -222,7 +222,7 @@ describe('the New email box', () => {
 
 async function openCard() {
   const { DraftEditor } = await import('../src/client/DraftEdit')
-  const draft: DraftView = { id: 'd-1', conversationId: 't-lena-1', subject: 'Re: Can you look at the menu page', text: 'Hi Lena, I will fix it today.', rev: 1, author: 'claude', stuck: false, at: NOW, why: 'She asked.', editedBy: null, canCopyEveryone: true, kind: 'email', sentFrom: null, sendsFrom: null, to: 'lena@example.net', toName: 'Lena', cc: [], through: 1, refusal: null, sending: false, sendable: true }
+  const draft: DraftView = { id: 'd-1', conversationId: 't-lena-1', subject: 'Re: Can you look at the menu page', text: 'Hi Lena, I will fix it today.', rev: 1, author: 'claude', stuck: false, at: NOW, why: 'She asked.', editedBy: null, canCopyEveryone: true, copiesEveryone: false, kind: 'email', sentFrom: null, sendsFrom: null, to: 'lena@example.net', toName: 'Lena', cc: [], through: 1, refusal: null, sending: false, sendable: true }
   const closed: boolean[] = []
   const changed: number[] = []
   let current = draft
@@ -368,6 +368,24 @@ describe('editing a draft in its card', () => {
     expect(body.copyEveryone).toBe(true)
     expect(body).not.toHaveProperty('cc')
     await page.unmount()
+  })
+
+  test('the tick box is the inbox\u2019s own word that everyone is copied: a Cc somebody typed does not tick it, and ticking it from there is saved', async () => {
+    const worker = standInWorker()
+    const { page, moveOn } = await openCard()
+    await moveOn({ rev: 2, cc: [{ name: 'Ann', address: 'ann@example.org' }], copiesEveryone: false })
+    await page.click(page.q('use-theirs'))
+    expect(page.q<HTMLInputElement>('edit-copy')?.checked).toBe(false)
+    expect(ask(page.q('edit-cc'))).toBe('ann@example.org')
+    await page.click(page.q('edit-copy'))
+    await page.click(page.q('save-draft'))
+    expect(worker.calls.filter((c) => c.path === '/api/inbox/draft-edit')[0]?.body).toMatchObject({ rev: 2, copyEveryone: true })
+    await page.unmount()
+    const ticked = await openCard()
+    await ticked.moveOn({ rev: 2, cc: [{ name: 'Marcus', address: 'marcus@example.net' }], copiesEveryone: true })
+    await ticked.page.click(ticked.page.q('use-theirs'))
+    expect(ticked.page.q<HTMLInputElement>('edit-copy')?.checked).toBe(true)
+    await ticked.page.unmount()
   })
 
   test('a draft that is not an email, or whose Cc the inbox did not say, has no Cc box', async () => {

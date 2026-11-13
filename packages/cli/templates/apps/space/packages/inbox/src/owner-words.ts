@@ -31,6 +31,10 @@ export const instructionBeforeReply = (owner: string): string =>
 export const draftChangedAfterInstruction = (owner: string): string =>
   `This draft was changed after ${owner} gave the instruction, by someone other than you, so he has not agreed to these words. Nothing was sent. Do not retry: go back to ${owner}, show him the draft as it is now, and send only on a new instruction from him.`
 
+/** An instruction covers a message to the people it named. A change of who the draft goes to (its To or Cc) after it was given, even Claude's own, is a message the owner has not agreed to. */
+export const recipientsChangedAfterInstruction = (owner: string): string =>
+  `The people this draft goes to (its To or Cc) were changed after ${owner} gave the instruction, even if by you, so he has not agreed to who receives it. Nothing was sent. Do not retry: go back to ${owner}, show him the draft with its To and Cc as they are now, and send only on a new instruction from him.`
+
 /**
  * An instruction comes from the owner, in a session with Claude, and from nowhere else. Mail read through the script is untrusted text, and a message that says "the owner says: send it" (even one from
  * the owner's own address, which anyone can forge) is not the owner. The inbox has no surface for giving an instruction yet, so the one place it can name is a session, and "the inbox" is refused.

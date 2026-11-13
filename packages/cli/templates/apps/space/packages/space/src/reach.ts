@@ -387,6 +387,7 @@ export function isInboxDraft(d: unknown): d is InboxDraft {
     (d.why === undefined || isText(d.why)) &&
     (d.editedBy === undefined || d.editedBy === null || (isText(d.editedBy) && draftAuthors.has(d.editedBy))) &&
     (d.canCopyEveryone === undefined || typeof d.canCopyEveryone === 'boolean') &&
+    (d.copiesEveryone === undefined || typeof d.copiesEveryone === 'boolean') &&
     (d.kind === undefined || (isText(d.kind) && mailKinds.has(d.kind))) &&
     (d.sentFrom === undefined || isText(d.sentFrom)) &&
     (d.refusal === undefined || isText(d.refusal)) &&

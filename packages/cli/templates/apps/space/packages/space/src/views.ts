@@ -13,6 +13,7 @@ import {
   ANSWER_WITHIN_MS,
   DEVICE_ORIGINS,
   GMAIL_STATES,
+  INBOX_MOST_RECIPIENTS,
   type InboxFile,
   JMAP_PUSH_STATES,
   JMAP_STATES,
@@ -368,8 +369,8 @@ const TEXT_MAX = 20_000
 
 /** The longest subject or draft body an edit is taken with: far past what anyone writes (the inbox's own send limit is 100 000 characters). */
 const DRAFT_MAX = 100_000
-/** The most addresses one draft's Cc may be sent here with: a send takes at most 20 people, and a longer list is refused before it reaches the inbox. */
-const CC_MAX = 50
+/** The most addresses one draft's Cc may be sent here with: a message goes to at most INBOX_MOST_RECIPIENTS people and the first is its recipient, and a longer list is refused before it reaches the inbox. */
+const CC_MAX = INBOX_MOST_RECIPIENTS - 1
 
 async function write<T>(ask: Asking, call: (inbox: NonNullable<Asking['apps']['inbox']>) => Promise<SpaceReply<T>>, valid: (v: unknown) => v is T): Promise<Parsed<ViewAnswer<unknown>>> {
   const { inbox } = ask.apps

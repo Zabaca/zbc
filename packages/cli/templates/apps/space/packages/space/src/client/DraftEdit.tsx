@@ -16,8 +16,8 @@ import { postView, postViewForm } from './views'
 /** Who changed a draft, as the conflict names them (the inbox's own words). */
 const WHO: Record<DraftAuthor, string> = { claude: 'Claude', assistant: 'The assistant', owner: 'You', outbox: 'The outbox' }
 
-/** Whether the draft copies anyone: its Cc is not empty (the inbox's own reading). */
-export const copiesNow = (draft: Pick<DraftView, 'cc'>): boolean => (draft.cc?.length ?? 0) > 0
+/** Whether the draft copies everyone on the message it answers: the inbox says so (typed addresses on the Cc do not tick the box). */
+export const copiesNow = (draft: Pick<DraftView, 'copiesEveryone'>): boolean => draft.copiesEveryone
 
 /** The draft's Cc as the box shows it: the addresses, comma separated. */
 export const ccTextOf = (draft: Pick<DraftView, 'cc'>): string => (draft.cc ?? []).map((c) => c.address).join(', ')
@@ -49,7 +49,7 @@ export const ccChanged = (draft: Pick<DraftView, 'cc'>, ccText: string): boolean
 export const takesCc = (draft: Pick<DraftView, 'kind' | 'cc'>): boolean => draft.kind === 'email' && draft.cc !== null
 
 /** Whether the boxes differ from the draft: the inbox trims a draft's words and subject, so an edit that only adds a trailing newline is no change. */
-export const isDirty = (draft: Pick<DraftView, 'subject' | 'text' | 'cc'>, subject: string, text: string, copy: boolean = copiesNow(draft), ccText: string = ccTextOf(draft)): boolean =>
+export const isDirty = (draft: Pick<DraftView, 'subject' | 'text' | 'cc' | 'copiesEveryone'>, subject: string, text: string, copy: boolean = copiesNow(draft), ccText: string = ccTextOf(draft)): boolean =>
   subject.trim() !== draft.subject.trim() || text.trim() !== draft.text.trim() || copy !== copiesNow(draft) || ccChanged(draft, ccText)
 
 /** Whether the draft on the card is not the revision the words in the boxes were written over: someone changed it meanwhile. */

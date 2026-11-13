@@ -38,7 +38,8 @@ import {
   type MailboxMark,
 } from '../types'
 import { classifyAddress } from './address'
-import { belongsToMailbox, Inbox, spamCallOf, text, textOrNull } from './store'
+import { belongsToMailbox } from './kinds'
+import { Inbox, spamCallOf, text, textOrNull } from './store'
 
 /** A Cloudflare mailbox row. Nothing in it is secret. */
 export interface CloudflareMailboxRow {
