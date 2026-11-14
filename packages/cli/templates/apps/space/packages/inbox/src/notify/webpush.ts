@@ -14,7 +14,7 @@ import { b64url, bytesOf } from './base64url'
  *
  * ── WHAT IS ENCRYPTED, AND TO WHOM ───────────────────────────────────────
  * Each device gave the inbox a public key (`p256dh`) and a secret (`auth`) when the owner turned notifications on. A
- * payload is encrypted to that pair with a fresh key pair and salt of the inbox's for every message, so Google's push
+ * payload is encrypted to that pair with a fresh key pair and salt of the inbox's for every message, so the push
  * service, which carries it, sees its size and never its text. One record, padded only by the delimiter: the payload
  * is a few hundred bytes and the push service takes 4096.
  *
@@ -157,30 +157,43 @@ export async function encryptPayload(input: EncryptInput): Promise<Uint8Array> {
   return concat(salt, rs, new Uint8Array([asPublic.length]), asPublic, sealed)
 }
 
-/** How long a VAPID token is good for. RFC 8292 allows a day; half of one is the option's. */
+/** How long a VAPID token is good for. RFC 8292 allows a day, which is also the most Apple's push service takes; half of one is used. */
 export const VAPID_LIFETIME_S = 12 * 60 * 60
+
+/** How long one token is reused before another is signed: Apple asks senders not to refresh the token more than once an hour. */
+export const VAPID_REUSE_S = 60 * 60
 
 /**
  * Who the push service may contact about the inbox's requests: the install's space address (where the notifications open, `InboxOwner.spaceOrigin`), never the owner's email. RFC 8292 makes it a contact and not
- * part of the key, so devices that were turned on under the inbox's old address keep working.
+ * part of the key, so devices that were turned on under the inbox's old address keep working. The install's address is always https (`Install.url`), which is one of the two forms Apple's push service takes as a subject (the other is `mailto:`).
  */
+
+/** Tokens already signed, by push service origin and subject: the caller keeps one of these for as long as it sends, so a burst of notifications signs once. */
+export type VapidTokens = Map<string, { token: string; signedMs: number }>
 
 /**
  * The Authorization header for one request to `endpoint` (RFC 8292): a JWT signed with the inbox's key, whose audience
- * is the push service's origin, and the public key that verifies it.
+ * is the push service's origin, and the public key that verifies it. With `tokens`, a token signed less than
+ * VAPID_REUSE_S ago for the same origin is sent again instead of a new one (it then has at least 11 hours left).
  */
 export async function vapidAuthorization(
   key: VapidKey,
   endpoint: string,
   nowMs: number,
   subject: string,
+  tokens?: VapidTokens,
 ): Promise<string> {
+  const origin = new URL(endpoint).origin
+  const held = tokens?.get(`${origin}\n${subject}\n${key.publicKey}`)
+  if (held && nowMs >= held.signedMs && nowMs - held.signedMs < VAPID_REUSE_S * 1000)
+    return `vapid t=${held.token}, k=${key.publicKey}`
   const signing = await importJWK({ ...key.jwk }, 'ES256')
   const token = await new SignJWT({})
     .setProtectedHeader({ alg: 'ES256', typ: 'JWT' })
-    .setAudience(new URL(endpoint).origin)
+    .setAudience(origin)
     .setExpirationTime(Math.floor(nowMs / 1000) + VAPID_LIFETIME_S)
     .setSubject(subject)
     .sign(signing)
+  tokens?.set(`${origin}\n${subject}\n${key.publicKey}`, { token, signedMs: nowMs })
   return `vapid t=${token}, k=${key.publicKey}`
 }

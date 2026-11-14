@@ -360,15 +360,19 @@ the part after `#` never reaches Access. **A sign-in lasts a month** (730 hours)
 in the inbox's Access instance: someone holding the owner's unlocked phone or Mac can use the inbox for up to a month without a
 code, as Gmail on the same devices already allows. The Worker still verifies every assertion, its expiry included.
 
-*What leaves the inbox for Google's push service, and what does not.* A notification carries the sender's
+*What leaves the inbox for a push service, and what does not.* A notification carries the sender's
 name (else address) and the subject, and the ids a tap needs, and nothing else: never the text, the snippet, the other
 addresses, a Client or anything Claude wrote. It is encrypted to each device (RFC 8291, aes128gcm, a fresh key pair and
 salt per message) and signed with the inbox's VAPID key (RFC 8292, ES256, audience the push service's origin, expiring
 within 12 hours, subject an `https:` address of the install's), all written here over WebCrypto and checked against the RFC's
-worked example, with no web-push library on the path that holds the key. Google's push service learns that a
+worked example, with no web-push library on the path that holds the key. The push service (Google's for Chrome, Apple's
+for Safari on an iPhone or iPad) learns that a
 notification went to a device, when, and its size; the request has a time to live of an hour, urgency high, and no
-Topic (a Topic is readable by the push service). Only Chrome's push service (`fcm.googleapis.com`) is accepted as a
-device's address, so the Worker never calls an address a request chose. Web Push is outbound only: no hostname, route,
+Topic (a Topic is readable by the push service). A token is signed once an hour for each push service and sent again
+until then, which Apple's asks. Only Chrome's push service (`fcm.googleapis.com`) and Apple's (any host under
+`push.apple.com`, matched as a subdomain, https and no port or credentials) are accepted as a
+device's address, checked when the device is added and again at every send, so the Worker never calls an address a
+request chose. Web Push is outbound only: no hostname, route,
 DNS record or Access application was added. The Worker's log names message and device ids, never a sender or subject.
 
 *The key is a Worker secret, and without it notifications fail closed.* `INBOX_VAPID_KEY` is one P-256 JSON Web Key

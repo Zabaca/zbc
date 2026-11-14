@@ -7,6 +7,8 @@ import {
   parseVapidKey,
   RECORD_SIZE,
   VAPID_LIFETIME_S,
+  VAPID_REUSE_S,
+  type VapidTokens,
   vapidAuthorization,
 } from '../src/notify/webpush'
 import { NORTHFIELD_OWNER } from '../test-support/owner'
@@ -155,6 +157,62 @@ describe('the key, and the signature on every request (RFC 8292)', () => {
     })
     expect(VAPID_LIFETIME_S).toBeLessThanOrEqual(12 * 60 * 60)
     expect(NORTHFIELD_OWNER.spaceOrigin).not.toContain('@')
+  })
+
+  test('for Apple’s push service: its own origin as the audience, a token good for no more than a day, and a subject that is an https address', async () => {
+    const key = parseVapidKey(await generateVapidKey())
+    if (!key) throw new Error('no key')
+    const now = Date.parse('2026-10-21T12:00:00Z')
+    const { claims } = await verifyVapid(
+      await vapidAuthorization(key, 'https://web.push.apple.com/QGPb8-xyz', now, NORTHFIELD_OWNER.spaceOrigin),
+    )
+    expect(claims.aud).toBe('https://web.push.apple.com')
+    expect(claims.sub).toBe(NORTHFIELD_OWNER.spaceOrigin)
+    expect(String(claims.sub)).toStartWith('https://')
+    expect(Number(claims.exp) * 1000 - now).toBeLessThanOrEqual(24 * 60 * 60 * 1000)
+  })
+
+  test('a token is signed once an hour for a push service, not for every request, and never one with less than 11 hours left', async () => {
+    const key = parseVapidKey(await generateVapidKey())
+    if (!key) throw new Error('no key')
+    const start = Date.parse('2026-10-21T12:00:00Z')
+    const tokens: VapidTokens = new Map()
+    const apple = 'https://web.push.apple.com/a'
+    const first = await vapidAuthorization(key, apple, start, NORTHFIELD_OWNER.spaceOrigin, tokens)
+    // Another device at the same push service, a minute and then 59 minutes later: the same token.
+    expect(
+      await vapidAuthorization(
+        key,
+        'https://web.push.apple.com/b',
+        start + 60_000,
+        NORTHFIELD_OWNER.spaceOrigin,
+        tokens,
+      ),
+    ).toBe(first)
+    const late = start + (VAPID_REUSE_S - 1) * 1000
+    const reused = await vapidAuthorization(key, apple, late, NORTHFIELD_OWNER.spaceOrigin, tokens)
+    expect(reused).toBe(first)
+    expect(Number((await verifyVapid(reused)).claims.exp) * 1000 - late).toBeGreaterThanOrEqual(11 * 60 * 60 * 1000)
+    // An hour on, a new one, good for a day from then; another push service never shares one.
+    const next = await vapidAuthorization(
+      key,
+      apple,
+      start + VAPID_REUSE_S * 1000,
+      NORTHFIELD_OWNER.spaceOrigin,
+      tokens,
+    )
+    expect(next).not.toBe(first)
+    expect((await verifyVapid(next)).claims.exp).toBe(start / 1000 + VAPID_REUSE_S + VAPID_LIFETIME_S)
+    const chrome = await vapidAuthorization(
+      key,
+      'https://fcm.googleapis.com/x',
+      start,
+      NORTHFIELD_OWNER.spaceOrigin,
+      tokens,
+    )
+    expect((await verifyVapid(chrome)).claims.aud).toBe('https://fcm.googleapis.com')
+    // Without a place to keep them, every call signs (the pure function the test above reads).
+    expect(await vapidAuthorization(key, apple, start, NORTHFIELD_OWNER.spaceOrigin)).not.toBe(first)
   })
 
   test('a header signed by another key does not verify under this one', async () => {
