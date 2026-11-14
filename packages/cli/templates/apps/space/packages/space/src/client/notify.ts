@@ -18,7 +18,8 @@ export const WINDOW_MESSAGES = {
 
 /**
  * Where this browser stands, in the order Settings checks it:
- *   `unsupported`  it has no service worker, push or notifications at all (an iPhone's browser tab; the installed app on it does);
+ *   `add-to-home-screen`  an iPhone's or iPad's Safari tab, which has no push or notifications at all (the app added to the Home Screen has both, from iOS 16.4): the page says how to add it;
+ *   `unsupported`  it has no service worker, push or notifications at all, and the page is not in such a tab (an iPhone or iPad before iOS 16.4, or a browser with none);
  *   `blocked`      the system or the person blocked the space's notifications here;
  *   `no-key`       the inbox has no key to send with, so nothing can be turned on;
  *   `stale-key`    this browser turned them on with a key the inbox no longer has: none arrive;
@@ -26,13 +27,29 @@ export const WINDOW_MESSAGES = {
  *   `failing`      on, and the last notification to it failed after its last delivery;
  *   `on`           on.
  */
-export type BrowserState = 'unsupported' | 'blocked' | 'no-key' | 'stale-key' | 'off' | 'failing' | 'on'
+export type BrowserState = 'add-to-home-screen' | 'unsupported' | 'blocked' | 'no-key' | 'stale-key' | 'off' | 'failing' | 'on'
+
+/** The Apple device this page runs on, which decides what "add the space to the Home Screen" says. */
+export type AppleDevice = 'iPhone' | 'iPad'
+
+/**
+ * An iPhone or an iPad from what the browser says of itself, or null for anything else. An iPad has said Macintosh since iPadOS 13 (a request for the desktop
+ * site is its default), so it is told from a Mac by its touch screen: no Mac reports more than one touch point.
+ */
+export function appleDevice(userAgent: string, touchPoints: number): AppleDevice | null {
+  if (/iPhone|iPod/.test(userAgent)) return 'iPhone'
+  if (/iPad/.test(userAgent)) return 'iPad'
+  if (/Macintosh/.test(userAgent) && touchPoints > 1) return 'iPad'
+  return null
+}
 
 export interface BrowserFacts {
   supported: boolean
   permission: 'default' | 'granted' | 'denied'
   /** The inbox's answer. */
   notifications: Pick<InboxNotifications, 'publicKey' | 'devices'>
+  /** Set on an iPhone or iPad: which, and whether this page runs as the app added to the Home Screen (where push exists) and not in a Safari tab (where it does not). */
+  apple?: { device: AppleDevice; installed: boolean } | null
   /** This browser as a device: its push address and the key it was turned on with (base64url), or null when it is none. */
   thisBrowser: { endpoint: string; key: string | null } | null
 }
@@ -42,7 +59,7 @@ export const failing = (d: Pick<InboxDevice, 'lastFailedAt' | 'lastDeliveredAt'>
 
 /** The state of this browser, and the device that is this browser when the inbox lists one. */
 export function browserState(f: BrowserFacts): { state: BrowserState; device: InboxDevice | null } {
-  if (!f.supported) return { state: 'unsupported', device: null }
+  if (!f.supported) return { state: f.apple && !f.apple.installed ? 'add-to-home-screen' : 'unsupported', device: null }
   if (f.permission === 'denied') return { state: 'blocked', device: null }
   if (f.notifications.publicKey === null) return { state: 'no-key', device: null }
   const sub = f.thisBrowser
@@ -81,6 +98,18 @@ export function serverKey(publicKey: string): Uint8Array<ArrayBuffer> | null {
 /** Whether this browser can receive notifications at all. */
 export function notificationsSupported(): boolean {
   return typeof window !== 'undefined' && 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window
+}
+
+/** Whether this page runs as an app added to the Home Screen (or installed from Chrome), not in a browser tab. Safari says so with `navigator.standalone`, everything else with the display mode. */
+function installedApp(): boolean {
+  return (navigator as Navigator & { standalone?: boolean }).standalone === true || (typeof matchMedia === 'function' && matchMedia('(display-mode: standalone)').matches)
+}
+
+/** What this page knows of being on an iPhone or iPad, as `browserState` reads it, or null anywhere else. */
+export function appleFacts(): BrowserFacts['apple'] {
+  if (typeof navigator === 'undefined') return null
+  const device = appleDevice(navigator.userAgent, navigator.maxTouchPoints ?? 0)
+  return device === null ? null : { device, installed: installedApp() }
 }
 
 export function permission(): BrowserFacts['permission'] {
@@ -176,7 +205,8 @@ export function browserStep<T>(step: TurnOnStep, work: Promise<T>, ms: number): 
 }
 
 /**
- * Turn notifications on here: the browser's permission (asked from the button press, never otherwise), the app's worker, a push address made with the inbox's
+ * Turn notifications on here: the browser's permission (asked from the button press, never otherwise: it is the first call, with nothing awaited before it, because an iPhone or iPad
+ * asks for permission only from a tap), the app's worker, a push address made with the inbox's
  * key (one made with an old key is dropped first), and the device handed to the inbox, which lists it as the space's. Throws with words to show.
  */
 export async function turnOn(publicKey: string, onStep: (step: TurnOnStep) => void = () => {}): Promise<void> {

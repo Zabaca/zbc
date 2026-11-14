@@ -102,6 +102,13 @@ export function stayQuiet(person: string | null, openInVisibleWindows: readonly 
   return person !== null && openInVisibleWindows.some((addresses) => addresses.includes(person))
 }
 
+/**
+ * Whether this browser takes away a site's permission when a push shows nothing, so the worker must show every one: Apple's (Safari on an iPhone, an iPad or a Mac, and
+ * the app added to the Home Screen) does, and says so. Chrome lets a push stay unshown while a window of the site is visible. A Mac's Chrome, Edge, Opera and Firefox say
+ * so in their User-Agent; an iPhone's or iPad's browser is WebKit whatever it is called, and an iPad's app says Macintosh with a `Mobile/` mark.
+ */
+export const showsEveryPush = (userAgent: string): boolean => /iPhone|iPad|iPod/.test(userAgent) || (/Macintosh/.test(userAgent) && !/Chrome\/|Chromium\/|Firefox\/|Edg\/|OPR\//.test(userAgent))
+
 /** The path a tap opens: the person's conversation, or the Inbox list. */
 export const tapPath = (person: string | null): string => (person === null ? LIST_PATH : conversationPathOf(person))
 

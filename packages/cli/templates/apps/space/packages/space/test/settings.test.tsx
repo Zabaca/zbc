@@ -121,7 +121,14 @@ describe('Notifications', () => {
   test('each state of this browser says what it is, and the buttons only where they help', () => {
     expect(panel({ devices: [], state: 'off' })).toContain('Turn on notifications')
     expect(panel({ devices: [], state: 'unsupported' })).not.toContain('data-testid="turn-on"')
-    expect(panel({ devices: [], state: 'unsupported' })).toContain('add the space to the home screen first')
+    expect(panel({ devices: [], state: 'unsupported' })).toContain('update to iOS or iPadOS 16.4 or later')
+    // An iPhone or iPad in a Safari tab is told the steps, by its own name, and offered no button that cannot work there.
+    const phone = panel({ devices: [], state: 'add-to-home-screen', apple: 'iPhone' })
+    expect(phone).not.toContain('data-testid="turn-on"')
+    expect(phone).toContain('on an iPhone need the space added to the Home Screen first')
+    expect(phone).toContain('tap the Share button, choose Add to Home Screen')
+    expect(panel({ devices: [], state: 'add-to-home-screen', apple: 'iPad' })).toContain('on an iPad need the space added to the Home Screen first')
+    expect(panel({ devices: [], state: 'blocked', apple: 'iPhone' })).toContain('open the Settings app, then Notifications, then Space')
     expect(panel({ devices: [], state: 'blocked' })).toContain('blocked for the space on this device')
     expect(panel({ devices: [], state: 'stale-key' })).toContain('Turn notifications on again')
     // A failure the push service did not refuse offers no "turn on again": it would not help.

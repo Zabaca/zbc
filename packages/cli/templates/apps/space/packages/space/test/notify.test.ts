@@ -4,8 +4,8 @@
 import { describe, expect, test } from 'bun:test'
 import type { InboxDevice } from '@space/workspace'
 import { messagePayload, summaryPayload, testPayload } from '../../inbox/src/notify/rule'
-import { MESSAGES, conversationPathOf, isAppWindow, notificationFor, readPayload, stayQuiet, tapPath, tapTarget } from '../src/client/sw-push'
-import { type BrowserFacts, WINDOW_MESSAGES, browserState, failing, safePath, serverKey } from '../src/client/notify'
+import { MESSAGES, conversationPathOf, isAppWindow, notificationFor, readPayload, showsEveryPush, stayQuiet, tapPath, tapTarget } from '../src/client/sw-push'
+import { type BrowserFacts, WINDOW_MESSAGES, appleDevice, browserState, failing, safePath, serverKey } from '../src/client/notify'
 import { inboxPath } from '../src/client/route'
 import { ordered } from '../src/client/Notifications'
 
@@ -92,6 +92,35 @@ describe('kept quiet only when the page shows that very person', () => {
   })
 })
 
+describe('Apple’s devices show every push', () => {
+  const UA = {
+    iphoneApp: 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148',
+    ipadApp: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148',
+    iphoneChrome: 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/141.0.0.0 Mobile/15E148 Safari/604.1',
+    macSafari: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15',
+    macChrome: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36',
+    macEdge: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36 Edg/141.0.0.0',
+    macFirefox: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:131.0) Gecko/20100101 Firefox/131.0',
+    pixel: 'Mozilla/5.0 (Linux; Android 15; Pixel 8a) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Mobile Safari/537.36',
+  }
+
+  test('Safari takes away a site’s permission when a push shows nothing, so the worker shows it even with that person’s conversation open; Chrome lets it stand', () => {
+    for (const ua of [UA.iphoneApp, UA.ipadApp, UA.iphoneChrome, UA.macSafari]) expect([ua, showsEveryPush(ua)]).toEqual([ua, true])
+    for (const ua of [UA.macChrome, UA.macEdge, UA.macFirefox, UA.pixel]) expect([ua, showsEveryPush(ua)]).toEqual([ua, false])
+  })
+
+  test('an iPhone and an iPad are told apart from a Mac by what they say, an iPad’s desktop-class Macintosh by its touch screen', () => {
+    expect(appleDevice(UA.iphoneApp, 5)).toBe('iPhone')
+    expect(appleDevice(UA.iphoneChrome, 5)).toBe('iPhone')
+    expect(appleDevice('Mozilla/5.0 (iPad; CPU OS 17_0 like Mac OS X) AppleWebKit/605.1.15 Version/17.0 Mobile/15E148 Safari/604.1', 5)).toBe('iPad')
+    expect(appleDevice(UA.macSafari, 5)).toBe('iPad') // Safari in a tab on an iPad says Macintosh, with a touch screen
+    expect(appleDevice(UA.ipadApp, 5)).toBe('iPad')
+    expect(appleDevice(UA.macSafari, 0)).toBeNull() // a Mac
+    expect(appleDevice(UA.macChrome, 0)).toBeNull()
+    expect(appleDevice(UA.pixel, 5)).toBeNull()
+  })
+})
+
 describe('where a tap goes', () => {
   test('the focused window of the space first, any other window of the space next, and never an API answer (forms’ included) or Access’s page', () => {
     const windows = [
@@ -152,6 +181,22 @@ describe('what Settings says about this browser', () => {
     expect(browserState(facts({ notifications: { publicKey: KEY, devices: [] } })).state).toBe('off')
     expect(browserState(facts({ notifications: { publicKey: KEY, devices: [device({ lastFailedAt: 5, lastDeliveredAt: 2, lastFailure: 'down' })] } })).state).toBe('failing')
     expect(browserState(facts()).device?.id).toBe('d1')
+  })
+
+  test('an iPhone or iPad in a Safari tab is told how to add the space to the Home Screen; the app added to it, with push, is a browser like any other', () => {
+    const tab = { supported: false, permission: 'default' as const, thisBrowser: null, apple: { device: 'iPhone' as const, installed: false } }
+    expect(browserState(facts(tab)).state).toBe('add-to-home-screen')
+    expect(browserState(facts({ ...tab, apple: { device: 'iPad', installed: false } })).state).toBe('add-to-home-screen')
+    // Installed and still no push: before iOS 16.4, which no page can fix.
+    expect(browserState(facts({ ...tab, apple: { device: 'iPhone', installed: true } })).state).toBe('unsupported')
+    // Anywhere else without push is as it was.
+    expect(browserState(facts({ ...tab, apple: null })).state).toBe('unsupported')
+    expect(browserState(facts({ supported: false })).state).toBe('unsupported')
+    // Installed, with push: the same states as every browser.
+    const app = { apple: { device: 'iPhone' as const, installed: true } }
+    expect(browserState(facts({ ...app, permission: 'default', thisBrowser: null, notifications: { publicKey: KEY, devices: [] } })).state).toBe('off')
+    expect(browserState(facts({ ...app, permission: 'denied' })).state).toBe('blocked')
+    expect(browserState(facts({ ...app })).state).toBe('on')
   })
 
   test('a device has stopped when its last failure came after its last delivery', () => {
