@@ -82,6 +82,7 @@ import {
   type InboxThreadLine,
   type InboxWho,
   isFileRange,
+  MAILBOX_ID,
   NOT_ADMITTED,
   normalizeAddress,
   type Refused,
@@ -119,6 +120,7 @@ import { createSpaceOperator } from './space-operator'
 import { createSpacePeople } from './space-people'
 import { createSpaceViews } from './space-views'
 import { parseCcList } from './store/address'
+import { type Reach, readPlace } from './store/paging'
 import type { SpaceConversation, SpaceParty } from './store/space'
 import type { Result } from './store/store'
 import { telegramFileNote } from './telegram/media'
@@ -129,6 +131,7 @@ import {
   type DraftPatch,
   draftAuthor,
   draftEditedBy,
+  isClientId,
   isPending,
   type MessageRow,
 } from './types'
@@ -203,15 +206,60 @@ const readSent = (raw: unknown): boolean | Refused =>
 const readDrafts = (raw: unknown): boolean | Refused =>
   raw === undefined ? false : typeof raw === 'boolean' ? raw : BAD('drafts is true or false.')
 
-/** What a scope asks besides contacts: `include` (Bulk, Closed) and, only when true, `sent` or `drafts`. */
-function readFlags(scope?: InboxScope): (Scope & { sent?: true; drafts?: true }) | Refused {
+/** What a scope narrows a list to besides contacts: a mailbox, a Client, the unread ones. Absent is no narrowing; anything that is not what it names is refused. */
+interface Narrowing {
+  mailbox?: string
+  client?: number
+  unread?: true
+}
+
+function readNarrowing(scope?: InboxScope): Narrowing | Refused {
+  const out: Narrowing = {}
+  if (scope?.mailbox !== undefined) {
+    if (typeof scope.mailbox !== 'string' || !MAILBOX_ID.test(scope.mailbox)) return BAD('mailbox is a mailbox id.')
+    out.mailbox = scope.mailbox
+  }
+  if (scope?.client !== undefined) {
+    if (!isClientId(scope.client)) return BAD('client is a Client id, a whole number from 1.')
+    out.client = scope.client
+  }
+  if (scope?.unread !== undefined) {
+    if (typeof scope.unread !== 'boolean') return BAD('unread is true or false.')
+    if (scope.unread) out.unread = true
+  }
+  return out
+}
+
+/** How far down a list a read asks to go: the position an earlier answer gave as its `floor` and whether one more screen is asked for. Absent is the newest screen. */
+function readReach(scope?: InboxScope): Reach | Refused {
+  if (scope?.older !== undefined && typeof scope.older !== 'boolean') return BAD('older is true or false.')
+  if (scope?.through === undefined) {
+    return scope?.older === true ? BAD('older goes with through, the position the list was read down to.') : {}
+  }
+  const through = typeof scope.through === 'string' ? readPlace(scope.through) : null
+  if (through === null) return BAD('through is a position an earlier answer gave as its floor.')
+  return { through, ...(scope.older === true && { older: true }) }
+}
+
+/** What a scope asks besides contacts: `include` (Bulk, Closed), `sent` or `drafts` only when true, what it narrows to, and how far down the list it reads. */
+function readFlags(scope?: InboxScope): (Scope & Narrowing & { sent?: true; drafts?: true; reach?: Reach }) | Refused {
   const include = readInclude(scope?.include)
   if ('ok' in include) return include
   const sent = readSent(scope?.sent)
   if (typeof sent !== 'boolean') return sent
   const drafts = readDrafts(scope?.drafts)
   if (typeof drafts !== 'boolean') return drafts
-  return { ...include, ...(sent && { sent }), ...(drafts && { drafts }) }
+  const narrowing = readNarrowing(scope)
+  if ('ok' in narrowing) return narrowing
+  const reach = readReach(scope)
+  if ('ok' in reach) return reach
+  return {
+    ...include,
+    ...(sent && { sent }),
+    ...(drafts && { drafts }),
+    ...narrowing,
+    ...(reach.through !== undefined && { reach }),
+  }
 }
 
 type Compose = { key: string } & (
@@ -563,7 +611,7 @@ export function createSpaceInbox(deps: SpaceDeps): InboxForSpace {
       list.sort(
         (a, b) => b.newest.at - a.newest.at || a.name.localeCompare(b.name) || a.contactId.localeCompare(b.contactId),
       )
-      return answered({ people: list, more: found.more })
+      return answered({ people: list, more: found.more, ...(found.floor !== null && { floor: found.floor }) })
     })
   }
 

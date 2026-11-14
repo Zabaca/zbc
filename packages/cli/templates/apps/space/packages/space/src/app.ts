@@ -29,7 +29,7 @@ import { browse as browseChannels, changeChannel, channelOf, createChannel, invi
 import { isPhonePath, phoneAnswer, phoneRequest } from './phone'
 import { closeConversations, earlier, markRead, openConversation, parseChat, parseClose, parseEarlier, parseEmail, parseRead, parseReopen, postChat, reopenConversations, sendEmail, signingFrom } from './conversation'
 import { openDraft } from './drafts'
-import { parseScope, parseView } from './conversations'
+import { parseReading, parseScope, parseView } from './conversations'
 import { isLegacyPath, legacyTarget } from './legacy'
 import { isCount, isRecord } from './guards'
 import { type Apps, type Asking, conversations, SEARCH_MAX, search } from './list'
@@ -159,7 +159,7 @@ export function meOf(who: Who, install: Install): Me {
  */
 async function appsFor(req: Request, env: Env, deps: Deps, partsFor: PartsFor): Promise<Apps> {
   const mode = env.SPACE_FIXTURES
-  if (onLocalDev(req, env) && (mode === '1' || mode === 'mail-down' || mode === 'chat-refused' || mode === 'forms-down' || mode === 'knowledge-down' || mode === 'phone-on' || mode === 'telegram-late' || mode === 'telegram-signed-out' || mode === 'jmap-refused' || mode === 'jmap-down' || mode === 'calendar-lapsed' || mode === 'calendar-down' || mode === 'calendar-empty' || mode === 'telegram-pictures' || mode === 'two-people' || mode === 'calendar-mail')) {
+  if (onLocalDev(req, env) && (mode === '1' || mode === 'mail-down' || mode === 'chat-refused' || mode === 'forms-down' || mode === 'knowledge-down' || mode === 'phone-on' || mode === 'telegram-late' || mode === 'telegram-signed-out' || mode === 'jmap-refused' || mode === 'jmap-down' || mode === 'calendar-lapsed' || mode === 'calendar-down' || mode === 'calendar-empty' || mode === 'telegram-pictures' || mode === 'two-people' || mode === 'calendar-mail' || mode === 'short-screen')) {
     // One set of invented people for as long as the dev server runs, so a message sent in a photograph stays in the history that follows it.
     if (fixtures?.mode !== mode) {
       const { fixtureApps } = await import('./stand-ins')
@@ -349,12 +349,15 @@ export function createApp(deps: Deps = { fetch: (u, i) => fetch(u, i), now: Date
   }
 
   app.get('/api/conversations', async (c) => {
-    const view = parseView(c.req.query('view'), c.req.query('mailbox'))
+    const view = parseView(c.req.query('view'), c.req.query('mailbox'), c.req.query('client'))
     if (!view) return c.json({ error: 'Unknown view' }, 400)
     // `scope=mail` is the Inbox's list (the inbox alone), `scope=chat` Meet's (meet alone, the main view only); none is both merged.
     const scope = parseScope(c.req.query('scope'))
     if (scope === null || (scope === 'chat' && view.kind !== 'main')) return c.json({ error: 'Unknown scope' }, 400)
-    return c.json(await conversations(await asking(c), view, scope), 200, NO_STORE)
+    // `through` and `older` read further down the Inbox's list than its newest screen (Load older); Meet's list has no such reading.
+    const reading = parseReading(c.req.query('through'), c.req.query('older'))
+    if (reading === null || (reading !== undefined && scope !== 'mail')) return c.json({ error: 'Unknown position' }, 400)
+    return c.json(await conversations(await asking(c), view, scope, reading), 200, NO_STORE)
   })
 
   // Today: what the apps say needs the person, gathered from the inbox, meet and forms (today.ts). Reads only.

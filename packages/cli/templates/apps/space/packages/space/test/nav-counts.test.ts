@@ -126,14 +126,14 @@ async function world(options: { calendar?: boolean; telegram?: boolean; jmap?: b
   /** The names of the rows a view holds, for the test that says WHO a thread is under. */
   const named = async (view: ListView) => {
     const query = new URL(requestFor(view), 'http://x').searchParams
-    const parsed = parseView(query.get('view') ?? undefined, query.get('mailbox') ?? undefined)
+    const parsed = parseView(query.get('view') ?? undefined, query.get('mailbox') ?? undefined, query.get('client') ?? undefined)
     const answer = await conversations(ask, parsed ?? MAIN, 'mail')
     return narrow(answer.rows, view, 'all').map((r) => r.name).sort()
   }
   /** What the page shows when the view is opened: the list asked for as `requestFor` asks, narrowed as the page narrows it. */
   const rows = async (view: ListView) => {
     const query = new URL(requestFor(view), 'http://x').searchParams
-    const parsed = parseView(query.get('view') ?? undefined, query.get('mailbox') ?? undefined)
+    const parsed = parseView(query.get('view') ?? undefined, query.get('mailbox') ?? undefined, query.get('client') ?? undefined)
     const answer = await conversations(ask, parsed ?? MAIN, 'mail')
     const shown = narrow(answer.rows, view, 'all')
     return { count: shown.length, unread: shown.filter((r) => r.unread > 0).length, loose: answer.looseDrafts.length }

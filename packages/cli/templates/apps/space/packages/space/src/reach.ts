@@ -170,6 +170,7 @@ export function isInboxPeople(v: unknown): v is InboxPeople {
   return (
     isRecord(v) &&
     typeof v.more === 'boolean' &&
+    (v.floor === undefined || isText(v.floor)) &&
     isList(v.people) &&
     v.people.every(
       (p) =>

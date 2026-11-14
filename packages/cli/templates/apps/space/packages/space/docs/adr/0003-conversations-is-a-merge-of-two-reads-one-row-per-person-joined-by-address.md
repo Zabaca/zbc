@@ -88,6 +88,6 @@ its newest item (the row's `opens` field, now gone). A search hit still opens it
 
 ## What is not decided here
 
-- Whether the inbox's own `QUEUE_PAGE` (200) is enough for the main list: past it the list says it shows the newest. Not measured.
+- Whether the inbox's own `QUEUE_PAGE` (200) is enough for the main list: past it the list has a Load older control at its foot, which reads further ([0022](0022-a-list-reads-further-by-a-position-and-a-view-is-narrowed-before-it-is-cut.md)).
 - Conversation view, reply, mark read: ADR 0004.
 - Chat search: when meet has one, the search box gains a chat source; until then the results say chat cannot be searched yet.

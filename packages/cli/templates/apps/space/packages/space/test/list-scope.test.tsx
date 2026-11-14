@@ -4,9 +4,9 @@ import { describe, expect, test } from 'bun:test'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { lane, northfield } from '../../workspace/test/helpers'
 import { meOf } from '../src/app'
-import { type ConversationsAnswer, type ListedPerson, type ListedRow, parseView } from '../src/conversations'
+import { type ConversationsAnswer, type ListedPerson, type ListedRow, inboxScopeFor, parseReading, parseView } from '../src/conversations'
 import { ConversationsScreen } from '../src/client/Conversations'
-import { narrow, requestFor } from '../src/client/format'
+import { narrow, readingFor, requestFor } from '../src/client/format'
 import { standInInbox, standInMeet } from '../src/stand-ins'
 import { LANE_TEAM, NORTHFIELD_TEAM, ago, contact, thread, world } from './world'
 
@@ -63,15 +63,72 @@ describe('Drafts lists what the menu counts', () => {
 
 describe('a Client lists its open conversations, Bulk included', () => {
   test('Harbor’s people are there for a Bulk thread, and a person with only a closed thread is not', async () => {
-    const a = await listed('?view=client')
-    expect(names(a).sort()).toEqual(['Dana Reyes', 'Lena Fischer', 'Marcus Chen', 'Ned Quill']) // the open list, Bulk included, before the page keeps the Client's own
+    const a = await listed('?view=client&client=7')
+    // The inbox narrows to the conversations Harbor's people are on before it cuts the list, so Lena's and Ned's are not in the answer at all (they used to be, and the page dropped them).
+    expect(names(a).sort()).toEqual(['Dana Reyes', 'Marcus Chen'])
     const harbor = narrow(a.rows, 'client:7', 'all')
     expect(names(harbor).sort()).toEqual(['Dana Reyes', 'Marcus Chen'])
     const marcus = harbor.find((r) => r.name === 'Marcus Chen') as ListedPerson
     // Marcus's open Bulk thread is in his row, and his closed one is not (the Client's count is open conversations).
     expect(marcus.mail.map((m) => m.newest.subject)).toEqual(['Subject of t-marcus-bulk'])
-    expect(requestFor('client:7')).toBe('/api/conversations?scope=mail&view=client')
-    expect(parseView('client', undefined)).toEqual({ kind: 'client' })
+    expect(requestFor('client:7')).toBe('/api/conversations?scope=mail&view=client&client=7')
+    expect(parseView('client', undefined, '7')).toEqual({ kind: 'client', id: 7 })
+    // A Client view names its Client, and nothing else names one.
+    expect(parseView('client', undefined)).toBeNull()
+    expect(parseView('client', undefined, '0')).toBeNull()
+    expect(parseView('client', undefined, '7x')).toBeNull()
+    expect(parseView('main', undefined, '7')).toBeNull()
+  })
+})
+
+describe('Unread and a mailbox and a Client are asked of the inbox by name, so it narrows them before it cuts the list to a screen', () => {
+  test('the page names each view, the Worker knows each name, and the inbox is asked for exactly the narrowing', () => {
+    expect(requestFor('unread')).toBe('/api/conversations?scope=mail&view=unread')
+    expect(parseView('unread', undefined)).toEqual({ kind: 'unread' })
+    expect(parseView('unread', 'ridgeway')).toBeNull()
+    expect(inboxScopeFor({ kind: 'unread' })).toEqual({ unread: true })
+    expect(inboxScopeFor({ kind: 'mailbox', id: 'ridgeway' })).toEqual({ mailbox: 'ridgeway' })
+    expect(inboxScopeFor({ kind: 'client', id: 7 })).toEqual({ include: ['bulk'], client: 7 })
+    expect(inboxScopeFor({ kind: 'main' })).toBeUndefined()
+  })
+
+  test('Unread holds the unread conversations only: a person’s read conversation is not on their row, which is as new as their newest unread one', async () => {
+    const two = standInInbox(
+      [contact('c-ana', 'Ana Ruiz', 'ana@fernway.example'), contact('c-ben', 'Ben Okoye', 'ben@fernway.example')],
+      [thread('t-ana-read', ago(10), ['c-ana'], { subject: 'Read one' }), thread('t-ana-unread', ago(30), ['c-ana'], { subject: 'Unread one', unread: true }), thread('t-ben', ago(20), ['c-ben'], { subject: 'Ben read' })],
+    )
+    const w = await world(northfield(), NORTHFIELD_TEAM, { inbox: two, meet: standInMeet({ direct: [], channels: [] }) }, undefined, { answerWithinMs: 60 })
+    const res = await w.call('/api/conversations?scope=mail&view=unread', { jwt: await w.signIn('tessa@northfield.example') })
+    const a = (await res.json()) as ConversationsAnswer
+    expect(two.asked.scopes.at(-1)).toEqual({ unread: true })
+    expect(names(a)).toEqual(['Ana Ruiz'])
+    expect((a.rows[0] as ListedPerson).mail.map((m) => m.newest.subject)).toEqual(['Unread one'])
+    expect(a.rows[0]?.unread).toBe(1)
+  })
+})
+
+describe('reading further down the list: the Worker takes a position and nothing else', () => {
+  test('a position and older are read, handed to the inbox, and spelled back by the page', async () => {
+    const reading = parseReading('2026-10-20T12:00:00.000Z|5', '1')
+    expect(reading).toEqual({ through: '2026-10-20T12:00:00.000Z|5', older: true })
+    expect(parseReading(undefined, undefined)).toBeUndefined()
+    expect(parseReading('2026-10-20T12:00:00.000Z|5', undefined)).toEqual({ through: '2026-10-20T12:00:00.000Z|5', older: false })
+    // Anything that is not a position, and older without one, is not read.
+    for (const [through, older] of [['x', undefined], ['2026-10-20T12:00:00.000Z|5;', '1'], ['2026-10-20T12:00:00.000Z|5', 'yes'], [undefined, '1']] as const) expect([through, older, parseReading(through, older)]).toEqual([through, older, null])
+    expect(inboxScopeFor({ kind: 'main' }, reading ?? undefined)).toEqual({ through: '2026-10-20T12:00:00.000Z|5', older: true })
+    expect(inboxScopeFor({ kind: 'mailbox', id: 'ridgeway' }, { through: 'p|1', older: false })).toEqual({ mailbox: 'ridgeway', through: 'p|1' })
+    expect(readingFor('/api/conversations?scope=mail&view=bulk', { through: '2026-10-20T12:00:00.000Z|5', older: true })).toBe('/api/conversations?scope=mail&view=bulk&through=2026-10-20T12%3A00%3A00.000Z%7C5&older=1')
+    expect(readingFor('/api/conversations?scope=mail', null)).toBe('/api/conversations?scope=mail')
+  })
+
+  test('the route refuses a stray position, and Meet’s list has none to read down', async () => {
+    const w = await world(northfield(), NORTHFIELD_TEAM, { inbox: inbox(), meet: standInMeet({ direct: [], channels: [] }) }, undefined, { answerWithinMs: 60 })
+    const jwt = await w.signIn('tessa@northfield.example')
+    const status = async (query: string) => (await w.call(`/api/conversations${query}`, { jwt })).status
+    expect(await status('?scope=mail&through=2026-10-20T12%3A00%3A00.000Z%7C5&older=1')).toBe(200)
+    expect(await status('?scope=mail&through=nonsense')).toBe(400)
+    expect(await status('?scope=mail&older=1')).toBe(400)
+    expect(await status('?scope=chat&through=2026-10-20T12%3A00%3A00.000Z%7C5')).toBe(400)
   })
 })
 
@@ -80,14 +137,16 @@ describe('a person’s Client pills', () => {
     renderToStaticMarkup(<ConversationsScreen me={ME} now={Date.now()} answer={a} loading={false} problem={null} view="all" who="all" onWho={() => undefined} query="" onQuery={() => undefined} results={null} live="off" selected={null} go={() => undefined} />)
 
   test('a linked person has the Client’s pill; a person with none linked and a suggestion has the dashed one with a question mark, saying it counts for nothing yet', async () => {
-    const markup = draw(await listed('?view=client'))
+    const markup = draw(await listed('?view=client&client=7'))
     expect(markup).toContain('data-testid="client-pill"')
     expect(markup.match(/data-testid="client-pill"/g)).toHaveLength(2) // Dana and Marcus
-    expect(markup).toContain('data-testid="client-suggested"')
-    expect(markup).toContain('Tamarack Print Supply ?')
-    expect(markup).toContain('Not counted until it is linked there.')
+    // Ned has no Client and one suggested, and his open thread is in the main list.
+    const main = draw(await listed('?view=main'))
+    expect(main).toContain('data-testid="client-suggested"')
+    expect(main).toContain('Tamarack Print Supply ?')
+    expect(main).toContain('Not counted until it is linked there.')
     // Only Ned has the suggestion; Lena has none, and a linked person has no dashed pill.
-    expect(markup.match(/data-testid="client-suggested"/g)).toHaveLength(1)
+    expect(main.match(/data-testid="client-suggested"/g)).toHaveLength(1)
   })
 
   test('a person known by two addresses that belong to two Clients shows both pills, once each', async () => {

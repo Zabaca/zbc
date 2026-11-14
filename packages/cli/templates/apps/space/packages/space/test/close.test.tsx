@@ -325,7 +325,7 @@ describe('the page as a browser runs it', () => {
         if (wait > 0) await sleep(wait)
         return opened.ok ? json(opened.value) : json({ error: opened.message }, opened.status)
       }
-      if (url.pathname === '/api/conversations') return json(await conversations(a, parseView(url.searchParams.get('view') ?? undefined, url.searchParams.get('mailbox') ?? undefined) ?? { kind: 'main' }, 'mail'))
+      if (url.pathname === '/api/conversations') return json(await conversations(a, parseView(url.searchParams.get('view') ?? undefined, url.searchParams.get('mailbox') ?? undefined, url.searchParams.get('client') ?? undefined) ?? { kind: 'main' }, 'mail'))
       if (url.pathname === '/api/close') {
         wrote.push('close')
         const turn = closes.shift()

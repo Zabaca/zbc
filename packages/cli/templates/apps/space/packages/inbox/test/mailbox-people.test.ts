@@ -278,6 +278,30 @@ describe('lists, people, counts and search show a person only their mailboxes', 
     expect(names(byId.people)).toEqual(['Cora Lund'])
   })
 
+  test('reading further down a list, and narrowing it to a mailbox, show a person only their mailboxes', async () => {
+    const h = await world()
+    const inbox = part(h)
+    // The position of the oldest conversation there could be, with one more screen below it: everything the person may see, and nothing else.
+    const down = {
+      through: '2000-01-01T00:00:00.000Z|0',
+      older: true,
+      include: ['bulk', 'closed'] as ('bulk' | 'closed')[],
+    }
+    expect(subjects(unwrap(await inbox.people(as(BEA), down)).people)).toEqual([
+      'Bea only: the hull',
+      'Desk: a quote for the dock',
+    ])
+    expect(subjects(unwrap(await inbox.people(as(ALEX), down)).people)).toEqual([
+      'Alex only: the survey',
+      'Books: the invoice',
+      'Desk: a quote for the dock',
+    ])
+    // A mailbox the person is not on is an empty list for them, and the same mailbox is Alex's to list.
+    const books = (h.db.query(`SELECT id FROM mailbox WHERE address = ?`).get(BOOKS) as { id: string }).id
+    expect(unwrap(await inbox.people(as(BEA), { mailbox: books })).people).toEqual([])
+    expect(subjects(unwrap(await inbox.people(as(ALEX), { mailbox: books })).people)).toEqual(['Books: the invoice'])
+  })
+
   test('search finds a word in a mailbox only where the person is on it, and a screen is cut from their own mail', async () => {
     const h = await world()
     const inbox = part(h)

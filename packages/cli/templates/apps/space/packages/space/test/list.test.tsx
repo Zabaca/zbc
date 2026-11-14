@@ -186,9 +186,9 @@ describe('the list as drawn', () => {
     expect(filterRows(a.rows, 'all').map((r) => r.name)).toEqual(['Dana Reyes', 'launch', 'Tomas Alvarez', 'Priya'])
     // The Inbox asks the inbox alone; Meet asks meet alone (format.ts MEET_REQUEST).
     expect(requestFor('outside')).toBe('/api/conversations?scope=mail')
-    expect(requestFor('unread')).toBe('/api/conversations?scope=mail')
+    expect(requestFor('unread')).toBe('/api/conversations?scope=mail&view=unread')
     expect(requestFor('drafts')).toBe('/api/conversations?scope=mail&view=drafts')
-    expect(requestFor('client:7')).toBe('/api/conversations?scope=mail&view=client')
+    expect(requestFor('client:7')).toBe('/api/conversations?scope=mail&view=client&client=7')
     expect(requestFor('bulk')).toBe('/api/conversations?scope=mail&view=bulk')
     expect(requestFor('sent')).toBe('/api/conversations?scope=mail&view=sent')
     expect(requestFor('mailbox:ridgeway')).toBe('/api/conversations?scope=mail&view=mailbox&mailbox=ridgeway')

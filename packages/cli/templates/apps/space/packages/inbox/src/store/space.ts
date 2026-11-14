@@ -25,19 +25,19 @@ import { type InboxSent, profileLimitMessage, WRITE_WITHIN_MS } from '@space/wor
 import { repairMojibake } from '../charset'
 import { isBulk, type MailScope } from '../queue'
 import { isRecord } from '../space-gate'
-import {
-  type ContactListItem,
-  type ContactRow,
-  type ConversationSummary,
-  type DraftInput,
-  type IdentityKind,
-  type MailboxMark,
-  type MessageRow,
-  type MessageStatus,
-  QUEUE_PAGE,
-  type SendsFrom,
+import type {
+  ContactListItem,
+  ContactRow,
+  ConversationSummary,
+  DraftInput,
+  IdentityKind,
+  MailboxMark,
+  MessageRow,
+  MessageStatus,
+  SendsFrom,
 } from '../types'
 import { AssistStore } from './assist'
+import { cut, type Place, type Reach } from './paging'
 import { isInside, type Placed, type PlacementCandidate, placeConversation } from './placement'
 import { type RowCounts, rowCounts } from './row-counts'
 import { scopeWhere } from './scope'
@@ -122,6 +122,14 @@ export interface SpaceScope {
   drafts?: boolean
   /** Only the conversations these contacts are on. Left out: every conversation in scope; `[]`: none. */
   contactIds?: string[]
+  /** Only the conversations of this mailbox (by id), narrowed BEFORE the list is cut to a screen, so the list holds what the menu counts for the mailbox. */
+  mailbox?: string
+  /** Only the conversations a contact linked to this Client is on, narrowed BEFORE the cut. */
+  client?: number
+  /** Only the conversations with something unread, narrowed BEFORE the cut. */
+  unread?: boolean
+  /** How far down the list is read and whether one more screen is asked for (src/store/paging.ts); absent, the newest screen. Ignored with `contactIds` or `all`. */
+  reach?: Reach
   /** Every conversation in scope, past the screen the lists stop at: a person's history, whose messages must not be cut by it. */
   all?: boolean
   /** Every address of the team (each teammate's company and sign-in address, lowercase): with the owner's own, they are INSIDE and never own a thread's row while an outsider is on it (src/store/placement.ts). */
@@ -660,11 +668,12 @@ export class SpaceStore extends AssistStore {
   }
 
   /**
-   * The conversations in scope, newest first, at most a screen of them (`QUEUE_PAGE`, with `more` when there were others). The
-   * main list is the queue's own Inbox: open and not Bulk, of every mailbox. `bulk` adds the open Bulk ones and `closed` the
-   * closed ones, and nothing else is in the answer. `drafts` replaces all of that with the conversations that hold a draft, in any state (the Drafts count's own set).
+   * The conversations in scope, newest first, at most a screen of them (`QUEUE_PAGE`, with `more` when there were others) unless the caller has read further down (`scope.reach`, src/store/paging.ts),
+   * and `floor`, where the answer ends, to read on from. The main list is the queue's own Inbox: open and not Bulk, of every mailbox. `bulk` adds the open Bulk ones and `closed` the closed ones, and nothing
+   * else is in the answer. `drafts` replaces all of that with the conversations that hold a draft, in any state (the Drafts count's own set). `mailbox`, `client` and `unread` narrow what is in the answer,
+   * before the cut to a screen and not after it: a list cut first and narrowed second would leave out a mailbox's mail that is older than the newest screen of the whole inbox, while the menu counted it.
    */
-  spaceConversations(scope: SpaceScope): { conversations: SpaceConversation[]; more: boolean } {
+  spaceConversations(scope: SpaceScope): { conversations: SpaceConversation[]; more: boolean; floor: string | null } {
     const on =
       scope.contactIds === undefined
         ? null
@@ -681,9 +690,12 @@ export class SpaceStore extends AssistStore {
                   .map((r) => text(r.id)),
           )
     const visible = this.queueFacts(null, scope.mail)
-    if (scope.sent === true) return this.sentConversations(on, new Set(visible.map((f) => f.id)), scope.team)
+    if (scope.sent === true) return this.sentConversations(on, new Set(visible.map((f) => f.id)), scope)
     const kept = visible.filter((f) => {
       if (on !== null && !on.has(f.id)) return false
+      if (scope.mailbox !== undefined && f.mailbox?.id !== scope.mailbox) return false
+      if (scope.client !== undefined && !f.clientIds.includes(scope.client)) return false
+      if (scope.unread === true && !f.unread) return false
       if (scope.drafts === true) return f.drafts > 0
       if (!f.open) return scope.closed === true
       return isBulk(f) ? scope.bulk === true : true
@@ -702,26 +714,43 @@ export class SpaceStore extends AssistStore {
           scope.team,
         ),
         more: false,
+        floor: null,
       }
     }
-    const ids = kept.slice(0, QUEUE_PAGE).map((f) => f.id)
-    return { conversations: this.shape(this.listConversations(ids), scope.team), more: kept.length > QUEUE_PAGE }
+    // The list is already in the order the cut reads it (newest activity first, then the row number), so the only thing it lacks is each conversation's number.
+    const numbers = new Map(
+      this.sql
+        .exec(`SELECT id, rowid AS seq FROM conversation`)
+        .toArray()
+        .map((r) => [text(r.id), Number(r.seq)] as const),
+    )
+    const placeOf = (f: { id: string; lastActivityAt: string }): Place => ({
+      at: f.lastActivityAt,
+      seq: numbers.get(f.id) ?? 0,
+    })
+    const page = cut(kept, placeOf, on === null ? (scope.reach ?? {}) : {})
+    const ids = page.shown.map((f) => f.id)
+    return {
+      conversations: this.shape(this.listConversations(ids, ids.length), scope.team),
+      more: page.more,
+      floor: page.floor,
+    }
   }
 
   /**
    * The Sent view: the conversations the owner sent a message in (a message going out that is sent, or marked sent by hand: a draft, a send in doubt and a failed one are not), open or
-   * closed, Bulk or not, newest send first, cut at the same screen as the other lists (`more` when there were others). Each comes as of the owner's newest sent message: its time, its words
+   * closed, Bulk or not, newest send first, cut at the same screen as the other lists (`more` when there were others, and the same `reach` to read further). Each comes as of the owner's newest sent message: its time, its words
    * and `out`, so a row reads "You: ..." and the lists order by the owner's send and not by what arrived after it. Which person the row is under is the lists' rule (`placed`), unchanged.
    */
   private sentConversations(
     on: Set<string> | null,
     visible: ReadonlySet<string>,
-    team: readonly string[],
-  ): { conversations: SpaceConversation[]; more: boolean } {
+    scope: SpaceScope,
+  ): { conversations: SpaceConversation[]; more: boolean; floor: string | null } {
     const sentBy = (alias: string) => `${alias}.direction = 'out' AND ${alias}.status IN ('sent', 'manual-sent')`
     const latest = this.sql
       .exec(
-        `SELECT m.conversation_id AS id, coalesce(m.sent_at, m.created_at) AS at, substr(m.body, 1, 2000) AS body
+        `SELECT m.conversation_id AS id, coalesce(m.sent_at, m.created_at) AS at, m.rowid AS seq, substr(m.body, 1, 2000) AS body
            FROM message m
           WHERE m.conversation_id IS NOT NULL AND ${sentBy('m')}
             AND m.rowid = (SELECT l.rowid FROM message l
@@ -731,9 +760,13 @@ export class SpaceStore extends AssistStore {
       )
       .toArray()
       .filter((r) => visible.has(text(r.id)) && (on === null || on.has(text(r.id))))
-    const shown = latest.slice(0, QUEUE_PAGE)
-    const sent = new Map(shown.map((r, n) => [text(r.id), { n, at: text(r.at), body: text(r.body) }]))
-    const conversations = this.shape(this.listConversations([...sent.keys()]), team)
+    const page = cut(
+      latest,
+      (r): Place => ({ at: text(r.at), seq: Number(r.seq) }),
+      on === null ? (scope.reach ?? {}) : {},
+    )
+    const sent = new Map(page.shown.map((r, n) => [text(r.id), { n, at: text(r.at), body: text(r.body) }]))
+    const conversations = this.shape(this.listConversations([...sent.keys()], sent.size), scope.team)
       .map((c): SpaceConversation => {
         const mine = sent.get(c.id) as { n: number; at: string; body: string }
         // Repaired and cut as a list line's snippet is (conversationsWhere), so the row reads as the others do.
@@ -741,7 +774,7 @@ export class SpaceStore extends AssistStore {
         return { ...c, newestAt: mine.at, snippet, direction: 'out' }
       })
       .sort((a, b) => (sent.get(a.id) as { n: number }).n - (sent.get(b.id) as { n: number }).n)
-    return { conversations, more: latest.length > QUEUE_PAGE }
+    return { conversations, more: page.more, floor: page.floor }
   }
 
   /**

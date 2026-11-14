@@ -175,7 +175,8 @@ describe('Bulk and Closed sit behind filters, and a business mailbox is a filter
     expect(names(await s.list('?view=closed'))).toEqual(['Grace'])
     const mailbox = await s.list('?view=mailbox&mailbox=ridgeway')
     expect(names(mailbox)).toEqual(['Tomas'])
-    expect(s.inbox.asked.scopes).toEqual([{ include: ['bulk'] }, { include: ['closed'] }, undefined])
+    // A mailbox is narrowed by the inbox, before it cuts the list to a screen, so the inbox is asked for it by name.
+    expect(s.inbox.asked.scopes).toEqual([{ include: ['bulk'] }, { include: ['closed'] }, { mailbox: 'ridgeway' }])
   })
 
   test('Sent is the conversations Tessa sent in, open or closed, Bulk or not, each as of his newest send ("You:"), ordered by it; it asks the inbox for its sent scope', async () => {
@@ -250,7 +251,7 @@ describe('a thread with several people on it is listed once', () => {
     o.threads[0] = thread('t-shared', ago(10), ['c-dana', 'c-marcus'], { listedUnder: 'c-marcus' })
     const s = await asOwner(o)
     expect(people(await s.list()).map((r) => r.name)).toEqual(['Marcus Chen', 'Lena'])
-    const inClient = people(await s.list('?view=client')).filter((r) => r.clients.some((c) => c.id === 7))
+    const inClient = people(await s.list('?view=client&client=7')).filter((r) => r.clients.some((c) => c.id === 7))
     expect(inClient.map((r) => [r.name, r.sharedWith])).toEqual([['Dana Reyes', ['Marcus Chen']]])
   })
 

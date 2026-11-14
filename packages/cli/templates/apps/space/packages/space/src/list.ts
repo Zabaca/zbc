@@ -23,7 +23,7 @@ import {
   type Refused,
   type SpacePart,
 } from '@space/workspace'
-import { type ConversationsAnswer, type Scope, type View, inboxScopeFor, mergeConversations } from './conversations'
+import { type ConversationsAnswer, type Reading, type Scope, type View, inboxScopeFor, mergeConversations } from './conversations'
 import { looseDraftsOf } from './drafts'
 import { isInboxDrafts, isInboxPeople, isInboxSearch, isMeetOverview, notConnected, reach } from './reach'
 
@@ -81,16 +81,17 @@ export const statusOf = (part: 'mail' | 'chat', answer: Reached<unknown>): PartS
 
 /**
  * The list of a tab. `scope` `mail` is the Inbox: the inbox alone is asked, so there is not a chat row in it and not a word about chat. `chat` is Meet: meet alone is asked (the
- * main view only), so there is not an email row in it. Absent is both merged, as before the split.
+ * main view only), so there is not an email row in it. Absent is both merged, as before the split. `reading` is how far down the Inbox's list the page has read (conversations.ts `Reading`): the list then holds everything down to
+ * there, so a list read again keeps what the person loaded, and one more screen when they ask for older.
  */
-export async function conversations(ask: Asking, view: View, scope?: Scope): Promise<ConversationsAnswer> {
+export async function conversations(ask: Asking, view: View, scope?: Scope, reading?: Reading): Promise<ConversationsAnswer> {
   const ms = ask.answerWithinMs ?? ANSWER_WITHIN_MS
   const { inbox, meet } = ask.apps
   const wantsMail = scope !== 'chat'
   const wantsChat = view.kind === 'main' && scope !== 'mail'
   // In parallel: the slowest part is the wait, not the sum.
   const [people, chat, drafts] = await Promise.all([
-    wantsMail ? (inbox ? reach('Email', () => inbox.people(ask.signedIn, inboxScopeFor(view)), isInboxPeople, ms) : notConnected('Email')) : null,
+    wantsMail ? (inbox ? reach('Email', () => inbox.people(ask.signedIn, inboxScopeFor(view, reading)), isInboxPeople, ms) : notConnected('Email')) : null,
     wantsChat ? (meet ? reach('Chat', () => meet.conversations(ask.signedIn), isMeetOverview, ms) : notConnected('Chat')) : null,
     // Drafts on no conversation are in no row; the Drafts view lists them above the rows.
     view.kind === 'drafts' ? (inbox ? reach('Email', () => inbox.drafts(ask.signedIn), isInboxDrafts, ms) : notConnected('Email')) : null,

@@ -16,6 +16,7 @@ import {
   type InboxScope,
   type InboxPerson,
   type InboxThreadLine,
+  LIST_POSITION,
   MAILBOX_ID,
   type Install,
   type MailSide,
@@ -38,12 +39,21 @@ import { isCount } from './guards'
 /**
  * Which list is asked for. The main list is every open mail that is not Bulk, of every mailbox (a business mailbox's
  * customers sit beside everyone else, as in the inbox's own Inbox view), with direct messages and channels. Bulk and Closed are
- * lists of their own, and a business mailbox is a filter that narrows the list to it. Chat is in the main list only.
+ * lists of their own, and a business mailbox, a Client and Unread are filters that narrow the list: the inbox narrows before it cuts the list to a screen, so each holds what the menu counts for it. Chat is in the main list only.
  *
  * `everything` is not a list a page can ask for (`parseView` never makes it): it is how a person's conversation is found, the main list's merge
  * over every conversation the inbox has with them, open, closed or Bulk, and meet's too, so a row opened from any list is there.
  */
-export type View = { kind: 'main' } | { kind: 'bulk' } | { kind: 'closed' } | { kind: 'mailbox'; id: string } | { kind: 'drafts' } | { kind: 'sent' } | { kind: 'client' } | { kind: 'everything' }
+export type View =
+  | { kind: 'main' }
+  | { kind: 'unread' }
+  | { kind: 'bulk' }
+  | { kind: 'closed' }
+  | { kind: 'mailbox'; id: string }
+  | { kind: 'drafts' }
+  | { kind: 'sent' }
+  | { kind: 'client'; id: number }
+  | { kind: 'everything' }
 
 export const MAIN: View = { kind: 'main' }
 
@@ -60,36 +70,70 @@ export function parseScope(scope: string | undefined): Scope | undefined | null 
   return scope === 'mail' || scope === 'chat' ? scope : null
 }
 
-/** The view a request names (`?view=` and `?mailbox=`), or null when it is none of them. Omitted is the main list. */
-export function parseView(view: string | undefined, mailbox: string | undefined): View | null {
+/** A Client's id as a request spells it: digits, no sign, no leading zero. */
+const CLIENT_ID = /^[1-9][0-9]{0,9}$/
+
+/** The view a request names (`?view=`, with `?mailbox=` for a mailbox and `?client=` for a Client), or null when it is none of them. Omitted is the main list. */
+export function parseView(view: string | undefined, mailbox: string | undefined, client?: string): View | null {
+  if (view === 'client') return mailbox === undefined && client !== undefined && CLIENT_ID.test(client) ? { kind: 'client', id: Number(client) } : null
+  if (client !== undefined) return null
   if (view === undefined || view === 'main') return mailbox === undefined ? MAIN : null
   if (view === 'bulk' || view === 'closed') return mailbox === undefined ? { kind: view } : null
-  if (view === 'drafts' || view === 'sent' || view === 'client') return mailbox === undefined ? { kind: view } : null
+  if (view === 'unread' || view === 'drafts' || view === 'sent') return mailbox === undefined ? { kind: view } : null
   if (view === 'mailbox') return mailbox !== undefined && MAILBOX_ID.test(mailbox) ? { kind: 'mailbox', id: mailbox } : null
   return null
 }
 
-/** What to ask the inbox for a view: Bulk and Closed come only when asked (the contract's `InboxScope`), Sent has a scope of its own (the conversations the owner sent in, any state) and so has Drafts (the conversations that hold a draft, any state, so one on an old thread is not cut with the older conversations), everything else is its main list. */
-export const inboxScopeFor = (view: View): InboxScope | undefined =>
-  view.kind === 'sent'
-    ? { sent: true }
-    : view.kind === 'bulk'
-    ? { include: ['bulk'] }
-    : view.kind === 'closed'
-      ? { include: ['closed'] }
-      : view.kind === 'client'
-        ? { include: ['bulk'] }
-        : view.kind === 'drafts'
-          ? { drafts: true }
-          : view.kind === 'everything'
-            ? { include: ['bulk', 'closed'] }
-            : undefined
+/** How far down a list a read goes: the position an earlier answer gave as its `floor`, and whether one more screen is asked for. Absent, the newest screen. */
+export interface Reading {
+  through: string
+  older: boolean
+}
+
+/** The position a request names (`?through=`, with `?older=1`), as an absent one, a reading or null when it is none: a position is the text an answer gave, a short run of the characters one is made of. */
+export function parseReading(through: string | undefined, older: string | undefined): Reading | undefined | null {
+  if (through === undefined) return older === undefined ? undefined : null
+  if (!LIST_POSITION.test(through) || (older !== undefined && older !== '1')) return null
+  return { through, older: older === '1' }
+}
+
+/**
+ * What to ask the inbox for a view: Bulk and Closed come only when asked (the contract's `InboxScope`), Sent has a scope of its own (the conversations the owner sent in, any state) and so has Drafts (the conversations that hold a draft, any state, so one on an old thread is not cut with the older conversations), and a mailbox, a Client and Unread narrow the main list in the inbox, before it is cut to a screen (a Client's open conversations, Bulk included, as its count has them).
+ * Everything else is its main list. `reading` is how far down the list the page has read.
+ */
+export function inboxScopeFor(view: View, reading?: Reading): InboxScope | undefined {
+  const base = ((): InboxScope | undefined => {
+    switch (view.kind) {
+      case 'sent':
+        return { sent: true }
+      case 'bulk':
+        return { include: ['bulk'] }
+      case 'closed':
+        return { include: ['closed'] }
+      case 'client':
+        return { include: ['bulk'], client: view.id }
+      case 'drafts':
+        return { drafts: true }
+      case 'everything':
+        return { include: ['bulk', 'closed'] }
+      case 'mailbox':
+        return { mailbox: view.id }
+      case 'unread':
+        return { unread: true }
+      case 'main':
+        return undefined
+    }
+  })()
+  return reading === undefined ? base : { ...base, through: reading.through, ...(reading.older && { older: true }) }
+}
 
 /** Whether a conversation belongs in a view. The inbox's answer holds more than one view's (Bulk comes with the open ones), so the space keeps only its own. */
-export function inView(view: View, line: Pick<InboxThreadLine, 'open' | 'bulk' | 'mailbox' | 'drafts'>): boolean {
+export function inView(view: View, line: Pick<InboxThreadLine, 'open' | 'bulk' | 'mailbox' | 'drafts' | 'unread'>): boolean {
   switch (view.kind) {
     case 'main':
       return line.open && !line.bulk
+    case 'unread':
+      return line.open && !line.bulk && line.unread
     case 'mailbox':
       return line.open && !line.bulk && line.mailbox?.id === view.id
     case 'bulk':
@@ -166,8 +210,10 @@ export interface ConversationsAnswer {
   parts: PartStatus[]
   /** The business mailboxes seen, for the filters that are one each. Empty when the inbox did not answer. */
   mailboxes: MailboxFilter[]
-  /** The inbox had more conversations than one screen of them, so its part of the list is the newest (the inbox's `more`). */
+  /** The inbox had older conversations than the list reaches (the inbox's `more`): the page offers to load them. */
   more: boolean
+  /** Where the list ends, to ask for older ones from (the inbox's `floor`): handed back as `through`. Null when the list is empty or the inbox cannot page. */
+  floor: string | null
   /**
    * In the Drafts view, the drafts that sit on no conversation (a first email to a new address, a first LinkedIn message to a new contact), newest first: they are in no row, because a row is
    * a person with something said. Empty in every other view. Each opens at `/inbox/draft/<id>`.
@@ -297,7 +343,7 @@ export function mergeConversations(input: MergeInput): Omit<ConversationsAnswer,
   }
 
   rows.sort((a, b) => b.at - a.at || a.type.localeCompare(b.type) || rowName(a).localeCompare(rowName(b)) || a.key.localeCompare(b.key))
-  return { rows, mailboxes: mailboxesOf(input.inbox), more: input.inbox?.more ?? false }
+  return { rows, mailboxes: mailboxesOf(input.inbox), more: input.inbox?.more ?? false, floor: input.inbox?.floor ?? null }
 }
 
 const rowName = (r: ListedRow) => r.name
@@ -411,7 +457,7 @@ function channelRow(channel: MeetChannel): ListedChannel | null {
   }
 }
 
-/** The business mailboxes the inbox's answer showed, from every open conversation in them whichever view was asked for. */
+/** The business mailboxes the inbox's answer showed, from every open conversation in them (a mailbox, a Client or Unread narrows the answer, so it shows the mailboxes of the conversations it holds). */
 function mailboxesOf(inbox: InboxPeople | null): MailboxFilter[] {
   const seen = new Map<string, MailboxFilter>()
   const counted = new Set<string>()

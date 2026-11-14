@@ -7,8 +7,8 @@ import { draftIdAt } from './route'
 
 /**
  * WHICH LIST, AND WHO IN IT. The view is the inbox's own left menu (the tree under Inbox, and its sheet on a phone): Inbox (the main list), Unread, Sent, Drafts, Bulk, Closed, one
- * business mailbox, or one Client. Bulk, Closed and Sent are lists of their own; a business mailbox narrows the list to its own mail; Unread,
- * Drafts and a Client narrow the main list to the people they are about. It is in the address (`/inbox?view=bulk`), so the tree and the list agree and a link keeps it.
+ * business mailbox, or one Client. Bulk, Closed and Sent are lists of their own; a business mailbox, Unread and a Client narrow the main list, in the inbox and before it is cut to a screen (`requestFor`);
+ * Drafts is a list of its own too. The page then keeps the rows the view is about (`filterRows`). It is in the address (`/inbox?view=bulk`), so the tree and the list agree and a link keeps it.
  * `Who` is the other cut, kept as three small chips because the menu has no equivalent: everyone, outside people, or the team.
  */
 export type ListView = 'all' | 'unread' | 'sent' | 'drafts' | 'bulk' | 'closed' | `mailbox:${string}` | `client:${number}`
@@ -33,17 +33,19 @@ export function viewAt(pathname: string, search: string): ListView {
 }
 
 /**
- * What to ask the Worker for. Bulk, Closed, Sent and a mailbox are lists of the inbox's alone (Sent is every conversation the owner sent in, any state, newest send first). Drafts and a Client are asked with what their counts count: Drafts every conversation with a
- * draft, open, closed or Bulk; a Client its open conversations, Bulk included (the page then keeps the Client's people). Unread, like the Inbox, is open mail that is not Bulk, which
- * the main list serves. The Inbox asks the inbox alone (`scope=mail`), so no chat is in any of them.
+ * What to ask the Worker for. Every view of the Inbox is asked for by name, and the inbox narrows it before it cuts the list to a screen, so each holds what its count counts: Bulk, Closed and Sent are lists of the inbox's alone (Sent is every conversation the owner sent in, any state, newest send first); Drafts is every conversation with a
+ * draft, open, closed or Bulk; a Client its open conversations, Bulk included (the page then keeps the Client's people); a mailbox and Unread narrow open mail that is not Bulk, which is what the Inbox is. The Inbox asks the inbox alone (`scope=mail`), so no chat is in any of them.
  */
 export function requestFor(view: Filter): string {
-  if (view === 'bulk' || view === 'closed' || view === 'sent') return `/api/conversations?scope=mail&view=${view}`
-  if (view === 'drafts') return '/api/conversations?scope=mail&view=drafts'
-  if (view.startsWith('client:')) return '/api/conversations?scope=mail&view=client'
+  if (view === 'bulk' || view === 'closed' || view === 'sent' || view === 'unread' || view === 'drafts') return `/api/conversations?scope=mail&view=${view}`
+  if (view.startsWith('client:')) return `/api/conversations?scope=mail&view=client&client=${view.slice('client:'.length)}`
   if (view.startsWith('mailbox:')) return `/api/conversations?scope=mail&view=mailbox&mailbox=${encodeURIComponent(view.slice('mailbox:'.length))}`
   return '/api/conversations?scope=mail'
 }
+
+/** The list's request read further down: down to the position the page has loaded (`through`, an earlier answer's `floor`), and with `older` one more screen below it. */
+export const readingFor = (request: string, reading: { through: string; older: boolean } | null): string =>
+  reading === null ? request : `${request}&through=${encodeURIComponent(reading.through)}${reading.older ? '&older=1' : ''}`
 
 // ── Meet's views ──────────────────────────────────────────────────────────────────────────────────────────────────────────
 

@@ -1790,14 +1790,14 @@ export class Inbox {
 
   /**
    * The conversations with these ids as the queue shows them, most recently active
-   * first, at most a screen of them (QUEUE_PAGE). The ids are the queue's plan for the
+   * first, at most a screen of them (QUEUE_PAGE) or, where the caller has read further down a list, `limit`. The ids are the queue's plan for the
    * filter asked for (src/queue.ts), so the cut to a screen is made AFTER the filter
    * and not before it.
    */
-  listConversations(ids: string[]): ConversationSummary[] {
+  listConversations(ids: string[], limit: number = QUEUE_PAGE): ConversationSummary[] {
     if (ids.length === 0) return []
     // json_each, not one `?` per id: a Durable Object's SQLite takes only 100 bound values.
-    return this.conversationsWhere('c.id IN (SELECT value FROM json_each(?1))', [JSON.stringify(ids)], QUEUE_PAGE)
+    return this.conversationsWhere('c.id IN (SELECT value FROM json_each(?1))', [JSON.stringify(ids)], limit)
   }
 
   /**

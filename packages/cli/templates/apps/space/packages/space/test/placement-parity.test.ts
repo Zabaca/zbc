@@ -160,7 +160,7 @@ function disagreements(w: World): string[] {
   const zero = { count: 0, unread: 0 }
   const want: Record<string, unknown> = {
     inbox: list({ kind: 'main' }, 'all'),
-    unread: list({ kind: 'main' }, 'unread').count,
+    unread: list({ kind: 'unread' }, 'unread').count,
     bulk: list({ kind: 'bulk' }, 'bulk'),
     closed: list({ kind: 'closed' }, 'closed'),
     drafts: list({ kind: 'drafts' }, 'drafts').count,
@@ -168,8 +168,8 @@ function disagreements(w: World): string[] {
     rc: list({ kind: 'mailbox', id: 'rc' }, 'mailbox:rc'),
     tg: list({ kind: 'mailbox', id: 'tg' }, 'mailbox:tg'),
     jm: list({ kind: 'mailbox', id: 'jm' }, 'mailbox:jm'),
-    client7: list({ kind: 'client' }, 'client:7'),
-    client9: list({ kind: 'client' }, 'client:9'),
+    client7: list({ kind: 'client', id: 7 }, 'client:7'),
+    client9: list({ kind: 'client', id: 9 }, 'client:9'),
   }
   const got: Record<string, unknown> = {
     inbox: counts.views.inbox,

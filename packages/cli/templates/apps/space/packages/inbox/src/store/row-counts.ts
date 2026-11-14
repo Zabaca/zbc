@@ -8,7 +8,7 @@ import type { QueueFact } from '../types'
  * The queue (`planQueue`) counts conversations, and the space's Inbox list is a row per person (packages/space/src/conversations.ts): a person with three open
  * threads is one row, and a thread several people are on is listed under ONE of them, the one who last wrote on it (`placedUnder`, src/store/placement.ts; it used to be
  * a row under each). A menu that said "Inbox 7" over a list of 4 rows read as a fault. The space's lists are cut at the
- * newest QUEUE_PAGE conversations; a count is not (a menu that stopped at the cap would say less than there is, and not say so), so this counts every conversation
+ * newest QUEUE_PAGE conversations until the person loads older ones (src/store/paging.ts); a count is not (a menu that stopped at the cap would say less than there is, and not say so), so this counts every conversation
  * in the store, in one pass over the facts the queue already reads and the placement of each conversation (`SpaceStore.placements`: who is on it and the newest message from each
  * of them, grouped by conversation and contact, no message body read).
  *

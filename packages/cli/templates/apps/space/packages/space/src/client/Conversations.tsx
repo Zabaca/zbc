@@ -38,6 +38,7 @@ import {
   lastByPrefix,
   newestSubject,
   noticesFor,
+  readingFor,
   requestFor,
   unreadBreakdown,
   viewAt,
@@ -89,6 +90,10 @@ export interface ScreenProps {
   onNewCall?(): void
   /** Open the box for a new email, the Inbox's. */
   onNewEmail?(): void
+  /** Load the next screen of older conversations, at the foot of a list that has more (the Inbox's). Absent where the page offers none. */
+  onLoadOlder?(): void
+  /** Older conversations are being read: the control says so and is held. */
+  loadingOlder?: boolean
   /** What the last New call said, when it did not make one. */
   newCallSay?: string | null
   newCallBusy?: boolean
@@ -246,7 +251,7 @@ function LooseRow({ draft, now, on, go }: { draft: LooseDraft; now: number; on: 
 
 function Notices({ answer }: { answer: ConversationsAnswer }) {
   const notices = noticesFor(answer.parts)
-  if (notices.length === 0 && !answer.more) return null
+  if (notices.length === 0) return null
   return (
     <div className="notices">
       {notices.map((n) => (
@@ -255,11 +260,20 @@ function Notices({ answer }: { answer: ConversationsAnswer }) {
           <span>{n.text}</span>
         </p>
       ))}
-      {answer.more && (
-        <p className="notice quiet" data-notice="more">
-          <span>Showing the newest email conversations only.</span>
-        </p>
-      )}
+    </div>
+  )
+}
+
+/** At the foot of a list that has older conversations than it shows: what the list is, and the way to the rest. The newest screen is never the whole list, and this is where the rest is. */
+function LoadOlder({ busy, onLoad }: { busy: boolean; onLoad(): void }) {
+  return (
+    <div className="load-older" data-testid="load-older-row">
+      <p className="sub" data-notice="more">
+        These are the newest email conversations.
+      </p>
+      <button type="button" className="btn" onClick={onLoad} disabled={busy} data-testid="load-older">
+        {busy ? 'Loading' : 'Load older'}
+      </button>
     </div>
   )
 }
@@ -524,6 +538,7 @@ export function ConversationsScreen(p: ScreenProps) {
                     <Row key={r.key} row={r} scope={scope} now={now} on={r.key === p.selected} go={p.go} />
                   ))}
                 </ul>
+                {mail && answer?.more && answer.floor && p.onLoadOlder && <LoadOlder busy={p.loadingOlder === true} onLoad={p.onLoadOlder} />}
                 {answer && rows.some((r) => r.unread > 0) && <p className="foot sub">{mail ? UNREAD_NOTE : MEET_UNREAD_NOTE}</p>}
               </>
             )}
@@ -578,6 +593,14 @@ export function Conversations({ scope, me, pathname, search = '', go: goTo }: { 
   const current = useRef(request)
   current.current = request
   const inflight = useRef<AbortController | null>(null)
+  // HOW FAR DOWN THE LIST IS READ. The list is the newest screen of the view; Load older reads further, down to a POSITION (the `floor` the last answer gave), and every read of this list after it,
+  // a live message, the minute's, a read or a send, asks down to the same position. So what was loaded stays, what arrived since is on top and nothing is repeated (a count of rows would shift
+  // as mail arrives). Each answer is the whole list down to there, never a page to be added to what is held, so a refresh cannot double a row. `older` is set while one more screen is asked for.
+  // Null until Load older is pressed, and again whenever another list is opened.
+  const reading = useRef<{ through: string; older: boolean } | null>(null)
+  const heldAnswer = useRef<ConversationsAnswer | null>(null)
+  heldAnswer.current = answer
+  const [loadingOlder, setLoadingOlder] = useState(false)
 
   // `again` is for the reads that mean the world changed (chat said so, the page was shown again, a minute passed): the open conversation is read
   // again with the list. A read the page makes itself (after it marked something read, or sent) is the list alone.
@@ -588,9 +611,12 @@ export function Conversations({ scope, me, pathname, search = '', go: goTo }: { 
     if (!quiet) setLoading(true)
     if (again && quiet) setRefreshes((n) => n + 1)
     const startedAt = Date.now()
-    void read<ConversationsAnswer>(current.current, ctl.signal).then((r) => {
+    void read<ConversationsAnswer>(readingFor(current.current, reading.current), ctl.signal).then((r) => {
       if (ctl.signal.aborted) return
       setLoading(false)
+      setLoadingOlder(false)
+      // The list now reaches down to where this answer ends, and one more screen is no longer owed; a read that failed leaves the position, and the control free to be pressed again.
+      if (reading.current !== null) reading.current = { through: (r.ok ? r.value.floor : null) ?? reading.current.through, older: false }
       // A close that ended before this read began is in what it says: its row need not be held out of the list any more.
       if (r.ok) changes.release('rows', startedAt)
       setNow(Date.now())
@@ -610,9 +636,20 @@ export function Conversations({ scope, me, pathname, search = '', go: goTo }: { 
     announceChange()
   }, [load])
 
-  // A different list (Bulk, Closed, a mailbox) is read from the start; the three that cut the main list share one read.
+  // Load older: one more screen of conversations below the ones shown, of the same list. Pressed twice before the answer, it is one read.
+  const loadOlder = useCallback(() => {
+    const from = heldAnswer.current?.floor ?? null
+    if (from === null || reading.current?.older === true) return
+    reading.current = { through: from, older: true }
+    setLoadingOlder(true)
+    load(true, false)
+  }, [load])
+
+  // A different list (Bulk, Closed, a mailbox, a Client) is read from the start, down to its newest screen.
   useEffect(() => {
     setAnswer(null)
+    reading.current = null
+    setLoadingOlder(false)
     load(false)
     return () => inflight.current?.abort()
   }, [request, load])
@@ -716,7 +753,7 @@ export function Conversations({ scope, me, pathname, search = '', go: goTo }: { 
       selectedDraft={draftId}
       detail={detail}
       go={go}
-      {...(mail ? { onNewEmail: () => go(inboxPath(NEW_EMAIL)) } : switches.calls ? { onNewCall: () => void newCall() } : {})}
+      {...(mail ? { onNewEmail: () => go(inboxPath(NEW_EMAIL)), onLoadOlder: loadOlder, loadingOlder } : switches.calls ? { onNewCall: () => void newCall() } : {})}
       newCallBusy={newCallBusy}
       newCallSay={newCallSay}
       refreshes={refreshes}

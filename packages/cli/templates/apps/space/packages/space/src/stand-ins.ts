@@ -7,6 +7,7 @@
 // prove it passes the asker along.
 
 import { canSee, type MailScope, scopeOf } from '@space/inbox/src/queue'
+import { cut, type Place, readPlace } from '@space/inbox/src/store/paging'
 import { sniffPicture } from '@space/inbox/src/telegram/wire'
 import {
   type SignedIn,
@@ -561,11 +562,20 @@ export function standInInbox(
       await wait()
       const mail = seen(asker)
       if (mail === null) return refused('not-admitted', 'The Inbox is not open to you.')
-      const all = inScopeFor(scope).filter(visibleTo(mail))
-      // `options.page` is the screen the real inbox cuts a list at (QUEUE_PAGE): the newest threads in scope, with `more` when there were others. Left out: no cut.
+      // The narrowing the real inbox makes before it cuts the list to a screen: a mailbox, a Client's people, the unread ones.
+      const narrowed = (t: Kept) =>
+        (scope?.mailbox === undefined || t.mailbox?.id === scope.mailbox) &&
+        (scope?.client === undefined || t.on.some((id) => byId.get(id)?.client?.id === scope.client)) &&
+        (scope?.unread !== true || (t.unread ?? false))
+      const all = inScopeFor(scope).filter(visibleTo(mail)).filter(narrowed)
+      // `options.page` is the screen the real inbox cuts a list at (QUEUE_PAGE): the newest threads in scope, with `more` when there were others, and a `floor` to read further from (`through`, with `older` for one more screen). Left out: no cut.
       const page = options.page
-      const cut = page !== undefined && all.length > page
-      const inScope = page === undefined ? all : [...all].sort((a, b) => newest(b).at - newest(a).at).slice(0, page)
+      const keyOf = (t: Kept) => (scope?.sent === true ? (newestSent(t) as StandInMessage) : newest(t))
+      const placeOf = (t: Kept): Place => ({ at: new Date(keyOf(t).at).toISOString(), seq: threads.indexOf(t) + 1 })
+      const down = scope?.through === undefined ? null : readPlace(scope.through)
+      const reach = scope?.addresses || scope?.contactIds || down === null ? {} : { through: down, older: scope?.older === true }
+      const paged = page === undefined ? null : cut([...all].sort((a, b) => keyOf(b).at - keyOf(a).at || threads.indexOf(b) - threads.indexOf(a)), placeOf, reach, page)
+      const inScope = paged === null ? all : paged.shown
       const only = scope?.addresses ? new Set(scope.addresses) : null
       const ids = scope?.contactIds ? new Set(scope.contactIds) : null
       const people: InboxPerson[] = []
@@ -589,7 +599,7 @@ export function standInInbox(
         })
       }
       people.sort((a, b) => b.newest.at - a.newest.at)
-      return answered({ people, more: cut })
+      return answered({ people, more: paged?.more ?? false, ...(paged?.floor != null && { floor: paged.floor }) })
     },
     async search(asker: SignedIn, query: string): Promise<SpaceReply<InboxSearch>> {
       asked.searches.push(query)
@@ -1616,7 +1626,7 @@ const TELEGRAM: InboxMailbox = { id: 'telegram', name: 'Telegram', address: '700
 const HARBORLINE: InboxMailbox = { id: 'harborline', name: 'harborline', address: 'test@harborline.example' }
 
 /** The inbox and meet as a local page shows them with `SPACE_FIXTURES=1` (or a mode that breaks one part): invented people, times counted back from `now`. */
-export type FixtureMode = '1' | 'mail-down' | 'chat-refused' | 'forms-down' | 'knowledge-down' | 'phone-on' | 'telegram-late' | 'telegram-signed-out' | 'jmap-refused' | 'jmap-down' | 'calendar-lapsed' | 'calendar-down' | 'calendar-empty' | 'telegram-pictures' | 'two-people' | 'calendar-mail'
+export type FixtureMode = '1' | 'mail-down' | 'chat-refused' | 'forms-down' | 'knowledge-down' | 'phone-on' | 'telegram-late' | 'telegram-signed-out' | 'jmap-refused' | 'jmap-down' | 'calendar-lapsed' | 'calendar-down' | 'calendar-empty' | 'telegram-pictures' | 'two-people' | 'calendar-mail' | 'short-screen'
 
 export function fixtureApps(now: number, mode: FixtureMode = '1', options: { formsAt?: string; zone?: string } = {}) {
   const ago = (minutes: number) => now - minutes * MIN
@@ -2014,7 +2024,8 @@ export function fixtureApps(now: number, mode: FixtureMode = '1', options: { for
     contacts.push(...calendarMail.contacts)
     threads.push(...calendarMail.threads)
   }
-  const inbox = standInInbox(contacts, threads, { ...(seeing && { seeing }), drafts, withReading: true, withFiles: true, clients: clientsPart, ...(options.zone !== undefined && { zone: options.zone }), views: fixtureViews(now, mode === 'telegram-late' ? 'late' : mode === 'telegram-signed-out' ? 'signed-out' : 'live', mode === 'jmap-refused' ? 'refused' : mode === 'jmap-down' ? 'down' : 'live') })
+  // `short-screen`: the inbox cuts its lists at FOUR conversations (the real one at 200), so the Load older control at the foot of a list is on the page and can be pressed.
+  const inbox = standInInbox(contacts, threads, { ...(seeing && { seeing }), ...(mode === 'short-screen' && { page: 4 }), drafts, withReading: true, withFiles: true, clients: clientsPart, ...(options.zone !== undefined && { zone: options.zone }), views: fixtureViews(now, mode === 'telegram-late' ? 'late' : mode === 'telegram-signed-out' ? 'signed-out' : 'live', mode === 'jmap-refused' ? 'refused' : mode === 'jmap-down' ? 'down' : 'live') })
   // Calls, invented: a huddle Tessa started in his direct message with Priya with two people in it (and in Today's "Happening now"), one that ended in #launch, a call link and a meeting in
   // Lena's email conversation, a meeting later today and one tomorrow, a New call with a row of its own, calls from before the space with their chat, and the month's usage. A link is on meet's
   // address and goes nowhere in a local run.

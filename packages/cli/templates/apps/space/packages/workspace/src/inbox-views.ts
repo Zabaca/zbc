@@ -22,6 +22,9 @@ import type { ClientRef } from './rows'
 /** What a business mailbox's id looks like (the inbox's own: an address or a slug). The one pattern, for the inbox and the space: a path-shaped or enormous string never reaches a query. */
 export const MAILBOX_ID = /^[A-Za-z0-9@._+-]{1,120}$/
 
+/** What a position in a list looks like (`InboxPeople.floor`, handed back as `InboxScope.through`): a time and a number. The one pattern, for the inbox and the space, so a stray string never reaches a read. */
+export const LIST_POSITION = /^[0-9TZ:.+-]{1,40}\|[0-9]{1,15}$/
+
 // ── The menu: what the inbox's own left nav counts ───────────────────────────────────────────────────────────────────────────
 
 /** One entry of the menu: how many rows of its list (a person each; over every conversation, not a screen of them) and how many of those rows have something unread. */

@@ -89,6 +89,26 @@ export interface InboxScope {
    * screenful is still found. An entry that is no id of the inbox's shape is ignored; at most 100.
    */
   contactIds?: readonly string[]
+  /**
+   * Only the open conversations (not Bulk) of this mailbox, by its id (`MAILBOX_ID`): a business mailbox, a Gmail account, a mail-server mailbox or Telegram's. Narrows BEFORE the screen of newest conversations is cut, so a mailbox
+   * whose mail is all older than the newest screenful of the whole inbox is listed as the menu counts it. ABSENT from an inbox that predates it, which answers the main list and leaves the narrowing to the caller.
+   */
+  mailbox?: string
+  /**
+   * Only the conversations a person linked to this Client (a whole number from 1) is on, narrowing BEFORE the screen is cut as `mailbox` does. The caller asks for Bulk with it (`include`) and keeps the Client's people in the rows,
+   * as it always has. ABSENT from an inbox that predates it.
+   */
+  client?: number
+  /** Only the conversations with something unread, narrowing BEFORE the screen is cut as `mailbox` does. ABSENT from an inbox that predates it. */
+  unread?: boolean
+  /**
+   * How far down the list the caller has read: a position an earlier answer gave as its `floor`, handed back untouched. The answer then holds every conversation of the list at or after that position (newest first), and never fewer than a
+   * screen, so a list read again keeps what was loaded and picks up what arrived since. A position and not a count, so mail arriving meanwhile shifts nothing and repeats nothing. Ignored with `addresses` or `contactIds`.
+   * ABSENT from an inbox that predates it, which answers the newest screen.
+   */
+  through?: string
+  /** With `through`: one more screen of conversations older than the position. */
+  older?: boolean
 }
 
 /** One conversation as a person's entry lists it. */
@@ -165,8 +185,13 @@ export interface InboxPerson {
 
 export interface InboxPeople {
   people: InboxPerson[]
-  /** There were more conversations than one screen of them (the store's QUEUE_PAGE), so the list is the newest. */
+  /** There were older conversations than the list reaches (the list is cut at a screen, the store's QUEUE_PAGE, or at `through`): ask again with `through` set to `floor` and `older`. */
   more: boolean
+  /**
+   * Where the list ends: the position of its oldest conversation, to be handed back as `through`. Present when the answer has any conversation of a list that pages (the main list and the views, not a person's own lists); ABSENT from
+   * an inbox that predates it, which cannot be asked for older ones.
+   */
+  floor?: string
 }
 
 /** Who to open: a contact the space already holds the id of, or an address (any of the contact's). */

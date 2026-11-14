@@ -279,7 +279,7 @@ describe('what a view keeps of the list', () => {
     // The two cuts together: the Client's people, who are outside the team.
     expect(names(narrow(a.rows, 'client:7', 'outside'))).toEqual(['Dana Reyes', 'Marcus Chen'])
     expect(names(narrow(a.rows, 'unread', 'team'))).toEqual([])
-    expect(requestFor('unread')).toBe('/api/conversations?scope=mail')
+    expect(requestFor('unread')).toBe('/api/conversations?scope=mail&view=unread')
     expect(requestFor('bulk')).toBe('/api/conversations?scope=mail&view=bulk')
   })
 
