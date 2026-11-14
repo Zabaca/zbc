@@ -1,4 +1,4 @@
-import { ASK_WAIT_MS, MESSAGES, notificationFor, readPayload, type Shown, stayQuiet, tapTarget } from './sw-push'
+import { ASK_WAIT_MS, MESSAGES, notificationFor, readPayload, type Shown, showsEveryPush, stayQuiet, tapTarget } from './sw-push'
 
 /**
  * The space's service worker: what makes it an app Chrome installs on a phone or a Mac, and what shows a notification. Built by Vite as an entry of its
@@ -13,7 +13,7 @@ import { ASK_WAIT_MS, MESSAGES, notificationFor, readPayload, type Shown, stayQu
  *
  * ── A NOTIFICATION ───────────────────────────────────────────────────────
  * A push carries the sender and the subject, encrypted to this device. Before showing it the worker asks each visible window of the space which person's
- * conversation it has open, waiting briefly; a window showing that very person is told to read its lists again and nothing is shown. A tap brings a window of
+ * conversation it has open, waiting briefly; a window showing that very person is told to read its lists again and, except on Apple's devices (sw-push.ts `showsEveryPush`), nothing is shown. A tap brings a window of
  * the space forward and tells it to open the person's conversation (no reload), or opens the space at that address.
  *
  * Typed with the few shapes it uses rather than the WebWorker library, which conflicts with the DOM and Workers types the rest of the app compiles against.
@@ -37,6 +37,7 @@ interface AppWindow {
 }
 interface WorkerScope {
   location: { origin: string }
+  navigator: { userAgent: string }
   registration: { showNotification(title: string, options: Shown['options']): Promise<void> }
   skipWaiting(): Promise<void>
   clients: {
@@ -97,7 +98,8 @@ worker.addEventListener('push', (event) => {
         visible.forEach((w, i) => {
           if ((open[i] ?? []).includes(person as string)) w.postMessage({ type: MESSAGES.refresh })
         })
-        return
+        // Chrome lets that stand. Safari takes away the permission of a site whose push shows nothing, so on an iPhone or iPad the notification is shown all the same.
+        if (!showsEveryPush(worker.navigator.userAgent)) return
       }
       await worker.registration.showNotification(shown.title, shown.options)
     })(),

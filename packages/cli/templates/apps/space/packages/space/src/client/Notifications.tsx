@@ -3,15 +3,16 @@
 // device that is not yet moved over never goes dark, and one that has moved is not told twice.
 import { useCallback, useEffect, useState } from 'react'
 import type { InboxDevice, InboxNotifications } from '@space/workspace'
-import { type BrowserFacts, type BrowserState, browserState, failing, notificationsSupported, permission, STEP_NAMES, thisBrowser, turnOff, turnOn, type TurnOnStep, workerProblem } from './notify'
+import { type AppleDevice, appleFacts, type BrowserFacts, type BrowserState, browserState, failing, notificationsSupported, permission, STEP_NAMES, thisBrowser, turnOff, turnOn, type TurnOnStep, workerProblem } from './notify'
 import { useInstall } from './install'
 import { Block, Done, Say, Viewed, useAction, when } from './settings-parts'
 import { getView, postView, type Loaded, type Said } from './views'
 
-/** What each state of this browser says. */
-export const browserTexts = (host: string): Record<BrowserState, string> => ({
-  unsupported: 'This browser cannot receive notifications. On an iPhone, add the space to the home screen first and open it from there; otherwise use Chrome on your Android phone or your Mac.',
-  blocked: `Notifications are blocked for the space on this device. On Android, allow them in the system settings for the Space app (press and hold its icon, App info, Notifications). On the Mac, allow them in Chrome’s site settings for ${host} and for Google Chrome in System Settings, Notifications. Then open this page again.`,
+/** What each state of this browser says. `apple` is the device when this is an iPhone or iPad: what to add to the Home Screen, and where its notification settings are. */
+export const browserTexts = (host: string, apple: AppleDevice | null = null): Record<BrowserState, string> => ({
+  'add-to-home-screen': `Notifications on ${apple === 'iPad' ? 'an iPad' : 'an iPhone'} need the space added to the Home Screen first. In Safari, tap the Share button, choose Add to Home Screen and add it. Then open Space from its new icon (not from Safari), sign in, and come back to this page to turn notifications on. This needs ${apple === 'iPad' ? 'iPadOS' : 'iOS'} 16.4 or later.`,
+  unsupported: 'This browser cannot receive notifications. On an iPhone or iPad, update to iOS or iPadOS 16.4 or later and open the space from its Home Screen icon; otherwise use Chrome on your Android phone or your Mac.',
+  blocked: `Notifications are blocked for the space on this device. On Android, allow them in the system settings for the Space app (press and hold its icon, App info, Notifications). On the Mac, allow them in Chrome’s site settings for ${host} and for Google Chrome in System Settings, Notifications. On an iPhone or iPad, open the Settings app, then Notifications, then Space, and turn on Allow Notifications. Then open this page again.`,
   'no-key': 'Notifications are not set up on the inbox yet, so they cannot be turned on. Nothing is sent until they are.',
   'stale-key': 'This device was turned on with a key the inbox no longer uses, so no notification reaches it. Turn notifications on again here.',
   off: 'This device does not get notifications from the space.',
@@ -20,7 +21,7 @@ export const browserTexts = (host: string): Record<BrowserState, string> => ({
 })
 
 /** What a notification is, said once beside the button that turns them on. */
-const WHAT_SHOWS = 'When mail from a person lands in the Inbox, this device shows who wrote and the subject, on the lock screen too, and a tap opens that person’s conversation here. Newsletters, automated senders, your own mail and Claude’s sends make no sound. Your phone or Mac asks you to allow them first.'
+const WHAT_SHOWS = 'When mail from a person lands in the Inbox, this device shows who wrote and the subject, on the lock screen too, and a tap opens that person’s conversation here. Newsletters, automated senders, your own mail and Claude’s sends make no sound. Your phone, iPad or Mac asks you to allow them first.'
 
 const originText = (d: InboxDevice, mine: boolean): string => (mine ? 'This device' : d.origin === 'space' ? 'The space' : 'The inbox app (old)')
 
@@ -55,6 +56,7 @@ export function NotificationsPanel({
   busy,
   step = null,
   worker = null,
+  apple = null,
   removing = null,
   onTurnOn,
   onTurnOff,
@@ -70,6 +72,8 @@ export function NotificationsPanel({
   busy: boolean
   step?: TurnOnStep | null
   worker?: string | null
+  /** The Apple device this is, for the words of the states that name where to tap. */
+  apple?: AppleDevice | null
   /** The device a Remove was pressed on and not yet confirmed. */
   removing?: string | null
   onTurnOn(): void
@@ -80,7 +84,7 @@ export function NotificationsPanel({
   onCancelRemove(): void
 }) {
   const { host } = useInstall()
-  const workerSays = worker !== null && state !== 'unsupported' && state !== 'no-key'
+  const workerSays = worker !== null && state !== 'add-to-home-screen' && state !== 'unsupported' && state !== 'no-key'
   const amber = state === 'failing' || state === 'stale-key' || state === 'blocked' || workerSays
   // Turning on again helps only when the push service refused this device (a key it no longer matches).
   const turnOnAgain = state === 'failing' && device?.refused === true
@@ -90,7 +94,7 @@ export function NotificationsPanel({
     <>
       <div className={`s-card${amber ? ' amber' : ''}`} data-testid="browser">
         <p className="s-lead" role="status" data-state={state}>
-          {browserTexts(host)[state]}
+          {browserTexts(host, apple)[state]}
         </p>
         {state === 'failing' && device?.lastFailure && <p>{device.lastFailure}</p>}
         {workerSays && <p>{worker}</p>}
@@ -100,7 +104,7 @@ export function NotificationsPanel({
           </p>
         )}
         {(state === 'off' || state === 'stale-key' || turnOnAgain) && <p className="sub">{WHAT_SHOWS}</p>}
-        {state !== 'unsupported' && state !== 'blocked' && state !== 'no-key' && (
+        {state !== 'add-to-home-screen' && state !== 'unsupported' && state !== 'blocked' && state !== 'no-key' && (
           <div className="s-actions">
             {(state === 'off' || state === 'stale-key' || turnOnAgain) && (
               <button type="button" className="btn primary" disabled={busy} onClick={onTurnOn} data-testid="turn-on">
@@ -221,7 +225,8 @@ export function NotificationsSection() {
     <Block title="Notifications" testid="notifications">
       <Viewed view={view} problem={problem} reload={() => void load()} loading="Loading notifications">
         {(n) => {
-          const { state, device } = browserState({ supported: notificationsSupported(), permission: permission(), notifications: n, thisBrowser: here })
+          const apple = appleFacts()
+          const { state, device } = browserState({ supported: notificationsSupported(), permission: permission(), notifications: n, thisBrowser: here, apple })
           return (
             <NotificationsPanel
               state={state}
@@ -230,6 +235,7 @@ export function NotificationsSection() {
               busy={action.busy}
               step={step}
               worker={worker}
+              apple={apple?.device ?? null}
               removing={removing}
               onTurnOn={() => n.publicKey && void browser(() => turnOn(n.publicKey as string, setStep), 'Notifications are on for this device.')}
               onTurnOff={() => void browser(() => turnOff(device?.id ?? null), 'Notifications are off on this device.')}

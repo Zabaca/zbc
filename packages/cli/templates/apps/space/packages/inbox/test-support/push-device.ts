@@ -44,15 +44,22 @@ export interface TestDevice {
   auth: Uint8Array
 }
 
-/** A new device at a Chrome push address. */
-export async function newDevice(token: string = crypto.randomUUID()): Promise<TestDevice> {
+/** Where a push service says its devices are: Chrome's, or Apple's (Safari on an iPhone, an iPad or a Mac). */
+export type PushService = 'chrome' | 'apple'
+
+/** A new device at a push service's address: Chrome's unless told otherwise. */
+export async function newDevice(
+  token: string = crypto.randomUUID(),
+  service: PushService = 'chrome',
+): Promise<TestDevice> {
   const pair = (await crypto.subtle.generateKey({ name: 'ECDH', namedCurve: 'P-256' }, true, [
     'deriveBits',
   ])) as CryptoKeyPair
   const publicRaw = new Uint8Array((await crypto.subtle.exportKey('raw', pair.publicKey)) as ArrayBuffer)
   const auth = crypto.getRandomValues(new Uint8Array(16))
   return {
-    endpoint: `https://fcm.googleapis.com/fcm/send/${token}`,
+    endpoint:
+      service === 'apple' ? `https://web.push.apple.com/${token}` : `https://fcm.googleapis.com/fcm/send/${token}`,
     keys: { p256dh: b64url(publicRaw), auth: b64url(auth) },
     privateKey: pair.privateKey,
     publicRaw,

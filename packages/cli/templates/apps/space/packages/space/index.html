@@ -12,6 +12,11 @@
          icons sit behind the same sign-in as the app. -->
     <link rel="manifest" href="/manifest.webmanifest" crossorigin="use-credentials" />
     <link rel="apple-touch-icon" href="/icons/icon-192.png" />
+    <!-- An iPhone or iPad opens what is added to its Home Screen as an app (and delivers push to it) when the manifest says standalone. The manifest is fetched
+         behind the sign-in, as above; these two say the same in the page itself, which Safari has just loaded signed in, so the app is standalone even if it could
+         not read the manifest. -->
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
   </head>
   <body>
     <div id="root"></div>

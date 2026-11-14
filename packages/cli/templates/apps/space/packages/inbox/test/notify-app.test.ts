@@ -29,6 +29,12 @@ import { decrypt, newDevice, type TestDevice, verifyVapid } from '../test-suppor
 type H = ReturnType<typeof harness>
 const PIXEL_UA =
   'Mozilla/5.0 (Linux; Android 15; Pixel 8a) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Mobile Safari/537.36'
+/** An app added to an iPhone's Home Screen: no Safari/ or Version/ mark. */
+const IPHONE_APP_UA =
+  'Mozilla/5.0 (iPhone; CPU iPhone OS 18_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148'
+/** An iPad's: Macintosh, as iPadOS says, with the Mobile/ mark no Mac browser has. */
+const IPAD_APP_UA =
+  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148'
 const MAC_UA =
   'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36'
 
@@ -160,7 +166,7 @@ describe('the routes', () => {
     expect((await read(h, again))[0]).toMatchObject({ kind: 'test' })
   })
 
-  test("an address that is not Chrome's push service is refused, and so is anything that is not a subscription", async () => {
+  test("an address that is not Chrome's or Apple's push service is refused, and so is anything that is not a subscription", async () => {
     const h = harness()
     const d = await newDevice()
     const bad = [
@@ -169,6 +175,9 @@ describe('the routes', () => {
       { endpoint: 'https://fcm.googleapis.com.evil.test/fcm/send/x', keys: d.keys },
       { endpoint: 'https://fcm.googleapis.com:8443/fcm/send/x', keys: d.keys },
       { endpoint: 'https://localhost/x', keys: d.keys },
+      { endpoint: 'https://web.push.apple.com.evil.test/x', keys: d.keys },
+      { endpoint: 'https://evilpush.apple.com/x', keys: d.keys },
+      { endpoint: 'http://web.push.apple.com/x', keys: d.keys },
     ]
     for (const body of bad) {
       const res = await notify(h, 'POST', '/api/notifications/devices', body)
@@ -228,6 +237,109 @@ describe('the routes', () => {
       expect(res.json.error).toBe(NOTIFICATIONS_NOT_SET_UP)
     }
     expect(count(h, 'device')).toBe(0)
+  })
+})
+
+describe('an iPhone or an iPad, through Apple’s push service', () => {
+  test('is turned on and listed as Safari on iOS or iPadOS, and the notification rule is the one it always was', async () => {
+    const h = harness()
+    await live(h)
+    const [phone, tablet, pixel] = [await newDevice('p', 'apple'), await newDevice('t', 'apple'), await newDevice()]
+    expect((await turnOn(h, phone, IPHONE_APP_UA)).label).toBe('Safari on iOS')
+    expect((await turnOn(h, tablet, IPAD_APP_UA)).label).toBe('Safari on iPadOS')
+    await turnOn(h, pixel)
+    // Mail from a person notifies every device; mail from the mailbox's own address (no Sent label, as a forward or an alias makes) notifies none.
+    h.google.mailbox.add({
+      id: 'm1',
+      threadId: 't1',
+      from: 'Marta Vidal <marta@tamarackprint.test>',
+      subject: 'Re: Changes to the site',
+    })
+    h.google.mailbox.add({ id: 'm2', threadId: 't2', from: `Tessa <${OWNER_EMAIL}>`, subject: 'To myself' })
+    await hear(h)
+    for (const device of [phone, tablet, pixel]) {
+      expect(
+        (await read(h, device)).map((p) => [p.kind, p.title, p.body]),
+        device.endpoint,
+      ).toEqual([['message', 'Marta Vidal', 'Re: Changes to the site']])
+    }
+    expect(notifyMark(h, 'm1')).toBe('sent')
+  })
+
+  test('is sent what Apple takes: its own origin as the audience, a token good for under a day, a https subject, and the TTL and Urgency headers', async () => {
+    const h = harness()
+    const phone = await newDevice('p', 'apple')
+    const added = await turnOn(h, phone, IPHONE_APP_UA)
+    expect((await notify(h, 'POST', `/api/notifications/devices/${added.id}/test`)).json).toEqual({
+      outcome: 'delivered',
+      status: 201,
+    })
+    const [request] = h.pushService.to(phone.endpoint)
+    if (!request) throw new Error('no request')
+    expect(request.endpoint).toStartWith('https://web.push.apple.com/')
+    expect(request.headers).toMatchObject({
+      TTL: String(NOTIFY_WINDOW_S),
+      Urgency: 'high',
+      'Content-Encoding': 'aes128gcm',
+    })
+    const { claims } = await verifyVapid(request.headers.Authorization ?? '')
+    expect(claims.aud).toBe('https://web.push.apple.com')
+    expect(claims.sub).toStartWith('https://')
+    expect(Number(claims.exp) * 1000 - h.now()).toBeLessThanOrEqual(24 * 60 * 60 * 1000)
+    expect(Number(claims.exp) * 1000).toBeGreaterThan(h.now())
+  })
+
+  test('is sent one token for a burst of notifications, not one each (Apple asks for no more than one an hour)', async () => {
+    const h = harness()
+    await live(h)
+    const phone = await newDevice('p', 'apple')
+    await turnOn(h, phone, IPHONE_APP_UA)
+    for (const id of ['m1', 'm2', 'm3'])
+      h.google.mailbox.add({ id, threadId: id, from: `Ann <${id}@person.test>`, subject: id })
+    await hear(h)
+    const tokens = h.pushService.to(phone.endpoint).map((r) => r.headers.Authorization)
+    expect(tokens).toHaveLength(3)
+    expect(new Set(tokens).size).toBe(1)
+  })
+
+  test('Apple’s answers mean what they mean for Chrome’s: 410 and 404 are a device that is gone, 403 and 400 one to turn on again', async () => {
+    const h = harness()
+    const [gone, refused] = [await newDevice('g', 'apple'), await newDevice('r', 'apple')]
+    const [g, r] = [await turnOn(h, gone, IPHONE_APP_UA), await turnOn(h, refused, IPAD_APP_UA)]
+    h.pushService.answer(gone.endpoint, 410)
+    h.pushService.answer(refused.endpoint, 403)
+    expect((await notify(h, 'POST', `/api/notifications/devices/${g.id}/test`)).json).toEqual({
+      outcome: 'gone',
+      status: 410,
+    })
+    expect((await notify(h, 'POST', `/api/notifications/devices/${r.id}/test`)).json).toEqual({
+      outcome: 'refused',
+      status: 403,
+    })
+    const listed = (await notify(h, 'GET', '/api/notifications')).json.devices as {
+      id: string
+      lastFailure: string | null
+    }[]
+    expect(listed.find((d) => d.id === r.id)?.lastFailure).toContain('Turn notifications on again')
+  })
+
+  test('the address is checked again at the send: a stored address that is not a push service is never called', async () => {
+    const h = harness()
+    const phone = await newDevice('p', 'apple')
+    const added = await turnOn(h, phone, IPHONE_APP_UA)
+    for (const endpoint of [
+      'https://web.push.apple.com.example.test/x',
+      'https://evilpush.apple.com/x',
+      'http://web.push.apple.com/x',
+      'https://web.push.apple.com:8443/x',
+    ]) {
+      h.db.run('UPDATE device SET endpoint = ?', [endpoint])
+      expect((await notify(h, 'POST', `/api/notifications/devices/${added.id}/test`)).json).toEqual({
+        outcome: 'failed',
+        status: null,
+      })
+    }
+    expect(h.pushService.requests).toEqual([])
   })
 })
 

@@ -12,9 +12,9 @@ import {
   type NotificationSettings,
 } from '../types'
 import { bytesOf } from './base64url'
-import { checkDevice, deviceLabel, PUSH_SERVICE_HOSTS } from './device'
+import { checkDevice, deviceLabel, isPushEndpoint } from './device'
 import { COLLAPSE_AFTER, fresh, messagePayload, NOTIFY_WINDOW_S, summaryPayload, testPayload } from './rule'
-import { encryptPayload, type VapidKey, vapidAuthorization } from './webpush'
+import { encryptPayload, type VapidKey, type VapidTokens, vapidAuthorization } from './webpush'
 
 /**
  * Notifications, from the Worker's side: turning devices on and off for Settings, the test notification, and handing
@@ -164,6 +164,9 @@ export class Notifications {
 
   private delivering: Promise<void> = Promise.resolve()
 
+  /** The tokens signed so far, so a push service is not sent a new one for every notification (webpush.ts `VAPID_REUSE_S`). */
+  private readonly vapidTokens: VapidTokens = new Map()
+
   /** Whether a device's person may see a notification's mail (`canSee`, src/queue.ts, over the mailbox of its message): what each person may see is asked of the store once per person, and each message's mailbox once. */
   private audienceOf(owed: readonly OwedNotification[]): (device: DeviceWithKeys, n: OwedNotification) => boolean {
     const scopes = new Map<string, MailScope>()
@@ -259,7 +262,7 @@ export class Notifications {
     let detail: string
     try {
       // Checked when the device was added; checked again here, so nothing can make the Worker call another address.
-      if (!PUSH_SERVICE_HOSTS.includes(new URL(device.endpoint).hostname)) throw new Error('not a push service')
+      if (!isPushEndpoint(device.endpoint)) throw new Error('not a push service')
       const uaPublic = bytesOf(device.p256dh)
       const authSecret = bytesOf(device.auth)
       if (!uaPublic || !authSecret) throw new Error('the device keys are unreadable')
@@ -275,11 +278,12 @@ export class Notifications {
             device.endpoint,
             this.ports.now().getTime(),
             this.ports.store.owner.spaceOrigin,
+            this.vapidTokens,
           ),
           'Content-Encoding': 'aes128gcm',
           'Content-Type': 'application/octet-stream',
           TTL: String(PUSH_TTL_S),
-          // So Android delivers it promptly when the phone is idle. No Topic header: a Topic is readable by the push service.
+          // So a phone delivers it promptly when idle (Android's Doze, Apple's power-saving: both push services take this header). No Topic header: a Topic is readable by the push service.
           Urgency: 'high',
         },
         body,

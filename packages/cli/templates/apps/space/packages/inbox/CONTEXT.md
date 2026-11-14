@@ -367,7 +367,7 @@ rules: not Bulk, not an automated sender, a Client's people always; never the ow
 sends, mail already read, mail found more than an hour after Gmail received it, or the 30 days read in
 when Gmail is connected. For a Cloudflare mailbox's mail it is the same shape, asked once per message after the spam check has answered
 (or failed, or was not asked): Inbox mail notifies, Bulk and spam never, and a message nothing judged notifies. One per email on each device (more than three at once arrive as one, "5 new messages", whose tap opens the Inbox), encrypted to the device on its way through
-Google's push service, quiet on a device where that conversation is open on screen, and a tap opens that
+the browser's push service (Google's for Chrome, Apple's for Safari on an iPhone or iPad), quiet on a device where that conversation is open on screen (an iPhone or iPad still shows it: Safari takes away the permission of a site whose push shows nothing), and a tap opens that
 conversation. Gmail's own notifications on a phone are separate and stay on.
 It goes to every **Device** of a person who may see that mail, one payload for each: the sender over the subject, the sender's address and a conversation id; a tap opens THAT PERSON'S conversation in the space (`/inbox/<address>`), or the Inbox list for a summary and the test.
 _Avoid_: push (that is Gmail telling the inbox), alert
