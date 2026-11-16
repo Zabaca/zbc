@@ -46,6 +46,9 @@ describe('the business’s own sent copy', () => {
     expect(
       h.db.query(`SELECT read_at IS NOT NULL AS read FROM message WHERE rfc_message_id LIKE '%c1@mail.example%'`).get(),
     ).toEqual({ read: 1 })
+    expect(h.db.query(`SELECT notify FROM message WHERE rfc_message_id LIKE '%c1@mail.example%'`).get()).toEqual({
+      notify: null,
+    })
     const conversation = (await h.store.call('getConversation', row.conversation_id)) as {
       ok: true
       value: { reply: { to: string } | null }

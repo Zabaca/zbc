@@ -448,7 +448,7 @@ asked to send twice for the inbox's trouble. A message that still cannot be file
 mailbox (amber, with the raw copy kept), nothing retries it by itself, and the same bytes delivered again are filed if they can be. A mailbox's last filing
 error is cleared when nothing is owed any more. The handler throws only when the copy cannot be written or the store is unreachable, so not even the debt
 could be; what Cloudflare then does with the sender is not documented, and is checked on the real account (`docs/runbooks/inbox-cloudflare-mailbox.md`). It
-never calls `setReject` for a failure of its own: a bounce is permanent, and a customer's mail must not bounce because the inbox hiccuped.
+never calls `setReject` for a failure of its own: a bounce is permanent, and a customer's mail must not bounce because the inbox hiccuped. (Amended later: a copy of the mailbox's own outgoing mail written to someone outside, its From the mailbox's own address or domain, is filed as outgoing and read, under that person, so a Reply goes to them: `ownSentTo` in `src/store/arrival.ts`.)
 
 *A message is stored once, threaded by three ordered rules, and never moved.* Unique per mailbox by its Message-ID, or by the hash of its bytes when it has
 none, so a redelivery stores nothing. Rule 1: In-Reply-To or References naming a message the mailbox holds (the one answered first, then
