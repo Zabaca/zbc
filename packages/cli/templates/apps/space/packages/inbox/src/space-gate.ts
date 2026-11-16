@@ -3,7 +3,9 @@
  * src/space-views.ts (the inbox's other views) both go through, so the two cannot read the rule two ways.
  *
  * THE SIGN-IN IS NOT CHECKED HERE ANY MORE (the company layer's ADR 0003): the inbox's part runs in the space's
- * Worker, which checked the Access assertion once for the request and hands every method the person it named (`SignedIn`). What is left is the inbox's own rule, in two gates:
+ * Worker, which checked the Access assertion once for the request and hands every method the person it named (`SignedIn`). Five reads run the same
+ * part inside the store's object instead (src/space-reads.ts), handed that `SignedIn` across the INBOX binding; the gates below are the same there.
+ * What is left is the inbox's own rule, in two gates:
  *
  *   - `personGate`: the install's owner is admitted always, and anyone else of the install once they are on at least one mailbox (the inbox's ADR 0004); the function
  *     is handed what they may see (`MailScope`, src/queue.ts), which every read it makes must be cut to. Anyone who is on no mailbox is `not-admitted`.

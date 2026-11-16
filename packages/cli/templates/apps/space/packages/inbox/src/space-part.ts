@@ -60,38 +60,47 @@ export function createInboxPartFactory(install: Install = bundledInstall): (env:
       store: (env) => storeFor(env as InboxEnv),
       named: (req) => named.get(req) ?? null,
     }))
-  return (env) => ({
-    ...createSpaceInbox({
-      store: storeFor(env),
-      install,
-      clients: env.clients,
-      googleClientId: env.INBOX_GOOGLE_CLIENT_ID,
-      object: () => objectFor(env),
-    }),
-    claude: (request, who) => {
-      named.set(request, who)
-      // The router is given what it reads and nothing else of the Worker's environment.
-      const routerEnv: AppEnv = {
-        INBOX: env.INBOX,
-        ...(env.clients && { CLIENT_LIST: env.clients }),
-        ...(env.INBOX_ACCESS_CLIENT_ID !== undefined && { INBOX_ACCESS_CLIENT_ID: env.INBOX_ACCESS_CLIENT_ID }),
-        ...(env.knowledge && { KNOWLEDGE: env.knowledge }),
-      }
-      return Promise.resolve(claudeRouter().fetch(request, routerEnv))
-    },
-    telegram: (request, who) => {
-      // The bridge is a switch: an install without it has no bridge, whatever token reaches here.
-      if (!install.has('telegram')) return Promise.resolve(Response.json({ error: 'Not found' }, { status: 404 }))
-      named.set(request, who)
-      // The bridge's router reads one var and the store; nothing else of the Worker's environment reaches it.
-      return Promise.resolve(
-        bridgeRouter().fetch(request, {
+  return (env) => {
+    const store = storeFor(env)
+    return {
+      ...createSpaceInbox({
+        store,
+        install,
+        clients: env.clients,
+        googleClientId: env.INBOX_GOOGLE_CLIENT_ID,
+        object: () => objectFor(env),
+      }),
+      // The five busiest reads go to the object whole, one call each (src/space-reads.ts): each was a chain of round trips from here. The same part's rules run there, over the same store.
+      people: (...a) => store.call('readPeople', ...a),
+      navigation: (...a) => store.call('readNavigation', ...a),
+      messagesWith: (...a) => store.call('readMessagesWith', ...a),
+      drafts: (...a) => store.call('readDrafts', ...a),
+      search: (...a) => store.call('readSearch', ...a),
+      claude: (request, who) => {
+        named.set(request, who)
+        // The router is given what it reads and nothing else of the Worker's environment.
+        const routerEnv: AppEnv = {
           INBOX: env.INBOX,
-          ...(env.TELEGRAM_ACCESS_CLIENT_ID !== undefined && {
-            TELEGRAM_ACCESS_CLIENT_ID: env.TELEGRAM_ACCESS_CLIENT_ID,
-          }),
-        } as never),
-      )
-    },
-  })
+          ...(env.clients && { CLIENT_LIST: env.clients }),
+          ...(env.INBOX_ACCESS_CLIENT_ID !== undefined && { INBOX_ACCESS_CLIENT_ID: env.INBOX_ACCESS_CLIENT_ID }),
+          ...(env.knowledge && { KNOWLEDGE: env.knowledge }),
+        }
+        return Promise.resolve(claudeRouter().fetch(request, routerEnv))
+      },
+      telegram: (request, who) => {
+        // The bridge is a switch: an install without it has no bridge, whatever token reaches here.
+        if (!install.has('telegram')) return Promise.resolve(Response.json({ error: 'Not found' }, { status: 404 }))
+        named.set(request, who)
+        // The bridge's router reads one var and the store; nothing else of the Worker's environment reaches it.
+        return Promise.resolve(
+          bridgeRouter().fetch(request, {
+            INBOX: env.INBOX,
+            ...(env.TELEGRAM_ACCESS_CLIENT_ID !== undefined && {
+              TELEGRAM_ACCESS_CLIENT_ID: env.TELEGRAM_ACCESS_CLIENT_ID,
+            }),
+          } as never),
+        )
+      },
+    }
+  }
 }

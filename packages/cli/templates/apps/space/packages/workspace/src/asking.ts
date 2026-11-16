@@ -188,7 +188,9 @@ export interface Asker {
  *
  * Branded, so that only `signedIn` makes one: a person's address, a `Person` read from the declaration or an `Asker`
  * will not typecheck where one is asked for. The brand is the compiler's and nothing more. What keeps a stranger from holding one is that the
- * parts are functions of the space's own bundle: there is no binding, no route and no argument a request can put one in.
+ * parts are functions of the space's own bundle: no route and no argument a request can put one in. One crossing exists: the inbox's five busiest
+ * reads run in its store's object (packages/inbox/src/space-reads.ts), which acts on the `SignedIn` the Worker hands it through the INBOX binding.
+ * Only the space's Worker holds that binding, and no route may pass request data as the arguments of those `call`s.
  *
  * `exp` is when the assertion that made it stops being good (seconds since the epoch), for the part that wants a shorter window.
  */

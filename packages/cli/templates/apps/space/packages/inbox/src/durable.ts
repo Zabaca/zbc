@@ -42,6 +42,8 @@ import { Notifications, pushOverFetch } from './notify/deliver'
 import { parseVapidKey } from './notify/webpush'
 import { inboxOwnerOf, mailboxPeopleOf } from './owner'
 import { Restores } from './restore'
+import { createSpaceInbox } from './space'
+import { SPACE_READ_METHODS, type SpaceReadMethod, SpaceReads } from './space-reads'
 import { migrate } from './store/schema'
 import { SpaceStore } from './store/space'
 import { assistantKeyFor, googleCredentialsFor, hostedMailboxesFor, spamCheckAiFor } from './switches'
@@ -117,6 +119,7 @@ export class InboxDO extends DurableObject<Env> {
   private readonly telegramMedia: TelegramMediaKeeper
   private readonly assistant: Assistant
   private readonly restores: Restores
+  private readonly spaceReads: SpaceReads
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env)
@@ -211,6 +214,15 @@ export class InboxDO extends DurableObject<Env> {
       model: anthropicKey === '' ? null : modelOverFetch((url, init) => fetch(url, init), anthropicKey),
       now: () => new Date(),
     })
+    // The space's five busiest reads, run here whole (src/space-reads.ts): the inbox's part of the space over this object's own `call`, so each step is in-process and not a round trip from the Worker.
+    this.spaceReads = new SpaceReads(() =>
+      createSpaceInbox({
+        store: { call: ((method: string, ...a: unknown[]) => this.call(method as never, a)) as never },
+        install: bundledInstall,
+        clients: this.clientsPort(env),
+        googleClientId: env.INBOX_GOOGLE_CLIENT_ID,
+      }),
+    )
     // Point-in-time recovery of this object's own storage (src/restore.ts). Never reached by a request that is not the owner's.
     this.restores = new Restores({
       storage: {
@@ -357,7 +369,8 @@ export class InboxDO extends DurableObject<Env> {
       | NotifyMethod
       | ArrivalMethod
       | AssistantMethod
-      | RestoreMethod,
+      | RestoreMethod
+      | SpaceReadMethod,
     args: unknown[],
   ): Promise<unknown> {
     // Once a restore is armed nothing may write: the store is about to be replaced, so the object restarts instead (src/restore.ts).
@@ -374,6 +387,7 @@ export class InboxDO extends DurableObject<Env> {
       [ARRIVAL_METHODS, this.arrivals],
       [ASSISTANT_METHODS, this.assistant],
       [RESTORE_METHODS, this.restores],
+      [SPACE_READ_METHODS, this.spaceReads],
     ]
     const target = surfaces.find(([names]) => names.includes(method))?.[1]
     if (!target) throw new Error(`No such method: ${method}`)
@@ -414,6 +428,14 @@ export class InboxDO extends DurableObject<Env> {
    */
   protected knowledgePort(env: Env): Env['KNOWLEDGE'] {
     return env.KNOWLEDGE
+  }
+
+  /**
+   * The Clients part's inbox face, for the space's reads run here (src/space-reads.ts). The Worker hands its part the face it made over the Clients store (`CLIENT_LIST`); this object's environment is the Worker's
+   * bindings and not that object, so the space's subclass (packages/space/src/inbox-do.ts) makes the face over the Clients store itself. Absent, Clients show by number, as in the Worker's part without them.
+   */
+  protected clientsPort(env: Env): Env['CLIENT_LIST'] {
+    return env.CLIENT_LIST
   }
 
   // THE OPERATOR'S THREE, for a move of this class between Workers. Like `call` they are meant for the Workers that own or bind

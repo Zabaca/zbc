@@ -37,6 +37,7 @@ import { inboxOwnerOf } from './owner'
 import { canSee, type MailScope, planQueue, queueRows } from './queue'
 import type { Restores } from './restore'
 import { searchTerms } from './search'
+import type { SpaceReadMethod, SpaceReads } from './space-reads'
 import { parseCcList } from './store/address'
 import type { MailStore } from './store/mail'
 import type { SpaceStore } from './store/space'
@@ -325,6 +326,7 @@ export type RestoreMethod = (typeof RESTORE_METHODS)[number]
 export type SpaceMethod = (typeof SPACE_METHODS)[number]
 export type TelegramMethod = (typeof TELEGRAM_METHODS)[number]
 export type TelegramMediaMethod = (typeof TELEGRAM_MEDIA_METHODS)[number]
+export type { SpaceReadMethod } from './space-reads'
 
 /** Everything the Worker can call in the Durable Object, by name. */
 export type Surface = Pick<MailStore, StoreMethod> &
@@ -336,7 +338,8 @@ export type Surface = Pick<MailStore, StoreMethod> &
   Pick<Notifications, NotifyMethod> &
   Pick<Arrivals, ArrivalMethod> &
   Pick<Assistant, AssistantMethod> &
-  Pick<Restores, RestoreMethod>
+  Pick<Restores, RestoreMethod> &
+  Pick<SpaceReads, SpaceReadMethod>
 
 export type StoreApi = {
   call<K extends keyof Surface>(method: K, ...args: Parameters<Surface[K]>): Promise<Awaited<ReturnType<Surface[K]>>>

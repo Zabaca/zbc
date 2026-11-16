@@ -27,7 +27,7 @@ test('src/durable.ts uses ./dev only under import.meta.env.DEV', () => {
 /**
  * The Durable Object class is src/durable.ts, built into the space's Worker (which owns the store since the transfer; the Worker that gave it is deleted): the file exports the class and the typed
  * face of its `call`, never a string constant (the space's entry module re-exports `InboxDO` and nothing else of it; packages/space/test/worker-exports.test.ts holds that line). Its methods are the ones the runtime and the operator reach: `call` (the store's one way in), the
- * operator's three (`bookmark`, `counts`, `restart`), the dev seed's two, the alarm and the overridable knowledge port.
+ * operator's three (`bookmark`, `counts`, `restart`), the dev seed's two, the alarm and the overridable knowledge and Clients ports.
  */
 test('src/durable.ts defines the Durable Object class with exactly these methods', () => {
   const source = readFileSync(new URL('../src/durable.ts', import.meta.url), 'utf8')
@@ -40,6 +40,7 @@ test('src/durable.ts defines the Durable Object class with exactly these methods
     'alarm',
     'bookmark',
     'call',
+    'clientsPort',
     'constructor',
     'counts',
     'devArrive',
