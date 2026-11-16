@@ -579,10 +579,11 @@ describe('the business mailboxes fed by Cloudflare Email Routing', () => {
     own.businesses[0].mailboxes.push('lane@pinecrest.test')
     own.cloudflareMailboxes.push({ address: 'lane@pinecrest.test', name: 'Lane' })
     expect(problems(own).join()).toContain("is the owner's own address")
+    // Two mailboxes on one domain are allowed: each is reached at its own address (a literal routing rule each).
     const twoOnOneDomain = withMailboxes()
     twoOnOneDomain.businesses[0].mailboxes.push('sales@shop.test')
     twoOnOneDomain.cloudflareMailboxes.push({ address: 'sales@shop.test', name: 'Sales' })
-    expect(problems(twoOnOneDomain).join()).toContain("a domain's mail has one mailbox")
+    expect(problems(twoOnOneDomain)).toEqual([])
     const twice = withMailboxes()
     twice.cloudflareMailboxes.push({ ...twice.cloudflareMailboxes[1] })
     expect(problems(twice).join()).toContain('listed twice')

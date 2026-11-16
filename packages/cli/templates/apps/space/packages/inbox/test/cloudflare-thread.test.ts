@@ -39,10 +39,9 @@ describe('rule 2: the same subject with an outside participant in common', () =>
   const ours = (a: string) => a.endsWith('@ridgewaycycles.example')
 
   test('ours are never outside, whichever way they are spelled', () => {
-    expect(outsiders(['Info@RidgewayCycles.example', 'a@x.example.com', 'A@x.example.com', 'b@y.example.org'], ours)).toEqual([
-      'a@x.example.com',
-      'b@y.example.org',
-    ])
+    expect(
+      outsiders(['Info@RidgewayCycles.example', 'a@x.example.com', 'A@x.example.com', 'b@y.example.org'], ours),
+    ).toEqual(['a@x.example.com', 'b@y.example.org'])
   })
 
   test('the first candidate (newest first) that shares an outside participant', () => {
@@ -93,7 +92,7 @@ describe('the declared mailboxes', () => {
     ['no name', [{ address: 'a@x.example.com' }]],
     ['a blank name', [{ address: 'a@x.example.com', name: '  ' }]],
     ['the Gmail mailbox itself', [{ address: 'tessa@northfield.example', name: 'Tessa' }]],
-    ['two mailboxes on one domain', [ridgeway, { address: 'billing@ridgewaycycles.example', name: 'Billing' }]],
+    ['one address twice', [ridgeway, { address: 'info@ridgewaycycles.example', name: 'Again' }]],
     ['an entry that is not an object', ['info@ridgewaycycles.example']],
   ])('%s declares nothing and says why', (_label, value) => {
     const declared = parseDeclared(value, OWNER_EMAIL)
@@ -108,6 +107,18 @@ describe('the declared mailboxes', () => {
     expect(mailboxFor(list, 'info@northfield.example')).toBeNull()
     expect(mailboxFor(list, 'info@mail.ridgewaycycles.example')).toBeNull()
     expect(mailboxFor(list, 'not an address')).toBeNull()
+  })
+
+  test('where a domain has several mailboxes, each is found at its own address and any other address on the domain is refused', () => {
+    const declared = parseDeclared(
+      [ridgeway, { address: 'billing@ridgewaycycles.example', name: 'Billing' }],
+      OWNER_EMAIL,
+    )
+    expect(declared.ok).toBe(true)
+    const list = declared.ok ? declared.mailboxes : []
+    expect(mailboxFor(list, 'info@ridgewaycycles.example')?.name).toBe('Ridgeway Cycles')
+    expect(mailboxFor(list, 'Billing@RidgewayCycles.example')?.name).toBe('Billing')
+    expect(mailboxFor(list, 'anyone@ridgewaycycles.example')).toBeNull()
     expect(mailboxFor([], 'info@ridgewaycycles.example')).toBeNull()
   })
 

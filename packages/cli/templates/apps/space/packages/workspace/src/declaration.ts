@@ -772,7 +772,6 @@ export function parseDeclaration(raw: unknown): Declaration {
         if (address === null || !EMAIL.test(address)) problems.push(`${where}.address: an address is required`)
         else {
           if (list.some((q) => q.address === address)) problems.push(`${where}.address: ${address} is listed twice`)
-          else if (list.some((q) => q.address.split('@')[1] === address.split('@')[1])) problems.push(`${where}.address: a domain's mail has one mailbox, and ${address.split('@')[1]} has one already`)
           if (owner !== undefined && (address === owner.address || address === owner.signIn)) problems.push(`${where}.address: ${address} is the owner's own address, which is the Gmail mailbox and is not declared here`)
           if (!businesses.some((b) => b.mailboxes.includes(address))) problems.push(`${where}.address: ${address} is not a mailbox of any business (add it to a business's mailboxes)`)
         }
