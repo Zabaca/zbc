@@ -6,8 +6,23 @@
  * A notification (`receivePush`) is one write and an alarm, and answers at once: a slow Google must never make Google's own push wait.
  */
 
-import { CALENDAR_BY_UID_MOST, CALENDAR_UID_MAX, CALENDAR_WINDOW_MAX_MS, type CalendarAccountView, type CalendarAgenda, type CalendarEvent, type CalendarEventAsk, type CalendarView, type RefusalReason } from '@space/workspace'
+import {
+  CALENDAR_BY_UID_MOST,
+  CALENDAR_UID_MAX,
+  CALENDAR_WINDOW_MAX_MS,
+  type CalendarAccountView,
+  type CalendarAgenda,
+  type CalendarEventCancelled,
+  type CalendarClaudeAgenda,
+  type CalendarEvent,
+  type CalendarEventAsk,
+  type CalendarView,
+  type CalendarEventMade,
+  type RefusalReason,
+} from '@space/workspace'
+import type { CalendarWriteApi } from './google'
 import { CalendarSync, type PushHeaders, type SyncDeps } from './sync'
+import { CalendarWrites } from './writes'
 
 export type Result<T> = { ok: true; value: T } | { ok: false; reason: RefusalReason; error: string }
 const ok = <T>(value: T): Result<T> => ({ ok: true, value })
@@ -24,15 +39,22 @@ export interface EngineDeps extends SyncDeps {
   tell: () => void
   /** Ask for the alarm at this time, ms. */
   alarmAt: (at: number) => void | Promise<void>
+  /**
+   * Google's writing client, for Claude's invites, moves and cancellations (the space's ADR 0023): a token for `calendar.events` alone, asked for each call. Absent where nothing is wired to write, and every write is then refused in
+   * words. The sync never uses it.
+   */
+  writer?: ((address: string) => CalendarWriteApi) | undefined
 }
 
 export class CalendarEngine {
   readonly sync: CalendarSync
+  private readonly writes: CalendarWrites
   private lastRefresh = Number.NEGATIVE_INFINITY
   private chain: Promise<unknown> = Promise.resolve()
 
   constructor(private readonly d: EngineDeps) {
     this.sync = new CalendarSync(d)
+    this.writes = new CalendarWrites({ store: d.store, writer: d.writer, newId: d.newId, now: d.now, zone: d.zone, tell: d.tell, alarmAt: d.alarmAt, log: d.log })
   }
 
   /** Ask the inbox who is connected, unless it was asked a moment ago. A new or returning account owes the alarm a read. */
@@ -78,6 +100,39 @@ export class CalendarEngine {
     }
     if (!asks.every(fine)) return no('bad-request', 'Name each event by its iCalendar id, and an occurrence by its moment or its day.')
     return ok(this.d.store.eventsByUid(asks, this.d.now()))
+  }
+
+  /**
+   * What Claude reads to find free time: the agenda, each event with whether it blocks the owner's time (not free time, not declined), and each account with whether an invite can be made on it. The store alone: nothing is asked of Google.
+   * The same span as the agenda's (at most 62 days).
+   */
+  async claudeEvents(from: number, to: number): Promise<Result<CalendarClaudeAgenda>> {
+    const got = await this.agenda(from, to)
+    if (!got.ok) return got
+    const editable = new Map(this.d.store.accountViews().map((a) => [a.address, a.events && (a.state === 'live' || a.state === 'syncing')]))
+    return ok({
+      from,
+      to,
+      accounts: got.value.accounts.map((a) => ({ address: a.address, label: a.label, state: a.state, reason: a.reason, canEdit: editable.get(a.address) === true })),
+      events: got.value.events.map((e) => ({ ...e, busy: !e.free && e.response !== 'declined' })),
+    })
+  }
+
+  /** Make an event on an account's primary calendar, Google sending the invitations (src/writes.ts). Who may ask is the inbox's rule, applied before this is called. */
+  async claudeInvite(input: unknown): Promise<Result<CalendarEventMade>> {
+    // Who is connected, and with what, as the inbox last said: an account that was disconnected a moment ago is refused here in words and not at Google.
+    await this.fresh()
+    return this.writes.invite(input)
+  }
+
+  async claudeMove(id: unknown, input: unknown): Promise<Result<CalendarEventMade>> {
+    await this.fresh()
+    return this.writes.move(id, input)
+  }
+
+  async claudeCancel(id: unknown): Promise<Result<CalendarEventCancelled>> {
+    await this.fresh()
+    return this.writes.cancel(id)
   }
 
   async setShown(calendarId: string, shown: boolean): Promise<Result<CalendarView>> {
@@ -130,7 +185,7 @@ export class CalendarEngine {
 }
 
 /** The methods the object's `call` runs, and no others. */
-export const ENGINE_METHODS = ['calendars', 'agenda', 'event', 'eventsByUid', 'setShown', 'syncNow', 'receivePush'] as const satisfies readonly (keyof CalendarEngine)[]
+export const ENGINE_METHODS = ['calendars', 'agenda', 'event', 'eventsByUid', 'setShown', 'syncNow', 'receivePush', 'claudeEvents', 'claudeInvite', 'claudeMove', 'claudeCancel'] as const satisfies readonly (keyof CalendarEngine)[]
 export type EngineMethod = (typeof ENGINE_METHODS)[number]
 
 /** The typed face of the object's untyped `call`. */

@@ -103,6 +103,10 @@ export const UNFOLLOWED_CALLS = [
   'claudeSending',
   'setClaudeSending',
   'listClaudeSends',
+  // Claude's calendar writes (the space's ADR 0023): the audit's record of a request and what came of it, and the read of them. A mail screen draws none of it.
+  'beginCalendarWrite',
+  'noteCalendarWrite',
+  'listCalendarWrites',
   'prepareReply',
   'readAttachment',
   'addDevice',

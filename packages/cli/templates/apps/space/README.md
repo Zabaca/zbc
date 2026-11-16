@@ -12,7 +12,7 @@ This folder is a copy the company owns. It is pulled into a project as `vendor/s
 | `packages/inbox` | Mail (Gmail accounts, business mailboxes, a mail server over JMAP, Telegram), drafts, the assistant and notifications |
 | `packages/meet` | Calls, channels and direct messages, and the phone line |
 | `packages/forms` | Forms, and documents sent for signature and sealed |
-| `packages/calendar` | Google calendars, read into a store of their own |
+| `packages/calendar` | Google calendars, read into a store of their own; Claude makes, moves and cancels events through the inbox, on the owner's word |
 | `packages/clients` | The company's list of Clients |
 | `packages/knowledge` | What the assistants may draw on, per business |
 | `packages/workspace` | The company layer: an install's declaration, its people, its switches and the sign-in check. It also holds the invented company the tests run on (`northfield/`) and the public check |

@@ -23,12 +23,25 @@ export type Asked<T> =
   | { ok: false; kind: 'failed'; message: string }
   | { ok: false; kind: 'unreached'; why: string }
 
-export async function ask<T>(
+export function ask<T>(
   port: KnowledgePort,
   call: (knowledge: KnowledgeForInbox) => Promise<SpaceReply<T>>,
   ms: number = ANSWER_WITHIN_MS,
 ): Promise<Asked<T>> {
-  if (!port) return { ok: false, kind: 'unreached', why: 'the Worker has no binding to the knowledge app' }
+  return askPort('the knowledge app', port, call, ms)
+}
+
+/**
+ * The same wait for any other part the inbox is handed in-process (the calendar's face for Claude's script, src/app.ts): `what` is the part's name in the sentence a log line carries, and nothing else differs. A READ waits the
+ * default four seconds; a WRITE is given the space's `WRITE_WITHIN_MS` by its caller, and an `unreached` from a write is an outcome that is NOT KNOWN (it may have been done), which the caller must say and never read as "nothing happened".
+ */
+export async function askPort<P, T>(
+  what: string,
+  port: P | null | undefined,
+  call: (part: P) => Promise<SpaceReply<T>>,
+  ms: number = ANSWER_WITHIN_MS,
+): Promise<Asked<T>> {
+  if (!port) return { ok: false, kind: 'unreached', why: `the Worker has no binding to ${what}` }
   let timer: ReturnType<typeof setTimeout> | undefined
   const late = new Promise<'late'>((resolve) => {
     timer = setTimeout(() => resolve('late'), ms)

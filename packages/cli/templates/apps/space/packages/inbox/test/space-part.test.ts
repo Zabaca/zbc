@@ -95,6 +95,58 @@ describe('the inbox’s part in the space’s Worker', () => {
     expect(bare.status).toBe(502)
   })
 
+  test('Claude’s door is handed the calendar as the part was given it, and only there: with none the calendar routes say it is not connected, and a write is not asked for or recorded', async () => {
+    const h = harness()
+    const token = { kind: 'service', commonName: AGENT_ID, exp: 9_999_999_999 } as const
+    const calls: string[] = []
+    const calendar = {
+      events: async () => {
+        calls.push('events')
+        return { ok: true as const, value: { from: 0, to: 1, accounts: [], events: [] } }
+      },
+      invite: async () => {
+        calls.push('invite')
+        throw new Error('a write was asked for')
+      },
+      move: async () => {
+        calls.push('move')
+        throw new Error('a write was asked for')
+      },
+      cancel: async () => {
+        calls.push('cancel')
+        throw new Error('a write was asked for')
+      },
+    }
+    const read = (part: ReturnType<typeof partOver>) =>
+      part.claude(
+        new Request('https://space.northfield.example/api/calendar/events?from=2026-11-17&to=2026-11-18'),
+        token,
+      )
+    expect((await read(partOver(h, { calendar }))).status).toBe(200)
+    expect(calls).toEqual(['events'])
+    expect((await read(partOver(h))).status).toBe(503)
+    // The space's own face has no way to reach it: nothing the person-facing part offers is one of the three writes.
+    const part = partOver(h, { calendar })
+    for (const name of ['invite', 'move', 'cancel', 'events']) expect(Object.keys(part)).not.toContain(name)
+    // A write with no switch and no instruction is refused by the inbox before the calendar is asked.
+    const write = await part.claude(
+      new Request('https://space.northfield.example/api/calendar/invite', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          account: 'tessa@northfield.example',
+          title: 'x',
+          start: '2026-11-19T10:00:00-08:00',
+          end: '2026-11-19T10:30:00-08:00',
+          guests: [],
+        }),
+      }),
+      token,
+    )
+    expect(write.status).toBe(403)
+    expect(calls).toEqual(['events'])
+  })
+
   test('the Telegram bridge’s door: the token the check verified is admitted by its own id, on its five calls only, and Claude’s token is not the bridge', async () => {
     const h = harness()
     const part = partOver(h)

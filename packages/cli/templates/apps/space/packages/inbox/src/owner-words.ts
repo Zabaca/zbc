@@ -15,6 +15,21 @@ export const claudeSendingOff = (owner: string): string =>
 export const noInstruction = (owner: string): string =>
   `Claude sends only what ${owner} has told it to send, and this send carries no instruction from him, so nothing was sent. Say what he said, where he said it and when.`
 
+/**
+ * Claude tried to make, move or cancel a calendar event while its sending is off. One switch covers every way Claude acts in the owner's name outside a draft (the space's ADR 0023), so the sentence names the calendar
+ * and not a draft: nothing was changed, and there is nothing waiting.
+ */
+export const claudeCalendarOff = (owner: string): string =>
+  `Claude’s sending is switched off in the inbox, so no event was made, moved or cancelled. Only ${owner} can switch it on.`
+
+/** Claude tried to change the calendar with no instruction. */
+export const noCalendarInstruction = (owner: string): string =>
+  `Claude changes ${owner}’s calendar only on what ${owner} has told it to do, and this call carries no instruction from him, so nothing was changed. Say what he said, where he said it and when.`
+
+/** Somebody who is not Claude's token reached the calendar's writes: the router admits Claude alone, and the store refuses anyone else again. */
+export const onlyClaudeChangesCalendar = (owner: string): string =>
+  `Only Claude, on ${owner}’s instruction, changes the calendar from here. ${owner} changes it in Google Calendar.`
+
 export const onlyOwnerSwitches = (owner: string): string => `Only ${owner} can switch Claude’s sending on or off.`
 
 /** A send by somebody who is neither the owner nor Claude on the owner's word (a teammate, later): the store refuses it. */

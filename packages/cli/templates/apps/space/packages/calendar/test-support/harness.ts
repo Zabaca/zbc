@@ -1,7 +1,7 @@
 import { type CalendarGrant, createInstall, type Install } from '@space/workspace'
 import declaration from '../../workspace/northfield/workspace.json'
 import { CalendarEngine, type EngineApi } from '../src/engine'
-import { createCalendarGoogle } from '../src/google'
+import { createCalendarGoogle, createCalendarWriter } from '../src/google'
 import { migrate } from '../src/schema'
 import { CalendarStore } from '../src/store'
 import { FakeGoogle } from './fake-google'
@@ -36,6 +36,8 @@ export interface HarnessOptions {
   /** The push address; `null` means none is set (no channels are made). */
   pushUrl?: string | null
   grants?: CalendarGrant[]
+  /** False for an engine with no writing client wired (a Worker that cannot change events). */
+  writer?: boolean
 }
 
 /**
@@ -60,6 +62,8 @@ export function harness(options: HarnessOptions = {}) {
   const engine = new CalendarEngine({
     store,
     api: createCalendarGoogle({ fetch: google.fetch, access: google.access, now: () => clock.t }),
+    // The writer the object builds (src/durable.ts): its own token, for `calendar.events`, asked for each call.
+    ...(options.writer !== false && { writer: createCalendarWriter({ fetch: google.fetch, access: (address, fresh) => google.access(address, fresh, 'events') }) }),
     grants: async () => {
       grantAsks.n += 1
       if (inbox.down) throw new Error('the inbox could not be reached')

@@ -10,14 +10,21 @@
 
 import {
   assertionFrom,
+  type CalendarForInbox,
+  type CalendarInvite,
   type ClientsForInbox,
   type Identity,
+  isoAt,
   type KnowledgeForInbox,
   type LiveBinding,
+  type RefusalReason,
+  type SpaceReply,
   safeSummaryLine,
+  WRITE_WITHIN_MS,
 } from '@space/workspace'
 import { type Context, Hono } from 'hono'
 import type { Assistant } from './assistant/assistant'
+import { agendaOut, cancelledOut, madeOut, momentOf, OUTCOME_UNKNOWN, TIME_WORDS } from './claude-calendar'
 import {
   type ClientsRead,
   checkLink,
@@ -31,7 +38,7 @@ import type { Arrivals } from './cloudflare/arrivals'
 import type { Mailroom } from './gmail/mailroom'
 import type { PushEnv } from './gmail/push'
 import type { JmapRoom } from './jmap/room'
-import { type Asked, ask, KNOWLEDGE_UNREACHED, type KnowledgePort } from './knowledge'
+import { type Asked, ask, askPort, KNOWLEDGE_UNREACHED, type KnowledgePort } from './knowledge'
 import type { Notifications } from './notify/deliver'
 import { inboxOwnerOf } from './owner'
 import { canSee, type MailScope, planQueue, queueRows } from './queue'
@@ -47,6 +54,8 @@ import type { TelegramStore } from './store/telegram'
 import type { TelegramMediaKeeper } from './telegram/media'
 import { TELEGRAM_PICTURE_MAX_BYTES } from './telegram/wire'
 import {
+  type CalendarWriteKind,
+  type CalendarWriteOutcome,
   type ClientLabel,
   type ClientList,
   type ClientListEntry,
@@ -83,6 +92,12 @@ export interface Env extends PushEnv {
    * without it, a test, and `vite dev`: a draft is then refused with a sentence. The assistant waits at most four seconds for it (src/assistant), and a draft is refused rather than written without the knowledge.
    */
   KNOWLEDGE?: KnowledgeForInbox
+  /**
+   * The calendar app (packages/calendar): its face for the inbox (`createInboxCalendar`), called in-process in the space's Worker, which reads the free time from the calendar's store and makes, moves and cancels events at Google.
+   * Claude's script reaches it through the routes under `/api/calendar/` below, and nothing else does (the space's own face has no such method). It carries no rule of its own: the owner's switch and instruction are checked and recorded here before any
+   * write is asked of it (the space's ADR 0023). Absent in a Worker deployed without the calendar's store, a test and `vite dev`: the routes then say the calendar is not reached.
+   */
+  CALENDAR?: CalendarForInbox
   /**
    * The inbox's own Google OAuth web client, Worker secrets that zbc pushes from
    * this repo's production secrets file. On their own they cannot read or send
@@ -191,6 +206,9 @@ export const STORE_METHODS = [
   'claudeSending',
   'setClaudeSending',
   'listClaudeSends',
+  'beginCalendarWrite',
+  'noteCalendarWrite',
+  'listCalendarWrites',
 ] as const satisfies readonly (keyof MailStore)[]
 
 /**
@@ -374,6 +392,8 @@ export interface Deps {
   clients?: (env: Env) => ClientsForInbox | null | undefined
   /** The knowledge app for this request: the service binding in production (the default, `env.KNOWLEDGE`), a stand-in in tests. */
   knowledge?: (env: Env) => KnowledgePort
+  /** The calendar for this request: the calendar's inbox face in production (the default, `env.CALENDAR`), a stand-in in tests. */
+  calendar?: (env: Env) => CalendarForInbox | null | undefined
   /**
    * The dev agent's actor (a test seam; nothing in a deployed Worker gives it), given only under `import.meta.env.DEV`: a BUILD-TIME constant that is `false` in everything `vite build` produces, so the
    * name never reaches a built Worker (test/build.test.ts reads the bundle for it). With it set, in `vite dev`, a request on localhost with no assertion is that
@@ -397,6 +417,19 @@ const LOCAL_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]'])
 type App = { Bindings: Env; Variables: { who: Who; scope: MailScope } }
 
 const ID = /^[A-Za-z0-9-]{1,64}$/
+
+/** The status each reason a part refuses with is answered under: the knowledge app's and the calendar's, handed on as the part said them. */
+const REFUSAL_STATUS = {
+  'not-signed-in': 401,
+  'not-admitted': 403,
+  'not-found': 404,
+  'bad-request': 422,
+  conflict: 409,
+  limit: 429,
+} as const satisfies Record<RefusalReason, number>
+
+/** An event's key in the calendar's store (the account's address and Google's two ids, joined by `|`): what a move and a cancel name. A path-shaped or enormous string never reaches the calendar. */
+const EVENT_KEY = /^[A-Za-z0-9@._#%+~:=|-]{1,900}$/
 
 /** What an edit or a delete of a draft without its revision is told: the revision is how it knows the draft is the one it was shown. */
 const NEEDS_REV = 'Say which version of the draft you were shown: the rev `drafts` printed for it. Nothing was changed.'
@@ -981,17 +1014,7 @@ export function createApp(deps: Deps) {
   /** The knowledge app's answer as this API says it: its value, or its refusal or fault in words with the status that fits. */
   const knowledgeAnswer = <T>(c: Context<App>, got: Asked<T>, success: 200 | 201 = 200) => {
     if (got.ok) return c.json(got.value, success)
-    if (got.kind === 'refused') {
-      const status = {
-        'not-signed-in': 401,
-        'not-admitted': 403,
-        'not-found': 404,
-        'bad-request': 422,
-        conflict: 409,
-        limit: 429,
-      } as const
-      return c.json({ error: got.message }, status[got.reason])
-    }
+    if (got.kind === 'refused') return c.json({ error: got.message }, REFUSAL_STATUS[got.reason])
     if (got.kind === 'unreached') console.warn(`the knowledge app was not reached: ${got.why}`)
     return c.json({ error: got.kind === 'failed' ? got.message : KNOWLEDGE_UNREACHED }, 502)
   }
@@ -1027,6 +1050,179 @@ export function createApp(deps: Deps) {
       ),
       201,
     )
+  })
+
+  // ─── the calendar: the calendar app's, reached for Claude's script only (the space's ADR 0023) ───
+  //
+  // The calendar is not kept here. Claude's script reaches it at this address with its own token, and these routes hand its read and its three writes on to the calendar app, in-process, through its inbox face.
+  // The READ (`GET /api/calendar/events`) is the calendar's own store and asks Google nothing. The three WRITES (an invite, a move, a cancellation) are the send rule applied again, and it is THIS ROUTER that applies it, before the
+  // calendar is asked anything: the owner's switch is on and the call carries the owner's instruction (`beginCalendarWrite`, the store's, the same check a send makes), and the request and the instruction are recorded in the audit
+  // before Google is asked, and what came of it after (`noteCalendarWrite`). The calendar has no way to be asked without this, so a write that is not on the owner's word does not reach Google.
+
+  const calendarPort = (c: { env: Env }): CalendarForInbox | null | undefined =>
+    deps.calendar ? deps.calendar(c.env) : c.env.CALENDAR
+  const zone = install.company.timeZone
+  const CALENDAR_NOT_CONNECTED = 'The calendar is not connected to the space. Nothing was changed.'
+
+  /** The calendar's refusal or fault as this API says it: a decision with its status; Google or the store failing with a bad gateway; a write that did not end cleanly as an outcome nobody knows. */
+  const calendarFailure = (
+    c: Context<App>,
+    got: Exclude<Asked<unknown>, { ok: true }>,
+    write: boolean,
+  ): { response: Response; outcome: 'refused' | 'unknown'; error: string } => {
+    if (got.kind === 'refused')
+      return {
+        response: c.json({ error: got.message }, REFUSAL_STATUS[got.reason]),
+        outcome: 'refused',
+        error: got.message,
+      }
+    if (got.kind === 'failed') {
+      return {
+        response: c.json({ error: got.message }, 502),
+        outcome: write ? 'unknown' : 'refused',
+        error: got.message,
+      }
+    }
+    console.warn(`the calendar was not reached: ${got.why}`)
+    if (got.why.startsWith('the Worker has no binding')) {
+      return {
+        response: c.json({ error: CALENDAR_NOT_CONNECTED }, 503),
+        outcome: 'refused',
+        error: CALENDAR_NOT_CONNECTED,
+      }
+    }
+    const error = write ? OUTCOME_UNKNOWN : 'The calendar could not be reached. Nothing was changed.'
+    return { response: c.json({ error }, 502), outcome: write ? 'unknown' : 'refused', error }
+  }
+
+  /** The free time: every event in the window, from the calendar's own store, across the connected accounts. `from` and `to` are ISO with an offset, or a day (the company's midnight); `to` is exclusive; at most 62 days. */
+  app.get('/api/calendar/events', async (c) => {
+    const port = calendarPort(c)
+    if (!port) return c.json({ error: CALENDAR_NOT_CONNECTED }, 503)
+    const from = momentOf(c.req.query('from'), zone, true)
+    const to = momentOf(c.req.query('to'), zone, true)
+    if (from === null || to === null) return c.json({ error: TIME_WORDS }, 422)
+    const got = await askPort('the calendar', port, (k) => k.events(from, to))
+    return got.ok ? c.json(agendaOut(got.value, zone)) : calendarFailure(c, got, false).response
+  })
+
+  /** Every calendar write Claude asked for, newest first, with the instruction each went out on and what came of it: the audit's calendar entries, read back. */
+  app.get('/api/calendar/writes', async (c) => c.json(await store(c).call('listCalendarWrites')))
+
+  /**
+   * One calendar write, from the gate to the record. `request` is what is written to the audit as the call's own account (clipped, never a token: there is none here), and `subject` names what it is about. The gate is asked FIRST; the
+   * calendar is asked only once it is passed, with the space's write limit; and the outcome is recorded whatever it is, so a write whose outcome is not known is still on record as asked.
+   */
+  const writeCalendar = async <T>(
+    c: Context<App>,
+    kind: CalendarWriteKind,
+    instruction: unknown,
+    subject: string,
+    request: Record<string, unknown>,
+    run: (calendar: CalendarForInbox) => Promise<SpaceReply<T>>,
+    shape: (value: T) => Record<string, unknown>,
+    success: 200 | 201,
+  ): Promise<Response> => {
+    const port = calendarPort(c)
+    if (!port) return c.json({ error: CALENDAR_NOT_CONNECTED }, 503)
+    const actor = c.get('who').actor
+    const began = await store(c).call('beginCalendarWrite', kind, instruction, subject, request, actor)
+    if (!began.ok) return c.json({ error: began.error }, began.status)
+    const note = async (outcome: CalendarWriteOutcome) => {
+      try {
+        await store(c).call('noteCalendarWrite', kind, began.value.entry, outcome, actor)
+      } catch (error) {
+        console.error(
+          'the outcome of a calendar write was not recorded',
+          error instanceof Error ? error.message : 'not an error',
+        )
+      }
+    }
+    const got = await askPort('the calendar', port, run, WRITE_WITHIN_MS)
+    if (got.ok) {
+      const done = shape(got.value)
+      await note({ state: 'done', result: done })
+      return c.json(done, success)
+    }
+    const failure = calendarFailure(c, got, true)
+    await note({ state: failure.outcome, error: failure.error })
+    return failure.response
+  }
+
+  /** The fields a request's body may carry, besides the owner's instruction: more is refused, so a misspelt `guests` is never an invite with none. */
+  const onlyFields = (b: Record<string, unknown>, fields: readonly string[], what: string): string | null => {
+    const extra = Object.keys(b).filter((k) => k !== 'instruction' && !fields.includes(k))
+    if (extra.length === 0) return null
+    return `${what} carries ${fields.length === 0 ? '' : `${fields.join(', ')} and `}the instruction only, never ${extra.join(', ')}.`
+  }
+
+  /** Make an event on one connected account's primary calendar; Google sends the invitations. `{ account, title, start, end, guests, description?, meet?, instruction }`; Meet is on unless `meet` is false. */
+  app.post('/api/calendar/invite', async (c) => {
+    const body = await json(c.req.raw)
+    if (!body.ok) return c.json({ error: body.error }, 400)
+    const b = body.value
+    const extra = onlyFields(b, ['account', 'title', 'start', 'end', 'guests', 'description', 'meet'], 'An invite')
+    if (extra !== null) return c.json({ error: extra }, 422)
+    const start = momentOf(b.start, zone)
+    const end = momentOf(b.end, zone)
+    if (start === null || end === null) return c.json({ error: TIME_WORDS }, 422)
+    // The instruction is this router's and never reaches the calendar: what it is handed is the invite and nothing else.
+    const { instruction: _instruction, ...fields } = b
+    // What the audit holds of the request, as Claude said it, clipped: the calendar checks every field again and refuses what is not an invite.
+    const request = {
+      account: text(b.account).slice(0, 254),
+      title: text(b.title).slice(0, 300),
+      start: isoAt(start, zone),
+      end: isoAt(end, zone),
+      guests: Array.isArray(b.guests) ? b.guests.slice(0, 60).map((g) => text(g).slice(0, 254)) : [],
+      description: text(b.description).slice(0, 2000),
+      meet: b.meet !== false,
+    }
+    return writeCalendar(
+      c,
+      'invite',
+      b.instruction,
+      request.account,
+      request,
+      (k) => k.invite({ ...fields, start, end } as unknown as CalendarInvite),
+      (made) => madeOut(made, zone, request.meet),
+      201,
+    )
+  })
+
+  /** Give an event a new time, the guests told. `{ start, end, instruction }`. The id is the key `calendar events` or an invite printed. */
+  app.post('/api/calendar/events/:id/move', async (c) => {
+    const id = c.req.param('id')
+    if (!EVENT_KEY.test(id)) return c.json({ error: 'No such event.' }, 404)
+    const body = await json(c.req.raw)
+    if (!body.ok) return c.json({ error: body.error }, 400)
+    const b = body.value
+    const extra = onlyFields(b, ['start', 'end'], 'A move')
+    if (extra !== null) return c.json({ error: extra }, 422)
+    const start = momentOf(b.start, zone)
+    const end = momentOf(b.end, zone)
+    if (start === null || end === null) return c.json({ error: TIME_WORDS }, 422)
+    return writeCalendar(
+      c,
+      'move',
+      b.instruction,
+      id,
+      { id, start: isoAt(start, zone), end: isoAt(end, zone) },
+      (k) => k.move(id, { start, end }),
+      (made) => madeOut(made, zone),
+      200,
+    )
+  })
+
+  /** Delete an event, the guests told. `{ instruction }`. */
+  app.post('/api/calendar/events/:id/cancel', async (c) => {
+    const id = c.req.param('id')
+    if (!EVENT_KEY.test(id)) return c.json({ error: 'No such event.' }, 404)
+    const body = await json(c.req.raw)
+    if (!body.ok) return c.json({ error: body.error }, 400)
+    const extra = onlyFields(body.value, [], 'A cancellation')
+    if (extra !== null) return c.json({ error: extra }, 422)
+    return writeCalendar(c, 'cancel', body.value.instruction, id, { id }, (k) => k.cancel(id), cancelledOut, 200)
   })
 
   // ─── restoring the store (src/restore.ts) ───

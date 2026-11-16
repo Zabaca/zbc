@@ -19,6 +19,7 @@ import { coreFor as formsCoreFor } from '@space/forms/src/signing'
 import { createFormsClientNames } from '@space/forms/src/client-names'
 import { createSpaceForms } from '@space/forms/src/space-reads'
 import { type Operator, operatorOf, serviceWordsOf } from '@space/forms/src/workspace'
+import { createInboxCalendar } from '@space/calendar/src/inbox'
 import { createSpaceCalendar } from '@space/calendar/src/space'
 import { createSpaceClients } from '@space/clients/src/space'
 import { createSourceClients } from '@space/clients/src/source'
@@ -270,9 +271,12 @@ export async function runFormsSweep(env: PartsEnv, ctx: { waitUntil(p: Promise<u
 export function inboxEnvOf(env: PartsEnv, install: Install): InboxPartEnv {
   const knowledge = knowledgeForInbox(env.KNOWLEDGE, install)
   const clients = clientsForInbox(env.CLIENTS_STORE)
+  // The calendar's inbox face, for Claude's script alone (the space's ADR 0023): over fresh stubs of the calendar's store, and handed to nothing but the inbox's part.
+  const calendar = env.CALENDAR ? createInboxCalendar({ engine: engineFor({ CALENDAR: env.CALENDAR as never }) }) : undefined
   return {
     INBOX: env.INBOX as never,
     ...(clients && { clients }),
+    ...(calendar && { calendar }),
     ...(env.INBOX_GOOGLE_CLIENT_ID !== undefined && { INBOX_GOOGLE_CLIENT_ID: env.INBOX_GOOGLE_CLIENT_ID }),
     ...(env.INBOX_ACCESS_CLIENT_ID !== undefined && { INBOX_ACCESS_CLIENT_ID: env.INBOX_ACCESS_CLIENT_ID }),
     ...(env.TELEGRAM_ACCESS_CLIENT_ID !== undefined && { TELEGRAM_ACCESS_CLIENT_ID: env.TELEGRAM_ACCESS_CLIENT_ID }),

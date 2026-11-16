@@ -4,13 +4,15 @@ import type { CalendarAccess, CalendarAccessRefusal } from '@space/workspace'
  * Everything the calendar says to Google, in one module: the Calendar API's calendar list, events and push channels. The rest of the app sees the `CalendarApi` interface and never a URL, so the sync is
  * tested against a fake that can fail and this file is tested against a fake `fetch` that answers as the documented API does.
  *
- * ── READING ONLY ─────────────────────────────────────────────────────────
- * The calls here are `calendarList.list`, `events.list`, `events.watch`, `calendarList.watch` and `channels.stop`. The access token the inbox hands over carries `calendar.readonly` and nothing else (it asks Google for that
- * scope alone), so nothing here could change an event or touch mail if a bug tried to. There is no call that writes an event here.
+ * ── TWO CLIENTS, ONE FOR READING AND ONE FOR WRITING ─────────────────────
+ * The sync's client (`createCalendarGoogle`) makes `calendarList.list`, `events.list`, `events.watch`, `calendarList.watch` and `channels.stop`. The access token the inbox hands it carries `calendar.readonly` and nothing else (the
+ * inbox asks Google for that scope alone), so nothing it does could change an event or touch mail if a bug tried to. It has no call that writes an event.
+ * The writer (`createCalendarWriter`, the space's ADR 0023) makes `events.insert`, `events.patch` and `events.delete`, and only for a call Claude makes on the owner's instruction (the inbox decides that before the engine is asked). Its token is for
+ * `calendar.events` alone, asked of the inbox for each call, used for that call and dropped: it is never cached, so the permission to change events is held only for as long as one request takes.
  *
  * ── TOKENS ───────────────────────────────────────────────────────────────
- * The calendar never holds a refresh token. `access(address, fresh)` is the inbox's door (packages/space/docs/adr/0020): a short-lived access token, kept here in memory until a minute before it ends, asked for again
- * with `fresh` after a 401. A token is never logged, never in an error and never sent to the page.
+ * The calendar never holds a refresh token. `access(address, fresh)` is the inbox's door (packages/space/docs/adr/0020): a short-lived access token, kept here in memory until a minute before it ends (the sync's) or not kept at all
+ * (the writer's), asked for again with `fresh` after a 401. A token is never logged, never in an error and never sent to the page.
  *
  * ── ERRORS ARE CLASSIFIED HERE, ONCE ─────────────────────────────────────
  * What the sync needs to know is not the status code but what to DO: `CalendarGone` (the sync token is stale: read in full), `CalendarNotFound` (the calendar is gone), `CalendarAccessError` (the grant is
@@ -141,6 +143,81 @@ function reasonOf(body: Json): string {
   return ''
 }
 
+/** The body of a call that must succeed; every refusal becomes the right error. Google's own sentence is kept; the request, and so the token it carried, never is. */
+async function ok(res: Response, what: string): Promise<Json> {
+  const body = await readJson(res)
+  if (res.ok) return body
+  const message = messageOf(body, `status ${res.status}`)
+  if (res.status === 410) throw new CalendarGone()
+  if (res.status === 404) throw new CalendarNotFound(`Google has no ${what}.`)
+  if (res.status === 401) throw new CalendarAccessError('failed', `Google refused the calendar's access token (${what}).`)
+  if (res.status === 403) {
+    const reason = reasonOf(body)
+    // A missing permission is the grant's, not a passing fault; a rate limit is a 403 too, and passes.
+    if (reason === 'insufficientPermissions' || /insufficient (authentication )?scopes?/i.test(message) || message.includes('ACCESS_TOKEN_SCOPE_INSUFFICIENT')) {
+      throw new CalendarRefused(`Google says the calendar permission is not granted (${what}).`)
+    }
+  }
+  throw new CalendarError(`Google refused ${what}: ${message}`, res.status)
+}
+
+/**
+ * What the writer does at Google, for one account at a time. Each call is one request. `sendUpdates=all` is on every one, so Google sends the invitation, the change and the cancellation to every guest; `insert` also asks for a Meet link
+ * (`conferenceDataVersion=1`) when the body carries a `conferenceData` request. The answer is Google's event, as Google gave it: the engine reads it with `parseEvent` like any other.
+ */
+export interface CalendarWriteApi {
+  /** `calendarId` is the account's primary calendar's id, or `primary`. */
+  insertEvent(calendarId: string, event: Record<string, unknown>): Promise<Record<string, unknown>>
+  patchEvent(calendarId: string, eventId: string, changes: Record<string, unknown>): Promise<Record<string, unknown>>
+  deleteEvent(calendarId: string, eventId: string): Promise<void>
+}
+
+/**
+ * The calendar's writing client: a token for `calendar.events` alone, asked of the inbox (`config.access`) for EACH call and dropped after it (a 401 asks once more, fresh). Nothing is cached, so the permission to change events is in
+ * this object's hands for as long as one request takes, and the sync's client (which never holds it) is untouched.
+ */
+export function createCalendarWriter(config: Pick<CalendarGoogleConfig, 'fetch' | 'access'>): (address: string) => CalendarWriteApi {
+  return (address) => {
+    async function send(method: string, path: string, body: unknown, fresh: boolean): Promise<Response> {
+      const got = await config.access(address, fresh)
+      if (!got.ok) throw new CalendarAccessError(got.why, got.message)
+      const res = await config.fetch(`${CALENDAR_API}${path}`, {
+        method,
+        headers: { authorization: `Bearer ${got.accessToken}`, ...(body === undefined ? {} : { 'content-type': 'application/json' }) },
+        body: body === undefined ? undefined : JSON.stringify(body),
+      })
+      if (res.status === 401 && !fresh) {
+        await res.body?.cancel()
+        return send(method, path, body, true)
+      }
+      return res
+    }
+    const event = (calendarId: string, eventId?: string) => `/calendars/${encodeURIComponent(calendarId)}/events${eventId === undefined ? '' : `/${encodeURIComponent(eventId)}`}`
+
+    return {
+      insertEvent: async (calendarId, body) =>
+        ok(await send('POST', `${event(calendarId)}?sendUpdates=all&conferenceDataVersion=1`, body, false), 'the new event'),
+
+      patchEvent: async (calendarId, eventId, changes) =>
+        ok(await send('PATCH', `${event(calendarId, eventId)}?sendUpdates=all`, changes, false), 'that event'),
+
+      async deleteEvent(calendarId, eventId) {
+        const res = await send('DELETE', `${event(calendarId, eventId)}?sendUpdates=all`, undefined, false)
+        // Already gone (410) is as good as deleted; any other refusal is the caller's to see.
+        if (res.status === 410) {
+          await res.body?.cancel()
+          return
+        }
+        if (res.ok) {
+          await res.body?.cancel()
+          return
+        }
+        await ok(res, 'that event')
+      },
+    }
+  }
+}
+
 /** The calendar's Google client for one account at a time. */
 export function createCalendarGoogle(config: CalendarGoogleConfig): (address: string) => CalendarApi {
   const tokens = new Map<string, { accessToken: string; expiresAt: number }>()
@@ -170,24 +247,6 @@ export function createCalendarGoogle(config: CalendarGoogleConfig): (address: st
         return call(method, path, body, false)
       }
       return res
-    }
-
-    /** The body of a call that must succeed; every refusal becomes the right error. */
-    async function ok(res: Response, what: string): Promise<Json> {
-      const body = await readJson(res)
-      if (res.ok) return body
-      const message = messageOf(body, `status ${res.status}`)
-      if (res.status === 410) throw new CalendarGone()
-      if (res.status === 404) throw new CalendarNotFound(`Google has no ${what}.`)
-      if (res.status === 401) throw new CalendarAccessError('failed', `Google refused the calendar's access token (${what}).`)
-      if (res.status === 403) {
-        const reason = reasonOf(body)
-        // A missing permission is the grant's, not a passing fault; a rate limit is a 403 too, and passes.
-        if (reason === 'insufficientPermissions' || /insufficient (authentication )?scopes?/i.test(message) || message.includes('ACCESS_TOKEN_SCOPE_INSUFFICIENT')) {
-          throw new CalendarRefused(`Google says the calendar permission is not granted (${what}).`)
-        }
-      }
-      throw new CalendarError(`Google refused ${what}: ${message}`, res.status)
     }
 
     const listOf = (body: Json): RawList<unknown> => ({
