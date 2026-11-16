@@ -260,6 +260,8 @@ export interface LeadFieldDeclaration {
 export const LEAD_STAGES_MAX = 12
 export const LEAD_STAGE_LABEL_MAX = 40
 export const LEAD_FIELDS_MAX = 30
+/** The longest title a new lead's notification may be declared with: the longest a notification's title is shown. */
+export const LEAD_NOTIFY_TITLE_MAX = 80
 
 /** How one of a source's extra fields is drawn (see `ClientsDoorDeclaration.fields`). */
 export interface ClientFieldDeclaration {
@@ -1095,7 +1097,7 @@ function readLeads(raw: unknown, mailboxes: string[], doorProblem: (path: string
     else {
       knownKeys('leads.notify', raw.notify, ['title', 'field'], problems)
       const title = str(raw.notify.title)
-      if (title === null || title.length > LEAD_STAGE_LABEL_MAX || /[\r\n]/.test(title)) problems.push(`leads.notify.title: one line of at most ${LEAD_STAGE_LABEL_MAX} characters`)
+      if (title === null || title.length > LEAD_NOTIFY_TITLE_MAX || /[\r\n]/.test(title)) problems.push(`leads.notify.title: one line of at most ${LEAD_NOTIFY_TITLE_MAX} characters`)
       const field = raw.notify.field
       if (field !== undefined && (typeof field !== 'string' || fields?.[field] === undefined)) problems.push('leads.notify.field: the key of one of the leads\' fields')
       if (title !== null && (field === undefined || typeof field === 'string')) notify = { title, ...(field !== undefined && { field: field as string }) }

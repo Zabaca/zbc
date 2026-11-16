@@ -152,20 +152,20 @@ export class Notifications {
 
   /**
    * A new lead, or one more request on an open one, told now to the devices of the people who may see the leads' mailbox (`canSee` over its id, for the person each device is for): not through the owed
-   * marks, which are a message's. Answers how many devices were handed it. With no key nothing is sent; a mailbox not yet made (no mail has reached it) is no mailbox, so its leads are the owner's and only the
-   * owner's devices are told, as only the owner sees those leads (src/store/leads.ts).
+   * marks, which are a message's. Answers how many devices were handed it. With no key nothing is sent. `mailboxId` is the store's row of the leads' mailbox (`LeadStore.leadsMailboxId`, the row every lead
+   * read is cut by); null while no mail has made it, and then only the owner's devices are told, as only the owner sees those leads (src/store/leads.ts).
    */
   async notifyLead(lead: {
     leadId: string
     requests: number
-    mailbox: string
+    mailboxId: string | null
     title: string
     body: string
     at: string
   }): Promise<{ handed: number }> {
     const key = this.ports.key
     if (!key) return { handed: 0 }
-    const mailboxId = this.ports.store.mailboxRowAt(lead.mailbox)?.id ?? null
+    const mailboxId = lead.mailboxId
     const scopes = new Map<string, MailScope>()
     const devices = this.ports.store.deviceKeys().filter((d) => {
       const scope = scopes.get(d.owner) ?? this.ports.store.mailScope(d.owner)

@@ -225,8 +225,9 @@ export function leadPayload(l: {
     kind: 'lead',
     conversationId: null,
     messageId: `lead-${l.leadId}-${l.requests}`,
-    title: l.title,
-    body: l.body,
+    // Cut as every payload is: a field's value may be thousands of characters, and a push past what the service takes is refused and tells nobody.
+    title: cut(l.title, MAX_TITLE),
+    body: cut(l.body, MAX_BODY),
     at: l.at,
   }
 }

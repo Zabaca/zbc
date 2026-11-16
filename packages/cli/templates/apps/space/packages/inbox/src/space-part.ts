@@ -111,13 +111,14 @@ export function createInboxPartFactory(install: Install = bundledInstall): (env:
         const got = await receiveLeadFromSource({ store, install }, { ...request, source: door.source })
         if (!got.ok) return got
         const { lead, outcome } = got.value
-        if (outcome !== 'repeat') {
+        // A repeat tells nobody, and nor does a lead carried over from the site's own records (it carries its stage): it is a copy, not a new request.
+        if (outcome !== 'repeat' && request.stage === undefined) {
           const field = leads.notify.field === null ? undefined : lead.fields[leads.notify.field]
           try {
             await store.call('notifyLead', {
               leadId: lead.id,
               requests: lead.requests,
-              mailbox: leads.mailbox,
+              mailboxId: await store.call('leadsMailboxId', leads.mailbox),
               title: leads.notify.title,
               body: field === undefined ? lead.name : `${lead.name}, ${field}`,
               at: lead.lastRequestAt,
