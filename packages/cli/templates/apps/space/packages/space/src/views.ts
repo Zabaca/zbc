@@ -29,7 +29,7 @@ import {
 } from '@space/workspace'
 import { isBool, isCount, isList, isRecord, isText } from './guards'
 import type { Asking } from './list'
-import { isInboxContactProfile, isInboxDraft, isInboxHandSent, isInboxMerged, isInboxSendResolved, isInboxSpamResult, isInboxSplitDone, isInboxUnmerged, notConnected, reach, reachWrite } from './reach'
+import { isInboxContactProfile, isInboxDraft, isInboxLead, isInboxLeads, isInboxHandSent, isInboxMerged, isInboxSendResolved, isInboxSpamResult, isInboxSplitDone, isInboxUnmerged, notConnected, reach, reachWrite } from './reach'
 
 // ── What the page is given ────────────────────────────────────────────────────────────────────────────────────────────────
 
@@ -211,6 +211,7 @@ const isNav = guard(
     isCount(v.contacts) &&
     isTelegramNav(v.telegram) &&
     isJmapNav(v.jmap) &&
+    (v.openLeads === undefined || isCount(v.openLeads)) &&
     each(v.gmailAccounts, (g) => isRecord(g) && isText(g.id) && isText(g.name) && isText(g.address) && isNavCount(g) && isBool(g.connected) && isText(g.state) && gmailStates.has(g.state) && (g.sendsByDefault === undefined || isBool(g.sendsByDefault)) && countOrNull(g.lastPushAt) && textOrNull(g.reason)),
 )
 const isClaudeSending = guard((v) => isRecord(v) && isBool(v.enabled) && countOrNull(v.changedAt))
@@ -276,9 +277,9 @@ export const NOT_UPDATED = 'The inbox has not been updated to send a new email f
 /** The longest id, address or token a request names (a mailbox has its own pattern, the contract's `MAILBOX_ID`): a path-shaped or enormous string never reaches the inbox. */
 const SHORT = /^[A-Za-z0-9@._:+-]{1,200}$/
 
-export type ReadName = 'navigation' | 'claude-sending' | 'mailboxes' | 'notifications' | 'restore' | 'clients' | 'client' | 'draft-chat'
+export type ReadName = 'navigation' | 'claude-sending' | 'mailboxes' | 'notifications' | 'restore' | 'clients' | 'client' | 'draft-chat' | 'leads' | 'contact-leads'
 
-export const READ_NAMES: readonly ReadName[] = ['navigation', 'claude-sending', 'mailboxes', 'notifications', 'restore', 'clients', 'client', 'draft-chat']
+export const READ_NAMES: readonly ReadName[] = ['navigation', 'claude-sending', 'mailboxes', 'notifications', 'restore', 'clients', 'client', 'draft-chat', 'leads', 'contact-leads']
 
 type Parsed<T> = { ok: true; value: T } | { ok: false; message: string }
 
@@ -314,6 +315,14 @@ export async function readView(ask: Asking, name: ReadName, query: URLSearchPara
       if (!SHORT.test(conversation) || !SHORT.test(draft)) return { ok: false, message: 'Ask for one draft’s chat: conversation=<id>&draft=<id>.' }
       return { ok: true, value: await read(ask, (i) => i.draftChat(a, conversation, draft), isTurns) }
     }
+    // The company's leads: the board, and one person's (their page and their conversation).
+    case 'leads':
+      return { ok: true, value: await read(ask, (i) => i.leads(a), isInboxLeads) }
+    case 'contact-leads': {
+      const contact = query.get('contact') ?? ''
+      if (!SHORT.test(contact)) return { ok: false, message: 'Ask for one person’s leads: contact=<id>.' }
+      return { ok: true, value: await read(ask, (i) => i.contactLeads(a, contact), isInboxLeads) }
+    }
   }
 }
 
@@ -340,6 +349,8 @@ export type WriteName =
   | 'draft-unsent'
   | 'contact-rename'
   | 'contact-split'
+  | 'lead-move'
+  | 'lead-make'
 
 export const WRITE_NAMES: readonly WriteName[] = [
   'claude-sending',
@@ -362,6 +373,8 @@ export const WRITE_NAMES: readonly WriteName[] = [
   'draft-unsent',
   'contact-rename',
   'contact-split',
+  'lead-move',
+  'lead-make',
 ]
 
 /** The longest chat instruction or restore bookmark taken: the inbox applies its own, shorter limits. */
@@ -515,6 +528,20 @@ export async function writeView(ask: Asking, name: WriteName, body: unknown, use
       if (!isCount(body.rev)) return bad('Say which revision of the person you were shown (rev).')
       const split = { contactId: body.contactId, rev: body.rev, identityId: body.identityId }
       return write(ask, (i) => i.splitAddress(a, split), isSplitAnswer)
+    }
+    // A lead moved at the revision the board showed (`conflict` when it has moved on), and a lead made by hand for a person. Making one is not idempotent: the page sends it once.
+    case 'lead-move': {
+      if (!isText(body.leadId) || !SHORT.test(body.leadId)) return bad('Name the lead: leadId.')
+      if (!isCount(body.rev)) return bad('Say which revision of the lead you were shown (rev).')
+      if (!isText(body.stage) || !SHORT.test(body.stage)) return bad('Name the stage: stage.')
+      const move = { leadId: body.leadId, rev: body.rev, stage: body.stage }
+      return write(ask, (i) => i.moveLead(a, move), isInboxLead)
+    }
+    case 'lead-make': {
+      if (!isText(body.contactId) || !SHORT.test(body.contactId)) return bad('Name the person: contactId.')
+      if (body.fields !== undefined && !(isRecord(body.fields) && Object.values(body.fields).every(isText))) return bad('The fields are text by key.')
+      const make = { contactId: body.contactId, fields: (body.fields ?? {}) as Record<string, string> }
+      return write(ask, (i) => i.makeLead(a, make), isInboxLead)
     }
     case 'chat': {
       if (!isText(body.conversationId) || !SHORT.test(body.conversationId) || !isText(body.draftId) || !SHORT.test(body.draftId)) return bad('Name the draft and its conversation.')

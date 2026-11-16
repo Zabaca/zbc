@@ -39,6 +39,7 @@ import type { Restores } from './restore'
 import { searchTerms } from './search'
 import type { SpaceReadMethod, SpaceReads } from './space-reads'
 import { parseCcList } from './store/address'
+import type { LeadStore } from './store/leads'
 import type { MailStore } from './store/mail'
 import type { SpaceStore } from './store/space'
 import { type Result, text } from './store/store'
@@ -295,6 +296,19 @@ export const SPACE_METHODS = [
 ] as const satisfies readonly (keyof SpaceStore)[]
 
 /**
+ * The company's leads (src/store/leads.ts): what the space's part asks (src/space-leads.ts) and what its leads door hands in. Not routes: only the part, after the space's one sign-in check named the
+ * person and the install's leads rules were checked, calls them.
+ */
+export const LEAD_METHODS = [
+  'spaceLeads',
+  'moveLead',
+  'makeLead',
+  'receiveLead',
+  'openLeadCount',
+  'leadsMailboxId',
+] as const satisfies readonly (keyof LeadStore)[]
+
+/**
  * What the Telegram bridge's door may ask of the store (src/store/telegram.ts, src/telegram/app.ts): its five calls. Only that router, behind the bridge's own token, calls the first
  * five; `telegramMailboxes` is also read by Claude's script (`GET /api/telegram`).
  */
@@ -324,6 +338,7 @@ export type ArrivalMethod = (typeof ARRIVAL_METHODS)[number]
 export type AssistantMethod = (typeof ASSISTANT_METHODS)[number]
 export type RestoreMethod = (typeof RESTORE_METHODS)[number]
 export type SpaceMethod = (typeof SPACE_METHODS)[number]
+export type LeadMethod = (typeof LEAD_METHODS)[number]
 export type TelegramMethod = (typeof TELEGRAM_METHODS)[number]
 export type TelegramMediaMethod = (typeof TELEGRAM_MEDIA_METHODS)[number]
 export type { SpaceReadMethod } from './space-reads'
@@ -331,6 +346,7 @@ export type { SpaceReadMethod } from './space-reads'
 /** Everything the Worker can call in the Durable Object, by name. */
 export type Surface = Pick<MailStore, StoreMethod> &
   Pick<SpaceStore, SpaceMethod> &
+  Pick<LeadStore, LeadMethod> &
   Pick<TelegramStore, TelegramMethod> &
   Pick<TelegramMediaKeeper, TelegramMediaMethod> &
   Pick<Mailroom, MailMethod> &

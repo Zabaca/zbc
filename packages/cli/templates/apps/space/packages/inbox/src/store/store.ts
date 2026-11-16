@@ -1116,6 +1116,12 @@ export class Inbox {
         role: survivorProfile.role || absorbedProfile.role,
         notes: survivorProfile.notes || absorbedProfile.notes,
       })
+      // The absorbed contact's leads go with its addresses (migration 21); the audit entry names them, so an undo moves back exactly these.
+      const leads = this.sql
+        .exec(`SELECT id FROM lead WHERE contact_id = ?1`, absorbedId)
+        .toArray()
+        .map((r) => text(r.id))
+      this.sql.exec(`UPDATE lead SET contact_id = ?1 WHERE contact_id = ?2`, survivorId, absorbedId)
       this.sql.exec(`DELETE FROM contact WHERE id = ?1`, absorbedId)
       const after = this.contactRow(survivorId) as ContactRow
       const mergeId = this.audit(
@@ -1128,7 +1134,7 @@ export class Inbox {
           profiles: { survivor: survivorProfile, absorbed: absorbedProfile },
           absorbedMade: { at: text(made.created_at), by: text(made.created_by) },
         },
-        { survivor: after, profile: this.profileRow(survivorId) },
+        { survivor: after, profile: this.profileRow(survivorId), ...(leads.length > 0 && { leads }) },
       )
       return ok({ ...after, mergeId })
     })
@@ -1209,6 +1215,13 @@ export class Inbox {
         actor,
       )
       this.sql.exec(`UPDATE identity SET contact_id = ?2 WHERE id = ?1`, identityId, contactId)
+      // A lead that came in on this address goes with it (migration 21), as its conversations do: by its email where it has one, else by its number.
+      this.sql.exec(
+        `UPDATE lead SET contact_id = ?2 WHERE contact_id = ?1 AND (email = ?3 OR (email IS NULL AND phone = ?3))`,
+        fromId,
+        contactId,
+        text(identity.address),
+      )
       this.sql.exec(`UPDATE contact SET profile_rev = profile_rev + 1 WHERE id = ?1`, fromId)
       const movedMessages = this.separateManualHistory(identityId)
       const from = this.contactRow(fromId) as ContactRow

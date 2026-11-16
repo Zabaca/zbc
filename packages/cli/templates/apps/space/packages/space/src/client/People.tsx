@@ -16,6 +16,7 @@ import { documentPath } from './day'
 import { ago, initials, noticesFor } from './format'
 import { Glyph } from './icons'
 import { useFresh } from './liveHub'
+import { PersonLeads } from './Leads'
 import { inboxPath, meetPath, peoplePath, personKey, settingsItemPath } from './route'
 import { Ask, Say, Viewed, useAction, when } from './settings-parts'
 import { type Said, postView, useView } from './views'
@@ -823,6 +824,7 @@ export function PersonView({ answer, entries, go, onChanged, onMerged }: PersonV
             </p>
           )}
           <ProfileEditor profile={profile} onChanged={onChanged} />
+          <PersonLeads contactId={profile.contactId} go={go} />
           <Identities profile={profile} onChanged={onChanged} go={go} />
           <WritesIn groups={profile.groups} go={go} />
           <ClientSection profile={profile} onChanged={onChanged} go={go} />
@@ -909,6 +911,7 @@ export function ProfileFields({ convKey, go }: { convKey: string; go?: Go }) {
   return (
     <div className="p-beside" data-testid="profile-beside">
       <ProfileEditor profile={profile} onChanged={got.reload} compact />
+      {go && <PersonLeads contactId={profile.contactId} go={go} />}
       <WritesIn groups={profile.groups} go={go} />
     </div>
   )

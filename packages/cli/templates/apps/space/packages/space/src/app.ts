@@ -150,7 +150,15 @@ export function meOf(who: Who, install: Install): Me {
     // The senders and the signing service's names are the install's (its declaration's `senders` and `formsService`): the screens that say them read them here, never a literal.
     senders: { forms: install.sender('forms'), meet: install.sender('meet') },
     forms: { service: install.formsService().name, sender: install.sender('forms'), runBy: install.formsService().runBy.name, ...(install.formsService().ownCompanyOnly ? { ownCompanyOnly: true as const } : {}) },
+    // The leads' stages and fields are the install's words (its declaration's `leads`); the mailbox they belong to stays in the Worker.
+    ...leadsWordsOf(install),
   }
+}
+
+/** The leads' words for the page, where the install has leads. */
+function leadsWordsOf(install: Install): Pick<Me, 'leads'> {
+  const leads = install.has('leads') ? install.leads() : null
+  return leads === null ? {} : { leads: { stages: leads.stages, fields: leads.fields } }
 }
 
 /**

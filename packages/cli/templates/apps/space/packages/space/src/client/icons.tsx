@@ -1,4 +1,4 @@
-// The seven tabs' icons, drawn for the space.
+// The eight tabs' icons, drawn for the space.
 import type { ReactNode } from 'react'
 import type { TabId } from '@space/workspace'
 
@@ -38,6 +38,8 @@ const PATHS: Record<TabId, ReactNode> = {
       <path d="M14.5 11.8c1.6.2 2.6 1.4 3 3.4" />
     </>
   ),
+  // A funnel: requests coming in and narrowing to work.
+  leads: <path d="M3 4h14l-5.5 6.5V16l-3-1.5v-4z" />,
   // An open book: what the assistants may say, written down once.
   knowledge: (
     <>

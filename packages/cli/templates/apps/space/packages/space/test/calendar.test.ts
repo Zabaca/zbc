@@ -217,7 +217,7 @@ describe('the page and the other tabs', () => {
   test('/api/me lists the Calendar tab after Meet', async () => {
     const s = await asOwner()
     const me = (await (await s.w.call('/api/me', { jwt: s.jwt })).json()) as { tabs: { id: string; path: string }[] }
-    expect(me.tabs.map((t) => t.id)).toEqual(['today', 'inbox', 'meet', 'calendar', 'forms', 'people', 'knowledge'])
+    expect(me.tabs.map((t) => t.id)).toEqual(['today', 'inbox', 'meet', 'calendar', 'forms', 'people', 'leads', 'knowledge'])
     expect(me.tabs.find((t) => t.id === 'calendar')?.path).toBe('/calendar')
   })
 

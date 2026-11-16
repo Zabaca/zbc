@@ -60,6 +60,10 @@ export const CHANGING_CALLS = [
   'discardComposed',
   'saveContactProfile',
   'undoMerge',
+  // the company's leads: a lead moved, made by hand, or sent by the company's site (the board, the person's card and the menu's count)
+  'moveLead',
+  'makeLead',
+  'receiveLead',
 ] as const
 
 /** Every other name `call` accepts: reads, and writes that no live screen follows. */
@@ -123,6 +127,9 @@ export const UNFOLLOWED_CALLS = [
   'spaceContacts',
   'spaceContactProfile',
   'spaceRowCounts',
+  'spaceLeads',
+  'openLeadCount',
+  'leadsMailboxId',
   // who may see which mail: what a person is on, and the mailbox of one conversation or message (src/queue.ts `canSee`)
   'mailScope',
   'mailboxPeopleList',

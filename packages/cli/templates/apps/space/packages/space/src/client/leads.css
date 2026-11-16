@@ -1,0 +1,163 @@
+/* The company's leads: the board's columns and the cards, and a person's leads beside their page or conversation (Leads.tsx). */
+
+/* The board takes the width it is given: every stage's column shows on a computer, and they stack on a phone. */
+.page.leads-page {
+  max-width: none;
+}
+
+.lead-board {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(200px, 1fr);
+  gap: 12px;
+  overflow-x: auto;
+  padding-bottom: 8px;
+  align-items: start;
+}
+
+.lead-col {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.lead-col h2 {
+  font-size: 13px;
+  font-weight: 600;
+  margin: 0 0 2px;
+}
+
+.lead-col.settled {
+  opacity: 0.85;
+}
+
+.lead-card {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.lead-card header {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  align-items: baseline;
+}
+
+.lead-name {
+  font-weight: 600;
+  color: var(--text);
+  text-decoration: none;
+  overflow-wrap: anywhere;
+}
+
+.lead-name:hover {
+  text-decoration: underline;
+}
+
+.lead-fields {
+  margin: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.lead-fields div {
+  display: flex;
+  gap: 6px;
+  min-width: 0;
+}
+
+.lead-fields dt {
+  color: var(--mute);
+  flex: none;
+}
+
+.lead-fields dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.lead-reach {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.lead-card footer {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.lead-stage {
+  background: var(--raise);
+  color: var(--text);
+  border: 1px solid var(--line2);
+  border-radius: 6px;
+  padding: 3px 6px;
+  font: inherit;
+}
+
+.lead-person {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 16px 0;
+}
+
+.lead-person h3 {
+  font-size: 13px;
+  margin: 0;
+}
+
+.lead-make {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.lead-make label {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.lead-make input {
+  background: var(--raise);
+  color: var(--text);
+  border: 1px solid var(--line2);
+  border-radius: 6px;
+  padding: 6px 8px;
+  font: inherit;
+}
+
+.lead-make-acts {
+  display: flex;
+  gap: 8px;
+}
+
+.lead-person > .btn {
+  align-self: flex-start;
+}
+
+/* The open leads beside the Leads tab in the menu. */
+.rail-count {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--mute);
+  font-variant-numeric: tabular-nums;
+}
+
+@media (max-width: 760px) {
+  .lead-board {
+    grid-auto-flow: row;
+    grid-auto-columns: auto;
+  }
+}

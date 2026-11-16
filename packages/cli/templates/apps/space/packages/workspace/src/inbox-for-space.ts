@@ -44,6 +44,7 @@ import type {
   InboxTestSent,
   GmailPurpose,
 } from './inbox-views'
+import type { InboxLead, InboxLeadMake, InboxLeadMove, InboxLeads } from './inbox-leads'
 import type { InboxContactProfile, InboxContacts, InboxContactsScope, InboxMerge, InboxMerged, InboxProfileEdit, InboxRename, InboxSplit, InboxSplitDone, InboxUnmerged } from './inbox-people'
 import type { FileRange } from './files'
 import type { InboxCalendar } from './calendar-summary'
@@ -897,6 +898,23 @@ export interface InboxForSpace {
    * with the address. Raises the revision of the contact it came off. The second press names an address no longer on it, so a repeat is `not-found`: no key. Audited as the owner's.
    */
   splitAddress(asker: SignedIn, split: InboxSplit): Promise<SpaceReply<InboxSplitDone>>
+
+  // ── Leads. Shapes: inbox-leads.ts. Where the `leads` switch is on; whoever is on the leads' mailbox (`Install.leads().mailbox`), the owner always. ───────────────────────
+
+  /** The install's leads: the open ones first, then the settled ones, to `LEADS_READ_MAX` in all. `not-admitted` for a person not on the leads' mailbox. A read. */
+  leads(asker: SignedIn): Promise<SpaceReply<InboxLeads>>
+  /** One person's leads, newest first, for their page and their conversation. Empty for a person with none, and for a person who may not see the leads. A read. */
+  contactLeads(asker: SignedIn, contactId: string): Promise<SpaceReply<InboxLeads>>
+  /**
+   * Move a lead to another of the install's stages, at the revision the person was shown: `conflict` (nothing changed) when it has moved on; `bad-request` for a stage the install does not declare;
+   * `not-found` for none. Raises the revision; audited. A move to the stage it is in is no change and answers the lead as it is.
+   */
+  moveLead(asker: SignedIn, move: InboxLeadMove): Promise<SpaceReply<InboxLead>>
+  /**
+   * Make a lead by hand for a person, in the install's first stage: `bad-request` for a field the install does not declare or one past `LEAD_FIELD_MAX`; `not-found` for no such person. Not idempotent
+   * (two presses are two leads), so the page sends it once and shows the answer. Audited.
+   */
+  makeLead(asker: SignedIn, make: InboxLeadMake): Promise<SpaceReply<InboxLead>>
   /**
    * Put a merge back: the absorbed contact returns with its name, its Client and its fields, and the addresses that are still on the survivor move back to it. The survivor's
    * Client and fields return to what they were only if nobody changed them since. `conflict` when it was undone already or none of the addresses is on the survivor any more.
@@ -988,5 +1006,9 @@ export const INBOX_FOR_SPACE_METHODS = [
   'undoContactMerge',
   'renameContact',
   'splitAddress',
+  'leads',
+  'contactLeads',
+  'moveLead',
+  'makeLead',
   ...INBOX_OPERATOR_METHODS,
 ] as const satisfies readonly (keyof InboxForSpace)[]

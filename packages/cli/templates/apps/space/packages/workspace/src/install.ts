@@ -3,12 +3,12 @@
 // An Install is a parsed declaration with the questions the front door and the apps it runs ask of it. It holds no
 // state and does no I/O, so each Worker builds it once at start from the declaration its deploy bundled.
 
-import { type Business, type ClientFieldKind, type CloudflareMailboxDeclaration, type Company, type Declaration, type FormsServiceDeclaration, type GoogleAppDeclaration, type HostedMailboxDeclaration, type PhoneDeclaration, parseDeclaration, type PlaceName, type Person, SPACE, SWITCHES, type Switch } from './declaration'
+import { type Business, type ClientFieldKind, type CloudflareMailboxDeclaration, type Company, type Declaration, type FormsServiceDeclaration, type GoogleAppDeclaration, type HostedMailboxDeclaration, type LeadStageDeclaration, type PhoneDeclaration, parseDeclaration, type PlaceName, type Person, SPACE, SWITCHES, type Switch } from './declaration'
 
 /**
- * The space's seven tabs that an install may have, in the order they are drawn (Knowledge comes after People, packages/space/docs/adr/0008; Inbox and Meet
+ * The space's eight tabs that an install may have, in the order they are drawn (Knowledge comes after People, packages/space/docs/adr/0008; Inbox and Meet
  * stand in the place of one combined Conversations tab, because chat, channels, calls and the phone belong in a Meet top level of their own, packages/space/docs/adr/0014;
- * Calendar comes after Meet, packages/space/docs/adr/0020). An install has the tabs its switches give it, in this order (`Install.tabs`): Calendar only where `gmail` is on, and Inbox only where the install has a mailbox of any kind. The company layer's ADR 0004 records the change from
+ * Calendar comes after Meet, packages/space/docs/adr/0020). An install has the tabs its switches give it, in this order (`Install.tabs`): Calendar only where `gmail` is on, Inbox only where the install has a mailbox of any kind, and Leads only where `leads` is on. The company layer's ADR 0004 records the change from
  * "the same seven in every install". `path` is where the tab lives on the space's address. `ownSignIn` marks the tab that has an Access application of its own, with a shorter sign-in
  * than the space's (Forms: a day, where the space is a month; packages/space/docs/adr/0002).
  */
@@ -19,6 +19,7 @@ export const TABS = [
   { id: 'calendar', label: 'Calendar', path: '/calendar', ownSignIn: false },
   { id: 'forms', label: 'Forms', path: '/forms', ownSignIn: true },
   { id: 'people', label: 'People', path: '/people', ownSignIn: false },
+  { id: 'leads', label: 'Leads', path: '/leads', ownSignIn: false },
   { id: 'knowledge', label: 'Knowledge', path: '/knowledge', ownSignIn: false },
 ] as const
 export type TabId = (typeof TABS)[number]['id']
@@ -141,6 +142,10 @@ export interface Install {
    */
   clientsDoor(): ClientsDoor | null
   /**
+   * The company's leads (the declaration's `leads`), or null where the `leads` switch is off: the mailbox they belong to (whoever is on it sees them), the stages in order and the fields in order. A copy.
+   */
+  leads(): Leads | null
+  /**
    * The address an app's mail goes out from: Forms' signing mail or Meet's invitations and notices. On the company's own domain, declared (`senders`) or the company's `forms@` and `meet@`; the Worker's send
    * binding allows exactly these two.
    */
@@ -172,6 +177,14 @@ export interface Install {
   tabPath(tab: TabId): string
 }
 
+/** The company's leads as the space reads them (`Install.leads`). */
+export interface Leads {
+  /** The mailbox the leads belong to: whoever is on it sees and works them. */
+  mailbox: string
+  stages: Required<LeadStageDeclaration>[]
+  fields: { key: string; label: string; board: boolean }[]
+}
+
 /** A declared mailbox copied, its list of people too, so nothing a caller changes reaches the declaration. */
 const copyMailbox = <T extends { people?: string[] }>(m: T): T => ({ ...m, ...(m.people !== undefined && { people: [...m.people] }) })
 
@@ -183,8 +196,8 @@ export function createInstall(input: unknown): Install {
   const byAddress = new Map(people.map((p) => [p.address, p]))
   const tabPath = (tab: TabId) => TABS.find((t) => t.id === tab)!.path
   const hasMailbox = switches.gmail || switches.hostedMailboxes || switches.telegram || declaration.businesses.some((b) => b.mailboxes.length > 0)
-  // The tabs whose part can be off: Calendar needs a Google account (the Gmail switch), Inbox needs a mailbox of any kind. Every other tab is every install's.
-  const hasTab = (tab: TabId): boolean => (tab === 'calendar' ? switches.gmail : tab === 'inbox' ? hasMailbox : true)
+  // The tabs whose part can be off: Calendar needs a Google account (the Gmail switch), Inbox needs a mailbox of any kind, Leads its switch. Every other tab is every install's.
+  const hasTab = (tab: TabId): boolean => (tab === 'calendar' ? switches.gmail : tab === 'inbox' ? hasMailbox : tab === 'leads' ? switches.leads : true)
 
   // parseDeclaration refuses a declaration with no owner.
   const firstOwner = people.find((p) => p.role === 'owner') as Person
@@ -249,6 +262,15 @@ export function createInstall(input: unknown): Install {
         source: door.source,
         suggestByAddressKey: door.suggestByAddressKey ?? null,
         fields: Object.entries(door.fields ?? {}).map(([key, f]) => ({ key, label: f.label, kind: f.kind ?? 'text', list: f.list ?? false })),
+      }
+    },
+    leads: () => {
+      const leads = declaration.leads
+      if (leads === undefined) return null
+      return {
+        mailbox: leads.mailbox,
+        stages: leads.stages.map((st) => ({ id: st.id, label: st.label, settled: st.settled === true })),
+        fields: Object.entries(leads.fields ?? {}).map(([key, f]) => ({ key, label: f.label, board: f.board === true })),
       }
     },
     tabs: (current) =>

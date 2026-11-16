@@ -31,7 +31,7 @@ describe('the install, as the apps ask it', () => {
     expect(sharedOf('dana@pinecrest.test')).toEqual([])
   })
 
-  test("the space is one address whose tabs are the install's, in order, the page you are on marked (Northfield's are all seven)", () => {
+  test("the space is one address whose tabs are the install's, in order, the page you are on marked (Northfield's are all eight)", () => {
     expect(northfield().tabs('inbox').map((t) => [t.id, t.label, t.url, t.current])).toEqual([
       ['today', 'Today', 'https://space.northfield.example/today', false],
       ['inbox', 'Inbox', 'https://space.northfield.example/inbox', true],
@@ -39,6 +39,7 @@ describe('the install, as the apps ask it', () => {
       ['calendar', 'Calendar', 'https://space.northfield.example/calendar', false],
       ['forms', 'Forms', 'https://space.northfield.example/forms', false],
       ['people', 'People', 'https://space.northfield.example/people', false],
+      ['leads', 'Leads', 'https://space.northfield.example/leads', false],
       ['knowledge', 'Knowledge', 'https://space.northfield.example/knowledge', false],
     ])
     expect(northfield().tabs().some((t) => t.current)).toBe(false)

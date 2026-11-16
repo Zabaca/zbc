@@ -18,7 +18,7 @@ export type PlaceName = typeof SPACE | 'forms'
  * The space's tab ids, as `TABS` in install.ts names them (install.test.ts pins that the two agree). The declaration needs them to keep the
  * agent's path off the space's own; this file cannot import `TABS` (install.ts imports this one), so the ids are written here too.
  */
-export const TAB_IDS = ['today', 'inbox', 'meet', 'calendar', 'forms', 'people', 'knowledge'] as const
+export const TAB_IDS = ['today', 'inbox', 'meet', 'calendar', 'forms', 'people', 'leads', 'knowledge'] as const
 
 export const ROLES = ['owner', 'member'] as const
 export type Role = (typeof ROLES)[number]
@@ -39,6 +39,7 @@ export const SWITCHES = [
   'manyClients',
   'calls',
   'telegram',
+  'leads',
 ] as const
 export type Switch = (typeof SWITCHES)[number]
 
@@ -53,6 +54,7 @@ export const SWITCH_DEFAULTS: Readonly<Record<Switch, boolean>> = {
   manyClients: false,
   calls: false,
   telegram: false,
+  leads: false,
 }
 
 export interface Company {
@@ -219,6 +221,39 @@ export interface ClientsDoorDeclaration extends AgentDeclaration {
   fields?: Record<string, ClientFieldDeclaration>
 }
 
+/**
+ * The company's leads: people who asked for something, each a request on a contact moving through the company's own stages (the inbox's `lead`). Present exactly where the `leads` switch is on.
+ * Whoever is on `mailbox` sees and works the leads (the owner always), the same rule its mail follows; the stages and the fields are the company's words, never the space's.
+ */
+export interface LeadsDeclaration {
+  /** A declared Cloudflare or hosted mailbox, by address: the leads are its. */
+  mailbox: string
+  /** In order, from the first a new lead takes. At least one open and at least one settled; at most `LEAD_STAGES_MAX`. */
+  stages: LeadStageDeclaration[]
+  /** What a lead carries besides the person, by key, in the order shown. A key not declared is refused where a lead is written. */
+  fields?: Record<string, LeadFieldDeclaration>
+}
+
+export interface LeadStageDeclaration {
+  /** A slug, stable: a lead stores it. */
+  id: string
+  /** One line of at most `LEAD_STAGE_LABEL_MAX` characters. */
+  label: string
+  /** A settled stage ends the lead (won, lost, or one column for both: the company's choice). A request from the same person after it is a new lead. */
+  settled?: boolean
+}
+
+export interface LeadFieldDeclaration {
+  /** One line of at most `CLIENT_FIELD_LABEL_MAX` characters. */
+  label: string
+  /** Also shown on the lead's card on the board. */
+  board?: boolean
+}
+
+export const LEAD_STAGES_MAX = 12
+export const LEAD_STAGE_LABEL_MAX = 40
+export const LEAD_FIELDS_MAX = 30
+
 /** How one of a source's extra fields is drawn (see `ClientsDoorDeclaration.fields`). */
 export interface ClientFieldDeclaration {
   /** One line of at most `CLIENT_FIELD_LABEL_MAX` characters. */
@@ -325,6 +360,8 @@ export interface Declaration {
   telegram?: TelegramDeclaration
   /** Present exactly where the `clientDirectory` switch is on. */
   clientsDoor?: ClientsDoorDeclaration
+  /** Present exactly where the `leads` switch is on. */
+  leads?: LeadsDeclaration
   people: Person[]
   /** The public shared addresses (info@, estimates@) on the company's domain. */
   sharedAddresses: string[]
@@ -396,7 +433,7 @@ function readMailboxPeople(where: string, given: unknown, people: readonly Perso
 export function parseDeclaration(raw: unknown): Declaration {
   const problems: string[] = []
   if (!isObj(raw)) throw new DeclarationError(['the declaration is not an object'])
-  knownKeys('declaration', raw, ['company', 'access', 'space', 'forms', 'senders', 'formsService', 'gmailPush', 'googleApp', 'hostedMailboxes', 'cloudflareMailboxes', 'phone', 'agent', 'telegram', 'clientsDoor', 'people', 'sharedAddresses', 'businesses', 'switches'], problems)
+  knownKeys('declaration', raw, ['company', 'access', 'space', 'forms', 'senders', 'formsService', 'gmailPush', 'googleApp', 'hostedMailboxes', 'cloudflareMailboxes', 'phone', 'agent', 'telegram', 'clientsDoor', 'leads', 'people', 'sharedAddresses', 'businesses', 'switches'], problems)
 
   // Company
   let company: Company = { id: '', name: '', domain: '', timeZone: '' }
@@ -931,6 +968,15 @@ export function parseDeclaration(raw: unknown): Declaration {
     problems.push('clientsDoor: the clientDirectory switch is on, so the path and the source of the Clients that arrive are required')
   }
 
+  // The leads: the mailbox they belong to, the stages and the fields, all the company's own.
+  let leads: LeadsDeclaration | undefined
+  if (raw.leads !== undefined) {
+    if (!switches.leads) problems.push('leads: only where the leads switch is on')
+    leads = readLeads(raw.leads, [...(cloudflareMailboxes ?? []), ...(hostedMailboxes ?? [])].map((m) => m.address), problems)
+  } else if (switches.leads) {
+    problems.push('leads: the leads switch is on, so the mailbox the leads belong to and their stages are required')
+  }
+
   if (problems.length > 0) throw new DeclarationError(problems)
   return {
     company,
@@ -947,9 +993,72 @@ export function parseDeclaration(raw: unknown): Declaration {
     ...(agent ? { agent } : {}),
     ...(telegram ? { telegram } : {}),
     ...(clientsDoor ? { clientsDoor } : {}),
+    ...(leads ? { leads } : {}),
     people,
     sharedAddresses,
     businesses,
     switches,
   }
+}
+
+/** The `leads` part of a declaration, or undefined with its problems said. `mailboxes` are the declared Cloudflare and hosted mailboxes' addresses. */
+function readLeads(raw: unknown, mailboxes: string[], problems: string[]): LeadsDeclaration | undefined {
+  const before = problems.length
+  if (!isObj(raw)) {
+    problems.push('leads: an object with the mailbox and the stages')
+    return undefined
+  }
+  knownKeys('leads', raw, ['mailbox', 'stages', 'fields'], problems)
+  const mailbox = str(raw.mailbox)?.toLowerCase() ?? null
+  if (mailbox === null || !EMAIL.test(mailbox)) problems.push('leads.mailbox: the address of the mailbox the leads belong to')
+  else if (!mailboxes.includes(mailbox)) problems.push(`leads.mailbox: ${mailbox} is not a declared Cloudflare or hosted mailbox`)
+  const stages: LeadStageDeclaration[] = []
+  if (!Array.isArray(raw.stages) || raw.stages.length < 2 || raw.stages.length > LEAD_STAGES_MAX) {
+    problems.push(`leads.stages: a list of 2 to ${LEAD_STAGES_MAX} stages, each { id, label, settled? }`)
+  } else {
+    raw.stages.forEach((st, i) => {
+      const where = `leads.stages[${i}]`
+      if (!isObj(st)) {
+        problems.push(`${where}: an object with an id and a label`)
+        return
+      }
+      knownKeys(where, st, ['id', 'label', 'settled'], problems)
+      const id = str(st.id)
+      const label = str(st.label)
+      if (id === null || !SLUG.test(id) || id.length > 40) problems.push(`${where}.id: a slug of at most 40 characters`)
+      else if (stages.some((s) => s.id === id)) problems.push(`${where}.id: ${id} is listed twice`)
+      if (label === null || label.length > LEAD_STAGE_LABEL_MAX || /[\r\n]/.test(label)) problems.push(`${where}.label: one line of at most ${LEAD_STAGE_LABEL_MAX} characters`)
+      if (st.settled !== undefined && typeof st.settled !== 'boolean') problems.push(`${where}.settled: true or false`)
+      if (id !== null && label !== null) stages.push({ id, label, ...(st.settled === true && { settled: true }) })
+    })
+    if (stages.length === raw.stages.length) {
+      if (stages[0]?.settled) problems.push('leads.stages: the first stage is where a new lead starts, so it cannot be settled')
+      if (!stages.some((s) => s.settled)) problems.push('leads.stages: at least one stage is settled (a lead ends somewhere)')
+    }
+  }
+  let fields: Record<string, LeadFieldDeclaration> | undefined
+  if (raw.fields !== undefined) {
+    if (!isObj(raw.fields) || Object.keys(raw.fields).length > LEAD_FIELDS_MAX) problems.push(`leads.fields: an object of at most ${LEAD_FIELDS_MAX} fields by key`)
+    else {
+      fields = {}
+      for (const [key, f] of Object.entries(raw.fields)) {
+        const where = `leads.fields.${key}`
+        if (!CLIENT_EXTRA_KEY.test(key)) problems.push(`${where}: not a key a field may have (a letter, then letters and digits)`)
+        if (!isObj(f)) {
+          problems.push(`${where}: an object with a label`)
+          continue
+        }
+        knownKeys(where, f, ['label', 'board'], problems)
+        const label = str(f.label)
+        if (label === null || label.length > CLIENT_FIELD_LABEL_MAX || /[\r\n]/.test(label)) {
+          problems.push(`${where}.label: one line of at most ${CLIENT_FIELD_LABEL_MAX} characters`)
+          continue
+        }
+        if (f.board !== undefined && typeof f.board !== 'boolean') problems.push(`${where}.board: true or false`)
+        fields[key] = { label, ...(f.board === true && { board: true }) }
+      }
+    }
+  }
+  if (problems.length > before || mailbox === null) return undefined
+  return { mailbox, stages, ...(fields !== undefined && { fields }) }
 }

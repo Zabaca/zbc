@@ -8,6 +8,7 @@ import {
   ARRIVAL_METHODS,
   ASSISTANT_METHODS,
   JMAP_METHODS,
+  LEAD_METHODS,
   MAIL_METHODS,
   NOTIFY_METHODS,
   RESTORE_METHODS,
@@ -67,6 +68,7 @@ describe('which calls tell', () => {
     const accepted = [
       ...STORE_METHODS,
       ...SPACE_METHODS,
+      ...LEAD_METHODS,
       ...TELEGRAM_METHODS,
       ...TELEGRAM_MEDIA_METHODS,
       ...MAIL_METHODS,

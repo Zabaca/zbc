@@ -116,6 +116,7 @@ import {
   seesMessage,
   spelled,
 } from './space-gate'
+import { createSpaceLeads } from './space-leads'
 import { createSpaceOperator } from './space-operator'
 import { createSpacePeople } from './space-people'
 import { createSpaceViews } from './space-views'
@@ -1250,6 +1251,7 @@ export function createSpaceInbox(deps: SpaceDeps): InboxForSpace {
     reopenConversations,
     ...createSpaceViews(deps, asOwner, asPerson),
     ...createSpacePeople(deps, asOwner, asPerson),
+    ...createSpaceLeads(deps, asPerson),
     ...createSpaceOperator(deps, asOwner),
   }
 }
