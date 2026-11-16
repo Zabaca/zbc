@@ -105,6 +105,20 @@ function emails(list: ParsedAddress[]): Person[] {
   })
 }
 
+/**
+ * MAIL THE BUSINESS SENT ITSELF, to someone outside: a copy of its own outgoing mail (a site's confirmation to a customer, blind-copied to the mailbox so the
+ * conversation starts in the space). The person it was written to, under whom it is filed as OUTGOING (so the conversation is with them and a Reply goes to them,
+ * never to the copy's own Reply-To); null for anything else, mail from its own address to nobody outside included.
+ */
+function ownSentTo(
+  from: readonly Person[],
+  written: readonly Person[],
+  own: (address: string) => boolean,
+): Person | null {
+  if (from.length === 0 || !from.every((p) => own(p.address))) return null
+  return written.find((p) => !own(p.address)) ?? null
+}
+
 export class ArrivalStore extends Inbox {
   // ─── the mailbox ─────────────────────────────────────────────────────
 
@@ -377,8 +391,11 @@ export class ArrivalStore extends Inbox {
       }
 
       const identity = (p: Person) => this.identityFor({ kind: p.kind, address: p.address }, p.name, CLOUDFLARE_ACTOR)
-      // Who the message is FROM; with no outside sender, whoever it was written to; else the first address there is.
-      const primary = from[0] ?? others(to)[0] ?? to[0] ?? cc[0]
+      // Our own sent copy (see `ownSentTo`) is filed as outgoing, under the person it was written to; anything else under who it is FROM, else whoever it was
+      // written to, else the first address there is.
+      const sentTo = ownSentTo(from, [...to, ...cc], own)
+      const ownSent = sentTo !== null
+      const primary = sentTo ?? from[0] ?? others(to)[0] ?? to[0] ?? cc[0]
       if (!primary) {
         // A message with no address anywhere on it has nobody to be filed under. Refused as a failure, so it stays
         // owed (visible, with its raw copy kept) and is not filed as a conversation with nobody on it.
@@ -409,9 +426,9 @@ export class ArrivalStore extends Inbox {
                               mailbox_id, gmail_id, rfc_message_id, in_reply_to, from_header, to_header, cc_header,
                               sender_date, snippet, body_truncated, attachments, labels, list_unsubscribe,
                               read_at, read_by, closed_at, closed_by, reply_to_header, arrival_key, raw_key, event_key, event_kind, calendar)
-         VALUES (?1, ?2, ?3, 'in', 'sent', ?4, ?5, '', ?6, ?7, ?6, ?7, ?8, ?7, NULL,
+         VALUES (?1, ?2, ?3, ?26, 'sent', ?4, ?5, '', ?6, ?7, ?6, ?7, ?8, ?7, NULL,
                  ?9, NULL, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, '[]', ?19,
-                 NULL, NULL, NULL, NULL, ?20, ?21, ?22, ?23, ?24, ?25)`,
+                 ?27, ?28, NULL, NULL, ?20, ?21, ?22, ?23, ?24, ?25)`,
         messageId,
         conversationId,
         primaryIdentity.id,
@@ -437,6 +454,10 @@ export class ArrivalStore extends Inbox {
         parsed.event?.key ?? null,
         parsed.event?.kind ?? null,
         keptCalendar(parsed.calendar),
+        ownSent ? 'out' : 'in',
+        // Our own sent copy is read when it is filed: nobody has to read what the business wrote.
+        ownSent ? at : null,
+        ownSent ? CLOUDFLARE_ACTOR : null,
       )
       this.touchConversation(conversationId)
       this.sql.exec(
