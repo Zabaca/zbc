@@ -27,6 +27,7 @@ import { inboxOwnerOf, mailboxPeopleOf } from '../src/owner'
 import { createPushApp } from '../src/push-door'
 import { Restores } from '../src/restore'
 import { createSpaceInbox } from '../src/space'
+import { SpaceReads } from '../src/space-reads'
 import type { MailStore } from '../src/store/mail'
 import { migrate } from '../src/store/schema'
 import { SpaceStore } from '../src/store/space'
@@ -370,6 +371,10 @@ export function harness(
     throw new Error(`the alarm was still asking to run after ${limit} runs`)
   }
 
+  // The space's five reads the object runs whole (src/space-reads.ts), over this same `call`, as the object makes them over its own (src/durable.ts).
+  const spaceReads = new SpaceReads(() =>
+    createSpaceInbox({ store, install, clients: directory, googleClientId: env.INBOX_GOOGLE_CLIENT_ID }),
+  )
   // A Durable Object's RPC structured-clones what it returns. Doing it here too
   // means a result that would not survive the real thing fails here.
   const call = async (method: string, args: unknown[]): Promise<unknown> => {
@@ -383,6 +388,7 @@ export function harness(
       [Notifications.prototype, notifications],
       [Arrivals.prototype, arrivals],
       [Assistant.prototype, assistant],
+      [SpaceReads.prototype, spaceReads],
     ]
     const target = owners.find(([prototype]) => method in prototype)?.[1] ?? inbox
     const fn = (target as unknown as Record<string, (...a: unknown[]) => unknown>)[method] as (

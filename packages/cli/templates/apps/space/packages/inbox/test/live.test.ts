@@ -17,6 +17,7 @@ import {
   TELEGRAM_METHODS,
 } from '../src/app'
 import { CHANGING_CALLS, changesMail, inboxPeople, UNFOLLOWED_CALLS } from '../src/live'
+import { SPACE_READ_METHODS } from '../src/space-reads'
 import { deferredStart } from '../test-support/deferred-start'
 import { sqlOver } from '../test-support/sql-over-sqlite'
 
@@ -74,6 +75,7 @@ describe('which calls tell', () => {
       ...ARRIVAL_METHODS,
       ...ASSISTANT_METHODS,
       ...RESTORE_METHODS,
+      ...SPACE_READ_METHODS,
     ]
     expect([...CHANGING_CALLS, ...UNFOLLOWED_CALLS].sort()).toEqual([...new Set(accepted)].sort())
     expect(CHANGING_CALLS.filter((m) => (UNFOLLOWED_CALLS as readonly string[]).includes(m))).toEqual([])

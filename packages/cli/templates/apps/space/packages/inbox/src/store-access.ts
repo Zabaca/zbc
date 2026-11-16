@@ -6,6 +6,7 @@ import type {
   NotifyMethod,
   RestoreMethod,
   SpaceMethod,
+  SpaceReadMethod,
   StoreApi,
   StoreMethod,
   TelegramMediaMethod,
@@ -44,7 +45,8 @@ export interface StoreStub {
       | NotifyMethod
       | ArrivalMethod
       | AssistantMethod
-      | RestoreMethod,
+      | RestoreMethod
+      | SpaceReadMethod,
     args: unknown[],
   ): Promise<unknown>
   restart(): Promise<void>

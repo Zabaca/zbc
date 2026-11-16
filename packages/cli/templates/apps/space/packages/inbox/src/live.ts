@@ -64,6 +64,12 @@ export const CHANGING_CALLS = [
 
 /** Every other name `call` accepts: reads, and writes that no live screen follows. */
 export const UNFOLLOWED_CALLS = [
+  // the space's five reads, run whole in the object (src/space-reads.ts); what they ask of the store goes through `call` again and tells if it changed anything
+  'readPeople',
+  'readNavigation',
+  'readMessagesWith',
+  'readDrafts',
+  'readSearch',
   'listContacts',
   'getContact',
   'suggestionContacts',
