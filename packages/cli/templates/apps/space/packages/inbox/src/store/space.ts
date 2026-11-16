@@ -193,6 +193,8 @@ interface MergeRecord {
   /** The survivor as the merge left it: its Client, and its profile. */
   merged: ContactRow
   mergedProfile: ContactProfile
+  /** The absorbed contact's leads the merge moved onto the survivor (migration 21); none for a merge from before them. */
+  leads: string[]
 }
 
 /** A merge's audit entry, or null when it is not one this build wrote (an entry from before migration 12 has no profiles: it cannot be undone from here). */
@@ -223,6 +225,7 @@ function parseMerge(before: unknown, after: unknown): MergeRecord | null {
       made: { at: text(b.absorbedMade.at), by: text(b.absorbedMade.by) },
       merged: a.survivor as unknown as ContactRow,
       mergedProfile: a.profile as unknown as ContactProfile,
+      leads: Array.isArray(a.leads) ? a.leads.filter((id): id is string => typeof id === 'string') : [],
     }
   } catch {
     return null
@@ -592,6 +595,10 @@ export class SpaceStore extends AssistStore {
           i.id,
           survivor.id,
         )
+      }
+      // Its leads come back with it: the ones the merge moved (its audit entry names them) that are still on the survivor.
+      for (const leadId of was.leads) {
+        this.sql.exec(`UPDATE lead SET contact_id = ?1 WHERE id = ?2 AND contact_id = ?3`, was.absorbed.id, leadId, survivor.id)
       }
       // The survivor goes back to what it was before the merge only where it is still what the merge left it.
       const profileNow = this.profileRow(survivor.id) as ContactProfile

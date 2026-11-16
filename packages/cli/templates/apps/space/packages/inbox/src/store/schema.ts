@@ -1042,6 +1042,46 @@ export const INBOX_MIGRATIONS: readonly InboxMigration[] = [
   `
   ALTER TABLE "message" ADD COLUMN "calendar" TEXT;
   `,
+
+  // 21 ── the company's leads (the `leads` switch; the workspace's inbox-leads.ts): one request on a contact, in a stage of the install's. `contact_id` is the person (no foreign key: a merge moves a
+  // contact's leads before it deletes the absorbed contact, `mergeContacts`, and its undo moves them back); `mailbox` is the ADDRESS of the mailbox the leads belonged to when the lead was made, which
+  // decides who sees it (`canSee` over that mailbox's id); `stage` is a stage id and `fields` a JSON object by the install's field keys, both checked by the part against the install, never here;
+  // `source` names the company's site a lead came from (NULL for one made by hand); `email` and `phone` are what it came with; `requests` counts the requests folded into it; `rev` goes up with every
+  // change of its stage or its fields. `lead_request` is every request a site sent, by the site's own id for it, and the lead it went to: a send repeated (a retry after a lost answer) finds its row and
+  // changes nothing, and a lead's requests are counted from it.
+  //
+  // ── ONE-WAY, AND THE SMALLEST IT CAN BE ─────────────────────────────────
+  // Two tables and two indexes; no row of any other table is touched. A build before this one refuses a store at version 22 (`migrate`, below), so never redeploy an older commit as it was: keep every
+  // migration in the list, undo by a build of the old code that still carries this one (an undo build keeps migrations 12 to 21), and take a bookmark (scripts/inbox.ts bookmark) before applying.
+  // test/leads.test.ts runs it over a store with today's schema.
+  `
+  CREATE TABLE "lead" (
+    "id" TEXT PRIMARY KEY,
+    "contact_id" TEXT NOT NULL,
+    "mailbox" TEXT NOT NULL,
+    "stage" TEXT NOT NULL,
+    "fields" TEXT NOT NULL DEFAULT '{}',
+    "source" TEXT,
+    "email" TEXT,
+    "phone" TEXT,
+    "requests" INTEGER NOT NULL DEFAULT 1,
+    "created_at" TEXT NOT NULL,
+    "created_by" TEXT NOT NULL,
+    "last_request_at" TEXT NOT NULL,
+    "stage_at" TEXT,
+    "stage_by" TEXT,
+    "rev" INTEGER NOT NULL DEFAULT 0
+  );
+  CREATE INDEX "lead_contact_idx" ON "lead" ("contact_id");
+  CREATE TABLE "lead_request" (
+    "source" TEXT NOT NULL,
+    "external_id" TEXT NOT NULL,
+    "lead_id" TEXT NOT NULL,
+    "at" TEXT NOT NULL,
+    PRIMARY KEY ("source", "external_id")
+  );
+  CREATE INDEX "lead_request_lead_idx" ON "lead_request" ("lead_id");
+  `,
 ]
 
 /** The version a fully migrated inbox reports. */

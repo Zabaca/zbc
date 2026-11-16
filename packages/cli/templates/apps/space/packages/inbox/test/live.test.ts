@@ -12,6 +12,7 @@ import {
   NOTIFY_METHODS,
   RESTORE_METHODS,
   SPACE_METHODS,
+  LEAD_METHODS,
   STORE_METHODS,
   TELEGRAM_MEDIA_METHODS,
   TELEGRAM_METHODS,
@@ -67,6 +68,7 @@ describe('which calls tell', () => {
     const accepted = [
       ...STORE_METHODS,
       ...SPACE_METHODS,
+      ...LEAD_METHODS,
       ...TELEGRAM_METHODS,
       ...TELEGRAM_MEDIA_METHODS,
       ...MAIL_METHODS,

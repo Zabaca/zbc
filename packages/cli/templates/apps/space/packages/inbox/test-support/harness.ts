@@ -30,7 +30,7 @@ import { createSpaceInbox } from '../src/space'
 import { SpaceReads } from '../src/space-reads'
 import type { MailStore } from '../src/store/mail'
 import { migrate } from '../src/store/schema'
-import { SpaceStore } from '../src/store/space'
+import { LeadStore } from '../src/store/leads'
 import { createTelegramApp } from '../src/telegram/app'
 import { TelegramMediaKeeper } from '../src/telegram/media'
 import { bundledContent, bundledInstall } from '../src/workspace'
@@ -216,7 +216,7 @@ export function harness(
   let now = T0
   let n = 0
   const clock = () => new Date(now)
-  const inbox = new SpaceStore({
+  const inbox = new LeadStore({
     sql,
     transaction,
     now: clock,

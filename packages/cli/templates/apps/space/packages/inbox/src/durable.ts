@@ -17,6 +17,8 @@ import {
   RESTORE_METHODS,
   type RestoreMethod,
   SPACE_METHODS,
+  LEAD_METHODS,
+  type LeadMethod,
   type SpaceMethod,
   STORE_METHODS,
   type StoreMethod,
@@ -45,7 +47,7 @@ import { Restores } from './restore'
 import { createSpaceInbox } from './space'
 import { SPACE_READ_METHODS, type SpaceReadMethod, SpaceReads } from './space-reads'
 import { migrate } from './store/schema'
-import { SpaceStore } from './store/space'
+import { LeadStore } from './store/leads'
 import { assistantKeyFor, googleCredentialsFor, hostedMailboxesFor, spamCheckAiFor } from './switches'
 import { TelegramMediaKeeper } from './telegram/media'
 import { bundledContent, bundledInstall } from './workspace'
@@ -111,7 +113,7 @@ const SWEEPS_FILES_AFTER: ReadonlySet<string> = new Set([
  * cursor. Neither is how mail normally arrives.
  */
 export class InboxDO extends DurableObject<Env> {
-  private readonly inbox: SpaceStore
+  private readonly inbox: LeadStore
   private readonly mailroom: Mailroom
   private readonly jmapRoom: JmapRoom
   private readonly notifications: Notifications
@@ -142,7 +144,7 @@ export class InboxDO extends DurableObject<Env> {
     // The line the move's check reads in `wrangler tail space`: a moved object keeps running its old Worker's code until it restarts, so the first start under the space's code is
     // the proof it has (the space's runbook for the move, "The restart of the moved object").
     console.log('inbox: the store object started')
-    this.inbox = new SpaceStore({
+    this.inbox = new LeadStore({
       sql: ctx.storage.sql,
       transaction: (fn) => ctx.storage.transactionSync(fn),
       now: () => new Date(),
@@ -362,6 +364,7 @@ export class InboxDO extends DurableObject<Env> {
     method:
       | StoreMethod
       | SpaceMethod
+      | LeadMethod
       | TelegramMethod
       | TelegramMediaMethod
       | MailMethod
@@ -379,6 +382,7 @@ export class InboxDO extends DurableObject<Env> {
     const surfaces: [readonly string[], object][] = [
       [STORE_METHODS, this.inbox],
       [SPACE_METHODS, this.inbox],
+      [LEAD_METHODS, this.inbox],
       [TELEGRAM_METHODS, this.inbox],
       [TELEGRAM_MEDIA_METHODS, this.telegramMedia],
       [MAIL_METHODS, this.mailroom],
