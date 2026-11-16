@@ -1215,9 +1215,9 @@ export class Inbox {
         actor,
       )
       this.sql.exec(`UPDATE identity SET contact_id = ?2 WHERE id = ?1`, identityId, contactId)
-      // A lead that came in on this address goes with it (migration 21), as its conversations do.
+      // A lead that came in on this address goes with it (migration 21), as its conversations do: by its email where it has one, else by its number.
       this.sql.exec(
-        `UPDATE lead SET contact_id = ?2 WHERE contact_id = ?1 AND (email = ?3 OR phone = ?3)`,
+        `UPDATE lead SET contact_id = ?2 WHERE contact_id = ?1 AND (email = ?3 OR (email IS NULL AND phone = ?3))`,
         fromId,
         contactId,
         text(identity.address),

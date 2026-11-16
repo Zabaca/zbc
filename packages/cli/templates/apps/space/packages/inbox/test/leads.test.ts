@@ -303,7 +303,7 @@ describe('a merge', () => {
   })
 })
 
-describe('after the review of the first slice', () => {
+describe('the leads’ mailbox, a request’s id and moment, a split, and the menu', () => {
   test('until mail has made the leads’ mailbox, its leads are the owner’s alone: the Desk’s other people are refused before anything is written', async () => {
     const { h, space, send, as } = await world(MARLOW, false)
     const vic = (
