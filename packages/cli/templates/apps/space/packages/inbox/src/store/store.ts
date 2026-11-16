@@ -335,10 +335,10 @@ export function isoOrNull(value: unknown): string | null {
   return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString()
 }
 
-/** The columns the read and open rules need of a message, as `FOLD_SELECT` reads them. */
 /** How long the fold of every conversation is kept even when no change was counted (`Inbox.everyQueueFact`): a bound on how stale a list can be if a write ever went uncounted. */
 const FOLD_KEPT_MS = 15_000
 
+/** The columns the read and open rules need of a message, as `FOLD_SELECT` reads them. */
 const FOLD_SELECT = `
   SELECT m.conversation_id, m.identity_id, m.gmail_id, m.jmap_id, m.status, m.direction, m.labels, m.list_unsubscribe, m.clef_junk,
          m.read_at, m.read_by, m.closed_at, m.closed_by, coalesce(m.sent_at, m.created_at) AS at
@@ -1503,7 +1503,14 @@ export class Inbox {
       const f = folded?.get(id)
       if (f === undefined) return this.stateAndEnvelope(id)
       return {
-        state: { unread: f.unread, open: f.open, readBy: f.readBy, readAt: f.readAt, closedBy: f.closedBy, closedAt: f.closedAt },
+        state: {
+          unread: f.unread,
+          open: f.open,
+          readBy: f.readBy,
+          readAt: f.readAt,
+          closedBy: f.closedBy,
+          closedAt: f.closedAt,
+        },
         newestInbound: f.newestInbound,
       }
     }
@@ -1762,7 +1769,8 @@ export class Inbox {
   protected queueFacts(mailboxId: string | null, scope: MailScope = ALL_MAIL): QueueFact[] {
     const out: QueueFact[] = []
     for (const { mailboxId: m, fact } of this.everyQueueFact())
-      if ((mailboxId === null || m === mailboxId) && canSee(scope, m)) out.push({ ...fact, clientIds: [...fact.clientIds] })
+      if ((mailboxId === null || m === mailboxId) && canSee(scope, m))
+        out.push({ ...fact, clientIds: [...fact.clientIds] })
     return out
   }
 

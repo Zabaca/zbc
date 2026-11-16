@@ -20,7 +20,11 @@ const unwrap = <T>(r: { ok: boolean; value?: T }): T => {
 async function world() {
   const h = harness({}, { ai: null })
   const g = h.google.mailbox
-  const senders = ['Dana Reyes <dana@harbor.example>', 'Shop News <news@shop.example>', 'Bank Alerts <noreply@bank.example>']
+  const senders = [
+    'Dana Reyes <dana@harbor.example>',
+    'Shop News <news@shop.example>',
+    'Bank Alerts <noreply@bank.example>',
+  ]
   for (let i = 0; i < 24; i++)
     g.add({
       id: `g${i}`,
@@ -37,7 +41,9 @@ async function world() {
     [1, 'priya@example.org', 'Priya Nair'],
     [2, 'no-reply@alerts.example', 'Alerts'],
   ] as const)
-    expect((await h.deliver(businessMail(n, from, name), { from, to: 'info@ridgewaycycles.example' })).entered).toBe('filed')
+    expect((await h.deliver(businessMail(n, from, name), { from, to: 'info@ridgewaycycles.example' })).entered).toBe(
+      'filed',
+    )
   await h.drain()
   return h
 }
@@ -60,36 +66,46 @@ describe('the kept fold', () => {
   const stuckChangeCount = (h: Awaited<ReturnType<typeof world>>) => {
     const ports = (h.inbox as unknown as { ports: { sql: { exec: (q: string, ...b: unknown[]) => unknown } } }).ports
     const real = ports.sql
-    ports.sql = { exec: (q: string, ...b: unknown[]) => (/total_changes\(\)/.test(q) ? real.exec('SELECT 0 AS n') : real.exec(q, ...b)) }
+    ports.sql = {
+      exec: (q: string, ...b: unknown[]) =>
+        /total_changes\(\)/.test(q) ? real.exec('SELECT 0 AS n') : real.exec(q, ...b),
+    }
   }
 
   for (const stuck of [false, true])
-  test(`a change made after a read is in the next read: a new email, a close, a read${stuck ? ' (with SQLite’s own count standing still)' : ''}`, async () => {
-    const h = await world()
-    if (stuck) stuckChangeCount(h)
-    const a = asker()
-    const before = unwrap(await h.space().navigation(a)).views.inbox
-    // Mail arrives: the next read has it.
-    h.google.mailbox.add({ id: 'late', threadId: 'tlate', from: 'Omar Khan <omar@example.org>', subject: 'Late', labels: ['INBOX', 'UNREAD'], at: T + 60_000 })
-    h.tick()
-    expect((await h.push()).status).toBe(204)
-    await h.drain()
-    const after = unwrap(await h.space().navigation(a)).views.inbox
-    expect(after.count).toBe(before.count + 1)
-    expect(after.unread).toBe(before.unread + 1)
-    const late = h.inbox.listQueueFacts().find((f) => f.lastActivityAt === new Date(T + 60_000).toISOString())
-    expect(late?.unread).toBe(true)
-    // Read and closed by the owner: the next read says so, with nothing in between to make the store fold again but the writes themselves.
-    const id = late?.id as string
-    const conversation = h.inbox.getConversation(id)
-    const through = conversation.ok ? conversation.value.through : 0
-    unwrap(await h.space().markRead(a, [{ conversationId: id, through }]))
-    expect(h.inbox.listQueueFacts().find((f) => f.id === id)?.unread).toBe(false)
-    unwrap(await h.space().closeConversations(a, [{ conversationId: id, through }]))
-    await h.drain()
-    expect(h.inbox.listQueueFacts().find((f) => f.id === id)?.open).toBe(false)
-    expect(unwrap(await h.space().navigation(a)).views.inbox.count).toBe(before.count)
-  })
+    test(`a change made after a read is in the next read: a new email, a close, a read${stuck ? ' (with SQLite’s own count standing still)' : ''}`, async () => {
+      const h = await world()
+      if (stuck) stuckChangeCount(h)
+      const a = asker()
+      const before = unwrap(await h.space().navigation(a)).views.inbox
+      // Mail arrives: the next read has it.
+      h.google.mailbox.add({
+        id: 'late',
+        threadId: 'tlate',
+        from: 'Omar Khan <omar@example.org>',
+        subject: 'Late',
+        labels: ['INBOX', 'UNREAD'],
+        at: T + 60_000,
+      })
+      h.tick()
+      expect((await h.push()).status).toBe(204)
+      await h.drain()
+      const after = unwrap(await h.space().navigation(a)).views.inbox
+      expect(after.count).toBe(before.count + 1)
+      expect(after.unread).toBe(before.unread + 1)
+      const late = h.inbox.listQueueFacts().find((f) => f.lastActivityAt === new Date(T + 60_000).toISOString())
+      expect(late?.unread).toBe(true)
+      // Read and closed by the owner: the next read says so, with nothing in between to make the store fold again but the writes themselves.
+      const id = late?.id as string
+      const conversation = h.inbox.getConversation(id)
+      const through = conversation.ok ? conversation.value.through : 0
+      unwrap(await h.space().markRead(a, [{ conversationId: id, through }]))
+      expect(h.inbox.listQueueFacts().find((f) => f.id === id)?.unread).toBe(false)
+      unwrap(await h.space().closeConversations(a, [{ conversationId: id, through }]))
+      await h.drain()
+      expect(h.inbox.listQueueFacts().find((f) => f.id === id)?.open).toBe(false)
+      expect(unwrap(await h.space().navigation(a)).views.inbox.count).toBe(before.count)
+    })
 
   test('what a caller does to the facts it was given does not change what the next caller is given', async () => {
     const h = await world()
