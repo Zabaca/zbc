@@ -232,6 +232,13 @@ export interface LeadsDeclaration {
   stages: LeadStageDeclaration[]
   /** What a lead carries besides the person, by key, in the order shown. A key not declared is refused where a lead is written. */
   fields?: Record<string, LeadFieldDeclaration>
+  /**
+   * The leads door: a machine path where the company's own site sends each request with a service token of its own (the same shape as the Clients door, held apart from every other door),
+   * and `source`, what a lead from there says it came from. Left out, leads are made by hand only.
+   */
+  door?: { path: string; source: string }
+  /** What a new lead's notification says: its title ("New quote request") and the field whose value follows the person's name in it. Left out: "New lead" and the name alone. */
+  notify?: { title: string; field?: string }
 }
 
 export interface LeadStageDeclaration {
@@ -253,6 +260,8 @@ export interface LeadFieldDeclaration {
 export const LEAD_STAGES_MAX = 12
 export const LEAD_STAGE_LABEL_MAX = 40
 export const LEAD_FIELDS_MAX = 30
+/** The longest title a new lead's notification may be declared with: the longest a notification's title is shown. */
+export const LEAD_NOTIFY_TITLE_MAX = 80
 
 /** How one of a source's extra fields is drawn (see `ClientsDoorDeclaration.fields`). */
 export interface ClientFieldDeclaration {
@@ -972,7 +981,17 @@ export function parseDeclaration(raw: unknown): Declaration {
   let leads: LeadsDeclaration | undefined
   if (raw.leads !== undefined) {
     if (!switches.leads) problems.push('leads: only where the leads switch is on')
-    leads = readLeads(raw.leads, [...(cloudflareMailboxes ?? []), ...(hostedMailboxes ?? [])].map((m) => m.address), problems)
+    // The leads door is held apart from the other machines' doors exactly as they are from each other.
+    const doors = [agent, telegram, clientsDoor].filter((d): d is AgentDeclaration => d !== undefined)
+    const doorProblem = (path: string): string | null =>
+      !DOOR.test(path)
+        ? 'a path of the space such as "/agent/leads" with no trailing slash'
+        : RESERVED_PATHS.some((r) => path === r || path.startsWith(`${r}/`))
+          ? `${path} is the space's own (its API or a tab), and no machine may be let in there`
+          : doors.some((d) => path === d.path || path.startsWith(`${d.path}/`) || d.path.startsWith(`${path}/`))
+            ? `${path} is another machine's door or inside it (or contains it); each machine has a path of its own`
+            : null
+    leads = readLeads(raw.leads, [...(cloudflareMailboxes ?? []), ...(hostedMailboxes ?? [])].map((m) => m.address), doorProblem, problems)
   } else if (switches.leads) {
     problems.push('leads: the leads switch is on, so the mailbox the leads belong to and their stages are required')
   }
@@ -1002,13 +1021,13 @@ export function parseDeclaration(raw: unknown): Declaration {
 }
 
 /** The `leads` part of a declaration, or undefined with its problems said. `mailboxes` are the declared Cloudflare and hosted mailboxes' addresses. */
-function readLeads(raw: unknown, mailboxes: string[], problems: string[]): LeadsDeclaration | undefined {
+function readLeads(raw: unknown, mailboxes: string[], doorProblem: (path: string) => string | null, problems: string[]): LeadsDeclaration | undefined {
   const before = problems.length
   if (!isObj(raw)) {
     problems.push('leads: an object with the mailbox and the stages')
     return undefined
   }
-  knownKeys('leads', raw, ['mailbox', 'stages', 'fields'], problems)
+  knownKeys('leads', raw, ['mailbox', 'stages', 'fields', 'door', 'notify'], problems)
   const mailbox = str(raw.mailbox)?.toLowerCase() ?? null
   if (mailbox === null || !EMAIL.test(mailbox)) problems.push('leads.mailbox: the address of the mailbox the leads belong to')
   else if (!mailboxes.includes(mailbox)) problems.push(`leads.mailbox: ${mailbox} is not a declared Cloudflare or hosted mailbox`)
@@ -1059,6 +1078,31 @@ function readLeads(raw: unknown, mailboxes: string[], problems: string[]): Leads
       }
     }
   }
+  let door: LeadsDeclaration['door']
+  if (raw.door !== undefined) {
+    if (!isObj(raw.door)) problems.push('leads.door: an object with the path and the source')
+    else {
+      knownKeys('leads.door', raw.door, ['path', 'source'], problems)
+      const path = typeof raw.door.path === 'string' ? raw.door.path : null
+      const source = str(raw.door.source)
+      const wrong = path === null ? 'a path of the space such as "/agent/leads" with no trailing slash' : doorProblem(path)
+      if (wrong !== null) problems.push(`leads.door.path: ${wrong}`)
+      if (source === null || source.length > CLIENT_SOURCE_NAME_MAX || /[\r\n]/.test(source)) problems.push(`leads.door.source: one line of at most ${CLIENT_SOURCE_NAME_MAX} characters naming where the leads are from, such as "example.com"`)
+      else if (path !== null && wrong === null) door = { path, source }
+    }
+  }
+  let notify: LeadsDeclaration['notify']
+  if (raw.notify !== undefined) {
+    if (!isObj(raw.notify)) problems.push('leads.notify: an object with the title')
+    else {
+      knownKeys('leads.notify', raw.notify, ['title', 'field'], problems)
+      const title = str(raw.notify.title)
+      if (title === null || title.length > LEAD_NOTIFY_TITLE_MAX || /[\r\n]/.test(title)) problems.push(`leads.notify.title: one line of at most ${LEAD_NOTIFY_TITLE_MAX} characters`)
+      const field = raw.notify.field
+      if (field !== undefined && (typeof field !== 'string' || fields?.[field] === undefined)) problems.push('leads.notify.field: the key of one of the leads\' fields')
+      if (title !== null && (field === undefined || typeof field === 'string')) notify = { title, ...(field !== undefined && { field: field as string }) }
+    }
+  }
   if (problems.length > before || mailbox === null) return undefined
-  return { mailbox, stages, ...(fields !== undefined && { fields }) }
+  return { mailbox, stages, ...(fields !== undefined && { fields }), ...(door !== undefined && { door }), ...(notify !== undefined && { notify }) }
 }

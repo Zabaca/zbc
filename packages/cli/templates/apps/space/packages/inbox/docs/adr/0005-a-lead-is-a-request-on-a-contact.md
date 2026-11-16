@@ -1,6 +1,6 @@
 # A lead is a request on a contact, kept in the inbox's store
 
-Status: accepted. The board, a person's leads and a lead made by hand are built here; the door a company's site sends requests through and the notification of a new lead are the next step, over the same store method.
+Status: accepted. The board, a person's leads, a lead made by hand, the door a company's site sends requests through (the workspace's ADR 0002, its fourth machine) and the notification of a new lead.
 
 ## Context
 
@@ -19,3 +19,4 @@ A company that takes requests on its own site (a quote form, a booking form) wan
 - Migration 21 is one-way as every migration here is: bookmark before the deploy; an undo build keeps migrations 12 to 21. It adds two tables and touches no row.
 - A stage taken out of the declaration later leaves the leads that hold it as they are; the board draws such a stage under its id after the declared ones.
 - Won becoming a Client is not built: a won lead stays a contact.
+- A new lead, and one more request on an open one, is told at once to the devices of the people on the leads' mailbox, in the install's words (`leads.notify`: a title, and the field whose value follows the name); a repeat of the same request tells nobody. A tap opens the Leads tab. It is not one of a message's owed notifications: a lead has no message.

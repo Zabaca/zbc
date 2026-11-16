@@ -37,6 +37,9 @@ export const LIST_PATH = '/inbox'
 /** The path a person's email conversation lives at (route.ts `inboxPath`, held to it by a test). */
 export const conversationPathOf = (address: string): string => `${LIST_PATH}/${encodeURIComponent(address)}`
 
+/** Where a lead's notification opens: the Leads tab. */
+export const LEADS_PATH = '/leads'
+
 /** The payload a push carried, or null when it cannot be read as one this worker knows. */
 export function readPayload(text: string | null | undefined): SpacePushPayload | null {
   if (!text) return null
@@ -48,7 +51,7 @@ export function readPayload(text: string | null | undefined): SpacePushPayload |
   }
   if (raw === null || typeof raw !== 'object') return null
   const p = raw as Record<string, unknown>
-  if (p.v !== READS_VERSION || (p.kind !== 'message' && p.kind !== 'summary' && p.kind !== 'test')) return null
+  if (p.v !== READS_VERSION || (p.kind !== 'message' && p.kind !== 'summary' && p.kind !== 'test' && p.kind !== 'lead')) return null
   if (typeof p.title !== 'string' || typeof p.body !== 'string' || typeof p.messageId !== 'string') return null
   if (p.conversationId !== null && typeof p.conversationId !== 'string') return null
   const person = typeof p.person === 'string' && p.person.trim() !== '' && p.person.length <= 320 ? p.person.trim().toLowerCase() : undefined
@@ -72,7 +75,8 @@ export interface Shown {
     badge: string
     tag?: string
     timestamp?: number
-    data: { person: string | null }
+    /** `path`: where a tap opens when it is not a person's conversation (a lead's: the Leads tab). */
+    data: { person: string | null; path?: string }
   }
 }
 
@@ -88,7 +92,7 @@ export function notificationFor(payload: SpacePushPayload | null): Shown {
       badge: BADGE,
       tag: payload.messageId,
       ...(Number.isNaN(at) ? {} : { timestamp: at }),
-      data: { person: payload.kind === 'message' ? (payload.person ?? null) : null },
+      data: { person: payload.kind === 'message' ? (payload.person ?? null) : null, ...(payload.kind === 'lead' && { path: LEADS_PATH }) },
     },
   }
 }
@@ -130,8 +134,9 @@ export function tapTarget(
   person: string | null,
   windows: readonly { url: string; focused: boolean }[],
   origin: string,
+  opens: string = tapPath(person),
 ): { kind: 'focus'; index: number; path: string } | { kind: 'open'; url: string } {
-  const path = tapPath(person)
+  const path = opens
   const apps = windows.map((w, index) => ({ ...w, index })).filter((w) => isAppWindow(w.url, origin))
   const target = apps.find((w) => w.focused) ?? apps[0]
   return target ? { kind: 'focus', index: target.index, path } : { kind: 'open', url: path }

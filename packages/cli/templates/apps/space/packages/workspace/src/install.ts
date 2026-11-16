@@ -146,6 +146,11 @@ export interface Install {
    */
   leads(): Leads | null
   /**
+   * The leads door on the space, or null where the install has no leads or declares no door: a machine path answered before the person check, behind an Access application of its own that admits one
+   * service token (the company's site) and no person. Never the same path or token as another machine's.
+   */
+  leadsDoor(): LeadsDoor | null
+  /**
    * The address an app's mail goes out from: Forms' signing mail or Meet's invitations and notices. On the company's own domain, declared (`senders`) or the company's `forms@` and `meet@`; the Worker's send
    * binding allows exactly these two.
    */
@@ -183,6 +188,13 @@ export interface Leads {
   mailbox: string
   stages: Required<LeadStageDeclaration>[]
   fields: { key: string; label: string; board: boolean }[]
+  /** What a new lead's notification says: the title, and the key of the field whose value follows the name (null: the name alone). */
+  notify: { title: string; field: string | null }
+}
+
+/** The leads door (the declaration's `leads.door`): a machine path like the Clients door, and the name of the source its leads come from. */
+export interface LeadsDoor extends AgentDoor {
+  source: string
 }
 
 /** A declared mailbox copied, its list of people too, so nothing a caller changes reaches the declaration. */
@@ -271,7 +283,13 @@ export function createInstall(input: unknown): Install {
         mailbox: leads.mailbox,
         stages: leads.stages.map((st) => ({ id: st.id, label: st.label, settled: st.settled === true })),
         fields: Object.entries(leads.fields ?? {}).map(([key, f]) => ({ key, label: f.label, board: f.board === true })),
+        notify: { title: leads.notify?.title ?? 'New lead', field: leads.notify?.field ?? null },
       }
+    },
+    leadsDoor: () => {
+      const door = declaration.leads?.door
+      if (door === undefined) return null
+      return { path: door.path, domain: `${space.host}${door.path}`, url: `https://${space.host}${door.path}`, source: door.source }
     },
     tabs: (current) =>
       TABS.filter((t) => hasTab(t.id)).map((t) => ({ id: t.id, label: t.label, path: t.path, url: `https://${space.host}${t.path}`, current: t.id === current, ownSignIn: t.ownSignIn })),

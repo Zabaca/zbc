@@ -439,8 +439,10 @@ describe('a switch is allowed to any install that declares what it needs, and re
         { id: 'done', label: 'Done', settled: true },
       ],
       fields: [{ key: 'project', label: 'Project', board: true }],
+      notify: { title: 'New lead', field: null },
     })
     expect(install.hasTab('leads')).toBe(true)
+    expect(install.leadsDoor()).toBeNull()
     const bad = (change: (leads: Record<string, unknown>) => void, say: string) => {
       const raw = everything()
       change(raw.leads)
@@ -453,6 +455,17 @@ describe('a switch is allowed to any install that declares what it needs, and re
     bad((l) => (l.stages = [{ id: 'new', label: 'New' }, { id: 'new', label: 'Again', settled: true }]), 'leads.stages[1].id: new is listed twice')
     bad((l) => (l.fields = { 'not a key': { label: 'X' } }), 'leads.fields.not a key: not a key a field may have')
     bad((l) => (l.colour = 'blue'), 'unknown field "colour"')
+    // The door: a path of its own, apart from every other machine's, and a source; the notification's words.
+    bad((l) => (l.door = { path: '/agent/clients/leads', source: 'pinecrest.test' }), "leads.door.path: /agent/clients/leads is another machine's door or inside it")
+    bad((l) => (l.door = { path: '/people', source: 'pinecrest.test' }), "leads.door.path: /people is the space's own")
+    bad((l) => (l.door = { path: '/agent/leads', source: '' }), 'leads.door.source: one line')
+    bad((l) => (l.notify = { title: 'New request', field: 'colour' }), "leads.notify.field: the key of one of the leads' fields")
+    const withDoor = everything()
+    withDoor.leads.door = { path: '/agent/leads', source: 'pinecrest.test' }
+    withDoor.leads.notify = { title: 'New quote request', field: 'project' }
+    const doorInstall = createInstall(withDoor)
+    expect(doorInstall.leadsDoor()).toEqual({ path: '/agent/leads', domain: 'space.pinecrest.test/agent/leads', url: 'https://space.pinecrest.test/agent/leads', source: 'pinecrest.test' })
+    expect(doorInstall.leads()?.notify).toEqual({ title: 'New quote request', field: 'project' })
     // Without the switch there are no leads, and declaring them is refused.
     const off = everything()
     off.switches.leads = false

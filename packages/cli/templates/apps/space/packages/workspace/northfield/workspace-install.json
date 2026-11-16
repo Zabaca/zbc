@@ -21,6 +21,7 @@
     "agent": { "application": "space.northfield.example/agent/inbox", "token": "northfield-web inbox agent" },
     "telegram": { "application": "space.northfield.example/agent/telegram", "token": "telegram bridge" },
     "clients": { "application": "space.northfield.example/agent/clients", "token": "northfield-web clients" },
+    "leads": { "application": "space.northfield.example/agent/leads", "token": "ridgeway-web leads" },
     "guests": {
       "calls": { "application": "space.northfield.example/r/*", "policy": "space.northfield.example/r/* anyone, no sign-in (calls)" },
       "chat": { "application": "space.northfield.example/w/*", "policy": "space.northfield.example/w/* anyone, no sign-in (channel guests)" },

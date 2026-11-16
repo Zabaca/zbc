@@ -6,9 +6,18 @@
 //
 // Nothing here imports the Workers runtime, so `bun test` drives it.
 
-import type { ClientsForInbox, InboxForSpace, KnowledgeForInbox } from '@space/workspace'
+import {
+  answered,
+  type ClientsForInbox,
+  type InboxForSpace,
+  type KnowledgeForInbox,
+  refused,
+  type SpaceReply,
+} from '@space/workspace'
 import { type Env as AppEnv, createApp, type ServiceIdentity } from './app'
 import { createSpaceInbox } from './space'
+import { receiveLeadFromSource } from './space-leads'
+import type { LeadReceived, LeadRequest } from './store/leads'
 import { type InboxEnv, objectFor, storeFor } from './store-access'
 import { createTelegramApp } from './telegram/app'
 import { bundledInstall, type Install } from './workspace'
@@ -43,7 +52,15 @@ export interface InboxPart extends InboxForSpace {
    * audience, a token only). The router admits the bridge's token by its id (`TELEGRAM_ACCESS_CLIENT_ID`) and nobody else, Claude's included, and serves five calls (src/telegram/app.ts).
    */
   telegram(request: Request, who: ServiceIdentity): Promise<Response>
+  /**
+   * A request the company's site sent through the space's leads door (packages/space/src/leads-door.ts), after the door verified the site's token: checked against the install, stored (src/space-leads.ts
+   * `receiveLeadFromSource`) and, when it is a new lead or one more request on an open one, told to the devices of the leads' people. A repeat changes nothing and tells nobody.
+   */
+  leadFromSource(request: LeadFromSource): Promise<SpaceReply<{ leadId: string; outcome: LeadReceived['outcome'] }>>
 }
+
+/** What the leads door hands the part: the site's request, its fields not yet checked. */
+export type LeadFromSource = Omit<LeadRequest, 'fields' | 'source'> & { fields: unknown }
 
 /**
  * The part, made once per Worker `createApp`: the router inside it is built on first use and kept. `install` is the company the space serves, the one its sign-in check names people from;
@@ -86,6 +103,32 @@ export function createInboxPartFactory(install: Install = bundledInstall): (env:
           ...(env.knowledge && { KNOWLEDGE: env.knowledge }),
         }
         return Promise.resolve(claudeRouter().fetch(request, routerEnv))
+      },
+      leadFromSource: async (request) => {
+        const door = install.leadsDoor()
+        const leads = install.has('leads') ? install.leads() : null
+        if (door === null || leads === null) return refused('not-found', 'This space takes no leads from a site.')
+        const got = await receiveLeadFromSource({ store, install }, { ...request, source: door.source })
+        if (!got.ok) return got
+        const { lead, outcome } = got.value
+        // A repeat tells nobody, and nor does a lead carried over from the site's own records (it carries its stage): it is a copy, not a new request.
+        if (outcome !== 'repeat' && request.stage === undefined) {
+          const field = leads.notify.field === null ? undefined : lead.fields[leads.notify.field]
+          try {
+            await store.call('notifyLead', {
+              leadId: lead.id,
+              requests: lead.requests,
+              mailboxId: await store.call('leadsMailboxId', leads.mailbox),
+              title: leads.notify.title,
+              body: field === undefined ? lead.name : `${lead.name}, ${field}`,
+              at: lead.lastRequestAt,
+            })
+          } catch (error) {
+            // The lead is stored; a notification that could not be handed on never undoes that or fails the site's send.
+            console.error('leads door: the notification failed', error)
+          }
+        }
+        return answered({ leadId: lead.id, outcome })
       },
       telegram: (request, who) => {
         // The bridge is a switch: an install without it has no bridge, whatever token reaches here.

@@ -19,6 +19,9 @@ export const TELEGRAM_AUD = 'e'.repeat(64)
 export const CLIENTS_AUD = 'c'.repeat(64)
 /** The client id of the token the Clients door admits (`CLIENTS_ACCESS_CLIENT_ID`), as Access names it in an assertion's `common_name`. */
 export const CLIENTS_TOKEN = 'clients123.access'
+/** The audience of the leads door's application (`CF_ACCESS_AUD_LEADS`) and the client id of the one token it admits (`LEADS_ACCESS_CLIENT_ID`). */
+export const LEADS_AUD = '9'.repeat(64)
+export const LEADS_TOKEN = 'leads123.access'
 
 interface Forwarded {
   method: string
@@ -129,7 +132,7 @@ export async function world(install: Install, teamDomain: string, worldEnv: Worl
     if (init.jwt) headers.set('cf-access-jwt-assertion', init.jwt)
     if (init.cookieJwt) headers.set('cookie', `CF_Authorization=${init.cookieJwt}`)
     const url = `https://${init.host ?? install.declaration.space.host}${path}`
-    return app.fetch(new Request(url, { ...init, headers, redirect: 'manual' }), { ASSETS: a.binding, CF_ACCESS_AUD: AUD, CF_ACCESS_AUD_FORMS: FORMS_AUD, CF_ACCESS_AUD_AGENT: AGENT_AUD, CF_ACCESS_AUD_TELEGRAM: TELEGRAM_AUD, CF_ACCESS_AUD_CLIENTS: CLIENTS_AUD, CLIENTS_ACCESS_CLIENT_ID: CLIENTS_TOKEN, ...env })
+    return app.fetch(new Request(url, { ...init, headers, redirect: 'manual' }), { ASSETS: a.binding, CF_ACCESS_AUD: AUD, CF_ACCESS_AUD_FORMS: FORMS_AUD, CF_ACCESS_AUD_AGENT: AGENT_AUD, CF_ACCESS_AUD_TELEGRAM: TELEGRAM_AUD, CF_ACCESS_AUD_CLIENTS: CLIENTS_AUD, CLIENTS_ACCESS_CLIENT_ID: CLIENTS_TOKEN, CF_ACCESS_AUD_LEADS: LEADS_AUD, LEADS_ACCESS_CLIENT_ID: LEADS_TOKEN, ...env })
   }
   /** An assertion for the space's application (every path but /forms), and for the Forms application (the Forms tab). */
   const signIn = (email: string) => access.sign({ email })
@@ -140,7 +143,8 @@ export async function world(install: Install, teamDomain: string, worldEnv: Worl
   const signInBridge = (claims: Record<string, unknown> = { common_name: 'bridge123.access' }, aud: string = TELEGRAM_AUD) => access.sign({ ...claims, aud: [aud] })
   /** An assertion for the Clients door's application: a service token's, as Access mints it for the door's token, unless the test names other claims. */
   const signInClients = (claims: Record<string, unknown> = { common_name: CLIENTS_TOKEN }, aud: string = CLIENTS_AUD) => access.sign({ ...claims, aud: [aud] })
-  return { access, asked: a.asked, forwarded: f.asked, handedToClaude: c.asked, handedToBridge: b.asked, call, signIn, signInForms, signInAgent, signInBridge, signInClients }
+  const signInLeads = (claims: Record<string, unknown> = { common_name: LEADS_TOKEN }, aud: string = LEADS_AUD) => access.sign({ ...claims, aud: [aud] })
+  return { access, asked: a.asked, forwarded: f.asked, handedToClaude: c.asked, handedToBridge: b.asked, call, signIn, signInForms, signInAgent, signInBridge, signInClients, signInLeads }
 }
 
 

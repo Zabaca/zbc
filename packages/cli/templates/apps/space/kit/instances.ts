@@ -40,6 +40,7 @@ export const INSTANCE_NAMES = {
   agentAccess: 'space-agent-access',
   telegramAccess: 'space-telegram-access',
   clientsAccess: 'space-clients-access',
+  leadsAccess: 'space-leads-access',
   guestCalls: 'space-guest-calls',
   guestChat: 'space-guest-chat',
   guestSigning: 'space-guest-signing',
@@ -91,10 +92,11 @@ export interface SpaceInstances<Instance extends KitInstance = KitInstance> {
   space: Instance
   spaceAccess: Instance
   formsAccess: Instance
-  /** The doors a machine uses, only where the declaration gives them (Claude's, the Telegram bridge's, the Clients door's). */
+  /** The doors a machine uses, only where the declaration gives them (Claude's, the Telegram bridge's, the Clients door's, the leads door's). */
   agentAccess?: Instance
   telegramAccess?: Instance
   clientsAccess?: Instance
+  leadsAccess?: Instance
   guestCalls?: Instance
   guestChat: Instance
   guestSigning: Instance
@@ -196,6 +198,7 @@ export function buildSpaceInstall<Instance extends KitInstance = KitInstance>(in
   const agentAccess = machineDoor(INSTANCE_NAMES.agentAccess, install.agentDoor(), file.access.agent)
   const telegramAccess = machineDoor(INSTANCE_NAMES.telegramAccess, install.telegramDoor(), file.access.telegram)
   const clientsAccess = machineDoor(INSTANCE_NAMES.clientsAccess, install.clientsDoor(), file.access.clients)
+  const leadsAccess = machineDoor(INSTANCE_NAMES.leadsAccess, install.leadsDoor(), file.access.leads)
 
   // ONE OF THE SPACE'S OPEN PATHS, as an Access application (the space's ADR 0018). The whole host is behind the sign-in; a call's guests, a
   // channel's guests and a document's signers have no account, so three paths are taken out of that gate by a more specific application with Cloudflare's Bypass policy for everyone, and Access serves a request with the
@@ -308,6 +311,13 @@ export function buildSpaceInstall<Instance extends KitInstance = KitInstance>(in
           { name: 'CLIENTS_ACCESS_CLIENT_ID', from: INSTANCE_NAMES.clientsAccess, output: 'clientId' },
         ]
       : []),
+    ...(leadsAccess
+      ? [
+          // The leads door (src/leads-door.ts): the audience of the application on its path and the token's id, which the Worker checks the assertion against.
+          { name: 'CF_ACCESS_AUD_LEADS', from: INSTANCE_NAMES.leadsAccess, output: 'aud' },
+          { name: 'LEADS_ACCESS_CLIENT_ID', from: INSTANCE_NAMES.leadsAccess, output: 'clientId' },
+        ]
+      : []),
     ...(googleApp !== null && pushHost !== null && file.gmail
       ? [
           // The Google app's client id (public: it is in the sign-in address Connect Gmail sends the browser to) and the topic Gmail's watch publishes to are the declaration's; the push endpoint is the push URL and the
@@ -334,7 +344,7 @@ export function buildSpaceInstall<Instance extends KitInstance = KitInstance>(in
     },
     // A real dependency AND the thing that orders the apply: the gates go up before the door is served. The buckets are imports so each exists before this Worker binds it, the database so it is migrated before
     // this Worker reads it, and the delivery-report queue so it exists before this Worker is attached as its consumer.
-    imports: [formsBucket, formsDatabase, rawMail, deliveryReports, spaceAccess, formsAccess, agentAccess, telegramAccess, clientsAccess, guestCalls, guestChat, guestSigning].filter((i): i is Instance => i !== undefined),
+    imports: [formsBucket, formsDatabase, rawMail, deliveryReports, spaceAccess, formsAccess, agentAccess, telegramAccess, clientsAccess, leadsAccess, guestCalls, guestChat, guestSigning].filter((i): i is Instance => i !== undefined),
     // Its Durable Objects are the install's stores: a destroy of this Worker would delete every one.
     retain: true,
   })
@@ -346,6 +356,7 @@ export function buildSpaceInstall<Instance extends KitInstance = KitInstance>(in
     ...(agentAccess ? { agentAccess } : {}),
     ...(telegramAccess ? { telegramAccess } : {}),
     ...(clientsAccess ? { clientsAccess } : {}),
+    ...(leadsAccess ? { leadsAccess } : {}),
     ...(guestCalls ? { guestCalls } : {}),
     guestChat,
     guestSigning,
@@ -354,6 +365,6 @@ export function buildSpaceInstall<Instance extends KitInstance = KitInstance>(in
     ...(rawMail ? { rawMail } : {}),
     ...(deliveryReports ? { deliveryReports } : {}),
   }
-  const all = [formsBucket, formsDatabase, rawMail, deliveryReports, spaceAccess, formsAccess, agentAccess, telegramAccess, clientsAccess, guestCalls, guestChat, guestSigning, space].filter((i): i is Instance => i !== undefined)
+  const all = [formsBucket, formsDatabase, rawMail, deliveryReports, spaceAccess, formsAccess, agentAccess, telegramAccess, clientsAccess, leadsAccess, guestCalls, guestChat, guestSigning, space].filter((i): i is Instance => i !== undefined)
   return { install, file, settings: spaceWorkerSettings(install, file), instances, all }
 }

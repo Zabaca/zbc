@@ -13,7 +13,15 @@ import {
 } from '../types'
 import { bytesOf } from './base64url'
 import { checkDevice, deviceLabel, isPushEndpoint } from './device'
-import { COLLAPSE_AFTER, fresh, messagePayload, NOTIFY_WINDOW_S, summaryPayload, testPayload } from './rule'
+import {
+  COLLAPSE_AFTER,
+  fresh,
+  leadPayload,
+  messagePayload,
+  NOTIFY_WINDOW_S,
+  summaryPayload,
+  testPayload,
+} from './rule'
 import { encryptPayload, type VapidKey, type VapidTokens, vapidAuthorization } from './webpush'
 
 /**
@@ -140,6 +148,34 @@ export class Notifications {
     // A device is its person's: someone else's is not told apart from one that is not there.
     if (!device || device.owner !== personKey(actor)) return fail(404, 'No such device.')
     return ok(await this.deliverTo(key, device, testPayload(this.ports.now(), this.ports.store.owner.company)))
+  }
+
+  /**
+   * A new lead, or one more request on an open one, told now to the devices of the people who may see the leads' mailbox (`canSee` over its id, for the person each device is for): not through the owed
+   * marks, which are a message's. Answers how many devices were handed it. With no key nothing is sent. `mailboxId` is the store's row of the leads' mailbox (`LeadStore.leadsMailboxId`, the row every lead
+   * read is cut by); null while no mail has made it, and then only the owner's devices are told, as only the owner sees those leads (src/store/leads.ts).
+   */
+  async notifyLead(lead: {
+    leadId: string
+    requests: number
+    mailboxId: string | null
+    title: string
+    body: string
+    at: string
+  }): Promise<{ handed: number }> {
+    const key = this.ports.key
+    if (!key) return { handed: 0 }
+    const mailboxId = lead.mailboxId
+    const scopes = new Map<string, MailScope>()
+    const devices = this.ports.store.deviceKeys().filter((d) => {
+      const scope = scopes.get(d.owner) ?? this.ports.store.mailScope(d.owner)
+      scopes.set(d.owner, scope)
+      return canSee(scope, mailboxId)
+    })
+    const payload = leadPayload(lead)
+    for (const device of devices) await this.deliverTo(key, device, payload)
+    console.log(`notify: lead ${lead.leadId} handed to ${devices.length} device(s)`)
+    return { handed: devices.length }
   }
 
   /**

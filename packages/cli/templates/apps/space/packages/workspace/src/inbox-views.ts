@@ -341,7 +341,8 @@ export interface InboxDeviceInput {
  */
 export interface SpacePushPayload {
   v: 1
-  kind: 'message' | 'summary' | 'test'
+  /** `lead`: a new lead (or one more request on an open one), whose tap opens the Leads tab. */
+  kind: 'message' | 'summary' | 'test' | 'lead'
   conversationId: string | null
   person?: string
   messageId: string

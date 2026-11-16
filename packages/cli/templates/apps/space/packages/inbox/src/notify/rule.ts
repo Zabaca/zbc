@@ -209,6 +209,29 @@ export function testPayload(now: Date, company: string): NotificationPayload {
   }
 }
 
+/**
+ * A lead's notification: the install's words for it (`Install.leads().notify`) as the title, the person's name and the declared field's value as the body. Tagged by the lead and its request count, so a
+ * repeat of the same request does not sound twice and a new request on the same lead does.
+ */
+export function leadPayload(l: {
+  leadId: string
+  requests: number
+  title: string
+  body: string
+  at: string
+}): NotificationPayload {
+  return {
+    v: PAYLOAD_VERSION,
+    kind: 'lead',
+    conversationId: null,
+    messageId: `lead-${l.leadId}-${l.requests}`,
+    // Cut as every payload is: a field's value may be thousands of characters, and a push past what the service takes is refused and tells nobody.
+    title: cut(l.title, MAX_TITLE),
+    body: cut(l.body, MAX_BODY),
+    at: l.at,
+  }
+}
+
 /** A sender as a summary names them: the first word of the contact's name, else the address. */
 const firstName = (name: string, address: string): string => name.trim().split(/\s+/)[0] || address
 

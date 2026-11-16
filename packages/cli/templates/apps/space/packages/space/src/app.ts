@@ -40,6 +40,7 @@ import { FORM_MAX, fileResponse, openFile, parseFileQuery, readFiles } from './f
 import { agentAnswer, type AgentEnv } from './agent'
 import { telegramAnswer, type TelegramEnv } from './telegram'
 import { clientsAnswer, type ClientsDoorEnv } from './clients-door'
+import { leadsAnswer, type LeadsDoorEnv } from './leads-door'
 import { clientsBookmark, clientsCounts, clientsRestart } from './clients'
 import { archiveClientView, editClientView, makeClientView, readClientScreen, readClientsScreen } from './clients-settings'
 import { returnGmail, startGmail } from './gmail'
@@ -55,7 +56,7 @@ import type { Me } from './me'
 import { hasPartOf } from './switches'
 import { bundledInstall } from './workspace'
 
-export interface Env extends AgentEnv, TelegramEnv, ClientsDoorEnv, PartsEnv {
+export interface Env extends AgentEnv, TelegramEnv, ClientsDoorEnv, LeadsDoorEnv, PartsEnv {
   ASSETS: Fetcher
   /** This application's audience tag, deployed by the zbc instance. Unset refuses everyone. */
   CF_ACCESS_AUD?: string
@@ -252,6 +253,12 @@ export function createApp(deps: Deps = { fetch: (u, i) => fetch(u, i), now: Date
   // The Clients door (clients-door.ts): a third path, the same way, with an Access application, an audience and a token of its own. A source of Clients pushes through it; the space asks no one.
   app.use('*', async (c, next) => {
     const answer = await clientsAnswer(c.req.raw, c.env, deps, partsFor(c.env).clientsDoor)
+    return answer ?? next()
+  })
+
+  // The leads door (leads-door.ts): a fourth path, the same way, with an Access application, an audience and a token of its own. The company's site sends each request a person made there.
+  app.use('*', async (c, next) => {
+    const answer = await leadsAnswer(c.req.raw, c.env, deps, partsFor(c.env).leadsDoor)
     return answer ?? next()
   })
 

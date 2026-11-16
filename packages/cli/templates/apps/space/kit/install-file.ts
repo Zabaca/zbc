@@ -53,10 +53,11 @@ export interface InstallFile {
   access: {
     space: ApplicationNames
     forms: ApplicationNames
-    /** Present exactly where the declaration gives the door: Claude's (`agent`), the Telegram bridge's (`telegram`), the Clients door's (`clientsDoor`). */
+    /** Present exactly where the declaration gives the door: Claude's (`agent`), the Telegram bridge's (`telegram`), the Clients door's (`clientsDoor`), the leads door's (`leads.door`). */
     agent?: DoorNames
     telegram?: DoorNames
     clients?: DoorNames
+    leads?: DoorNames
     /** The three open paths of the space: a call's guests (only where `calls` is on), a channel's guests and a document's signers. */
     guests: { calls?: ApplicationNames; chat: ApplicationNames; signing: ApplicationNames }
   }
@@ -202,7 +203,7 @@ export function parseInstallFile(raw: unknown, install: Install): InstallFile {
   const gmail = gmailO ? { pushServiceAccount: field('gmail', gmailO, 'pushServiceAccount', (s) => SERVICE_ACCOUNT.test(s), 'the service account Gmail\'s push signs its tokens as, "<name>@<project>.iam.gserviceaccount.com"', problems) } : undefined
 
   // Access
-  const accessO = section('access', raw.access, true, 'for the Access applications', ['space', 'forms', 'agent', 'telegram', 'clients', 'guests'], problems)
+  const accessO = section('access', raw.access, true, 'for the Access applications', ['space', 'forms', 'agent', 'telegram', 'clients', 'leads', 'guests'], problems)
   const people = (where: string, v: unknown): ApplicationNames => {
     const o = section(where, v, true, 'for this Access application', ['application', 'policy'], problems)
     return o ? { application: line(where, o, 'application', problems), policy: line(where, o, 'policy', problems) } : { application: '', policy: '' }
@@ -217,6 +218,7 @@ export function parseInstallFile(raw: unknown, install: Install): InstallFile {
     ...optional('agent', door('access.agent', accessO?.agent, d.agent !== undefined, 'where the declaration gives Claude\'s door (agent)')),
     ...optional('telegram', door('access.telegram', accessO?.telegram, d.telegram !== undefined, 'where the declaration gives the Telegram bridge\'s door (telegram)')),
     ...optional('clients', door('access.clients', accessO?.clients, d.clientsDoor !== undefined, 'where the declaration gives the Clients door (clientsDoor)')),
+    ...optional('leads', door('access.leads', accessO?.leads, d.leads?.door !== undefined, 'where the declaration gives the leads door (leads.door)')),
     guests: { chat: { application: '', policy: '' }, signing: { application: '', policy: '' } },
   }
   const guestsO = section('access.guests', accessO?.guests, true, 'for the three open paths', ['calls', 'chat', 'signing'], problems)
@@ -229,9 +231,9 @@ export function parseInstallFile(raw: unknown, install: Install): InstallFile {
     if (!on('calls') && guestsO.calls !== undefined) problems.push('access.guests.calls: only where the calls switch is on')
   }
   // Each machine has a token of its own: one token on two doors is two doors with one key.
-  const tokens = [access.agent, access.telegram, access.clients].filter((x): x is DoorNames => x !== undefined).map((x) => x.token)
+  const tokens = [access.agent, access.telegram, access.clients, access.leads].filter((x): x is DoorNames => x !== undefined).map((x) => x.token)
   if (new Set(tokens).size !== tokens.length) problems.push('access: each machine door has a token of its own, not another door\'s')
-  const applications = [access.space, access.forms, access.agent, access.telegram, access.clients, access.guests.calls, access.guests.chat, access.guests.signing].filter((x) => x !== undefined).map((x) => x.application)
+  const applications = [access.space, access.forms, access.agent, access.telegram, access.clients, access.leads, access.guests.calls, access.guests.chat, access.guests.signing].filter((x) => x !== undefined).map((x) => x.application)
   if (new Set(applications).size !== applications.length) problems.push('access: two applications have the same name')
 
   // Secrets
