@@ -5,7 +5,8 @@
 //
 // ONE FACE, for the space (`CalendarForSpace`): it runs INSIDE the space's Worker (the company layer's ADR 0003), over a store the Worker owns, and EVERY METHOD takes the person the space's one sign-in
 // check named (`SignedIn`), then admits the install's owner and no one else (the accounts are the owner's). A service token is never a person, so none comes through. Claude has no door to it
-// (the company layer's ADR 0002: Claude's one path leads to the inbox).
+// (the company layer's ADR 0002: Claude's one path leads to the inbox), and reaches the calendar through the inbox's router instead, by the second face at the foot of this file (`CalendarForInbox`): the free time read from
+// the store, and invites made, moved and cancelled under the rule a send of mail is under (the owner's instruction and the owner's switch; the space's ADR 0023).
 //
 // TIMES are milliseconds since the epoch; an all-day event is also given as its calendar days, because it has no hour (Google gives it a date, and the days must not move with the reader's zone).
 // EVENT TEXT IS UNTRUSTED (a title, a place, a description and a guest's name are whatever the organiser typed): the page draws it as text, never as markup.
@@ -19,8 +20,9 @@ export const CALENDAR_PUSH_PATH = '/calendar/push'
 export const CALENDAR_READONLY_SCOPE = 'https://www.googleapis.com/auth/calendar.readonly'
 
 /**
- * The Google permission that creates, changes and deletes events (asked with the reading one, once per account, so a later booking feature needs no second consent). Not the full `calendar` scope. Connect calendar
- * asks for it beside `CALENDAR_READONLY_SCOPE`; nothing uses it yet, and a grant that has the reading permission without it is connected for reading all the same (see `CalendarGrant.events`).
+ * The Google permission that creates, changes and deletes events (asked with the reading one, once per account, so a feature that writes events needs no second consent). Not the full `calendar` scope. Connect calendar
+ * asks for it beside `CALENDAR_READONLY_SCOPE`. The sync never uses it; only Claude's invites, moves and cancellations do (`CalendarForInbox`), one call at a time, and a grant that has the reading permission without it
+ * is connected for reading all the same (see `CalendarGrant.events`) and cannot take one.
  */
 export const CALENDAR_EVENTS_SCOPE = 'https://www.googleapis.com/auth/calendar.events'
 
@@ -46,8 +48,8 @@ export interface CalendarGrant {
 }
 
 /**
- * What a token from the inbox may do: `read` (the default and the only one the calendar's sync asks for: `calendar.readonly` alone) or `events` (`calendar.events` alone, to create and change events). A seam for a booking feature, used by
- * nothing yet; each is asked of Google as a scope of its own, so a token for one never carries the other.
+ * What a token from the inbox may do: `read` (the default and the only one the calendar's sync asks for: `calendar.readonly` alone) or `events` (`calendar.events` alone, to create, change and delete events: asked only for the one
+ * call of an invite, a move or a cancellation that Claude makes on the owner's instruction, and used for that call alone). Each is asked of Google as a scope of its own, so a token for one never carries the other.
  */
 export type CalendarAccessLevel = 'read' | 'events'
 
@@ -222,3 +224,105 @@ export interface CalendarForSpace {
 
 /** The method names, so a stub, a test and the binding agree on exactly these and no others. */
 export const CALENDAR_FOR_SPACE_METHODS = ['calendars', 'agenda', 'event', 'eventsByUid', 'setShown', 'syncNow'] as const satisfies readonly (keyof CalendarForSpace)[]
+
+// ── What Claude's script does with the calendar, through the inbox (the space's ADR 0023) ────────────────────────────────────────────
+
+/** The most guests one invite names (Google allows far more; an invite sent from a session stays a meeting and not a mailing), and the longest title it carries. */
+export const CALENDAR_INVITE_GUESTS_MAX = 50
+export const CALENDAR_INVITE_TITLE_MAX = 300
+/** The longest an event Claude makes or moves may run: a day and a half is a conference, and past it is a mistake in a date. */
+export const CALENDAR_INVITE_LONGEST_MS = 36 * 60 * 60 * 1000
+
+/** An account as Claude reads it: whether the calendar is current for it, and whether an invite can be made on it. */
+export interface CalendarClaudeAccount {
+  address: string
+  label: string
+  state: CalendarAccountState
+  /** The one sentence for an account whose events are not current, or null. */
+  reason: string | null
+  /** The grant also lets the calendar create and change events (`CalendarGrant.events`): an invite, a move or a cancellation on this account is possible. */
+  canEdit: boolean
+}
+
+/** An event as Claude reads it: the event as the Calendar tab shows it, and whether it blocks the owner's time. */
+export interface CalendarClaudeEvent extends CalendarEvent {
+  /**
+   * Whether the owner is busy: false for an event Google marks as free time (transparent) and for one the owner declined; true for everything else, a tentative event and one not yet answered included. The same meeting in two
+   * of the owner's calendars is free only when it is free in each.
+   */
+  busy: boolean
+}
+
+/** The events Claude reads between two moments, from the store (nothing is asked of Google), with the accounts they come from. */
+export interface CalendarClaudeAgenda {
+  from: number
+  to: number
+  accounts: CalendarClaudeAccount[]
+  events: CalendarClaudeEvent[]
+}
+
+/** An invite Claude makes: on one connected account's primary calendar, Google sending the invitations. Each field is checked by the face; times are moments (ms). */
+export interface CalendarInvite {
+  /** The account's address, as `events` lists it under `accounts`. */
+  account: string
+  title: string
+  start: number
+  end: number
+  /** The guests' addresses (the account's own is dropped). */
+  guests: string[]
+  description: string | null
+  /** A Google Meet link on the event. */
+  meet: boolean
+}
+
+/** The new time of an event Claude moves. */
+export interface CalendarMove {
+  start: number
+  end: number
+}
+
+/** What an invite or a move answers: the event as Google now has it. */
+export interface CalendarEventMade {
+  /** The event's key in the calendar's store: what `move` and `cancel` take, and what `events` prints as `id`. */
+  id: string
+  /** Google's id for it. */
+  eventId: string
+  account: string
+  title: string
+  start: number
+  end: number
+  guests: string[]
+  /** The event in Google Calendar, or null. */
+  link: string | null
+  /** The Meet link, or null (asked for and not yet attached by Google, or not asked for). */
+  meetLink: string | null
+  /** The event is in the calendar's store now, so `events` shows it at once. False when the account's primary calendar is not one the store keeps: the next read of it finds the event within moments. */
+  stored: boolean
+}
+
+/** What a cancellation answers. */
+export interface CalendarEventCancelled {
+  id: string
+  eventId: string
+  account: string
+  title: string
+}
+
+/**
+ * The calendar as the inbox is given it, IN-PROCESS (the space's ADR 0023), the way it is given the Clients and the knowledge app: for Claude's script, through the inbox's router, and for nothing else. It takes no person. The ONE
+ * RULE that stands in front of the three writes is the inbox's, in its router, before any of them is asked: the owner's switch is on and the call carries the owner's instruction, which the inbox records. The face can be reached
+ * only from there, because only the inbox's part is handed it (packages/space/src/parts.ts). It is the send rule for mail, applied again; the calendar does not decide it.
+ *
+ * `events` reads the store and never Google. Each write asks Google once, with an access token for `calendar.events` alone, asked of the inbox for that call and not kept, and Google sends the invitations (`sendUpdates=all`).
+ * Each answers a `SpaceReply` as data. An account that cannot take a write (disconnected, lapsed, without the permission) is `conflict`, with the inbox's own sentence.
+ */
+export interface CalendarForInbox {
+  events(from: number, to: number): Promise<SpaceReply<CalendarClaudeAgenda>>
+  invite(input: CalendarInvite): Promise<SpaceReply<CalendarEventMade>>
+  /** Move an event the account organises. `id` is the key `events` or an earlier invite printed. */
+  move(id: string, input: CalendarMove): Promise<SpaceReply<CalendarEventMade>>
+  /** Delete an event the account organises, Google telling the guests. */
+  cancel(id: string): Promise<SpaceReply<CalendarEventCancelled>>
+}
+
+export const CALENDAR_FOR_INBOX_METHODS = ['events', 'invite', 'move', 'cancel'] as const satisfies readonly (keyof CalendarForInbox)[]

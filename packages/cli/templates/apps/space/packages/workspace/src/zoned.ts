@@ -33,3 +33,12 @@ export function momentAt(y: number, m: number, d: number, h: number, mi: number,
   for (let i = 0; i < 3; i++) t = asUtc - offsetAt(t, zone)
   return t
 }
+
+/** The moment as text on the zone's clock with its offset, to the second (`2026-11-17T09:30:00-08:00`): how a script reads a time without knowing the zone. */
+export function isoAt(ms: number, zone: string): string {
+  const w = wallAt(ms, zone)
+  const offset = Math.round(offsetAt(ms, zone) / 60_000)
+  const two = (n: number) => String(Math.abs(n)).padStart(2, '0')
+  const sign = offset < 0 ? '-' : '+'
+  return `${String(w.y).padStart(4, '0')}-${two(w.m)}-${two(w.d)}T${two(w.h)}:${two(w.mi)}:${two(w.s)}${sign}${two(Math.trunc(Math.abs(offset) / 60))}:${two(Math.abs(offset) % 60)}`
+}

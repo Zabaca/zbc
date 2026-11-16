@@ -1,7 +1,7 @@
 import { DurableObject } from 'cloudflare:workers'
 import { liveOf, ownersOf, tellLive } from '@space/workspace'
 import { CalendarEngine, ENGINE_METHODS, type EngineMethod } from './engine'
-import { createCalendarGoogle } from './google'
+import { createCalendarGoogle, createCalendarWriter } from './google'
 import { migrate } from './schema'
 import { type CalendarEnv, inboxFor } from './store-access'
 import { CalendarStore } from './store'
@@ -49,6 +49,11 @@ export class CalendarDO extends DurableObject<CalendarEnv> {
         fetch: (url, init) => fetch(url, init),
         access: (address, fresh) => inbox.access(address, fresh),
         now,
+      }),
+      // Claude's invites, moves and cancellations (the space's ADR 0023): a token for `calendar.events` alone, asked of the inbox for each one and not kept. Only the engine's `claude*` methods use it, and only the inbox's router, after its rule, calls those.
+      writer: createCalendarWriter({
+        fetch: (url, init) => fetch(url, init),
+        access: (address, fresh) => inbox.access(address, fresh, 'events'),
       }),
       grants: () => inbox.grants(),
       now,

@@ -39,6 +39,13 @@ describe('a restarted object is asked again at once', () => {
     expect(world.gets).toEqual(['inbox', 'inbox', 'inbox'])
   })
 
+  test('the sync’s ask names no level, and only a write names `events`', async () => {
+    const world = namespace()
+    const inbox = inboxFor({ INBOX: world.ns as never })
+    expect(await inbox.access('tessa@northfield.example', false)).toEqual({ method: 'calendarAccess', args: ['tessa@northfield.example', false] } as never)
+    expect(await inbox.access('tessa@northfield.example', false, 'events')).toEqual({ method: 'calendarAccess', args: ['tessa@northfield.example', false, 'events'] } as never)
+  })
+
   test('the calendar, as the space asks it', async () => {
     const world = namespace()
     const engine = engineFor({ CALENDAR: world.ns as never })

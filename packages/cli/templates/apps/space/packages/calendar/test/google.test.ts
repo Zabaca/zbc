@@ -7,6 +7,7 @@ import {
   CalendarRefused,
   CHANNEL_TTL_SECONDS,
   createCalendarGoogle,
+  createCalendarWriter,
 } from '../src/google'
 
 /**
@@ -176,5 +177,86 @@ describe('how it reads Google’s refusals', () => {
     const { api } = google([json({ error: { code: 500, message: 'Backend Error' } }, 500)])
     const caught = await api.listCalendars(null, null).catch((e: unknown) => e)
     expect(String((caught as Error).message)).not.toContain('access-1')
+  })
+})
+
+/** The writing client (the space's ADR 0023), against the same kind of fake `fetch`: the three calls it makes, what each sends, and that its token is asked for each time and never kept. */
+function writer(answers: (Response | Error)[]) {
+  const seen: Seen[] = []
+  const queue = [...answers]
+  const accessAsked: { fresh: boolean }[] = []
+  let n = 0
+  const api = createCalendarWriter({
+    fetch: async (url, init = {}) => {
+      seen.push({ method: init.method ?? 'GET', url: new URL(url), headers: new Headers(init.headers), body: init.body === undefined ? '' : String(init.body) })
+      const next = queue.shift()
+      if (!next) throw new Error(`unexpected request to ${url}`)
+      if (next instanceof Error) throw next
+      return next
+    },
+    access: async (_address, fresh) => {
+      accessAsked.push({ fresh })
+      n += 1
+      return { ok: true, accessToken: `events-${n}`, expiresAt: 10_000_000 }
+    },
+  })('tessa@northfield.example')
+  return { api, seen, accessAsked }
+}
+
+describe('the writing client', () => {
+  test('an insert, a patch and a delete: the URL, the verb, the invitations Google sends and the Meet request, each with the token it was given', async () => {
+    const { api, seen } = writer([json({ id: 'new1' }), json({ id: 'new1' }), new Response(null, { status: 204 })])
+    expect(await api.insertEvent('tessa@northfield.example', { summary: 'Planning' })).toEqual({ id: 'new1' })
+    await api.patchEvent('tessa@northfield.example', 'new1', { start: { dateTime: '2026-11-18T10:00:00-08:00' } })
+    await api.deleteEvent('tessa@northfield.example', 'new1')
+    expect(seen.map((s) => [s.method, s.url.pathname, Object.fromEntries(s.url.searchParams)])).toEqual([
+      ['POST', '/calendar/v3/calendars/tessa%40northfield.example/events', { sendUpdates: 'all', conferenceDataVersion: '1' }],
+      ['PATCH', '/calendar/v3/calendars/tessa%40northfield.example/events/new1', { sendUpdates: 'all' }],
+      ['DELETE', '/calendar/v3/calendars/tessa%40northfield.example/events/new1', { sendUpdates: 'all' }],
+    ])
+    expect(JSON.parse(seen[0]?.body ?? '')).toEqual({ summary: 'Planning' })
+    expect(seen[2]?.body).toBe('')
+    expect(seen.map((s) => s.headers.get('authorization'))).toEqual(['Bearer events-1', 'Bearer events-2', 'Bearer events-3'])
+  })
+
+  test('the token is asked of the inbox for each call, never kept, and a 401 is asked for again once, fresh', async () => {
+    const calls = writer([json({ id: 'a' }), json({ id: 'b' })])
+    await calls.api.insertEvent('p', {})
+    await calls.api.insertEvent('p', {})
+    expect(calls.accessAsked).toEqual([{ fresh: false }, { fresh: false }])
+    const retried = writer([json({ error: { code: 401 } }, 401), json({ id: 'a' })])
+    await retried.api.insertEvent('p', {})
+    expect(retried.accessAsked).toEqual([{ fresh: false }, { fresh: true }])
+    const twice = writer([json({ error: { code: 401 } }, 401), json({ error: { code: 401 } }, 401)])
+    expect(await twice.api.insertEvent('p', {}).catch((e: unknown) => e)).toBeInstanceOf(CalendarAccessError)
+  })
+
+  test('a refusal becomes the right error: no such event, the permission missing, and a bad request in Google’s words; an event already deleted is as good as deleted', async () => {
+    expect(await writer([json({ error: { code: 404, message: 'Not Found' } }, 404)]).api.patchEvent('p', 'x', {}).catch((e: unknown) => e)).toBeInstanceOf(CalendarNotFound)
+    const refused = await writer([json({ error: { code: 403, message: 'Request had insufficient authentication scopes.', errors: [{ reason: 'insufficientPermissions' }] } }, 403)]).api.insertEvent('p', {}).catch((e: unknown) => e)
+    expect(refused).toBeInstanceOf(CalendarRefused)
+    const bad = await writer([json({ error: { code: 400, message: 'The specified time range is empty.' } }, 400)]).api.insertEvent('p', {}).catch((e: unknown) => e)
+    expect(bad).toBeInstanceOf(CalendarError)
+    expect((bad as CalendarError).status).toBe(400)
+    expect((bad as Error).message).toContain('The specified time range is empty.')
+    await writer([json({ error: { code: 410, message: 'Resource has been deleted' } }, 410)]).api.deleteEvent('p', 'x')
+    expect(await writer([json({ error: { code: 500, message: 'Backend Error' } }, 500)]).api.deleteEvent('p', 'x').catch((e: unknown) => (e as CalendarError).status)).toBe(500)
+  })
+
+  test('when the inbox refuses a token the reason comes through, and Google is not asked; no error carries a token', async () => {
+    let called = 0
+    const api = createCalendarWriter({
+      fetch: async () => {
+        called += 1
+        return json({})
+      },
+      access: async () => ({ ok: false, why: 'no-events', message: 'a@x.example is connected without the permission to change events.' }),
+    })('a@x.example')
+    const caught = await api.insertEvent('p', {}).catch((e: unknown) => e)
+    expect(caught).toBeInstanceOf(CalendarAccessError)
+    expect((caught as CalendarAccessError).why).toBe('no-events')
+    expect(called).toBe(0)
+    const failing = await writer([json({ error: { code: 500, message: 'Backend Error' } }, 500)]).api.insertEvent('p', {}).catch((e: unknown) => e)
+    expect(String((failing as Error).message)).not.toContain('events-1')
   })
 })

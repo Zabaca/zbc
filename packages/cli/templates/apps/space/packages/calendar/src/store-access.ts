@@ -1,4 +1,4 @@
-import type { CalendarAccess, CalendarGrant, LiveBinding } from '@space/workspace'
+import type { CalendarAccess, CalendarAccessLevel, CalendarGrant, LiveBinding } from '@space/workspace'
 import type { CalendarDO } from './durable'
 import type { EngineApi, EngineMethod } from './engine'
 
@@ -36,7 +36,8 @@ export interface CalendarEnv {
  */
 export interface InboxFace {
   grants(): Promise<CalendarGrant[]>
-  access(address: string, fresh: boolean): Promise<CalendarAccess>
+  /** `level` is `read` unless it is the word `events`: the sync asks for `read` and nothing else; only a write Claude makes on the owner's instruction asks for `events` (src/google.ts, `createCalendarWriter`). */
+  access(address: string, fresh: boolean, level?: CalendarAccessLevel): Promise<CalendarAccess>
 }
 
 export const inboxFor = (env: Pick<CalendarEnv, 'INBOX'>): InboxFace => {
@@ -44,7 +45,8 @@ export const inboxFor = (env: Pick<CalendarEnv, 'INBOX'>): InboxFace => {
     (env.INBOX.get(env.INBOX.idFromName(INBOX_OBJECT_NAME)) as unknown as { call(method: string, args: unknown[]): Promise<unknown> }).call(method, args)
   return {
     grants: () => call('calendarGrants', []) as Promise<CalendarGrant[]>,
-    access: (address, fresh) => call('calendarAccess', [address, fresh]) as Promise<CalendarAccess>,
+    // The sync's call carries no level, exactly as it always did (the inbox reads that as `read`); only a write names `events`.
+    access: (address, fresh, level) => call('calendarAccess', level === undefined ? [address, fresh] : [address, fresh, level]) as Promise<CalendarAccess>,
   }
 }
 

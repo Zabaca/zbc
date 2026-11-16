@@ -1,4 +1,4 @@
-import type { CalendarAccess, CalendarAccessRefusal } from '@space/workspace'
+import type { CalendarAccess, CalendarAccessLevel, CalendarAccessRefusal } from '@space/workspace'
 
 /**
  * A Google Calendar that can fail, for driving the calendar's sync without a network: it answers the REQUESTS the calendar makes (a `fetch`), as the documented API does, so the real client
@@ -80,6 +80,8 @@ export class FakeAccount {
   listSeq = 0
   /** Set to make the access door refuse this account. */
   refusal: { why: CalendarAccessRefusal; message: string } | null = null
+  /** Set to make the access door refuse this account a token for `calendar.events` only (a grant that reads and cannot edit). */
+  eventsRefusal: { why: CalendarAccessRefusal; message: string } | null = null
   /** The token currently good for this account (a refresh changes it). */
   token = ''
 
@@ -93,8 +95,11 @@ export class FakeGoogle {
   /** The bearer token each call carried, in step with `calls`. */
   readonly bearers: string[] = []
   readonly channels: FakeChannel[] = []
-  /** Every request to the access door: which account, and whether a fresh token was asked for. */
-  readonly accessAsked: { address: string; fresh: boolean }[] = []
+  /** Every request to the access door: which account, whether a fresh token was asked for, and at which level (`read`: calendar.readonly; `events`: calendar.events). */
+  readonly accessAsked: { address: string; fresh: boolean; level: CalendarAccessLevel }[] = []
+  /** Every write the calendar made (insert, patch, delete), as Google received it: the request's query and body and the level of the token it carried. */
+  readonly writes: { op: string; calendarId: string; eventId: string | null; query: Record<string, string>; body: Json; level: CalendarAccessLevel }[] = []
+  private eventNo = 0
   pageSize = 2500
   /** Answer reads with no sync token (a Google that does not behave as its pages say), to prove the calendar does not spin on it. */
   noSyncToken = false
@@ -105,6 +110,8 @@ export class FakeGoogle {
   private tokenNo = 0
   private pageNo = 0
   private readonly tokenHolders = new Map<string, string>()
+  /** The tokens that carry `calendar.events`: only these may write an event. */
+  private readonly writeTokens = new Set<string>()
   private failures: { op: string; status: number; body: Json; times: number; address?: string }[] = []
   /** Tokens (list and events) older than this counter are stale. */
   private readonly staleBelow = new Map<string, number>()
@@ -206,12 +213,20 @@ export class FakeGoogle {
 
   // ── The access door the inbox keeps (src/google.ts `access`) ──────────────────────────────────────────────────────────
 
-  access = async (address: string, fresh: boolean): Promise<CalendarAccess> => {
-    this.accessAsked.push({ address, fresh })
+  access = async (address: string, fresh: boolean, level: CalendarAccessLevel = 'read'): Promise<CalendarAccess> => {
+    this.accessAsked.push({ address, fresh, level })
     const a = this.accounts.get(address)
     if (!a) return { ok: false, why: 'disconnected', message: `${address} is not connected.` }
     if (a.refusal) return { ok: false, ...a.refusal }
     this.tokenNo += 1
+    if (level === 'events') {
+      if (a.eventsRefusal) return { ok: false, ...a.eventsRefusal }
+      // A token for `calendar.events` is a token of its own: minting one does not end the one the sync holds, and it changes events and nothing else the sync needs.
+      const token = `tok-events-${address}-${this.tokenNo}`
+      this.tokenHolders.set(token, address)
+      this.writeTokens.add(token)
+      return { ok: true, accessToken: token, expiresAt: this.clock.t + 3_600_000 }
+    }
     if (a.token !== '') this.tokenHolders.delete(a.token)
     a.token = `tok-${address}-${this.tokenNo}`
     this.tokenHolders.set(a.token, address)
@@ -222,6 +237,11 @@ export class FakeGoogle {
   endToken(address: string): void {
     const a = this.account(address)
     this.tokenHolders.delete(a.token)
+  }
+
+  /** Google ends every token for `calendar.events` an account holds (the next write with one is a 401). */
+  endEventsTokens(address: string): void {
+    for (const [token, holder] of this.tokenHolders) if (holder === address && this.writeTokens.has(token)) this.tokenHolders.delete(token)
   }
 
   // ── The notification Google would send for a channel ─────────────────────────────────────────────────────────────────
@@ -269,6 +289,7 @@ export class FakeGoogle {
     }
     const account = this.account(address)
 
+    if (op === 'events.insert' || op === 'events.patch' || op === 'events.delete') return this.writeEvent(op, account, path, u.searchParams, body, this.writeTokens.has(bearer) ? 'events' : 'read')
     if (op === 'calendarList.list') return this.listCalendars(account, u.searchParams)
     if (op === 'events.list') return this.listEvents(account, decodeURIComponent(path.split('/')[2] ?? ''), u.searchParams)
     if (op === 'events.watch') return this.watch(account, decodeURIComponent(path.split('/')[2] ?? ''), body)
@@ -288,7 +309,64 @@ export class FakeGoogle {
     if (method === 'GET' && /^\/calendars\/[^/]+\/events$/.test(path)) return 'events.list'
     if (method === 'POST' && /^\/calendars\/[^/]+\/events\/watch$/.test(path)) return 'events.watch'
     if (method === 'POST' && path === '/channels/stop') return 'channels.stop'
+    if (method === 'POST' && /^\/calendars\/[^/]+\/events$/.test(path)) return 'events.insert'
+    if (method === 'PATCH' && /^\/calendars\/[^/]+\/events\/[^/]+$/.test(path)) return 'events.patch'
+    if (method === 'DELETE' && /^\/calendars\/[^/]+\/events\/[^/]+$/.test(path)) return 'events.delete'
     return `unknown ${method} ${path}`
+  }
+
+  /**
+   * events.insert, events.patch and events.delete, as the documents say: a token for `calendar.events` is needed (a read token is a 403 `insufficientPermissions`), `sendUpdates` and `conferenceDataVersion` are what the
+   * query says, an insert with a `conferenceData.createRequest` and `conferenceDataVersion=1` is given a Meet link, the organiser is the account that made it, and a change by an account that is not the organiser is a 403
+   * (the event does not let guests change it). The change is made in the event's calendar like any other, so a later incremental read finds it.
+   */
+  private writeEvent(op: string, account: FakeAccount, path: string, params: URLSearchParams, body: Json, level: CalendarAccessLevel): Response {
+    const [, , rawCalendar, , rawEvent] = path.split('/')
+    const calendarId = decodeURIComponent(rawCalendar ?? '')
+    const eventId = rawEvent === undefined ? null : decodeURIComponent(rawEvent)
+    const query = Object.fromEntries(params.entries())
+    this.writes.push({ op, calendarId, eventId, query, body, level })
+    if (level !== 'events') return json({ error: { code: 403, message: 'Request had insufficient authentication scopes.', errors: [{ reason: 'insufficientPermissions' }] } }, 403)
+    const calendar = calendarId === 'primary' ? [...account.calendars.values()].find((c) => c.primary) : account.calendars.get(calendarId)
+    if (!calendar || calendar.deleted) return json({ error: { code: 404, message: 'Not Found' } }, 404)
+    if (op === 'events.insert') {
+      this.eventNo += 1
+      const id = `made${this.eventNo}`
+      const wantsMeet = typeof (body.conferenceData as Json | undefined)?.createRequest === 'object' && query.conferenceDataVersion === '1'
+      const raw: Json = {
+        kind: 'calendar#event',
+        id,
+        status: 'confirmed',
+        htmlLink: `https://www.google.com/calendar/event?eid=${id}`,
+        summary: body.summary,
+        ...(body.description !== undefined && { description: body.description }),
+        iCalUID: `${id}@google.com`,
+        start: body.start,
+        end: body.end,
+        organizer: { email: account.address, self: true },
+        creator: { email: account.address, self: true },
+        attendees: [
+          { email: account.address, self: true, organizer: true, responseStatus: 'accepted' },
+          ...((body.attendees as Json[] | undefined) ?? []).map((a) => ({ ...a, responseStatus: 'needsAction' })),
+        ],
+        ...(wantsMeet && { hangoutLink: `https://meet.example/${id}`, conferenceData: { entryPoints: [{ entryPointType: 'video', uri: `https://meet.example/${id}` }] } }),
+      }
+      calendar.seq += 1
+      calendar.events.set(id, { raw, seq: calendar.seq })
+      return json(raw)
+    }
+    const held = calendar.events.get(eventId ?? '')
+    if (!held) return json({ error: { code: 404, message: 'Not Found' } }, 404)
+    if (held.raw.status === 'cancelled') return json({ error: { code: 410, message: 'Resource has been deleted' } }, 410)
+    if ((held.raw.organizer as Json | undefined)?.email !== account.address) return json({ error: { code: 403, message: 'Forbidden', errors: [{ reason: 'forbidden' }] } }, 403)
+    calendar.seq += 1
+    if (op === 'events.delete') {
+      calendar.events.set(held.raw.id as string, { raw: { ...held.raw, status: 'cancelled' }, seq: calendar.seq })
+      return new Response(null, { status: 204 })
+    }
+    const raw: Json = { ...held.raw, ...(body.start !== undefined && { start: body.start }), ...(body.end !== undefined && { end: body.end }) }
+    calendar.events.set(held.raw.id as string, { raw, seq: calendar.seq })
+    return json(raw)
   }
 
   private detailOf(op: string, path: string, params: URLSearchParams): string {

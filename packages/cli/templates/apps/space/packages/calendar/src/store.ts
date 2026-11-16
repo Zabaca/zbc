@@ -223,6 +223,18 @@ export interface Changed {
   changed: boolean
 }
 
+/** One stored event as a write needs it: its key, the calendar it is on, Google's id for it, and who organises it (null when Google did not say). */
+export interface HeldEvent {
+  id: string
+  calendar: CalendarRow
+  eventId: string
+  iCalUid: string | null
+  title: string
+  start: number
+  allDay: boolean
+  organizerEmail: string | null
+}
+
 export class CalendarStore {
   constructor(private readonly ports: StorePorts) {}
 
@@ -583,6 +595,62 @@ export class CalendarStore {
     })
   }
 
+  /**
+   * An event Claude just made or moved, written in at once (the space's ADR 0023) so the next read of the calendar shows it without waiting for Google's notification. It replaces the row of the same id, which is what the next incremental
+   * read of Google would do again with the same event, so the two never disagree. The calendar's token is not touched. Nothing is written for a calendar the store does not hold.
+   */
+  putEvent(calendarId: string, e: ParsedEvent): Changed {
+    return this.ports.transaction(() => {
+      if (!this.calendar(calendarId)) return { changed: false }
+      this.insertEvent(calendarId, e)
+      return { changed: true }
+    })
+  }
+
+  /** An event Claude just cancelled, removed at once; what the next incremental read says of it is the same. */
+  dropEvent(calendarId: string, eventId: string): Changed {
+    const removed = this.sql.exec(`DELETE FROM event WHERE calendar_id = ?1 AND id = ?2`, calendarId, eventId).rowsWritten
+    return { changed: removed > 0 }
+  }
+
+  private heldFrom(calendar: CalendarRow, r: Record<string, unknown>): HeldEvent {
+    return {
+      id: eventKey(calendar.id, text(r.id)),
+      calendar,
+      eventId: text(r.id),
+      iCalUid: textOrNull(r.ical_uid),
+      title: text(r.title),
+      start: num(r.start_ms),
+      allDay: flag(r.all_day),
+      organizerEmail: textOrNull(r.organizer_email),
+    }
+  }
+
+  /** One stored event by its key, with the calendar it is on: what a write needs (Google's two ids, and who organises it). Null when it is not held. Shown or hidden: a write is about the event, not the screen. */
+  held(id: string): HeldEvent | null {
+    const cut = id.indexOf('|', id.indexOf('|') + 1)
+    if (cut < 0) return null
+    const calendar = this.calendar(id.slice(0, cut))
+    if (!calendar) return null
+    const r = this.sql.exec(`SELECT id, ical_uid, title, start_ms, all_day, organizer_email FROM event WHERE calendar_id = ?1 AND id = ?2`, calendar.id, id.slice(cut + 1)).toArray()[0]
+    return r ? this.heldFrom(calendar, r) : null
+  }
+
+  /** The copy of the same meeting (the same iCalendar id and start) that an account holds, or null. The organiser's calendar holds the copy that can be moved. */
+  copyOn(iCalUid: string, start: number, account: string): HeldEvent | null {
+    const r = this.sql
+      .exec(
+        `SELECT e.calendar_id, e.id, e.ical_uid, e.title, e.start_ms, e.all_day, e.organizer_email FROM event e JOIN calendar c ON c.id = e.calendar_id
+          WHERE e.ical_uid = ?1 AND e.start_ms = ?2 AND c.account = ?3 ORDER BY c.is_primary DESC, e.id LIMIT 1`,
+        iCalUid,
+        start,
+        account,
+      )
+      .toArray()[0]
+    const calendar = r ? this.calendar(text(r.calendar_id)) : null
+    return r && calendar ? this.heldFrom(calendar, r) : null
+  }
+
   /** The sync token a calendar holds is no longer good: read it in full next. */
   forgetToken(calendarId: string): void {
     this.sql.exec(`UPDATE calendar SET sync_token = NULL, dirty = 1 WHERE id = ?1`, calendarId)
@@ -798,6 +866,8 @@ export class CalendarStore {
       if (!held.accounts.some((a) => a.address === got.account.address)) held.accounts.push(markOf(got.account))
       held.accounts.sort((a, b) => a.hue - b.hue)
       held.response = bestResponse(held.response, got.event.response)
+      // Free time only when each copy says so: the owner is busy if either of their calendars holds the meeting as busy.
+      held.free = held.free && got.event.free
       held.readAt = held.readAt === null || got.event.readAt === null ? (held.readAt ?? got.event.readAt) : Math.min(held.readAt, got.event.readAt)
       held.stale = held.stale && got.event.stale
       if (held.guests.length === 0 && got.event.guests.length > 0) {

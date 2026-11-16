@@ -715,6 +715,35 @@ export interface ClaudeSending {
 }
 
 /**
+ * What Claude does to the owner's calendar through the inbox (the space's ADR 0023): `invite` makes an event, `move` gives one a new time and `cancel` deletes one. Each is recorded in the audit as `calendar.<kind>`
+ * with the instruction it was made on, before Google is asked, and again as `calendar.<kind>-done` or `calendar.<kind>-failed` with what came of it.
+ */
+export const CALENDAR_WRITE_KINDS = ['invite', 'move', 'cancel'] as const
+export type CalendarWriteKind = (typeof CALENDAR_WRITE_KINDS)[number]
+
+/** How a calendar write ended, as the router tells the store: Google did it (`result` is what was answered), the calendar refused it or Google did (`error`, nothing changed), or nobody can say (`unknown`: the call did not end cleanly, and it may have been done). */
+export type CalendarWriteOutcome =
+  | { state: 'done'; result: unknown }
+  | { state: 'refused'; error: string }
+  | { state: 'unknown'; error: string }
+
+/**
+ * One calendar write of Claude's, as `calendar-writes` lists it: the entry that recorded the instruction and the request (`asked`), and what came of it (`outcome`, null while the call is still under way or when the record of its end was lost).
+ * The instruction is Claude's own account of what the owner said, as for a send: the inbox cannot see a session.
+ */
+export interface CalendarWrite {
+  /** The audit entry of the request. */
+  id: number
+  at: string
+  kind: CalendarWriteKind
+  /** The account for an invite, the event's key for a move or a cancel. */
+  subject: string
+  instruction: SendInstruction
+  request: Record<string, unknown>
+  outcome: (CalendarWriteOutcome & { at: string }) | null
+}
+
+/**
  * One of Claude's sends, as the list behind Claude's script gives it (there is no page of them: each is
  * marked in its own conversation): a message Claude sent on an instruction, with that instruction.
  * `proof` says how the inbox knows it went out:

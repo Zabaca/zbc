@@ -8,8 +8,14 @@ import { describe, expect, test } from 'bun:test'
 import { lane, northfield } from './helpers'
 import {
   CALENDAR_ACCESS_REFUSALS,
+  CALENDAR_FOR_INBOX_METHODS,
   CALENDAR_FOR_SPACE_METHODS,
+  CALENDAR_INVITE_GUESTS_MAX,
+  CALENDAR_INVITE_LONGEST_MS,
+  CALENDAR_INVITE_TITLE_MAX,
   CALENDAR_PUSH_PATH,
+  type CalendarForInbox,
+  isoAt,
   CLIENTS_FOR_INBOX_METHODS,
   CLIENTS_FOR_SOURCE_METHODS,
   CLIENTS_FOR_SPACE_METHODS,
@@ -378,8 +384,24 @@ describe('what each app answers the space', () => {
 describe('the calendar', () => {
   test('one face for the space, owner only, reading the calendar’s own store; nothing that writes to Google', () => {
     expect(sorted(CALENDAR_FOR_SPACE_METHODS)).toEqual(sorted(['calendars', 'agenda', 'event', 'eventsByUid', 'setShown', 'syncNow']))
-    // The calendar reads Google and never writes to it: no method creates, moves, answers or deletes an event.
-    for (const m of ['createEvent', 'moveEvent', 'respond', 'deleteEvent', 'book']) expect(CALENDAR_FOR_SPACE_METHODS as readonly string[]).not.toContain(m)
+    // The space's face reads Google and never writes to it: no method creates, moves, answers or deletes an event. Claude's three writes are the inbox's face, below, behind the inbox's rule.
+    for (const m of ['createEvent', 'moveEvent', 'respond', 'deleteEvent', 'book', 'invite', 'move', 'cancel']) expect(CALENDAR_FOR_SPACE_METHODS as readonly string[]).not.toContain(m)
+  })
+
+  test('the inbox’s face, for Claude’s script alone: the free time, and an invite, a move and a cancellation; nothing that answers an invitation, and no person to take', () => {
+    expect(sorted(CALENDAR_FOR_INBOX_METHODS)).toEqual(sorted(['events', 'invite', 'move', 'cancel']))
+    for (const m of ['respond', 'accept', 'decline', 'setShown', 'syncNow', 'calendars']) expect(CALENDAR_FOR_INBOX_METHODS as readonly string[]).not.toContain(m)
+    // It takes no `SignedIn`: the rule in front of it is the inbox's (the owner's switch and instruction), not a person's admission.
+    holds<Equal<Parameters<CalendarForInbox['events']>, [number, number]>>()
+    holds<Equal<Parameters<CalendarForInbox['cancel']>, [string]>>()
+    expect([CALENDAR_INVITE_GUESTS_MAX, CALENDAR_INVITE_TITLE_MAX, CALENDAR_INVITE_LONGEST_MS]).toEqual([50, 300, 36 * 60 * 60 * 1000])
+  })
+
+  test('a moment is written on a zone’s clock with its offset, to the second', () => {
+    expect(isoAt(Date.UTC(2026, 10, 17, 17, 30), 'America/Los_Angeles')).toBe('2026-11-17T09:30:00-08:00')
+    expect(isoAt(Date.UTC(2026, 6, 17, 17, 30, 5), 'America/Los_Angeles')).toBe('2026-07-17T10:30:05-07:00')
+    expect(isoAt(Date.UTC(2026, 10, 17, 17, 30), 'UTC')).toBe('2026-11-17T17:30:00+00:00')
+    expect(isoAt(Date.UTC(2026, 10, 17, 17, 30), 'Asia/Kolkata')).toBe('2026-11-17T23:00:00+05:30')
   })
 
   test('the permissions asked for are reading and changing events (never the full calendar scope), Google’s push comes in on a path of its own, and an access token can be refused five ways', () => {

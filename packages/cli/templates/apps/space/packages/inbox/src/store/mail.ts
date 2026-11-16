@@ -51,6 +51,7 @@ import { belongsInStore, inPlay, LABEL, type ParsedAddress, type ParsedMessage }
 import { notOnThatMailbox } from '../mailbox-words'
 import { cloudflareNotifyDecision, notifyDecision } from '../notify/rule'
 import {
+  claudeCalendarOff,
   claudeSendingOff,
   draftChangedAfterInstruction,
   draftCreatedAfterInstruction,
@@ -58,7 +59,9 @@ import {
   instructionBeforeReply,
   instructionInTheFuture,
   instructionOnlyFromOwnerInSession,
+  noCalendarInstruction,
   noInstruction,
+  onlyClaudeChangesCalendar,
   onlyOwnerNotifications,
   onlyOwnerOrClaudeSends,
   onlyOwnerResolves,
@@ -77,6 +80,10 @@ import {
   AGENT_PREFIX,
   type AttachmentInfo,
   CALENDAR_ACTOR,
+  CALENDAR_WRITE_KINDS,
+  type CalendarWrite,
+  type CalendarWriteKind,
+  type CalendarWriteOutcome,
   type ClaudeSend,
   type ClaudeSending,
   type ConversationChange,
@@ -2104,6 +2111,102 @@ export class MailStore extends TelegramStore {
         }
       })
     return [...filed, ...arrived, ...resolved].sort((a, b) => (a.at < b.at ? 1 : a.at > b.at ? -1 : 0))
+  }
+
+  /**
+   * ── CLAUDE'S CALENDAR WRITES: THE SEND RULE, APPLIED TO AN INVITE (the space's ADR 0023) ─────────────────────────────
+   * Claude makes, moves and cancels events on the owner's calendars only on the owner's word, as it sends mail only on it. The router asks this BEFORE the calendar is asked anything, and both gates are the send's:
+   * the owner's switch (`claude_sending`: the one switch, off until the owner turns it on, and only the owner flips it) must be on, and the call must carry the owner's instruction (their words as Claude received them,
+   * where they said them, when: `checkInstruction`, the same check a send makes). Either missing is a 403 that changes nothing and records nothing at Google. An instruction is the owner's, in a session with Claude, and never text read
+   * in a message.
+   *
+   * The request and its instruction are written to the audit, as `calendar.<kind>`, BEFORE Google is asked, so a write whose outcome is lost still has its record; `noteCalendarWrite` adds what came of it afterwards. Both
+   * are Claude's own account, which the inbox cannot check. Nothing here keeps a token: the calendar asks for its own, for the one call. Unlike a send, an instruction here covers one call and nothing is voided by a later change,
+   * because there is no draft to change: each invite, move or cancellation is its own call and carries its own words.
+   */
+  beginCalendarWrite(
+    kind: CalendarWriteKind,
+    instruction: unknown,
+    subject: string,
+    request: Record<string, unknown>,
+    actor: string,
+  ): Result<{ entry: number }> {
+    if (!isAgent(actor)) return fail(403, onlyClaudeChangesCalendar(this.owner.name))
+    if (!this.claudeMaySend()) return fail(403, claudeCalendarOff(this.owner.name))
+    const absent =
+      instruction === null ||
+      typeof instruction !== 'object' ||
+      Array.isArray(instruction) ||
+      text((instruction as Record<string, unknown>).text).trim() === ''
+    if (absent) return fail(403, noCalendarInstruction(this.owner.name))
+    const heard = this.checkInstruction(instruction)
+    if (!heard.ok) return heard
+    const entry = this.audit(actor, `calendar.${kind}`, `calendar:${subject}`, null, {
+      instruction: heard.value,
+      request,
+    })
+    return ok({ entry })
+  }
+
+  /** What came of a calendar write that `beginCalendarWrite` recorded: done (with what Google answered, never a token), refused (nothing changed), or not known (it may have been done). */
+  noteCalendarWrite(
+    kind: CalendarWriteKind,
+    entry: number,
+    outcome: CalendarWriteOutcome,
+    actor: string,
+  ): Result<null> {
+    if (!isAgent(actor)) return fail(403, onlyClaudeChangesCalendar(this.owner.name))
+    const asked = this.sql
+      .exec(`SELECT subject FROM audit WHERE id = ?1 AND action = ?2`, entry, `calendar.${kind}`)
+      .toArray()[0]
+    if (!asked) return fail(404, 'No such calendar write.')
+    this.audit(actor, `calendar.${kind}-${outcome.state}`, text(asked.subject), null, { for: entry, ...outcome })
+    return ok(null)
+  }
+
+  /**
+   * Every calendar write Claude asked for, newest first, each with the instruction it was made on and what came of it: the owner's way to see every invite Claude made (there is no page of them; the audit holds them, and this
+   * reads them back). A request whose outcome was never recorded has `outcome: null`.
+   */
+  listCalendarWrites(limit = 100): CalendarWrite[] {
+    const rows = this.sql
+      .exec(
+        `SELECT id, at, action, subject, after FROM audit WHERE action LIKE 'calendar.%' ORDER BY id DESC LIMIT ${Math.trunc(limit) * 3}`,
+      )
+      .toArray()
+    const ended = new Map<number, CalendarWriteOutcome & { at: string }>()
+    for (const r of rows) {
+      if (!/^calendar\.(invite|move|cancel)-(done|refused|unknown)$/.test(text(r.action))) continue
+      try {
+        const after = JSON.parse(text(r.after)) as { for?: unknown } & CalendarWriteOutcome
+        if (typeof after.for === 'number' && !ended.has(after.for)) {
+          const { for: _for, ...outcome } = after
+          ended.set(after.for, { ...(outcome as CalendarWriteOutcome), at: text(r.at) })
+        }
+      } catch {
+        // An entry that is not JSON is not an outcome; the request it belongs to reads as having none.
+      }
+    }
+    const writes: CalendarWrite[] = []
+    for (const r of rows) {
+      const kind = CALENDAR_WRITE_KINDS.find((k) => text(r.action) === `calendar.${k}`)
+      if (kind === undefined || writes.length >= limit) continue
+      try {
+        const after = JSON.parse(text(r.after)) as { instruction: SendInstruction; request: Record<string, unknown> }
+        writes.push({
+          id: Number(r.id),
+          at: text(r.at),
+          kind,
+          subject: text(r.subject).replace(/^calendar:/, ''),
+          instruction: after.instruction,
+          request: after.request,
+          outcome: ended.get(Number(r.id)) ?? null,
+        })
+      } catch {
+        // A request entry that cannot be read is skipped, not shown half.
+      }
+    }
+    return writes
   }
 
   /**

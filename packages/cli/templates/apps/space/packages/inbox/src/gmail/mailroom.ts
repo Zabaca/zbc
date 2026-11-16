@@ -401,8 +401,8 @@ export class Mailroom {
    * and no error. One grant per account serves mail and calendar, so when Google ends it the account is lapsed here, for mail and calendar together, and says so
    * in the one sentence both use. `fresh` skips the in-memory token (the calendar saw a 401 with the last one).
    *
-   * `level` is the seam for booking: `read` (the default, and all the sync ever asks for) is a token for `calendar.readonly` alone; `events` is a token for `calendar.events` alone, refused (`no-events`) for a grant that
-   * lacks it. Nothing asks for `events` yet. Anything but the word `events` is `read`, so a reading token can never be turned into a writing one by a mistaken argument.
+   * `level` is the seam for a write: `read` (the default, and all the sync ever asks for) is a token for `calendar.readonly` alone; `events` is a token for `calendar.events` alone, refused (`no-events`) for a grant that
+   * lacks it. Only an invite, a move or a cancellation that Claude makes on the owner's instruction asks for `events` (the calendar's writer, one token for each call, the space's ADR 0023). Anything but the word `events` is `read`, so a reading token can never be turned into a writing one by a mistaken argument.
    */
   async calendarAccess(address: string, fresh = false, level: CalendarAccessLevel = 'read'): Promise<CalendarAccess> {
     const scope = level === 'events' ? CALENDAR_EVENTS_SCOPE : CALENDAR_READONLY_SCOPE

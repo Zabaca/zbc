@@ -8,6 +8,7 @@
 
 import {
   answered,
+  type CalendarForInbox,
   type ClientsForInbox,
   type InboxForSpace,
   type KnowledgeForInbox,
@@ -39,6 +40,12 @@ export interface InboxPartEnv extends InboxEnv {
    * service binding. Absent, those two routes answer that the knowledge app is not reached.
    */
   knowledge?: KnowledgeForInbox
+  /**
+   * The calendar as Claude's script is handed on to it (src/app.ts, the routes under `/api/calendar/`): in the space, the calendar's inbox face over its store, asked in-process (packages/space/src/parts.ts), never a service binding. It
+   * reads the free time from the store and makes, moves and cancels events at Google, and it is reached from nowhere but Claude's door, after the router has checked the owner's switch and instruction (the space's ADR 0023). Absent, those routes
+   * answer that the calendar is not connected.
+   */
+  calendar?: CalendarForInbox
 }
 
 export interface InboxPart extends InboxForSpace {
@@ -101,6 +108,7 @@ export function createInboxPartFactory(install: Install = bundledInstall): (env:
           ...(env.clients && { CLIENT_LIST: env.clients }),
           ...(env.INBOX_ACCESS_CLIENT_ID !== undefined && { INBOX_ACCESS_CLIENT_ID: env.INBOX_ACCESS_CLIENT_ID }),
           ...(env.knowledge && { KNOWLEDGE: env.knowledge }),
+          ...(env.calendar && { CALENDAR: env.calendar }),
         }
         return Promise.resolve(claudeRouter().fetch(request, routerEnv))
       },

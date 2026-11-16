@@ -65,7 +65,7 @@ export const GMAIL_SCOPE = 'https://www.googleapis.com/auth/gmail.modify'
 export const OAUTH_SCOPES = [GMAIL_SCOPE, 'openid', 'email'] as const
 
 /**
- * What Settings, Calendars' own Connect asks for (the calendar reuses this Google client and project, and each account is connected once for both reading and, later, booking): the calendar's reading permission and its
+ * What Settings, Calendars' own Connect asks for (the calendar reuses this Google client and project, and each account is connected once for both reading and, for Claude's invites on the owner's instruction, writing): the calendar's reading permission and its
  * permission to create and change events (`calendar.events`, never the full `calendar` scope), incrementally, with `include_granted_scopes` so the new grant also carries mail's (Google adds what the account already granted). It is a
  * separate request from the mailboxes' so mail is never held behind it. `test/calendar-grants.test.ts` holds both lists to that.
  */
