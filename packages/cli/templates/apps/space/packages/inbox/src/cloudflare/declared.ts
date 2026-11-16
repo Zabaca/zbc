@@ -8,11 +8,14 @@ import { classifyAddress } from '../store/address'
  * A mailbox is where customers' mail lands, so adding one is a change somebody reviews and deploys together with the
  * routing rule that points at it. The store records the row the first time mail arrives for a declared address.
  *
- * ── ONE MAILBOX PER DOMAIN, AND THE DOMAIN IS WHAT IS ACCEPTED ───────────
- * Email Routing's catch-all hands over mail for ANY address on the domain, so the mailbox is the domain's: a message
- * to `anything@northfield.example` is filed in `hello@northfield.example`. Mail for a domain no mailbox is declared
- * on is refused (entrance.ts), so routing another domain at this Worker by mistake cannot make the inbox a catch-all
- * for it. Two mailboxes on one domain would make "which one" a guess, so that is refused here.
+ * ── THE ADDRESS FIRST, THEN THE DOMAIN'S ONE MAILBOX ─────────────────────
+ * A message is filed in the mailbox declared at its envelope recipient's exact address. Failing that, where its
+ * domain has ONE declared mailbox, in that one: Email Routing's catch-all hands over mail for ANY address on the
+ * domain, so a message to `anything@northfield.example` is filed in `hello@northfield.example`. A domain may have
+ * several mailboxes (each reached by a literal routing rule of its own, `leads@` and a person's own address, say);
+ * then mail to any other address on it is refused, since "which one" would be a guess. Mail for a domain no mailbox
+ * is declared on is refused (entrance.ts), so routing another domain at this Worker by mistake cannot make the
+ * inbox a catch-all for it.
  *
  * ── IT FAILS CLOSED ──────────────────────────────────────────────────────
  * A declaration that is not valid declares nothing (every arrival is refused), and the reason is said once, so a typo
@@ -62,8 +65,8 @@ export function parseDeclared(value: unknown, ownerEmail: string): Declaration {
       return { ok: false, error: `${ownerEmail} is the Gmail mailbox; it is not declared here.` }
     }
     const domain = classified.address.split('@')[1] as string
-    if (mailboxes.some((m) => m.domain === domain)) {
-      return { ok: false, error: `INBOX_MAILBOXES has two mailboxes on ${domain}; a domain's mail has one mailbox.` }
+    if (mailboxes.some((m) => m.address === classified.address)) {
+      return { ok: false, error: `INBOX_MAILBOXES lists ${classified.address} twice.` }
     }
     if (given.assistant !== undefined && typeof given.assistant !== 'boolean') {
       return {
@@ -76,8 +79,12 @@ export function parseDeclared(value: unknown, ownerEmail: string): Declaration {
   return { ok: true, mailboxes }
 }
 
-/** The declared mailbox whose domain an envelope recipient is on, or null (the entrance refuses it). */
+/** The declared mailbox at an envelope recipient's exact address, else the ONE declared on its domain, or null (the entrance refuses it). */
 export function mailboxFor(mailboxes: readonly DeclaredMailbox[], recipient: string): DeclaredMailbox | null {
-  const domain = recipient.trim().toLowerCase().split('@')[1]
-  return (domain && mailboxes.find((m) => m.domain === domain)) || null
+  const address = recipient.trim().toLowerCase()
+  const exact = mailboxes.find((m) => m.address === address)
+  if (exact) return exact
+  const domain = address.split('@')[1]
+  const onDomain = domain ? mailboxes.filter((m) => m.domain === domain) : []
+  return onDomain.length === 1 ? (onDomain[0] as DeclaredMailbox) : null
 }

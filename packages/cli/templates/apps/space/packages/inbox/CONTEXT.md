@@ -93,8 +93,9 @@ _Avoid_: permission, role, access (the install's roles are `owner` and `member`;
 One address on a domain whose mail Cloudflare Email Routing hands to the inbox's Worker, such as `support@northfield.example`. Unlike a Gmail mailbox, the inbox, not Gmail, is where the mail lives:
 there is no other copy to refill from, so the exact message as it arrived (its **raw copy**, in a bucket) and the
 store are the whole record, and neither is ever pruned. It is declared in the deploy config (an address and the
-name its conversations are marked with), one per domain, and the first mail for it makes its row; mail for a
-domain nobody declared is refused outright. Mail to any address on the domain lands in it. Its read and closed
+name its conversations are marked with), and the first mail for it makes its row; mail for a domain nobody declared
+is refused outright. Mail to its address lands in it, and so does mail to any other address on its domain where it is
+the domain's only mailbox (a domain may have several, each at its own address; then other addresses are refused). Its read and closed
 state are the inbox's own stamps (as a manual conversation's are), not labels: a message arrives unread and open,
 the owner opening it marks it read, Close closes it, and a new message reopens it unread. Its conversations carry its
 name as a mark on the row and on the conversation, which a Gmail account's own mail never does. A reply on its conversation

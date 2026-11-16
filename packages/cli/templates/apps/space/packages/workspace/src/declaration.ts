@@ -155,7 +155,7 @@ export interface HostedMailboxDeclaration {
  * and a mailbox with none gets no assistant and no spam check. The mailbox is one of a business's (`businesses`), so it is the address that business's knowledge is asked for.
  */
 export interface CloudflareMailboxDeclaration {
-  /** The mailbox's address, lowercase and bare: one per domain, because Email Routing's catch-all hands over the whole domain's mail. */
+  /** The mailbox's address, lowercase and bare. A domain may have several (each reached by a literal routing rule); where it has one, its catch-all mail lands there too. */
   address: string
   /** What its conversations are marked with (the pill): the business's name. */
   name: string
@@ -798,7 +798,7 @@ export function parseDeclaration(raw: unknown): Declaration {
     problems.push('hostedMailboxes: the hostedMailboxes switch is on, so at least one mailbox on the install\'s mail server (address, name, door, secret) is required')
   }
 
-  // Mailboxes fed by Cloudflare Email Routing: each is one of a business's, on a domain of its own (the catch-all makes the domain the mailbox), and is not the owner's own address (the owner's Gmail is not declared here).
+  // Mailboxes fed by Cloudflare Email Routing: each is one of a business's, at an address of its own (several may share a domain), and is not the owner's own address (the owner's Gmail is not declared here).
   let cloudflareMailboxes: CloudflareMailboxDeclaration[] | undefined
   if (raw.cloudflareMailboxes !== undefined) {
     if (!Array.isArray(raw.cloudflareMailboxes)) problems.push('cloudflareMailboxes: a list of { address, name, short?, spamCheck?, people? }')
@@ -818,7 +818,6 @@ export function parseDeclaration(raw: unknown): Declaration {
         if (address === null || !EMAIL.test(address)) problems.push(`${where}.address: an address is required`)
         else {
           if (list.some((q) => q.address === address)) problems.push(`${where}.address: ${address} is listed twice`)
-          else if (list.some((q) => q.address.split('@')[1] === address.split('@')[1])) problems.push(`${where}.address: a domain's mail has one mailbox, and ${address.split('@')[1]} has one already`)
           if (owner !== undefined && (address === owner.address || address === owner.signIn)) problems.push(`${where}.address: ${address} is the owner's own address, which is the Gmail mailbox and is not declared here`)
           if (!businesses.some((b) => b.mailboxes.includes(address))) problems.push(`${where}.address: ${address} is not a mailbox of any business (add it to a business's mailboxes)`)
         }
