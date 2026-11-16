@@ -36,26 +36,30 @@ export const useNav = (): Loaded<InboxNav> => useContext(NavContext)
 
 /** The menu's data, read when the page opens and kept fresh: when mail moves (the live connection), the page shown again, a change made here, the service worker saying so, and ten minutes as the net. */
 export function useNavData(): Loaded<InboxNav> {
-  const { state, reload } = useView<InboxNav>('navigation')
-  // The menu counts mail (its views, mailboxes and Clients) and the Gmail lines: it is read again when mail moves.
-  useLive(['mail', 'clients'], reload)
+  const { state, reload, follow } = useView<InboxNav>('navigation')
+  // The menu counts mail (its views, mailboxes and Clients) and the Gmail lines: it is read again when mail moves. A change made here is read at once (`reload`); everything else waits for a read
+  // under way (`follow`, views.ts), so a burst of mail is not a stack of reads on the inbox's store.
+  useLive(['mail', 'clients'], follow)
   useEffect(() => {
     const again = () => {
+      if (document.visibilityState === 'visible') follow()
+    }
+    const changed = () => {
       if (document.visibilityState === 'visible') reload()
     }
     const timer = setInterval(again, SAFETY_NET_MS)
     window.addEventListener('focus', again)
     document.addEventListener('visibilitychange', again)
-    window.addEventListener(CHANGED_EVENT, again)
+    window.addEventListener(CHANGED_EVENT, changed)
     window.addEventListener(REFRESH_EVENT, again)
     return () => {
       clearInterval(timer)
       window.removeEventListener('focus', again)
       document.removeEventListener('visibilitychange', again)
-      window.removeEventListener(CHANGED_EVENT, again)
+      window.removeEventListener(CHANGED_EVENT, changed)
       window.removeEventListener(REFRESH_EVENT, again)
     }
-  }, [reload])
+  }, [reload, follow])
   return state
 }
 

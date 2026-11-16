@@ -290,12 +290,11 @@ export function createSpaceViews(deps: SpaceDeps, asOwner: AsOwner, asPerson: As
     asPerson(asker, async ({ scope }): Promise<SpaceReply<InboxNav>> => {
       // Each teammate's two addresses: the space puts a teammate known by both in one row, so a count must.
       const team = deps.install.people.map((p) => [p.address, p.signIn].map((a) => a.trim().toLowerCase()))
-      const [rows, drafts, dir, usage, contacts, gmail, boxes, telegram, jmap] = await Promise.all([
+      const [rows, drafts, dir, usage, gmail, boxes, telegram, jmap] = await Promise.all([
         store.call('spaceRowCounts', team, scope),
         store.call('listDrafts', scope),
         readClients(deps.clients, deps.install),
         store.call('clientUsage', scope),
-        store.call('listContacts', scope),
         store.call('mailboxStatuses'),
         store.call('cloudflareMailboxes'),
         store.call('telegramMailboxes'),
@@ -328,7 +327,9 @@ export function createSpaceViews(deps: SpaceDeps, asOwner: AsOwner, asPerson: As
           reason: m.health.reasons[0] ?? null,
         })),
         clients,
-        contacts: contacts.length,
+        // A store still on the code before this count was added (minutes after a deploy, src/store-access.ts) answers without it; no page shows the number. The `?? 0` can go in the
+        // next change to this file once every install has deployed this one (its store has restarted on it by then).
+        contacts: (rows as { contacts?: number }).contacts ?? 0,
         gmailAccounts: mine(gmail).map((g) => ({
           id: g.id,
           name: g.name,

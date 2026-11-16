@@ -124,6 +124,8 @@ describe('what the live connection reads again', () => {
     const meet = standInMeet({ direct: [dm(11, person('p-dana', 'Dana Reyes', 'dana@harbor.example'), ago(5), 0)], channels: [] }, { history: { 11: [{ id: 1, at: ago(5), authorId: 'p-dana', authorName: 'Dana', text: 'Hello' }] } })
     const ask = { apps: { inbox, meet }, install, signedIn: OWNER_SIGNED_IN, self: ['tessa@northfield.example'], answerWithinMs: 50 }
     const calls = { conversation: 0, list: 0, other: [] as string[] }
+    /** While set, a read of the list is held until the test lets it go: a store busy elsewhere. */
+    const slow: { hold: Promise<void> | null } = { hold: null }
     globalThis.fetch = (async (input: RequestInfo | URL) => {
       const url = new URL(String(input), 'http://localhost')
       const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } })
@@ -134,6 +136,7 @@ describe('what the live connection reads again', () => {
       }
       if (url.pathname === '/api/conversations') {
         calls.list++
+        if (slow.hold !== null) await slow.hold
         return json({ view: { kind: 'main' }, rows: [], parts: [{ part: 'mail', state: 'ok' }, { part: 'chat', state: 'ok' }], mailboxes: [], more: false, looseDrafts: [] })
       }
       if (url.pathname === '/api/read') return json({ mail: { state: 'skipped' }, chat: { state: 'skipped' } })
@@ -155,7 +158,9 @@ describe('what the live connection reads again', () => {
       root.render(createElement(LiveContext.Provider, { value: hub }, createElement(Conversations, { scope, me: ME, pathname, go: () => undefined })))
       await sleep(60)
     })
-    return { act, hub, calls, host, root }
+    /** The same page at another list (`?view=bulk`), as the menu takes it there. */
+    const show = (search: string) => root.render(createElement(LiveContext.Provider, { value: hub }, createElement(Conversations, { scope, me: ME, pathname, search, go: () => undefined })))
+    return { act, hub, calls, host, root, slow, show }
   }
   const tell = async (t: Awaited<ReturnType<typeof open>>, frame: Parameters<Awaited<ReturnType<typeof open>>['hub']['told']>[0]) => {
     await t.act(async () => {
@@ -178,6 +183,84 @@ describe('what the live connection reads again', () => {
     })
     expect(t.calls.list).toBe(before.list + 1)
     expect(t.calls.conversation).toBe(before.conversation + 1)
+    await t.act(async () => t.root.unmount())
+  })
+
+  test('mail moving while the list is still being read starts no second read beside it: it is one read more once the first has answered, however many messages came', async () => {
+    const t = await open('mail')
+    const before = t.calls.list
+    let release = () => {}
+    t.slow.hold = new Promise<void>((r) => {
+      release = r
+    })
+    await tell(t, { part: 'mail' })
+    expect(t.calls.list).toBe(before + 1)
+    // The store is slow: more mail moves, in separate bursts, while that read is out. Each used to abort it and start another, which the store still ran.
+    await tell(t, { part: 'mail' })
+    await tell(t, { part: 'mail' })
+    await t.act(async () => {
+      window.dispatchEvent(new window.Event('focus'))
+      await sleep(20)
+    })
+    expect(t.calls.list).toBe(before + 1)
+    t.slow.hold = null
+    await t.act(async () => {
+      release()
+      await sleep(60)
+    })
+    expect(t.calls.list).toBe(before + 2)
+    // And nothing is left owed: a quiet minute later there is no further read.
+    await t.act(async () => sleep(40))
+    expect(t.calls.list).toBe(before + 2)
+    await t.act(async () => t.root.unmount())
+  })
+
+  test('a refresh that waited behind a read still reads the open conversation when another list replaces that read before it answers', async () => {
+    const t = await open('mail')
+    const before = { list: t.calls.list, conversation: t.calls.conversation }
+    let release = () => {}
+    t.slow.hold = new Promise<void>((r) => {
+      release = r
+    })
+    await tell(t, { part: 'mail' })
+    expect(t.calls.conversation).toBe(before.conversation + 1)
+    // Mail moves again while the list is out: owed, so the open conversation is not read yet.
+    await tell(t, { part: 'mail' })
+    expect(t.calls.conversation).toBe(before.conversation + 1)
+    // Another list is opened before the held read answers: it replaces the read, and takes over what was owed.
+    t.slow.hold = null
+    await t.act(async () => {
+      t.show('?view=bulk')
+      await sleep(40)
+    })
+    await t.act(async () => {
+      release()
+      await sleep(60)
+    })
+    expect(t.calls.conversation).toBe(before.conversation + 2)
+    await t.act(async () => t.root.unmount())
+  })
+
+  test('a read that never answers (a phone that slept with it out) does not hold every later refresh: past the limit, a refresh replaces it', async () => {
+    const { READ_HELD_MS } = await import('../src/client/views')
+    const t = await open('mail')
+    const before = t.calls.list
+    t.slow.hold = new Promise<void>(() => {})
+    const realNow = Date.now
+    let shift = 0
+    Date.now = () => realNow() + shift
+    try {
+      await tell(t, { part: 'mail' })
+      expect(t.calls.list).toBe(before + 1)
+      await tell(t, { part: 'mail' })
+      expect(t.calls.list).toBe(before + 1)
+      shift = READ_HELD_MS + 1
+      t.slow.hold = null
+      await tell(t, { part: 'mail' })
+      expect(t.calls.list).toBe(before + 2)
+    } finally {
+      Date.now = realNow
+    }
     await t.act(async () => t.root.unmount())
   })
 

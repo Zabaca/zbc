@@ -133,6 +133,8 @@ describe('an invented company’s pair makes a whole install', () => {
     // The stores are the code's, the same seven in every install, so no install holds another's.
     expect(s.exports && Object.keys(s.exports)).toEqual(['KnowledgeDO', 'RoomDO', 'WorkspaceDO', 'InboxDO', 'LiveDO', 'CalendarDO', 'ClientsDO'])
     expect(s.triggers).toEqual({ crons: ['*/5 * * * *', '47 9 * * *', '0 * * * *'] })
+    // Every install keeps its Worker's logs, every invocation, in its own account: how a stall is read after it.
+    expect(s.observability).toEqual({ enabled: true, head_sampling_rate: 1 })
     const config = made.instances.space.config as { accountId: string; workerSecrets: unknown[]; workerVars: { name: string }[]; r2Buckets?: string[]; d1Databases?: unknown[] }
     expect(config.accountId).toBe('0000000000000000000000000000e001')
     // Each secret is pushed under the name the code reads, from the sops name the install file gives.

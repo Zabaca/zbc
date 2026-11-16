@@ -86,7 +86,10 @@ function doneOf<T>(got: Awaited<ReturnType<typeof write>>): Done<T> {
  * A view kept on screen: read when mounted and whenever `key` changes, read again on `reload`. The last value stays up while it is read again, and a read that
  * fails after one has been had is `problem`, to be said beside it rather than replacing it.
  */
-export function useView<T>(name: string, query: Record<string, string> = {}, enabled = true): { state: Loaded<T>; reload(): void; reading: boolean; problem: Said | null } {
+/** How long a read may be out before a refresh replaces it instead of waiting for it (`follow` here, Conversations.tsx `load`): several times the space's own wait for a part (`ANSWER_WITHIN_MS`), so only a read that will not answer is given up on. */
+export const READ_HELD_MS = 20_000
+
+export function useView<T>(name: string, query: Record<string, string> = {}, enabled = true): { state: Loaded<T>; reload(): void; follow(): void; reading: boolean; problem: Said | null } {
   const [state, setState] = useState<Loaded<T>>({ kind: 'loading' })
   const [reading, setReading] = useState(true)
   const [problem, setProblem] = useState<Said | null>(null)
@@ -94,22 +97,43 @@ export function useView<T>(name: string, query: Record<string, string> = {}, ena
   const key = `${name}?${new URLSearchParams(query).toString()}`
   const held = useRef(state)
   held.current = state
+  // `reload` replaces a read under way (a write's own read: what is shown must be after the write). `follow` (a live message, the page shown again) waits for it and is one more read after
+  // it, rather than aborting it: an aborted read still runs to the end in the part that answers it (the inbox's store answers one at a time), so a burst of live messages was a stack of reads
+  // (Conversations.tsx `load` says the same). A read out longer than READ_HELD_MS is not waited for. Another view (`key`) replaces the read.
+  const busy = useRef(false)
+  const busySince = useRef(0)
+  const owed = useRef(false)
   // biome-ignore lint/correctness/useExhaustiveDependencies: `key` is the name and the query; `tick` is a reload.
   useEffect(() => {
     // A view of a part the install does not have is not asked for (the Worker would answer it as a path that is not there).
     if (!enabled) return
     const ctl = new AbortController()
+    busy.current = true
+    busySince.current = Date.now()
+    owed.current = false
     setReading(true)
     void getView<T>(name, query, ctl.signal).then((got) => {
       if (ctl.signal.aborted) return
+      busy.current = false
       setReading(false)
+      if (owed.current) {
+        owed.current = false
+        setTick((n) => n + 1)
+      }
       // A read that fails with a value already on screen keeps the value; the screen says so in a notice of its own.
       if (got.kind === 'said' && held.current.kind === 'value') return setProblem(got.say)
       setProblem(null)
       setState(got)
     })
-    return () => ctl.abort()
+    return () => {
+      ctl.abort()
+      busy.current = false
+    }
   }, [key, tick, enabled])
   const reload = useCallback(() => setTick((n) => n + 1), [])
-  return { state, reload, reading, problem }
+  const follow = useCallback(() => {
+    if (busy.current && Date.now() - busySince.current < READ_HELD_MS) owed.current = true
+    else setTick((n) => n + 1)
+  }, [])
+  return { state, reload, follow, reading, problem }
 }

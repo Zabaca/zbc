@@ -52,7 +52,7 @@ import { SAFETY_NET_MS, useKeepFresh } from './notify'
 import { PhonePane } from './PhonePane'
 import { useSwitches } from './switches'
 import { callPath, conversationKey, conversationPath, draftIdAt, draftPath, follow, inboxPath, tabNameOf, tabPathOf } from './route'
-import { postView } from './views'
+import { postView, READ_HELD_MS } from './views'
 
 /** Fewest characters a search is sent for: one letter finds half the inbox. */
 export const SEARCH_MIN = 2
@@ -602,17 +602,31 @@ export function Conversations({ scope, me, pathname, search = '', go: goTo }: { 
   heldAnswer.current = answer
   const [loadingOlder, setLoadingOlder] = useState(false)
 
+  // A refresh asked for while a read is under way (`waitForRead`: a live message, the page shown again, the ten minutes) waits for it and is ONE more read after it, not a new read that
+  // aborts it: an aborted read still runs to the end in the inbox's store, which answers one read at a time, so every abort was a read stacked on the next (as measured: the
+  // reads queued past the space's four seconds while mail arrived). A read that must not wait (another list, Load older, the page's own read after a write) still replaces the one under way,
+  // and takes over what was owed: a refresh that was to read the open conversation again still does. A read out longer than READ_HELD_MS (a phone that slept with it in flight) is replaced too.
+  const owed = useRef<{ again: boolean } | null>(null)
+  const inflightSince = useRef(0)
   // `again` is for the reads that mean the world changed (chat said so, the page was shown again, a minute passed): the open conversation is read
   // again with the list. A read the page makes itself (after it marked something read, or sent) is the list alone.
-  const load = useCallback((quiet: boolean, again = true) => {
+  const load = useCallback((quiet: boolean, again = true, waitForRead = false) => {
+    if (waitForRead && inflight.current !== null && !inflight.current.signal.aborted && Date.now() - inflightSince.current < READ_HELD_MS) {
+      owed.current = { again: (owed.current?.again ?? false) || again }
+      return
+    }
+    const carried = owed.current?.again === true
+    owed.current = null
     inflight.current?.abort()
     const ctl = new AbortController()
     inflight.current = ctl
+    inflightSince.current = Date.now()
     if (!quiet) setLoading(true)
-    if (again && quiet) setRefreshes((n) => n + 1)
+    if (carried || (again && quiet)) setRefreshes((n) => n + 1)
     const startedAt = Date.now()
     void read<ConversationsAnswer>(readingFor(current.current, reading.current), ctl.signal).then((r) => {
       if (ctl.signal.aborted) return
+      inflight.current = null
       setLoading(false)
       setLoadingOlder(false)
       // The list now reaches down to where this answer ends, and one more screen is no longer owed; a read that failed leaves the position, and the control free to be pressed again.
@@ -624,6 +638,8 @@ export function Conversations({ scope, me, pathname, search = '', go: goTo }: { 
         setAnswer(r.value)
         setProblem(null)
       } else setProblem(r.problem)
+      const next = owed.current
+      if (next !== null) load(true, next.again)
     })
   }, [])
   // Meet's menu has the Phone only for a person whose list has its row.
@@ -656,14 +672,14 @@ export function Conversations({ scope, me, pathname, search = '', go: goTo }: { 
 
   // Read again when the page is shown again, every ten minutes while it is visible (the net for a lost live message), and when the service worker kept a
   // notification quiet because this page shows that person (the list and the open conversation are read again).
-  useKeepFresh(load, SAFETY_NET_MS)
+  useKeepFresh((quiet) => load(quiet, true, true), SAFETY_NET_MS)
 
   // THE LIVE CONNECTION (liveHub.tsx) says which part moved. The Inbox's list draws mail; Meet's draws chat and calls. The list is read again for those, and the open conversation with it only when the message
   // named it or named none (`readsOpen`). A conversation also draws the documents sent from it (and, in the Inbox, a call's card), which are not in the list: those read the open conversation alone.
   const openKey = draftId !== null ? `draft:${draftId}` : conversationKey(pathname, scope)
   const openRef = useRef(openKey)
   openRef.current = openKey
-  useLive(mail ? ['mail', 'clients'] : ['chat', 'calls'], (e) => load(true, readsOpen(e, openRef.current)))
+  useLive(mail ? ['mail', 'clients'] : ['chat', 'calls'], (e) => load(true, readsOpen(e, openRef.current), true))
   useLive(mail ? ['documents', 'calls'] : [], (e) => {
     // A reconnect (no part) is read by the list's own handler above, which reads the open conversation with it: not twice.
     if (e.part !== null && readsOpen(e, openRef.current)) setRefreshes((n) => n + 1)
