@@ -571,7 +571,7 @@ describe('the business mailboxes fed by Cloudflare Email Routing', () => {
     expect(install.cloudflareMailbox(null)).toBeNull()
   })
 
-  test('a mailbox is one of a business’s, not the owner’s own address, and one per domain', () => {
+  test('a mailbox is one of a business’s, not the owner’s own address, and listed once (several may share a domain)', () => {
     const orphan = withMailboxes()
     orphan.businesses = [{ id: 'lane', name: 'Pinecrest', mailboxes: ['info@pinecrest.test'] }]
     expect(problems(orphan).join()).toContain('cloudflareMailboxes[1].address: hello@shop.test is not a mailbox of any business')

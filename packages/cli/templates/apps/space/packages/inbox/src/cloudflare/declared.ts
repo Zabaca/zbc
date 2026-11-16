@@ -9,11 +9,13 @@ import { classifyAddress } from '../store/address'
  * routing rule that points at it. The store records the row the first time mail arrives for a declared address.
  *
  * ── THE ADDRESS FIRST, THEN THE DOMAIN'S ONE MAILBOX ─────────────────────
- * A message is filed in the mailbox declared at its envelope recipient's exact address. Failing that, where its domain has ONE declared mailbox, in that one:
- * Email Routing's catch-all hands over mail for ANY address on the domain, so a message to `anything@northfield.example` is filed in `hello@northfield.example`.
- * A domain may have several mailboxes (each reached by a literal routing rule of its own, `leads@` and a person's own address, say); then mail to any
- * other address on it is refused, since "which one" would be a guess. Mail for a domain no mailbox is declared on is refused (entrance.ts), so routing
- * another domain at this Worker by mistake cannot make the inbox a catch-all for it.
+ * A message is filed in the mailbox declared at its envelope recipient's exact address. Failing that, where its
+ * domain has ONE declared mailbox, in that one: Email Routing's catch-all hands over mail for ANY address on the
+ * domain, so a message to `anything@northfield.example` is filed in `hello@northfield.example`. A domain may have
+ * several mailboxes (each reached by a literal routing rule of its own, `leads@` and a person's own address, say);
+ * then mail to any other address on it is refused, since "which one" would be a guess. Mail for a domain no mailbox
+ * is declared on is refused (entrance.ts), so routing another domain at this Worker by mistake cannot make the
+ * inbox a catch-all for it.
  *
  * ── IT FAILS CLOSED ──────────────────────────────────────────────────────
  * A declaration that is not valid declares nothing (every arrival is refused), and the reason is said once, so a typo

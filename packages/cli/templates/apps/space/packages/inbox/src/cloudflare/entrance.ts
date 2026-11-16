@@ -8,7 +8,7 @@ import { type DeclaredMailbox, mailboxFor } from './declared'
  * `bun test` drives it with a bucket and a store that can fail.
  *
  * ── THE ORDER IS THE DESIGN ──────────────────────────────────────────────
- *   1. A message is accepted only for a declared domain. Anything else is refused outright and nothing is kept, so routing
+ *   1. A message is accepted only for a declared mailbox: its exact address, or any address on a domain that has exactly one. Anything else is refused outright and nothing is kept, so routing
  *      another domain at this Worker by mistake cannot make the inbox a catch-all for it.
  *   2. The RAW message is written to the bucket FIRST, before it is parsed and before the store hears of it, and not behind
  *      `waitUntil`. The copy is the only exact record: if the inbox's own filing is broken, the message is still there.
