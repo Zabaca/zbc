@@ -214,7 +214,6 @@ export class InboxDO extends DurableObject<Env> {
       model: anthropicKey === '' ? null : modelOverFetch((url, init) => fetch(url, init), anthropicKey),
       now: () => new Date(),
     })
-    // Point-in-time recovery of this object's own storage (src/restore.ts). Never reached by a request that is not the owner's.
     // The space's five busiest reads, run here whole (src/space-reads.ts): the inbox's part of the space over this object's own `call`, so each step is in-process and not a round trip from the Worker.
     this.spaceReads = new SpaceReads(() =>
       createSpaceInbox({
@@ -224,6 +223,7 @@ export class InboxDO extends DurableObject<Env> {
         googleClientId: env.INBOX_GOOGLE_CLIENT_ID,
       }),
     )
+    // Point-in-time recovery of this object's own storage (src/restore.ts). Never reached by a request that is not the owner's.
     this.restores = new Restores({
       storage: {
         currentBookmark: () => ctx.storage.getCurrentBookmark(),
