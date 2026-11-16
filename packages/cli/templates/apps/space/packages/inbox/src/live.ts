@@ -109,6 +109,8 @@ export const UNFOLLOWED_CALLS = [
   'notificationSettings',
   'removeDevice',
   'sendTestNotification',
+  // a new lead told to the devices: the lead itself is stored (and followed) by `receiveLead`
+  'notifyLead',
   'deliverNotifications',
   'setAssistant',
   'assistantUsage',

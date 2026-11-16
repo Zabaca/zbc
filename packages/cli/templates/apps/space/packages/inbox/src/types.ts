@@ -1165,8 +1165,8 @@ export interface ConversationPage extends ConversationDetail {
  */
 export interface NotificationPayload {
   v: 1
-  /** One message; several collapsed into one (src/notify/rule.ts, COLLAPSE_AFTER), whose tap opens the Inbox; or the test. */
-  kind: 'message' | 'summary' | 'test'
+  /** One message; several collapsed into one (src/notify/rule.ts, COLLAPSE_AFTER), whose tap opens the Inbox; the test; or a lead (src/notify/rule.ts `leadPayload`), whose tap opens the Leads tab. */
+  kind: 'message' | 'summary' | 'test' | 'lead'
   conversationId: string | null
   /**
    * For a SPACE device only (never on the payload an inbox device is sent): the sender's email address, normalised, which the space's service

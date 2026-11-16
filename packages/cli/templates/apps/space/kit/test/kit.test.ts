@@ -74,8 +74,9 @@ function brightwaterEverything() {
       agent: { path: '/agent/inbox' },
       telegram: { path: '/agent/telegram' },
       clientsDoor: { path: '/agent/clients', source: 'brightwater.test' },
+      leads: { mailbox: 'hello@brightwaterco.test', stages: [{ id: 'new', label: 'New' }, { id: 'done', label: 'Done', settled: true }], door: { path: '/agent/leads', source: 'brightwater.test' } },
       businesses: [{ id: 'brightwater', name: 'Brightwater', mailboxes: ['hello@brightwaterco.test'] }],
-      switches: { gmail: true, hostedMailboxes: true, clientDirectory: true, claudeScript: true, assistant: true, manyClients: true, calls: true, telegram: true },
+      switches: { gmail: true, hostedMailboxes: true, clientDirectory: true, claudeScript: true, assistant: true, manyClients: true, calls: true, telegram: true, leads: true },
     }),
     installFile: brightwaterFile({
       stores: { formsBucket: 'brightwater-forms-files', formsDatabase: 'brightwater-forms-records', rawMailBucket: 'brightwater-raw-mail', deliveryQueue: 'brightwater-delivery' },
@@ -87,6 +88,7 @@ function brightwaterEverything() {
         agent: { application: 'space.brightwater.test/agent/inbox', token: 'brightwater inbox agent' },
         telegram: { application: 'space.brightwater.test/agent/telegram', token: 'brightwater bridge' },
         clients: { application: 'space.brightwater.test/agent/clients', token: 'brightwater clients' },
+        leads: { application: 'space.brightwater.test/agent/leads', token: 'brightwater leads' },
         guests: DOORS,
       },
       secrets: {
@@ -157,7 +159,7 @@ describe('an invented company’s pair makes a whole install', () => {
   test('one with everything on: every door, the raw-mail bucket and queue, the push host, the senders, the mailboxes and the secrets', () => {
     const { declaration, installFile } = brightwaterEverything()
     const made = buildSpaceInstall<SpaceInstance>({ declaration, installFile, sopsNames: sops, modules: SPACE_MODULES, paths: BRIGHTWATER_PATHS })
-    expect(made.all.map((i) => i.name)).toEqual(['forms-bucket', 'forms-database', 'inbox-raw', 'inbox-delivery', 'space-access', 'space-forms-access', 'space-agent-access', 'space-telegram-access', 'space-clients-access', 'space-guest-calls', 'space-guest-chat', 'space-guest-signing', 'space'])
+    expect(made.all.map((i) => i.name)).toEqual(['forms-bucket', 'forms-database', 'inbox-raw', 'inbox-delivery', 'space-access', 'space-forms-access', 'space-agent-access', 'space-telegram-access', 'space-clients-access', 'space-leads-access', 'space-guest-calls', 'space-guest-chat', 'space-guest-signing', 'space'])
     const s = made.settings as Record<string, any>
     expect(s.routes).toEqual([
       { pattern: 'space.brightwater.test', custom_domain: true },
@@ -182,8 +184,11 @@ describe('an invented company’s pair makes a whole install', () => {
     expect(space.workerVars).toContainEqual({ name: 'GMAIL_PUSH_ENDPOINT', value: 'https://inbox-push.brightwater.test/api/gmail/push' })
     expect(space.workerVars).toContainEqual({ name: 'GMAIL_PUSH_SERVICE_ACCOUNT', value: 'inbox-push@brightwater-mail-1.iam.gserviceaccount.com' })
     expect(space.workerVars).toContainEqual({ name: 'GMAIL_TOPIC_NAME', value: 'projects/brightwater-mail-1/topics/gmail-push' })
+    // The leads door's audience and token id reach the Worker from its own application, as the Clients door's do.
+    expect(JSON.stringify(space)).toContain('CF_ACCESS_AUD_LEADS')
+    expect(JSON.stringify(space)).toContain('LEADS_ACCESS_CLIENT_ID')
     // The doors' token names are the install file's, each machine its own, found by name and never rotated from here.
-    for (const [instance, token] of [['agentAccess', 'brightwater inbox agent'], ['telegramAccess', 'brightwater bridge'], ['clientsAccess', 'brightwater clients']] as const) {
+    for (const [instance, token] of [['agentAccess', 'brightwater inbox agent'], ['telegramAccess', 'brightwater bridge'], ['clientsAccess', 'brightwater clients'], ['leadsAccess', 'brightwater leads']] as const) {
       const c = made.instances[instance]?.config as { serviceTokenName: string; rotate: boolean; emails: string[]; sessionDuration: string }
       expect([c.serviceTokenName, c.rotate, c.emails, c.sessionDuration]).toEqual([token, false, [], '0s'])
     }
@@ -244,12 +249,13 @@ describe('an install file that does not fit its declaration is refused, with eve
     delete bare.access.agent
     delete bare.access.telegram
     delete bare.access.clients
+    delete bare.access.leads
     delete bare.access.guests.calls
     delete bare.deliveryReports
     delete bare.stores.rawMailBucket
     delete bare.stores.deliveryQueue
     const said = problems(bare, d)
-    for (const want of ['calls: required', 'gmail: required', 'secrets.calls: required', 'secrets.gmail: required', 'secrets.assistant: required', 'secrets.hostedMailboxes: required', 'access.agent: required', 'access.telegram: required', 'access.clients: required', 'access.guests.calls: required', 'deliveryReports: a list', 'stores.rawMailBucket', 'stores.deliveryQueue']) {
+    for (const want of ['calls: required', 'gmail: required', 'secrets.calls: required', 'secrets.gmail: required', 'secrets.assistant: required', 'secrets.hostedMailboxes: required', 'access.agent: required', 'access.telegram: required', 'access.clients: required', 'access.leads: required', 'access.guests.calls: required', 'deliveryReports: a list', 'stores.rawMailBucket', 'stores.deliveryQueue']) {
       expect(said, want).toContain(want)
     }
   })

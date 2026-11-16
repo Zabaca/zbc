@@ -27,6 +27,7 @@ import { engineFor } from '@space/calendar/src/store-access'
 import { createSpaceKnowledge } from '@space/knowledge/src/space'
 import { objectFor, storeFor } from '@space/knowledge/src/store-access'
 import { createInboxPartFactory, type InboxPartEnv } from '@space/inbox/src/space-part'
+import type { LeadsDoorFace } from './leads-door'
 import { runCron } from '@space/meet/src/cron'
 import { createGuestApp } from '@space/meet/src/space-guests'
 import { createMeetPartFactory, type MeetPart } from '@space/meet/src/space-part'
@@ -120,6 +121,8 @@ export interface Parts {
   clients?: ClientsForSpace | undefined
   /** The Clients part's face for the Clients door: what the one declared source may push (src/clients-door.ts). Absent where the store is not bound or the install declares no source. */
   clientsDoor?: ClientsForSource | undefined
+  /** The inbox part's entry for the leads door: a request from the company's site, made a lead (src/leads-door.ts). Absent where the inbox's store is not bound. */
+  leadsDoor?: LeadsDoorFace | undefined
   /** Meet's chat, calls and phone: its methods in-process, and `fetch` for the live socket and the dial pad (packages/meet/src/space-part.ts). Absent where its stores are not bound. */
   meet?: MeetPart | undefined
   /** Forms' operator API and its clients' logos, as the Forms tab's two prefixes ask for them (src/forms.ts). */
@@ -150,6 +153,7 @@ export function createParts(deps: { fetch: Http; now: () => number; install: Ins
     inbox,
     claude: inbox?.claude,
     telegram: inbox?.telegram,
+    leadsDoor: inbox?.leadFromSource,
     formsApi:
       env.FORMS_DB && env.FORMS_FILES
         ? (req, who, wait) => {

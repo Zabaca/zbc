@@ -235,6 +235,7 @@ export const NOTIFY_METHODS = [
   'notificationSettings',
   'removeDevice',
   'sendTestNotification',
+  'notifyLead',
 ] as const satisfies readonly (keyof Notifications)[]
 
 /**

@@ -3,8 +3,8 @@
 // after the deploy watches them work. The payloads here are made by the INBOX'S OWN code (packages/inbox/src/notify/rule.ts), so the two cannot drift apart unseen.
 import { describe, expect, test } from 'bun:test'
 import type { InboxDevice } from '@space/workspace'
-import { messagePayload, summaryPayload, testPayload } from '../../inbox/src/notify/rule'
-import { MESSAGES, conversationPathOf, isAppWindow, notificationFor, readPayload, showsEveryPush, stayQuiet, tapPath, tapTarget } from '../src/client/sw-push'
+import { leadPayload, messagePayload, summaryPayload, testPayload } from '../../inbox/src/notify/rule'
+import { LEADS_PATH, MESSAGES, conversationPathOf, isAppWindow, notificationFor, readPayload, showsEveryPush, stayQuiet, tapPath, tapTarget } from '../src/client/sw-push'
 import { type BrowserFacts, WINDOW_MESSAGES, appleDevice, browserState, failing, safePath, serverKey } from '../src/client/notify'
 import { inboxPath } from '../src/client/route'
 import { ordered } from '../src/client/Notifications'
@@ -78,6 +78,18 @@ describe('a notification the inbox sends a space device', () => {
     const forInbox = readPayload(pushed(older))
     expect(forInbox).not.toHaveProperty('person')
     expect(tapPath(notificationFor(forInbox).options.data.person)).toBe('/inbox')
+  })
+})
+
+describe('a new lead’s notification', () => {
+  test('is read and shown with its words, names no person, and a tap opens the Leads tab', () => {
+    const payload = readPayload(JSON.stringify(leadPayload({ leadId: 'lead-1', requests: 2, title: 'New quote request', body: 'Jo Park, New wheels', at: '2026-11-16T18:00:00.000Z' })))
+    expect(payload).toMatchObject({ kind: 'lead', title: 'New quote request', body: 'Jo Park, New wheels', messageId: 'lead-lead-1-2' })
+    const shown = notificationFor(payload)
+    expect(shown.options.data).toEqual({ person: null, path: LEADS_PATH })
+    expect(stayQuiet(shown.options.data.person, [['jo@home.example']])).toBe(false)
+    expect(tapTarget(null, [], 'https://space.northfield.example', shown.options.data.path)).toEqual({ kind: 'open', url: '/leads' })
+    expect(tapTarget(null, [{ url: 'https://space.northfield.example/today', focused: true }], 'https://space.northfield.example', shown.options.data.path)).toEqual({ kind: 'focus', index: 0, path: '/leads' })
   })
 })
 
