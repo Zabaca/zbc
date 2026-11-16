@@ -129,6 +129,7 @@ export const UNFOLLOWED_CALLS = [
   'spaceRowCounts',
   'spaceLeads',
   'openLeadCount',
+  'leadsMailboxId',
   // who may see which mail: what a person is on, and the mailbox of one conversation or message (src/queue.ts `canSee`)
   'mailScope',
   'mailboxPeopleList',

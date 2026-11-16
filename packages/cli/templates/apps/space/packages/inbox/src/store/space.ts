@@ -405,8 +405,10 @@ export class SpaceStore extends AssistStore {
       const identity = text((identities[0] as { id: unknown }).id)
       const used = this.sql
         .exec(
-          `SELECT (SELECT count(*) FROM message WHERE identity_id = ?1) + (SELECT count(*) FROM participant WHERE identity_id = ?1) AS n`,
+          `SELECT (SELECT count(*) FROM message WHERE identity_id = ?1) + (SELECT count(*) FROM participant WHERE identity_id = ?1)
+                + (SELECT count(*) FROM lead WHERE contact_id = ?2) AS n`,
           identity,
+          contactId,
         )
         .one().n
       if (Number(used) > 0) return

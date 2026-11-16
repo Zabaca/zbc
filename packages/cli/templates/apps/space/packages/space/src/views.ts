@@ -211,6 +211,7 @@ const isNav = guard(
     isCount(v.contacts) &&
     isTelegramNav(v.telegram) &&
     isJmapNav(v.jmap) &&
+    (v.openLeads === undefined || isCount(v.openLeads)) &&
     each(v.gmailAccounts, (g) => isRecord(g) && isText(g.id) && isText(g.name) && isText(g.address) && isNavCount(g) && isBool(g.connected) && isText(g.state) && gmailStates.has(g.state) && (g.sendsByDefault === undefined || isBool(g.sendsByDefault)) && countOrNull(g.lastPushAt) && textOrNull(g.reason)),
 )
 const isClaudeSending = guard((v) => isRecord(v) && isBool(v.enabled) && countOrNull(v.changedAt))

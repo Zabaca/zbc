@@ -80,6 +80,7 @@ import {
   seesConversation,
   spelled,
 } from './space-gate'
+import { openLeadsFor } from './space-leads'
 import type { Result } from './store/store'
 import {
   type AssistantSwitch,
@@ -287,7 +288,7 @@ export function createSpaceViews(deps: SpaceDeps, asOwner: AsOwner, asPerson: As
    * The Drafts count adds the drafts that sit on no conversation, which the Drafts list shows above its rows.
    */
   const navigation = (asker: SignedIn) =>
-    asPerson(asker, async ({ scope }): Promise<SpaceReply<InboxNav>> => {
+    asPerson(asker, async ({ scope, owner }): Promise<SpaceReply<InboxNav>> => {
       // Each teammate's two addresses: the space puts a teammate known by both in one row, so a count must.
       const team = deps.install.people.map((p) => [p.address, p.signIn].map((a) => a.trim().toLowerCase()))
       const [rows, drafts, dir, usage, gmail, boxes, telegram, jmap] = await Promise.all([
@@ -313,6 +314,7 @@ export function createSpaceViews(deps: SpaceDeps, asOwner: AsOwner, asPerson: As
       })
       clients.sort((a, b) => Number(b.listed) - Number(a.listed) || a.name.localeCompare(b.name) || a.id - b.id)
       const loose = drafts.filter((d) => d.conversationId === null).length
+      const openLeads = await openLeadsFor(deps, scope, owner)
       // Only the mailboxes the person is on are listed at all, with their own counts.
       const mine = <T extends { id: string }>(list: readonly T[]): T[] => list.filter((m) => canSee(scope, m.id))
       const myTelegram = mine(telegram)[0]
@@ -360,6 +362,8 @@ export function createSpaceViews(deps: SpaceDeps, asOwner: AsOwner, asPerson: As
           lastSyncAt: orNull(m.lastSyncAt),
           reason: m.health.reasons[0] ?? null,
         })),
+        // The open leads, beside the Leads tab: only where the install has leads and the person may see them.
+        ...(openLeads !== undefined && { openLeads }),
       })
     })
 
