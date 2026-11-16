@@ -327,8 +327,9 @@ export function createSpaceViews(deps: SpaceDeps, asOwner: AsOwner, asPerson: As
           reason: m.health.reasons[0] ?? null,
         })),
         clients,
-        // A store still on the code before this count was added (minutes after a deploy, src/store-access.ts) answers without it; no page shows the number.
-        contacts: rows.contacts ?? 0,
+        // A store still on the code before this count was added (minutes after a deploy, src/store-access.ts) answers without it; no page shows the number. The `?? 0` can go in the
+        // next change to this file once every install has deployed this one (its store has restarted on it by then).
+        contacts: (rows as { contacts?: number }).contacts ?? 0,
         gmailAccounts: mine(gmail).map((g) => ({
           id: g.id,
           name: g.name,

@@ -52,7 +52,7 @@ import { SAFETY_NET_MS, useKeepFresh } from './notify'
 import { PhonePane } from './PhonePane'
 import { useSwitches } from './switches'
 import { callPath, conversationKey, conversationPath, draftIdAt, draftPath, follow, inboxPath, tabNameOf, tabPathOf } from './route'
-import { postView } from './views'
+import { postView, READ_HELD_MS } from './views'
 
 /** Fewest characters a search is sent for: one letter finds half the inbox. */
 export const SEARCH_MIN = 2
@@ -602,23 +602,27 @@ export function Conversations({ scope, me, pathname, search = '', go: goTo }: { 
   heldAnswer.current = answer
   const [loadingOlder, setLoadingOlder] = useState(false)
 
-  // A refresh asked for while a read is under way (`follow`: a live message, the page shown again, the ten minutes) waits for it and is ONE more read after it, not a new read that
+  // A refresh asked for while a read is under way (`waitForRead`: a live message, the page shown again, the ten minutes) waits for it and is ONE more read after it, not a new read that
   // aborts it: an aborted read still runs to the end in the inbox's store, which answers one read at a time, so every abort was a read stacked on the next (as measured: the
-  // reads queued past the space's four seconds while mail arrived). A read that must not wait (another list, Load older, the page's own read after a write) still replaces the one under way.
+  // reads queued past the space's four seconds while mail arrived). A read that must not wait (another list, Load older, the page's own read after a write) still replaces the one under way,
+  // and takes over what was owed: a refresh that was to read the open conversation again still does. A read out longer than READ_HELD_MS (a phone that slept with it in flight) is replaced too.
   const owed = useRef<{ again: boolean } | null>(null)
+  const inflightSince = useRef(0)
   // `again` is for the reads that mean the world changed (chat said so, the page was shown again, a minute passed): the open conversation is read
   // again with the list. A read the page makes itself (after it marked something read, or sent) is the list alone.
-  const load = useCallback((quiet: boolean, again = true, follow = false) => {
-    if (follow && inflight.current !== null && !inflight.current.signal.aborted) {
+  const load = useCallback((quiet: boolean, again = true, waitForRead = false) => {
+    if (waitForRead && inflight.current !== null && !inflight.current.signal.aborted && Date.now() - inflightSince.current < READ_HELD_MS) {
       owed.current = { again: (owed.current?.again ?? false) || again }
       return
     }
+    const carried = owed.current?.again === true
     owed.current = null
     inflight.current?.abort()
     const ctl = new AbortController()
     inflight.current = ctl
+    inflightSince.current = Date.now()
     if (!quiet) setLoading(true)
-    if (again && quiet) setRefreshes((n) => n + 1)
+    if (carried || (again && quiet)) setRefreshes((n) => n + 1)
     const startedAt = Date.now()
     void read<ConversationsAnswer>(readingFor(current.current, reading.current), ctl.signal).then((r) => {
       if (ctl.signal.aborted) return
