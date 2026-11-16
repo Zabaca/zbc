@@ -34,6 +34,11 @@ export function clientsRoute(install: Install, pathname: string): AgentRoute {
   return doorRoute(install.clientsDoor(), pathname)
 }
 
+/** The leads door, by the same rule again (`Install.leadsDoor`). `forward` is the `/api/...` path under the door, which the space itself answers (packages/space/src/leads-door.ts). */
+export function leadsRoute(install: Install, pathname: string): AgentRoute {
+  return doorRoute(install.leadsDoor(), pathname)
+}
+
 function doorRoute(door: AgentDoor | null, pathname: string): AgentRoute {
   if (door === null) return { on: false }
   const at = door.path.length

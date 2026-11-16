@@ -55,7 +55,9 @@
       "budget": { "label": "Budget", "board": true },
       "timeline": { "label": "When" },
       "notes": { "label": "Notes" }
-    }
+    },
+    "door": { "path": "/agent/leads", "source": "ridgewaycycles.example" },
+    "notify": { "title": "New quote request", "field": "project" }
   },
   "people": [{ "address": "tessa@northfield.example", "name": "Tessa", "mailName": "Tessa Marlow", "role": "owner" }],
   "businesses": [

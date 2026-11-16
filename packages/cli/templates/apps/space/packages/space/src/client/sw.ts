@@ -1,4 +1,4 @@
-import { ASK_WAIT_MS, MESSAGES, notificationFor, readPayload, type Shown, showsEveryPush, stayQuiet, tapTarget } from './sw-push'
+import { ASK_WAIT_MS, LEADS_PATH, MESSAGES, notificationFor, readPayload, type Shown, showsEveryPush, stayQuiet, tapTarget } from './sw-push'
 
 /**
  * The space's service worker: what makes it an app Chrome installs on a phone or a Mac, and what shows a notification. Built by Vite as an entry of its
@@ -26,7 +26,7 @@ interface PushMessageEvent extends WaitEvent {
   data: { text(): string } | null
 }
 interface NotificationClickEvent extends WaitEvent {
-  notification: { close(): void; data: { person?: string | null } | null }
+  notification: { close(): void; data: { person?: string | null; path?: string } | null }
 }
 interface AppWindow {
   url: string
@@ -111,8 +111,10 @@ worker.addEventListener('notificationclick', (event) => {
   event.waitUntil(
     (async () => {
       const person = event.notification.data?.person ?? null
+      const path = event.notification.data?.path
       const windows = await appWindows()
-      const target = tapTarget(person, windows, worker.location.origin)
+      // A lead's notification opens the Leads tab; every other the person's conversation, or the Inbox.
+      const target = tapTarget(person, windows, worker.location.origin, path === LEADS_PATH ? LEADS_PATH : undefined)
       if (target.kind === 'open') {
         await worker.clients.openWindow(target.url)
         return
