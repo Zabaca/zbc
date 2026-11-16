@@ -11,7 +11,7 @@
 // nothing and answers the lead it went to.
 
 import { type InboxLead, LEADS_READ_MAX } from '@space/workspace'
-import type { MailScope } from '../queue'
+import { ALL_MAIL, canSee, type MailScope } from '../queue'
 import { type Classified, classifyAddress } from './address'
 import { scopeWhere } from './scope'
 import { SpaceStore } from './space'
@@ -161,6 +161,26 @@ export class LeadStore extends SpaceStore {
     })
   }
 
+  /** The id of the mailbox with this address that leads may belong to (a Cloudflare or a hosted one), or null while no mail has made its row. */
+  leadsMailboxId(address: string): string | null {
+    return nullable(
+      this.sql
+        .exec(`SELECT id FROM mailbox WHERE address = ?1 AND kind IN ('cloudflare', 'jmap') LIMIT 1`, address)
+        .toArray()[0]?.id,
+    )
+  }
+
+  /** One request a site sent, kept by the site's id for it: what makes a repeat of it change nothing. */
+  private keepRequest(source: string, externalId: string, leadId: string, at: string): void {
+    this.sql.exec(
+      `INSERT INTO lead_request (source, external_id, lead_id, at) VALUES (?1, ?2, ?3, ?4)`,
+      source,
+      externalId,
+      leadId,
+      at,
+    )
+  }
+
   /** Make a lead by hand for a person the maker may see, in the first stage. `fields` were checked against the install by the part. */
   makeLead(
     contactId: string,
@@ -173,6 +193,9 @@ export class LeadStore extends SpaceStore {
       const contact = this.sql.exec(`SELECT id FROM contact WHERE id = ?1`, contactId).toArray()[0]
       if (!contact || !(this.visibleContactIds(mail)?.has(contactId) ?? true))
         return fail(404, 'There is no such person.')
+      // Checked BEFORE anything is written, over the same row the reads cut by: a lead the maker could not then see is never kept.
+      if (!canSee(mail, this.leadsMailboxId(rules.mailbox)))
+        return fail(403, 'Leads are seen by the people on the mailbox they belong to, and you are not on it.')
       const id = this.ports.newId()
       const at = this.now()
       const values = filled(fields)
@@ -188,9 +211,7 @@ export class LeadStore extends SpaceStore {
         actor,
       )
       this.audit(actor, 'lead.create', `lead:${id}`, null, { contactId, stage: rules.firstStage, fields: values })
-      const lead = this.leadFor(id, mail)
-      // The maker could see the person but not the leads' mailbox: the part refuses such a person before it calls, so this is only a guard.
-      return lead ? ok(lead) : fail(404, 'There is no such person.')
+      return ok(this.leadFor(id, mail) as InboxLead)
     })
   }
 
@@ -235,7 +256,7 @@ export class LeadStore extends SpaceStore {
    * (no person asks), so it reads every lead whatever the scope.
    */
   receiveLead(request: LeadRequest, rules: LeadRules, actor: string): Result<LeadReceived> {
-    const all: MailScope = { mailboxIds: null, unfiled: true }
+    const all = ALL_MAIL
     return this.ports.transaction(() => {
       const kept = this.sql
         .exec(
@@ -278,13 +299,7 @@ export class LeadStore extends SpaceStore {
           byEmail?.address ?? null,
           byPhone?.address ?? null,
         )
-        this.sql.exec(
-          `INSERT INTO lead_request (source, external_id, lead_id, at) VALUES (?1, ?2, ?3, ?4)`,
-          request.source,
-          request.externalId,
-          leadId,
-          at,
-        )
+        this.keepRequest(request.source, request.externalId, leadId, at)
         this.audit(
           actor,
           'lead.fold',
@@ -310,13 +325,7 @@ export class LeadStore extends SpaceStore {
         at,
         actor,
       )
-      this.sql.exec(
-        `INSERT INTO lead_request (source, external_id, lead_id, at) VALUES (?1, ?2, ?3, ?4)`,
-        request.source,
-        request.externalId,
-        id,
-        at,
-      )
+      this.keepRequest(request.source, request.externalId, id, at)
       this.audit(actor, 'lead.create', `lead:${id}`, null, {
         contactId,
         stage,

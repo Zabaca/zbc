@@ -1215,6 +1215,13 @@ export class Inbox {
         actor,
       )
       this.sql.exec(`UPDATE identity SET contact_id = ?2 WHERE id = ?1`, identityId, contactId)
+      // A lead that came in on this address goes with it (migration 21), as its conversations do.
+      this.sql.exec(
+        `UPDATE lead SET contact_id = ?2 WHERE contact_id = ?1 AND (email = ?3 OR phone = ?3)`,
+        fromId,
+        contactId,
+        text(identity.address),
+      )
       this.sql.exec(`UPDATE contact SET profile_rev = profile_rev + 1 WHERE id = ?1`, fromId)
       const movedMessages = this.separateManualHistory(identityId)
       const from = this.contactRow(fromId) as ContactRow

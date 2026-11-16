@@ -1,7 +1,7 @@
 # workspace: Context
 
 The company layer shared by the space (the front door and the one Worker) and the four apps it runs, inbox, forms, meet and knowledge: one place that says
-which company an install is, who its people are, how a sign-in becomes a person, where the space is and which tabs it has (of the layer's seven), and which features are on.
+which company an install is, who its people are, how a sign-in becomes a person, where the space is and which tabs it has (of the layer's eight), and which features are on.
 A library, not a service: nothing here runs on its own, and each app imports it.
 
 Not meet's "workspace" (channels and direct messages in the meet package). This package's word for one company's
@@ -68,9 +68,9 @@ set-up is **install**.
   push host where `gmail` is off); `install.switches()` is what the page is told (`/api/me`'s `switches`).
 - **Identity**: what the sign-in check returns: a `person` of this install, or (where the app says it takes one) a
   `service` token. A person of another install is refused even when Cloudflare signed their assertion.
-- **Tab**: one of the space's seven, Today, Inbox, Meet, Calendar, Forms, People and Knowledge, in that order (`TABS`), of which an install has the ones its switches give it (`Install.tabs`, `hasTab`): **Calendar only where `gmail` is
-  on** (a calendar is a Google account's), **Inbox only where the install has a mailbox of any kind** (`Install.hasMailbox`: Gmail, a mailbox on its mail server, Telegram, or a business mailbox it declares); every other tab is every
-  install's. This replaces "the same seven tabs in every install" (ADR 0004). The space opens on Today (`HOME_TAB`), which every install has.
+- **Tab**: one of the space's eight, Today, Inbox, Meet, Calendar, Forms, People, Leads and Knowledge, in that order (`TABS`), of which an install has the ones its switches give it (`Install.tabs`, `hasTab`): **Calendar only where `gmail` is
+  on** (a calendar is a Google account's), **Inbox only where the install has a mailbox of any kind** (`Install.hasMailbox`: Gmail, a mailbox on its mail server, Telegram, or a business mailbox it declares), **Leads only where `leads` is on**;
+  every other tab is every install's. This replaces "the same seven tabs in every install" (ADR 0004). The space opens on Today (`HOME_TAB`), which every install has.
 - **Entrypoint (for the space)**: the named RPC `WorkerEntrypoint` an app that is still a Worker of its own exports for the space and the space reaches by a
   service binding, inside the account: none is left: the inbox's `SpaceInbox` (and forms' `SpaceForms`, the knowledge app's `SpaceKnowledge` and meet's `SpaceMeet`) are deleted; those parts run in the
   space's Worker, see **Part** below. Its interface is in this package (`InboxForSpace`, `MeetForSpace`), method by method, so the app and the space build to one shape. Not a route, and

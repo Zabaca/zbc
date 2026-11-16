@@ -306,6 +306,7 @@ export const LEAD_METHODS = [
   'makeLead',
   'receiveLead',
   'openLeadCount',
+  'leadsMailboxId',
 ] as const satisfies readonly (keyof LeadStore)[]
 
 /**

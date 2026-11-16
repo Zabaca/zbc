@@ -28,7 +28,8 @@ function follow(e: MouseEvent<HTMLAnchorElement>, path: string, go: Go): void {
 /** The columns, in the install's order, then any stage a lead holds that the install no longer declares. */
 export function columnsOf(words: LeadsWords, leads: readonly InboxLead[]): { id: string; label: string; settled: boolean }[] {
   const known = new Set(words.stages.map((s) => s.id))
-  const strays = [...new Set(leads.map((l) => l.stage).filter((s) => !known.has(s)))].map((id) => ({ id, label: id, settled: true }))
+  // A stage taken out of the declaration is no settled one of the install's, so its leads are counted as open (as the store counts them) and drawn after the declared columns.
+  const strays = [...new Set(leads.map((l) => l.stage).filter((s) => !known.has(s)))].map((id) => ({ id, label: id, settled: false }))
   return [...words.stages, ...strays]
 }
 
@@ -181,7 +182,7 @@ export function LeadsScreen({ me, go }: { me: Me; go: Go }) {
               )
             })}
           </div>
-          {state.value.more && <p className="sub">Only the newest settled leads are shown.</p>}
+          {state.value.more && <p className="sub">Only the first 500 leads are shown, the open ones first.</p>}
         </>
       )}
     </section>

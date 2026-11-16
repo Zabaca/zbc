@@ -90,6 +90,8 @@ export interface InboxNav {
   telegram?: InboxNavTelegram | null
   /** The mailboxes on the install's own mail server (JMAP), each a place in the Mailboxes tree like a business mailbox and a line at the foot; ABSENT from an inbox that predates them. */
   jmap?: InboxNavJmap[]
+  /** How many open leads the person may see, for the menu beside the Leads tab; ABSENT where the install has no leads or the person may not see them. */
+  openLeads?: number
 }
 
 /**

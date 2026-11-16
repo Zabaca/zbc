@@ -59,7 +59,7 @@ const reason = (r: SpaceReply<unknown>): string => {
   return (r as { reason: string }).reason
 }
 
-async function world(install = MARLOW) {
+async function world(install = MARLOW, deskHasMail = true) {
   const h = harness(
     {},
     {
@@ -84,7 +84,8 @@ async function world(install = MARLOW) {
       'Hi there',
       '',
     ].join('\r\n')
-  expect((await h.deliver(raw(DESK, 'd1', 'Cora Lund <cora@dock.example>'), { to: DESK })).entered).toBe('filed')
+  if (deskHasMail)
+    expect((await h.deliver(raw(DESK, 'd1', 'Cora Lund <cora@dock.example>'), { to: DESK })).entered).toBe('filed')
   expect((await h.deliver(raw(BOOKS, 'b1', 'Vic Tran <vic@vendor.example>'), { to: BOOKS })).entered).toBe('filed')
   const space = h.space({ install })
   const send = (
@@ -224,7 +225,7 @@ describe('who sees the leads', () => {
     expect(value(await space.leads(as(ALEX))).leads).toHaveLength(1)
     expect(value(await space.leads(as(BEA))).leads).toHaveLength(1)
     expect(reason(await space.leads(as(CAL)))).toBe('not-admitted')
-    expect(value(await space.contactLeads(as(CAL), made.lead.contactId))).toEqual({ leads: [], more: false })
+    expect(reason(await space.contactLeads(as(CAL), made.lead.contactId))).toBe('not-admitted')
     expect(reason(await space.moveLead(as(CAL), { leadId: made.lead.id, rev: 0, stage: 'called' }))).toBe(
       'not-admitted',
     )
@@ -234,7 +235,7 @@ describe('who sees the leads', () => {
     const off = createInstall(declaration(false))
     const { space, as } = await world(off)
     expect(reason(await space.leads(as(ALEX)))).toBe('not-found')
-    expect(value(await space.contactLeads(as(ALEX), 'any-contact'))).toEqual({ leads: [], more: false })
+    expect(reason(await space.contactLeads(as(ALEX), 'any-contact'))).toBe('not-found')
   })
 })
 
@@ -299,5 +300,64 @@ describe('a merge', () => {
       other.lead.id,
     ])
     void T0
+  })
+})
+
+describe('after the review of the first slice', () => {
+  test('until mail has made the leads’ mailbox, its leads are the owner’s alone: the Desk’s other people are refused before anything is written', async () => {
+    const { h, space, send, as } = await world(MARLOW, false)
+    const vic = (
+      h.db.query(`SELECT contact_id FROM identity WHERE address = 'vic@vendor.example'`).get() as { contact_id: string }
+    ).contact_id
+    expect(reason(await space.makeLead(as(BEA), { contactId: vic, fields: {} }))).toBe('not-admitted')
+    expect(reason(await space.leads(as(BEA)))).toBe('not-admitted')
+    expect(count(h, 'lead')).toBe(0)
+    const made = value(await send('q1', {}))
+    expect(value(await space.leads(as(ALEX))).leads.map((l) => l.id)).toEqual([made.lead.id])
+    expect(value(await space.makeLead(as(ALEX), { contactId: vic, fields: {} })).stage).toBe('new')
+  })
+
+  test('a request with no id of its own, or a moment that is not one, is refused with nothing kept', async () => {
+    const { h, send } = await world()
+    expect(reason(await send('', {}))).toBe('bad-request')
+    expect(reason(await send('q1', { at: 'not a date' }))).toBe('bad-request')
+    expect(value(await send('q2', { at: '2026-09-01T10:00:00Z', stage: 'called' })).lead.createdAt).toBe(
+      '2026-09-01T10:00:00.000Z',
+    )
+    expect(count(h, 'lead')).toBe(1)
+  })
+
+  test('an address split off a person takes the lead that came in on it', async () => {
+    const { h, send, space, as } = await world()
+    const home = value(await send('q1', { phone: '626 555 0101' }))
+    value(await space.moveLead(as(ALEX), { leadId: home.lead.id, rev: 0, stage: 'won' }))
+    // From another address with the same number: the same person, given that address too, and a new lead (the first is settled).
+    const work = value(await send('q2', { email: 'jo.work@office.example', phone: '626 555 0101' }))
+    expect([work.outcome, work.lead.contactId]).toEqual(['made', home.lead.contactId])
+    const identity = h.db.query(`SELECT id FROM identity WHERE address = 'jo.work@office.example'`).get() as {
+      id: string
+    }
+    const rev = (
+      h.db.query(`SELECT profile_rev AS r FROM contact WHERE id = ?`).get(home.lead.contactId) as { r: number }
+    ).r
+    const split = value(
+      await space.splitAddress(as(ALEX), { contactId: home.lead.contactId, rev, identityId: identity.id }),
+    ) as { contact: { contactId: string } }
+    expect(value(await space.contactLeads(as(ALEX), split.contact.contactId)).leads.map((l) => l.id)).toEqual([
+      work.lead.id,
+    ])
+    expect(value(await space.contactLeads(as(ALEX), home.lead.contactId)).leads.map((l) => l.id)).toEqual([
+      home.lead.id,
+    ])
+  })
+
+  test('the menu counts the open leads for the people who may see them, and says nothing to anyone else', async () => {
+    const { send, space, as } = await world()
+    const first = value(await send('q1', {}))
+    value(await send('q2', { email: 'sam@else.example', name: 'Sam' }))
+    value(await space.moveLead(as(ALEX), { leadId: first.lead.id, rev: 0, stage: 'won' }))
+    expect((value(await space.navigation(as(ALEX))) as { openLeads?: number }).openLeads).toBe(1)
+    expect((value(await space.navigation(as(BEA))) as { openLeads?: number }).openLeads).toBe(1)
+    expect(value(await space.navigation(as(CAL)))).not.toHaveProperty('openLeads')
   })
 })

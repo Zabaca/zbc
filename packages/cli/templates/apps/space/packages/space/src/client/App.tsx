@@ -144,6 +144,11 @@ export function Space({ me, pathname, search = '', go }: { me: Me; pathname: str
             >
               <TabIcon tab={t.id} />
               <span className="rail-label">{t.label}</span>
+              {t.id === 'leads' && nav.kind === 'value' && (nav.value.openLeads ?? 0) > 0 && (
+                <span className="rail-count" title="Open leads" data-testid="open-leads">
+                  {nav.value.openLeads}
+                </span>
+              )}
             </a>
             {/* The inbox's views, mailboxes and Clients, as a tree under Inbox while that tab is the page. On a phone the strip has no room: the list's own button opens them. */}
             {t.id === 'inbox' && tab === 'inbox' && (

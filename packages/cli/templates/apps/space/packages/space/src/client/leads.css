@@ -147,6 +147,14 @@
   align-self: flex-start;
 }
 
+/* The open leads beside the Leads tab in the menu. */
+.rail-count {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--mute);
+  font-variant-numeric: tabular-nums;
+}
+
 @media (max-width: 760px) {
   .lead-board {
     grid-auto-flow: row;

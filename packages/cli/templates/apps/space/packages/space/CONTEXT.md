@@ -1,7 +1,7 @@
 # space: Context
 
 The front door at `space.<company domain>` (for the invented install, `space.northfield.example`), the one address a company's team works at.
-A Worker that checks the sign-in ONCE on every request, serves the seven-tab page, answers `/api/me`, draws the Forms tab's screens itself and answers their API calls and logos with forms' own app, which RUNS IN IT,
+A Worker that checks the sign-in ONCE on every request, serves the page of the install's tabs (of eight), answers `/api/me`, draws the Forms tab's screens itself and answers their API calls and logos with forms' own app, which RUNS IN IT,
 runs the knowledge app and meet's chat, calls and Phone in it too, and draws the Inbox (email) from the inbox, which runs in it too. It is the one app
 ([ADR 0015](docs/adr/0015-forms-and-the-knowledge-app-run-in-the-spaces-worker-and-the-knowledge-store-is-handed-to-it.md)):
 it OWNS the knowledge base's Durable Object, meet's two stores ([ADR 0016](docs/adr/0016-meets-chat-calls-and-phone-run-in-the-spaces-worker-and-its-two-stores-are-handed-to-it.md)) and the inbox's mail store ([ADR 0017](docs/adr/0017-the-inbox-runs-in-the-spaces-worker-and-its-store-is-handed-to-it.md)), and binds forms' database and bucket, so every app's data is this Worker's or bound by it. It is the only Worker of the four apps and `space.<company domain>` the only address people use: meet and forms have no Worker or host of their own. People is the directory of the people those three know,
