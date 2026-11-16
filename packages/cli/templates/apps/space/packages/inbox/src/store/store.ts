@@ -335,6 +335,9 @@ export function isoOrNull(value: unknown): string | null {
   return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString()
 }
 
+/** How long the fold of every conversation is kept even when no change was counted (`Inbox.everyQueueFact`): a bound on how stale a list can be if a write ever went uncounted. */
+const FOLD_KEPT_MS = 15_000
+
 /** The columns the read and open rules need of a message, as `FOLD_SELECT` reads them. */
 const FOLD_SELECT = `
   SELECT m.conversation_id, m.identity_id, m.gmail_id, m.jmap_id, m.status, m.direction, m.labels, m.list_unsubscribe, m.clef_junk,
@@ -706,8 +709,19 @@ export class Inbox {
     return this.selected
   }
 
+  /** Statements this store ran that were not a plain read (anything but SELECT): one half of what says the kept fold is still the store's state (`everyQueueFact`). */
+  private written = 0
+  private counted: InboxSql | undefined
+
+  /** The store's SQL, through which every part's statement goes (the Mailroom, arrivals and the rest write through the store's methods); each statement that is not a SELECT is counted. */
   protected get sql(): InboxSql {
-    return this.ports.sql
+    this.counted ??= {
+      exec: (query: string, ...bindings: unknown[]) => {
+        if (!/^\s*select\b/i.test(query)) this.written += 1
+        return this.ports.sql.exec(query, ...bindings)
+      },
+    }
+    return this.counted
   }
 
   protected now(): string {
@@ -1482,8 +1496,26 @@ export class Inbox {
       )
       .toArray()
 
+    // Each row's state and envelope come from the fold of every conversation when it is kept for this state of the store (`everyQueueFact`): the same rules (`foldConversation`) over the
+    // same rows, without reading each conversation's messages again. A conversation the fold does not hold is read on its own.
+    const folded = rows.length > 1 ? new Map(this.everyQueueFact().map((e) => [e.fact.id, e.fact] as const)) : null
+    const stateOf = (id: string): { state: ConversationState; newestInbound: Envelope | null } => {
+      const f = folded?.get(id)
+      if (f === undefined) return this.stateAndEnvelope(id)
+      return {
+        state: {
+          unread: f.unread,
+          open: f.open,
+          readBy: f.readBy,
+          readAt: f.readAt,
+          closedBy: f.closedBy,
+          closedAt: f.closedAt,
+        },
+        newestInbound: f.newestInbound,
+      }
+    }
     return rows.map((r) => {
-      const facts = this.stateAndEnvelope(text(r.id))
+      const facts = stateOf(text(r.id))
       const people = this.sql
         .exec(
           `SELECT DISTINCT ct.id, ct.name, ct.client_id, i.kind
@@ -1735,6 +1767,44 @@ export class Inbox {
    * store's own work; whatever answers a person passes theirs.
    */
   protected queueFacts(mailboxId: string | null, scope: MailScope = ALL_MAIL): QueueFact[] {
+    const out: QueueFact[] = []
+    for (const { mailboxId: m, fact } of this.everyQueueFact())
+      if ((mailboxId === null || m === mailboxId) && canSee(scope, m))
+        out.push({ ...fact, clientIds: [...fact.clientIds] })
+    return out
+  }
+
+  /**
+   * THE FOLD OF EVERY CONVERSATION, MADE ONCE PER STATE OF THE STORE. Every list, every count of the menu, the mailboxes' figures and Bulk's numbers start from it, and one
+   * page's refresh asks for it about a dozen times; on Cloudflare each fold of one owner's store cost 0.1 to 0.3 s of CPU, and the store answers one call at a time, so a few pages refreshing
+   * together queued past the space's four-second wait. It is a function of the stored rows alone (no clock, no request), so it is kept until a row changes: SQLite's `total_changes()` counts
+   * every row this connection inserted, updated or deleted, and the store counts every statement it ran that was not a SELECT (`sql`); a change to either makes the next ask fold again, so a write
+   * by any part (the Mailroom, an arrival, a person) is in the next read even if one of the two counts behaves differently on Cloudflare than under bun. Kept at most FOLD_KEPT_MS as well. A store whose
+   * SQL refuses `total_changes()` folds every time, as before.
+   */
+  private folded: { stamp: string; at: number; rows: { mailboxId: string | null; fact: QueueFact }[] } | null = null
+
+  /** What must be unchanged for the kept fold to stand: the statements this store wrote (`written`) AND SQLite's own count of changed rows, so a write either one missed is still seen. Null when SQLite refuses `total_changes()`. */
+  private changeStamp(): string | null {
+    try {
+      return `${this.written}:${Number(this.ports.sql.exec(`SELECT total_changes() AS n`).one().n)}`
+    } catch {
+      return null
+    }
+  }
+
+  protected everyQueueFact(): { mailboxId: string | null; fact: QueueFact }[] {
+    const stamp = this.changeStamp()
+    const at = Date.now()
+    const kept = this.folded
+    if (stamp !== null && kept !== null && kept.stamp === stamp && at - kept.at < FOLD_KEPT_MS) return kept.rows
+    const rows = this.foldEveryConversation()
+    // Taken again after the fold: a fold that wrote anything (it should not) is not kept.
+    this.folded = stamp !== null && this.changeStamp() === stamp ? { stamp, at, rows } : null
+    return rows
+  }
+
+  private foldEveryConversation(): { mailboxId: string | null; fact: QueueFact }[] {
     const byConversation = new Map<string, FoldRow[]>()
     for (const r of this.sql.exec(`${FOLD_SELECT} WHERE m.conversation_id IS NOT NULL ORDER BY m.rowid`).toArray()) {
       const id = text(r.conversation_id)
@@ -1767,12 +1837,9 @@ export class Inbox {
                 (SELECT count(*) FROM message d WHERE d.conversation_id = c.id AND d.status IN ${PENDING}) AS drafts
            FROM conversation c
            LEFT JOIN mailbox mb ON mb.id = c.mailbox_id
-          WHERE ?1 IS NULL OR c.mailbox_id = ?1
           ORDER BY c.last_activity_at DESC, c.rowid DESC`,
-        mailboxId,
       )
       .toArray()
-      .filter((r) => canSee(scope, textOrNull(r.mailbox_id)))
       .map((r) => {
         const { state, newestInbound } = foldConversation(
           isMailboxKind(r.mailbox_kind) ? r.mailbox_kind : null,
@@ -1780,7 +1847,7 @@ export class Inbox {
           // A Telegram group is not judged by who last spoke in it (see `stateAndEnvelope`).
           r.telegram_kind === 'group' ? new Map() : automated,
         )
-        return {
+        const fact: QueueFact = {
           id: text(r.id),
           lastActivityAt: text(r.last_activity_at),
           drafts: Number(r.drafts),
@@ -1789,6 +1856,7 @@ export class Inbox {
           clientIds: clientsOf.get(text(r.id)) ?? [],
           ...mailboxFacts(r),
         }
+        return { mailboxId: textOrNull(r.mailbox_id), fact }
       })
   }
 
