@@ -104,6 +104,9 @@ export function spaceWorkerSettings(install: Install, file: InstallFile): Worker
     ...(hasBusinessMail ? { ai: { binding: 'AI' } } : {}),
     // CPU, per request or alarm: 30 s, a guard and not a budget. A Durable Object's CPU limit is its owning Worker's, and the inbox's store runs here (a 10 MB parse, a Gmail sync batch, a search over the whole store).
     limits: { cpu_ms: 30000 },
+    // WORKERS LOGS, kept by Cloudflare in the install's own account for its retention (days), every invocation (the stores' included): what `wrangler tail` shows only while someone watches. Turned on
+    // after the inbox's store stalled and restarted with nothing kept from before the restart to say why. What is logged is the code's own lines and each request's path (a search's words are in its query), never a body.
+    observability: { enabled: true, head_sampling_rate: 1 },
     // A flood of guesses or uploads on forms' public API is refused before it costs a database read, and the guests' emailed-code sign-in is limited per caller before it costs the workspace object a request: 120 and
     // 10 a minute. A namespace id belongs to the account and is kept unique in it.
     ratelimits: [

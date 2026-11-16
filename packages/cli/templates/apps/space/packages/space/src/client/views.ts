@@ -94,22 +94,39 @@ export function useView<T>(name: string, query: Record<string, string> = {}, ena
   const key = `${name}?${new URLSearchParams(query).toString()}`
   const held = useRef(state)
   held.current = state
+  // A reload asked for while a read is under way waits for it and is one more read after it, rather than aborting it: an aborted read still runs to the end in the part that answers it
+  // (the inbox's store answers one at a time), so a burst of live messages was a stack of reads (Conversations.tsx `load` says the same). Another view (`key`) still replaces the read.
+  const busy = useRef(false)
+  const owed = useRef(false)
   // biome-ignore lint/correctness/useExhaustiveDependencies: `key` is the name and the query; `tick` is a reload.
   useEffect(() => {
     // A view of a part the install does not have is not asked for (the Worker would answer it as a path that is not there).
     if (!enabled) return
     const ctl = new AbortController()
+    busy.current = true
+    owed.current = false
     setReading(true)
     void getView<T>(name, query, ctl.signal).then((got) => {
       if (ctl.signal.aborted) return
+      busy.current = false
       setReading(false)
+      if (owed.current) {
+        owed.current = false
+        setTick((n) => n + 1)
+      }
       // A read that fails with a value already on screen keeps the value; the screen says so in a notice of its own.
       if (got.kind === 'said' && held.current.kind === 'value') return setProblem(got.say)
       setProblem(null)
       setState(got)
     })
-    return () => ctl.abort()
+    return () => {
+      ctl.abort()
+      busy.current = false
+    }
   }, [key, tick, enabled])
-  const reload = useCallback(() => setTick((n) => n + 1), [])
+  const reload = useCallback(() => {
+    if (busy.current) owed.current = true
+    else setTick((n) => n + 1)
+  }, [])
   return { state, reload, reading, problem }
 }

@@ -781,7 +781,7 @@ export class SpaceStore extends AssistStore {
    * The menu's counts as rows, every conversation counted and none cut to a screen (see `rowCounts`, src/store/row-counts.ts). `team` is each teammate's addresses (the company
    * address and the sign-in address), because the space puts a teammate known by both in one row. One read of the queue's facts, two of the people on them and the placement of every conversation (`placements`: the newest message from each contact on each conversation, grouped in SQL; no message body is read).
    */
-  spaceRowCounts(team: string[][], mail: MailScope): RowCounts {
+  spaceRowCounts(team: string[][], mail: MailScope): RowCounts & { contacts: number } {
     const addresses = new Map<string, string[]>()
     for (const r of this.sql.exec(`SELECT contact_id, address FROM identity WHERE kind = 'email'`).toArray()) {
       const held = addresses.get(text(r.contact_id)) ?? []
@@ -810,7 +810,10 @@ export class SpaceStore extends AssistStore {
           r.client_id !== null &&
           placed.get(text(r.conversation_id))?.byClient.get(Number(r.client_id)) === text(r.contact_id),
       }))
-    return rowCounts(facts, parties, team)
+    // How many contacts the scope may see: `listContacts(mail).length`, counted without judging and shaping every contact (which cost the menu most of its time at one owner's size).
+    const seen = this.visibleContactIds(mail)
+    const contacts = seen === null ? Number(this.sql.exec(`SELECT count(*) AS n FROM contact`).one().n) : seen.size
+    return { ...rowCounts(facts, parties, team), contacts }
   }
 
   /** The conversations the inbox's search finds for these words (src/search.ts), with the line that matched, open or closed, Bulk or not. */

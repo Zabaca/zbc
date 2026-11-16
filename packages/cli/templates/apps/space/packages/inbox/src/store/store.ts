@@ -1592,6 +1592,13 @@ export class Inbox {
    * conversations, which would make the answer depend on the answer). Keyed by identity, with the judgment's own sentence.
    */
   protected senderJudgments(identityIds: readonly string[] | null): Map<string, SenderJudgment> {
+    if (identityIds !== null && identityIds.length === 0) return new Map()
+    // Two statements, not one with a CASE: a CASE in the WHERE hides the named ids from the planner, so a list of a screen's conversations walked every identity once
+    // per conversation (about half a millisecond each at one owner's size, and the reason a list read took longest of all).
+    const which =
+      identityIds === null
+        ? `i.id IN (SELECT m.identity_id FROM message m JOIN mailbox mb ON mb.id = m.mailbox_id WHERE m.direction = 'in')`
+        : `i.id IN (SELECT value FROM json_each(?1))`
     const rows = this.sql
       .exec(
         `SELECT i.id AS identity_id, ct.name AS name, ci.kind AS kind, ci.address AS address, tp.bot AS bot, tp.chat AS chat
@@ -1599,12 +1606,9 @@ export class Inbox {
            JOIN contact ct ON ct.id = i.contact_id
            JOIN identity ci ON ci.contact_id = ct.id
            LEFT JOIN telegram_person tp ON tp.identity_id = ci.id
-          WHERE CASE WHEN ?1 IS NULL
-                     THEN i.id IN (SELECT m.identity_id FROM message m JOIN mailbox mb ON mb.id = m.mailbox_id
-                                    WHERE m.direction = 'in')
-                     ELSE i.id IN (SELECT value FROM json_each(?1)) END
+          WHERE ${which}
           ORDER BY ci.rowid`,
-        identityIds === null ? null : JSON.stringify(identityIds),
+        ...(identityIds === null ? [] : [JSON.stringify(identityIds)]),
       )
       .toArray()
     const facts = new Map<
