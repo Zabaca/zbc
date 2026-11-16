@@ -52,7 +52,10 @@ const onLeads = (install: Install, leads: Leads, actor: string, owner: boolean):
  * Fields as the install declares them, each value trimmed, empty ones left out; or the sentence that refuses them (a key not declared, a value that is not text or is too long). Nothing is
  * half kept: one bad field refuses all.
  */
-export function checkLeadFields(leads: Leads, raw: unknown): { ok: true; value: Record<string, string> } | { ok: false; message: string } {
+export function checkLeadFields(
+  leads: Leads,
+  raw: unknown,
+): { ok: true; value: Record<string, string> } | { ok: false; message: string } {
   if (!isRecord(raw)) return { ok: false, message: 'The fields are an object of text by the keys this space declares.' }
   const out: Record<string, string> = {}
   for (const [key, value] of Object.entries(raw)) {
@@ -60,7 +63,8 @@ export function checkLeadFields(leads: Leads, raw: unknown): { ok: true; value: 
     if (!field) return { ok: false, message: `${key} is not a field of this space's leads.` }
     if (typeof value !== 'string') return { ok: false, message: `${field.label} is text.` }
     const v = value.trim()
-    if (v.length > LEAD_FIELD_MAX) return { ok: false, message: `${field.label} is longer than a field can be (${LEAD_FIELD_MAX} characters).` }
+    if (v.length > LEAD_FIELD_MAX)
+      return { ok: false, message: `${field.label} is longer than a field can be (${LEAD_FIELD_MAX} characters).` }
     if (v !== '') out[key] = v
   }
   return { ok: true, value: out }
@@ -74,7 +78,10 @@ export function createSpaceLeads(deps: SpaceDeps, asPerson: AsPerson): LeadsPart
   const { store, install } = deps
 
   /** The gate every lead method goes through after the person's: the switch, then the leads' mailbox. */
-  function leadsFor(actor: string, owner: boolean): { ok: true; leads: Leads } | { ok: false; reply: SpaceReply<never> } {
+  function leadsFor(
+    actor: string,
+    owner: boolean,
+  ): { ok: true; leads: Leads } | { ok: false; reply: SpaceReply<never> } {
     const leads = leadsOf(install)
     if (leads === null) return { ok: false, reply: refused('not-found', NO_LEADS) }
     if (!onLeads(install, leads, actor, owner)) return { ok: false, reply: refused('not-admitted', NOT_ON_LEADS) }
@@ -105,7 +112,8 @@ export function createSpaceLeads(deps: SpaceDeps, asPerson: AsPerson): LeadsPart
       const { leadId, rev, stage } = move
       if (typeof leadId !== 'string' || !ID.test(leadId)) return refused('not-found', 'There is no such lead.')
       if (!isCount(rev)) return BAD('Say which revision of the lead you were shown (rev).')
-      if (typeof stage !== 'string' || !gate.leads.stages.some((s) => s.id === stage)) return BAD('That is not a stage of this space’s leads.')
+      if (typeof stage !== 'string' || !gate.leads.stages.some((s) => s.id === stage))
+        return BAD('That is not a stage of this space’s leads.')
       return reply(await store.call('moveLead', leadId, rev, stage, actor, scope))
     })
 
@@ -136,6 +144,14 @@ export async function receiveLeadFromSource(
   if (leads === null) return refused('not-found', NO_LEADS)
   const fields = checkLeadFields(leads, request.fields)
   if (!fields.ok) return BAD(fields.message)
-  if (request.stage !== undefined && !leads.stages.some((s) => s.id === request.stage)) return BAD('That is not a stage of this space’s leads.')
-  return reply(await deps.store.call('receiveLead', { ...request, fields: fields.value }, leadRulesOf(leads), `source:${request.source}`))
+  if (request.stage !== undefined && !leads.stages.some((s) => s.id === request.stage))
+    return BAD('That is not a stage of this space’s leads.')
+  return reply(
+    await deps.store.call(
+      'receiveLead',
+      { ...request, fields: fields.value },
+      leadRulesOf(leads),
+      `source:${request.source}`,
+    ),
+  )
 }

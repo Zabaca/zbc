@@ -12,7 +12,7 @@
 
 import { type InboxLead, LEADS_READ_MAX } from '@space/workspace'
 import type { MailScope } from '../queue'
-import { classifyAddress } from './address'
+import { type Classified, classifyAddress } from './address'
 import { scopeWhere } from './scope'
 import { SpaceStore } from './space'
 import { fail, ok, type Result, text } from './store'
@@ -48,7 +48,8 @@ export interface LeadReceived {
 }
 
 /** The SQL expression for the id of the mailbox a lead belongs to (NULL while that mailbox has no row). `l` is the lead's alias. */
-const LEAD_MAILBOX = (l = 'l') => `(SELECT mb.id FROM mailbox mb WHERE mb.address = ${l}.mailbox AND mb.kind IN ('cloudflare', 'jmap') LIMIT 1)`
+const LEAD_MAILBOX = (l = 'l') =>
+  `(SELECT mb.id FROM mailbox mb WHERE mb.address = ${l}.mailbox AND mb.kind IN ('cloudflare', 'jmap') LIMIT 1)`
 
 const LEAD_COLUMNS = `l.id, l.contact_id, l.stage, l.fields, l.source, l.email, l.phone, l.requests, l.created_at, l.created_by, l.last_request_at, l.stage_at, l.stage_by, l.rev, c.name AS contact_name,
   (SELECT i.address FROM identity i WHERE i.contact_id = l.contact_id AND i.kind = 'email' ORDER BY i.rowid LIMIT 1) AS first_email,
@@ -58,7 +59,11 @@ const parseFields = (raw: unknown): Record<string, string> => {
   try {
     const v = JSON.parse(text(raw)) as unknown
     if (v === null || typeof v !== 'object' || Array.isArray(v)) return {}
-    return Object.fromEntries(Object.entries(v as Record<string, unknown>).filter((e): e is [string, string] => typeof e[1] === 'string' && e[1] !== ''))
+    return Object.fromEntries(
+      Object.entries(v as Record<string, unknown>).filter(
+        (e): e is [string, string] => typeof e[1] === 'string' && e[1] !== '',
+      ),
+    )
   } catch {
     return {}
   }
@@ -89,14 +94,22 @@ function leadOf(r: Record<string, unknown>): InboxLead {
 
 /** Values with empty ones left out, so a field sent blank never writes over one already known. */
 const filled = (fields: Record<string, string>): Record<string, string> =>
-  Object.fromEntries(Object.entries(fields).map(([k, v]) => [k, v.trim()] as const).filter(([, v]) => v !== ''))
+  Object.fromEntries(
+    Object.entries(fields)
+      .map(([k, v]) => [k, v.trim()] as const)
+      .filter(([, v]) => v !== ''),
+  )
 
 export class LeadStore extends SpaceStore {
   /** One lead as the person may see it, or null (none, or not theirs to see). */
   private leadFor(id: string, mail: MailScope): InboxLead | null {
     const seen = scopeWhere(mail, LEAD_MAILBOX(), 2)
     const row = this.sql
-      .exec(`SELECT ${LEAD_COLUMNS} FROM lead l JOIN contact c ON c.id = l.contact_id WHERE l.id = ?1 AND ${seen.sql}`, id, ...seen.bindings)
+      .exec(
+        `SELECT ${LEAD_COLUMNS} FROM lead l JOIN contact c ON c.id = l.contact_id WHERE l.id = ?1 AND ${seen.sql}`,
+        id,
+        ...seen.bindings,
+      )
       .toArray()[0]
     return row ? leadOf(row) : null
   }
@@ -105,7 +118,11 @@ export class LeadStore extends SpaceStore {
    * The leads the person may see: the open ones first, then the settled ones, each newest request first, to `LEADS_READ_MAX` in all (`more` when some were left out). `contactId` narrows it to one
    * person's.
    */
-  spaceLeads(mail: MailScope, settled: readonly string[], contactId: string | null): { leads: InboxLead[]; more: boolean } {
+  spaceLeads(
+    mail: MailScope,
+    settled: readonly string[],
+    contactId: string | null,
+  ): { leads: InboxLead[]; more: boolean } {
     const seen = scopeWhere(mail, LEAD_MAILBOX(), 3)
     const who = contactId === null ? '' : ` AND l.contact_id = ?${3 + seen.bindings.length}`
     const rows = this.sql
@@ -128,20 +145,34 @@ export class LeadStore extends SpaceStore {
     return this.ports.transaction(() => {
       const lead = this.leadFor(leadId, mail)
       if (!lead) return fail(404, 'There is no such lead.')
-      if (lead.rev !== rev) return fail(409, 'This lead changed since you opened it, so it was not moved. It is shown as it is now.')
+      if (lead.rev !== rev)
+        return fail(409, 'This lead changed since you opened it, so it was not moved. It is shown as it is now.')
       if (lead.stage === stage) return ok(lead)
       const at = this.now()
-      this.sql.exec(`UPDATE lead SET stage = ?2, stage_at = ?3, stage_by = ?4, rev = rev + 1 WHERE id = ?1`, leadId, stage, at, actor)
+      this.sql.exec(
+        `UPDATE lead SET stage = ?2, stage_at = ?3, stage_by = ?4, rev = rev + 1 WHERE id = ?1`,
+        leadId,
+        stage,
+        at,
+        actor,
+      )
       this.audit(actor, 'lead.move', `lead:${leadId}`, { stage: lead.stage, rev: lead.rev }, { stage })
       return ok(this.leadFor(leadId, mail) as InboxLead)
     })
   }
 
   /** Make a lead by hand for a person the maker may see, in the first stage. `fields` were checked against the install by the part. */
-  makeLead(contactId: string, fields: Record<string, string>, rules: LeadRules, actor: string, mail: MailScope): Result<InboxLead> {
+  makeLead(
+    contactId: string,
+    fields: Record<string, string>,
+    rules: LeadRules,
+    actor: string,
+    mail: MailScope,
+  ): Result<InboxLead> {
     return this.ports.transaction(() => {
       const contact = this.sql.exec(`SELECT id FROM contact WHERE id = ?1`, contactId).toArray()[0]
-      if (!contact || !(this.visibleContactIds(mail)?.has(contactId) ?? true)) return fail(404, 'There is no such person.')
+      if (!contact || !(this.visibleContactIds(mail)?.has(contactId) ?? true))
+        return fail(404, 'There is no such person.')
       const id = this.ports.newId()
       const at = this.now()
       const values = filled(fields)
@@ -164,6 +195,42 @@ export class LeadStore extends SpaceStore {
   }
 
   /**
+   * The person a request is from: by its address first, else by its number, made from the address (or the number) when neither is known. The other way to reach them is put on them when nobody
+   * has it already. One of the two is given.
+   */
+  private personForRequest(
+    byEmail: Classified | null,
+    byPhone: Classified | null,
+    name: string,
+    actor: string,
+  ): string {
+    const found = (c: Classified) =>
+      nullable(
+        this.sql
+          .exec(`SELECT contact_id FROM identity WHERE kind = ?1 AND address = ?2`, c.kind, c.address)
+          .toArray()[0]?.contact_id,
+      )
+    const first = (byEmail ?? byPhone) as Classified
+    const contactId =
+      (byEmail && found(byEmail)) ??
+      (byPhone && found(byPhone)) ??
+      this.identityFor(first, name.trim() || first.address, actor).contactId
+    for (const other of [byEmail, byPhone]) {
+      if (other === null || found(other) !== null) continue
+      this.sql.exec(
+        `INSERT INTO identity (id, contact_id, kind, address, created_at) VALUES (?1, ?2, ?3, ?4, ?5)`,
+        this.ports.newId(),
+        contactId,
+        other.kind,
+        other.address,
+        this.now(),
+      )
+      this.audit(actor, 'identity.create', `contact:${contactId}`, null, { kind: other.kind, address: other.address })
+    }
+    return contactId
+  }
+
+  /**
    * A request a company's site sent: matched to a person (made when none), folded into their open lead or made a new one, and kept by the site's id so a repeat changes nothing. The store's own work
    * (no person asks), so it reads every lead whatever the scope.
    */
@@ -171,7 +238,11 @@ export class LeadStore extends SpaceStore {
     const all: MailScope = { mailboxIds: null, unfiled: true }
     return this.ports.transaction(() => {
       const kept = this.sql
-        .exec(`SELECT lead_id FROM lead_request WHERE source = ?1 AND external_id = ?2`, request.source, request.externalId)
+        .exec(
+          `SELECT lead_id FROM lead_request WHERE source = ?1 AND external_id = ?2`,
+          request.source,
+          request.externalId,
+        )
         .toArray()[0]
       if (kept) {
         const lead = this.leadFor(text(kept.lead_id), all)
@@ -182,28 +253,7 @@ export class LeadStore extends SpaceStore {
       const byEmail = email?.kind === 'email' ? email : null
       const byPhone = phone?.kind === 'sms' ? phone : null
       if (!byEmail && !byPhone) return fail(422, 'A lead needs an email address or a phone number the space can read.')
-      const name = request.name.trim() || byEmail?.address || (byPhone?.address as string)
-      // The person: by the address first, else by the number; made from the address (or the number) when neither is known.
-      const found = (kind: string, address: string) =>
-        this.sql.exec(`SELECT contact_id FROM identity WHERE kind = ?1 AND address = ?2`, kind, address).toArray()[0]
-      let contactId: string | null = null
-      if (byEmail) contactId = nullable(found('email', byEmail.address)?.contact_id)
-      if (contactId === null && byPhone) contactId = nullable(found('sms', byPhone.address)?.contact_id)
-      if (contactId === null) contactId = this.identityFor((byEmail ?? byPhone) as NonNullable<typeof byEmail>, name, actor).contactId
-      // The other way to reach them, put on them when no one else has it already.
-      for (const other of [byEmail, byPhone]) {
-        if (other && !found(other.kind, other.address)) {
-          this.sql.exec(
-            `INSERT INTO identity (id, contact_id, kind, address, created_at) VALUES (?1, ?2, ?3, ?4, ?5)`,
-            this.ports.newId(),
-            contactId,
-            other.kind,
-            other.address,
-            this.now(),
-          )
-          this.audit(actor, 'identity.create', `contact:${contactId}`, null, { kind: other.kind, address: other.address })
-        }
-      }
+      const contactId = this.personForRequest(byEmail, byPhone, request.name, actor)
       const at = request.at ?? this.now()
       const values = filled(request.fields)
       const open = this.sql
@@ -228,8 +278,20 @@ export class LeadStore extends SpaceStore {
           byEmail?.address ?? null,
           byPhone?.address ?? null,
         )
-        this.sql.exec(`INSERT INTO lead_request (source, external_id, lead_id, at) VALUES (?1, ?2, ?3, ?4)`, request.source, request.externalId, leadId, at)
-        this.audit(actor, 'lead.fold', `lead:${leadId}`, { fields: before, rev: Number(open.rev) }, { fields: merged, request: request.externalId })
+        this.sql.exec(
+          `INSERT INTO lead_request (source, external_id, lead_id, at) VALUES (?1, ?2, ?3, ?4)`,
+          request.source,
+          request.externalId,
+          leadId,
+          at,
+        )
+        this.audit(
+          actor,
+          'lead.fold',
+          `lead:${leadId}`,
+          { fields: before, rev: Number(open.rev) },
+          { fields: merged, request: request.externalId },
+        )
         return ok({ lead: this.leadFor(leadId, all) as InboxLead, outcome: 'folded' as const })
       }
       const id = this.ports.newId()
@@ -248,8 +310,19 @@ export class LeadStore extends SpaceStore {
         at,
         actor,
       )
-      this.sql.exec(`INSERT INTO lead_request (source, external_id, lead_id, at) VALUES (?1, ?2, ?3, ?4)`, request.source, request.externalId, id, at)
-      this.audit(actor, 'lead.create', `lead:${id}`, null, { contactId, stage, fields: values, request: request.externalId })
+      this.sql.exec(
+        `INSERT INTO lead_request (source, external_id, lead_id, at) VALUES (?1, ?2, ?3, ?4)`,
+        request.source,
+        request.externalId,
+        id,
+        at,
+      )
+      this.audit(actor, 'lead.create', `lead:${id}`, null, {
+        contactId,
+        stage,
+        fields: values,
+        request: request.externalId,
+      })
       return ok({ lead: this.leadFor(id, all) as InboxLead, outcome: 'made' as const })
     })
   }
@@ -258,7 +331,11 @@ export class LeadStore extends SpaceStore {
   openLeadCount(mail: MailScope, settled: readonly string[]): number {
     const seen = scopeWhere(mail, LEAD_MAILBOX(), 2)
     const row = this.sql
-      .exec(`SELECT count(*) AS n FROM lead l WHERE l.stage NOT IN (SELECT value FROM json_each(?1)) AND ${seen.sql}`, JSON.stringify(settled), ...seen.bindings)
+      .exec(
+        `SELECT count(*) AS n FROM lead l WHERE l.stage NOT IN (SELECT value FROM json_each(?1)) AND ${seen.sql}`,
+        JSON.stringify(settled),
+        ...seen.bindings,
+      )
       .toArray()[0]
     return Number(row?.n ?? 0)
   }

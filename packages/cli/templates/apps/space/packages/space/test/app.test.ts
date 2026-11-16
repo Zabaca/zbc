@@ -111,7 +111,7 @@ describe("Northfield's space", () => {
       company: { name: 'Northfield Works', timeZone: 'America/Los_Angeles' },
       owner: { name: 'Tessa', address: 'tessa@northfield.example' },
       // Every switch is on in Northfield's install, so the page draws every part, as it always did.
-      switches: { gmail: true, hostedMailboxes: true, clientDirectory: true, claudeScript: true, assistant: true, phone: true, manyClients: true, calls: true, telegram: true },
+      switches: { gmail: true, hostedMailboxes: true, clientDirectory: true, claudeScript: true, assistant: true, phone: true, manyClients: true, calls: true, telegram: true, leads: true },
       tabs: [
         { id: 'today', label: 'Today', path: '/today' },
         { id: 'inbox', label: 'Inbox', path: '/inbox' },
@@ -119,6 +119,7 @@ describe("Northfield's space", () => {
         { id: 'calendar', label: 'Calendar', path: '/calendar' },
         { id: 'forms', label: 'Forms', path: '/forms', ownSignIn: true },
         { id: 'people', label: 'People', path: '/people' },
+        { id: 'leads', label: 'Leads', path: '/leads' },
         { id: 'knowledge', label: 'Knowledge', path: '/knowledge' },
       ],
       home: 'today',
@@ -126,6 +127,22 @@ describe("Northfield's space", () => {
       // The install's own senders and signing-service names, which the screens that say them read.
       senders: { forms: 'forms@northfield.example', meet: 'meet@northfield.example' },
       forms: { service: 'Northfield Forms', sender: 'forms@northfield.example', runBy: 'Northfield Works' },
+      // The leads' stages and fields, in the install's words and order (the mailbox they belong to stays in the Worker).
+      leads: {
+        stages: [
+          { id: 'new', label: 'New', settled: false },
+          { id: 'contacted', label: 'Contacted', settled: false },
+          { id: 'quoted', label: 'Quote sent', settled: false },
+          { id: 'won', label: 'Won', settled: true },
+          { id: 'lost', label: 'Lost', settled: true },
+        ],
+        fields: [
+          { key: 'project', label: 'Project', board: true },
+          { key: 'budget', label: 'Budget', board: true },
+          { key: 'timeline', label: 'When', board: false },
+          { key: 'notes', label: 'Notes', board: false },
+        ],
+      },
     })
   })
 

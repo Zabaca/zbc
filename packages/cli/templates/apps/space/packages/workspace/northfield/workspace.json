@@ -41,6 +41,22 @@
       "subscriptionAt": { "label": "Subscription said", "kind": "time" }
     }
   },
+  "leads": {
+    "mailbox": "info@ridgewaycycles.example",
+    "stages": [
+      { "id": "new", "label": "New" },
+      { "id": "contacted", "label": "Contacted" },
+      { "id": "quoted", "label": "Quote sent" },
+      { "id": "won", "label": "Won", "settled": true },
+      { "id": "lost", "label": "Lost", "settled": true }
+    ],
+    "fields": {
+      "project": { "label": "Project", "board": true },
+      "budget": { "label": "Budget", "board": true },
+      "timeline": { "label": "When" },
+      "notes": { "label": "Notes" }
+    }
+  },
   "people": [{ "address": "tessa@northfield.example", "name": "Tessa", "mailName": "Tessa Marlow", "role": "owner" }],
   "businesses": [
     { "id": "northfield", "name": "Northfield Works", "mailboxes": ["tessa@northfield.example"] },
@@ -57,6 +73,7 @@
     "phone": true,
     "manyClients": true,
     "calls": true,
-    "telegram": true
+    "telegram": true,
+    "leads": true
   }
 }

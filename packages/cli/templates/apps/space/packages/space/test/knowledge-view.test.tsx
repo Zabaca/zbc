@@ -199,8 +199,8 @@ describe('the tab and its address', () => {
     expect(knowledgeBusiness(knowledgePath('/knowledge', 'shiftlantern').slice('/knowledge'.length))).toBe('shiftlantern')
   })
 
-  test('Knowledge is the last tab, after People, and the page is headed Knowledge', () => {
-    expect(me.tabs.map((t) => t.id)).toEqual(['today', 'inbox', 'meet', 'calendar', 'forms', 'people', 'knowledge'])
+  test('Knowledge is the last tab, after People and Leads, and the page is headed Knowledge', () => {
+    expect(me.tabs.map((t) => t.id)).toEqual(['today', 'inbox', 'meet', 'calendar', 'forms', 'people', 'leads', 'knowledge'])
     const out = html(<KnowledgeTab me={me} search="?business=northfield" go={() => undefined} />)
     expect(out).toContain('data-testid="knowledge-tab"')
     expect(out).toContain('<h1 id="h-knowledge">Knowledge</h1>')

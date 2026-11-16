@@ -9,6 +9,7 @@ import { Boundary } from './Boundary'
 import { CalendarTab } from './Calendar'
 import { Conversations } from './Conversations'
 import { KnowledgeTab } from './KnowledgeTab'
+import { LeadsContext, LeadsScreen } from './Leads'
 import { People } from './People'
 import { Today } from './Today'
 import { Settings } from './Settings'
@@ -60,6 +61,10 @@ function PeopleScreen({ pathname, go }: { me: Me; pathname: string; search: stri
   return <People pathname={pathname} go={go} />
 }
 
+function LeadsTab({ me, go }: { me: Me; pathname: string; search: string; go: Go }) {
+  return <LeadsScreen me={me} go={go} />
+}
+
 function KnowledgeScreen({ me, search, go }: { me: Me; pathname: string; search: string; go: Go }) {
   return <KnowledgeTab me={me} search={search} go={go} />
 }
@@ -95,6 +100,7 @@ const SCREENS: Record<TabId, (p: { me: Me; pathname: string; search: string; go:
   calendar: CalendarScreen,
   forms: FormsScreen,
   people: PeopleScreen,
+  leads: LeadsTab,
   knowledge: KnowledgeScreen,
 }
 
@@ -117,6 +123,7 @@ export function Space({ me, pathname, search = '', go }: { me: Me; pathname: str
     <SwitchesContext.Provider value={me.switches}>
     <NavContext.Provider value={nav}>
     <CalendarContext.Provider value={calendar}>
+    <LeadsContext.Provider value={me.leads ?? null}>
     <PhoneHost enabled={me.switches.phone}>
     <div className="shell">
       <nav className="rail" aria-label="Space">
@@ -188,6 +195,7 @@ export function Space({ me, pathname, search = '', go }: { me: Me; pathname: str
       </main>
     </div>
     </PhoneHost>
+    </LeadsContext.Provider>
     </CalendarContext.Provider>
     </NavContext.Provider>
     </SwitchesContext.Provider>

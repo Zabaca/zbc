@@ -39,4 +39,6 @@ export interface Me {
   senders: { forms: string; meet: string }
   /** The signing service Forms runs, in the install's words: what it is called ("Northfield Forms"), the address its mail comes from and who runs it ("Northfield Works"); `ownCompanyOnly` (present only when true) where Forms sends only for the company itself, and the previews then show no "via <service>". */
   forms: { service: string; sender: string; runBy: string; ownCompanyOnly?: true }
+  /** The company's leads (present only where the `leads` switch is on): its stages in order and its fields in order, the words the board, a lead's card and its form draw. */
+  leads?: { stages: { id: string; label: string; settled: boolean }[]; fields: { key: string; label: string; board: boolean }[] }
 }

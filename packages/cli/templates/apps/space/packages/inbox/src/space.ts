@@ -116,8 +116,8 @@ import {
   seesMessage,
   spelled,
 } from './space-gate'
-import { createSpaceOperator } from './space-operator'
 import { createSpaceLeads } from './space-leads'
+import { createSpaceOperator } from './space-operator'
 import { createSpacePeople } from './space-people'
 import { createSpaceViews } from './space-views'
 import { parseCcList } from './store/address'

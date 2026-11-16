@@ -598,7 +598,12 @@ export class SpaceStore extends AssistStore {
       }
       // Its leads come back with it: the ones the merge moved (its audit entry names them) that are still on the survivor.
       for (const leadId of was.leads) {
-        this.sql.exec(`UPDATE lead SET contact_id = ?1 WHERE id = ?2 AND contact_id = ?3`, was.absorbed.id, leadId, survivor.id)
+        this.sql.exec(
+          `UPDATE lead SET contact_id = ?1 WHERE id = ?2 AND contact_id = ?3`,
+          was.absorbed.id,
+          leadId,
+          survivor.id,
+        )
       }
       // The survivor goes back to what it was before the merge only where it is still what the merge left it.
       const profileNow = this.profileRow(survivor.id) as ContactProfile

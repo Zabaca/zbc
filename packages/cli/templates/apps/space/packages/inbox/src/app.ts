@@ -39,8 +39,8 @@ import type { Restores } from './restore'
 import { searchTerms } from './search'
 import type { SpaceReadMethod, SpaceReads } from './space-reads'
 import { parseCcList } from './store/address'
-import type { MailStore } from './store/mail'
 import type { LeadStore } from './store/leads'
+import type { MailStore } from './store/mail'
 import type { SpaceStore } from './store/space'
 import { type Result, text } from './store/store'
 import type { TelegramStore } from './store/telegram'
@@ -299,7 +299,13 @@ export const SPACE_METHODS = [
  * The company's leads (src/store/leads.ts): what the space's part asks (src/space-leads.ts) and what its leads door hands in. Not routes: only the part, after the space's one sign-in check named the
  * person and the install's leads rules were checked, calls them.
  */
-export const LEAD_METHODS = ['spaceLeads', 'moveLead', 'makeLead', 'receiveLead', 'openLeadCount'] as const satisfies readonly (keyof LeadStore)[]
+export const LEAD_METHODS = [
+  'spaceLeads',
+  'moveLead',
+  'makeLead',
+  'receiveLead',
+  'openLeadCount',
+] as const satisfies readonly (keyof LeadStore)[]
 
 /**
  * What the Telegram bridge's door may ask of the store (src/store/telegram.ts, src/telegram/app.ts): its five calls. Only that router, behind the bridge's own token, calls the first

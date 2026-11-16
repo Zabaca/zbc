@@ -60,16 +60,56 @@ const reason = (r: SpaceReply<unknown>): string => {
 }
 
 async function world(install = MARLOW) {
-  const h = harness({}, { install, mailboxes: [{ address: DESK, name: 'Desk' }, { address: BOOKS, name: 'Books' }] })
+  const h = harness(
+    {},
+    {
+      install,
+      mailboxes: [
+        { address: DESK, name: 'Desk' },
+        { address: BOOKS, name: 'Books' },
+      ],
+    },
+  )
   // One email to each mailbox, so each is made and its people seated, as the first mail does on a live install.
-  const raw = (to: string, id: string, from: string) => [`From: ${from}`, `To: ${to}`, 'Subject: Hello', `Message-ID: <${id}@mail.example>`, 'Date: Mon, 20 Oct 2026 12:00:00 +0000', 'MIME-Version: 1.0', 'Content-Type: text/plain; charset="UTF-8"', '', 'Hi there', ''].join('\r\n')
+  const raw = (to: string, id: string, from: string) =>
+    [
+      `From: ${from}`,
+      `To: ${to}`,
+      'Subject: Hello',
+      `Message-ID: <${id}@mail.example>`,
+      'Date: Mon, 20 Oct 2026 12:00:00 +0000',
+      'MIME-Version: 1.0',
+      'Content-Type: text/plain; charset="UTF-8"',
+      '',
+      'Hi there',
+      '',
+    ].join('\r\n')
   expect((await h.deliver(raw(DESK, 'd1', 'Cora Lund <cora@dock.example>'), { to: DESK })).entered).toBe('filed')
   expect((await h.deliver(raw(BOOKS, 'b1', 'Vic Tran <vic@vendor.example>'), { to: BOOKS })).entered).toBe('filed')
   const space = h.space({ install })
-  const send = (externalId: string, o: { name?: string; email?: string | null; phone?: string | null; fields?: Record<string, unknown>; stage?: string; at?: string }) =>
+  const send = (
+    externalId: string,
+    o: {
+      name?: string
+      email?: string | null
+      phone?: string | null
+      fields?: Record<string, unknown>
+      stage?: string
+      at?: string
+    },
+  ) =>
     receiveLeadFromSource(
       { store: h.store, install },
-      { source: SOURCE, externalId, name: o.name ?? 'Jo Park', email: o.email === undefined ? 'jo@home.example' : o.email, phone: o.phone ?? null, fields: o.fields ?? {}, ...(o.stage && { stage: o.stage }), ...(o.at && { at: o.at }) },
+      {
+        source: SOURCE,
+        externalId,
+        name: o.name ?? 'Jo Park',
+        email: o.email === undefined ? 'jo@home.example' : o.email,
+        phone: o.phone ?? null,
+        fields: o.fields ?? {},
+        ...(o.stage && { stage: o.stage }),
+        ...(o.at && { at: o.at }),
+      },
     )
   return { h, space, send, as: (who: string) => asker({ email: who }, install) }
 }
@@ -79,8 +119,19 @@ describe('a request from the company’s site', () => {
     const { h, send, space, as } = await world()
     const first = value(await send('q1', { phone: '(626) 555-0101', fields: { project: 'Kitchen', budget: '50k' } }))
     expect(first.outcome).toBe('made')
-    expect(first.lead).toMatchObject({ name: 'Jo Park', email: 'jo@home.example', phone: '+16265550101', stage: 'new', fields: { project: 'Kitchen', budget: '50k' }, source: SOURCE, requests: 1, rev: 0 })
-    const identities = h.db.query(`SELECT kind, address FROM identity WHERE contact_id = ? ORDER BY kind`).all(first.lead.contactId)
+    expect(first.lead).toMatchObject({
+      name: 'Jo Park',
+      email: 'jo@home.example',
+      phone: '+16265550101',
+      stage: 'new',
+      fields: { project: 'Kitchen', budget: '50k' },
+      source: SOURCE,
+      requests: 1,
+      rev: 0,
+    })
+    const identities = h.db
+      .query(`SELECT kind, address FROM identity WHERE contact_id = ? ORDER BY kind`)
+      .all(first.lead.contactId)
     expect(identities).toEqual([
       { kind: 'email', address: 'jo@home.example' },
       { kind: 'sms', address: '+16265550101' },
@@ -97,11 +148,26 @@ describe('a request from the company’s site', () => {
     const first = value(await send('q1', { phone: '626-555-0101', fields: { project: 'Kitchen', budget: '50k' } }))
     const byAddress = value(await send('q2', { fields: { project: 'Kitchen and bath', budget: '  ' } }))
     expect(byAddress.outcome).toBe('folded')
-    expect(byAddress.lead).toMatchObject({ id: first.lead.id, requests: 2, rev: 1, fields: { project: 'Kitchen and bath', budget: '50k' } })
+    expect(byAddress.lead).toMatchObject({
+      id: first.lead.id,
+      requests: 2,
+      rev: 1,
+      fields: { project: 'Kitchen and bath', budget: '50k' },
+    })
     // From another address, the same number written another way: still Jo.
-    const byNumber = value(await send('q3', { email: 'jo.work@office.example', phone: '+1 626 555 0101', fields: { notes: 'Call after 5' } }))
+    const byNumber = value(
+      await send('q3', {
+        email: 'jo.work@office.example',
+        phone: '+1 626 555 0101',
+        fields: { notes: 'Call after 5' },
+      }),
+    )
     expect(byNumber.outcome).toBe('folded')
-    expect(byNumber.lead).toMatchObject({ id: first.lead.id, requests: 3, fields: { project: 'Kitchen and bath', budget: '50k', notes: 'Call after 5' } })
+    expect(byNumber.lead).toMatchObject({
+      id: first.lead.id,
+      requests: 3,
+      fields: { project: 'Kitchen and bath', budget: '50k', notes: 'Call after 5' },
+    })
     expect(count(h, 'lead')).toBe(1)
     expect(count(h, 'lead_request')).toBe(3)
   })
@@ -115,7 +181,10 @@ describe('a request from the company’s site', () => {
     expect(next.lead.id).not.toBe(first.lead.id)
     expect(next.lead.contactId).toBe(first.lead.contactId)
     // The open one first, then the settled one.
-    expect(value(await space.contactLeads(as(ALEX), first.lead.contactId)).leads.map((l) => l.stage)).toEqual(['new', 'won'])
+    expect(value(await space.contactLeads(as(ALEX), first.lead.contactId)).leads.map((l) => l.stage)).toEqual([
+      'new',
+      'won',
+    ])
   })
 
   test('a blank address and a number the space cannot read key on nothing: such a request is refused, and never folded onto anyone', async () => {
@@ -138,7 +207,11 @@ describe('a request from the company’s site', () => {
   test('a lead carried over from the site keeps its stage and its date, and is never folded', async () => {
     const { send } = await world()
     const old = value(await send('old-1', { stage: 'called', at: '2026-09-01T10:00:00.000Z' }))
-    expect(old.lead).toMatchObject({ stage: 'called', createdAt: '2026-09-01T10:00:00.000Z', lastRequestAt: '2026-09-01T10:00:00.000Z' })
+    expect(old.lead).toMatchObject({
+      stage: 'called',
+      createdAt: '2026-09-01T10:00:00.000Z',
+      lastRequestAt: '2026-09-01T10:00:00.000Z',
+    })
     const older = value(await send('old-2', { stage: 'new', at: '2026-08-01T10:00:00.000Z' }))
     expect(older.outcome).toBe('made')
   })
@@ -152,7 +225,9 @@ describe('who sees the leads', () => {
     expect(value(await space.leads(as(BEA))).leads).toHaveLength(1)
     expect(reason(await space.leads(as(CAL)))).toBe('not-admitted')
     expect(value(await space.contactLeads(as(CAL), made.lead.contactId))).toEqual({ leads: [], more: false })
-    expect(reason(await space.moveLead(as(CAL), { leadId: made.lead.id, rev: 0, stage: 'called' }))).toBe('not-admitted')
+    expect(reason(await space.moveLead(as(CAL), { leadId: made.lead.id, rev: 0, stage: 'called' }))).toBe(
+      'not-admitted',
+    )
   })
 
   test('where the switch is off there are no leads', async () => {
@@ -181,10 +256,22 @@ describe('moving a lead', () => {
 describe('a lead made by hand', () => {
   test('is made for a person in the first stage, with only the install’s fields', async () => {
     const { h, space, as } = await world()
-    const cora = (h.db.query(`SELECT contact_id FROM identity WHERE address = 'cora@dock.example'`).get() as { contact_id: string }).contact_id
+    const cora = (
+      h.db.query(`SELECT contact_id FROM identity WHERE address = 'cora@dock.example'`).get() as { contact_id: string }
+    ).contact_id
     expect(reason(await space.makeLead(as(BEA), { contactId: cora, fields: { colour: 'blue' } }))).toBe('bad-request')
-    const made: InboxLead = value(await space.makeLead(as(BEA), { contactId: cora, fields: { project: 'Deck', budget: '' } }))
-    expect(made).toMatchObject({ contactId: cora, name: 'Cora Lund', email: 'cora@dock.example', stage: 'new', fields: { project: 'Deck' }, source: null, createdBy: BEA })
+    const made: InboxLead = value(
+      await space.makeLead(as(BEA), { contactId: cora, fields: { project: 'Deck', budget: '' } }),
+    )
+    expect(made).toMatchObject({
+      contactId: cora,
+      name: 'Cora Lund',
+      email: 'cora@dock.example',
+      stage: 'new',
+      fields: { project: 'Deck' },
+      source: null,
+      createdBy: BEA,
+    })
     expect(reason(await space.makeLead(as(BEA), { contactId: 'no-such-person', fields: {} }))).toBe('not-found')
   })
 })
@@ -195,14 +282,22 @@ describe('a merge', () => {
     const jo = value(await send('q1', {}))
     const other = value(await send('q2', { name: 'Jo P', email: 'jp@else.example' }))
     expect(other.lead.contactId).not.toBe(jo.lead.contactId)
-    const rev = (id: string) => (h.db.query(`SELECT profile_rev AS r FROM contact WHERE id = ?`).get(id) as { r: number }).r
-    const merged = await space.mergeContacts(as(ALEX), { survivorId: jo.lead.contactId, survivorRev: rev(jo.lead.contactId), absorbedId: other.lead.contactId, absorbedRev: rev(other.lead.contactId) })
+    const rev = (id: string) =>
+      (h.db.query(`SELECT profile_rev AS r FROM contact WHERE id = ?`).get(id) as { r: number }).r
+    const merged = await space.mergeContacts(as(ALEX), {
+      survivorId: jo.lead.contactId,
+      survivorRev: rev(jo.lead.contactId),
+      absorbedId: other.lead.contactId,
+      absorbedRev: rev(other.lead.contactId),
+    })
     const mergeId = (value(merged) as { mergeId: number }).mergeId
     const after: InboxLeads = value(await space.contactLeads(as(ALEX), jo.lead.contactId))
     expect(after.leads.map((l) => l.id).sort()).toEqual([jo.lead.id, other.lead.id].sort())
     value(await space.undoContactMerge(as(ALEX), mergeId))
     expect(value(await space.contactLeads(as(ALEX), jo.lead.contactId)).leads.map((l) => l.id)).toEqual([jo.lead.id])
-    expect(value(await space.contactLeads(as(ALEX), other.lead.contactId)).leads.map((l) => l.id)).toEqual([other.lead.id])
+    expect(value(await space.contactLeads(as(ALEX), other.lead.contactId)).leads.map((l) => l.id)).toEqual([
+      other.lead.id,
+    ])
     void T0
   })
 })

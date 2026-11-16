@@ -15,6 +15,8 @@ import {
   type InboxContact,
   type InboxContactProfile,
   type InboxContacts,
+  type InboxLead,
+  type InboxLeads,
   type InboxDraft,
   type InboxDraftAt,
   type InboxHandSent,
@@ -507,6 +509,36 @@ export function isInboxContacts(v: unknown): v is InboxContacts {
 /** The inbox's `contact`, and what a save of the three fields answers: a contact with its note. */
 export function isInboxContactProfile(v: unknown): v is InboxContactProfile {
   return isInboxContact(v) && isText((v as { notes?: unknown }).notes)
+}
+
+const isTextOrNull = (v: unknown): v is string | null => v === null || isText(v)
+
+/** One of the inbox's leads (inbox-leads.ts). */
+export function isInboxLead(v: unknown): v is InboxLead {
+  return (
+    isRecord(v) &&
+    isText(v.id) &&
+    isText(v.contactId) &&
+    isText(v.name) &&
+    isTextOrNull(v.email) &&
+    isTextOrNull(v.phone) &&
+    isText(v.stage) &&
+    isRecord(v.fields) &&
+    Object.values(v.fields).every(isText) &&
+    isTextOrNull(v.source) &&
+    isCount(v.requests) &&
+    isText(v.createdAt) &&
+    isText(v.lastRequestAt) &&
+    isText(v.createdBy) &&
+    isTextOrNull(v.stageAt) &&
+    isTextOrNull(v.stageBy) &&
+    isCount(v.rev)
+  )
+}
+
+/** The inbox's `leads` and `contactLeads`. */
+export function isInboxLeads(v: unknown): v is InboxLeads {
+  return isRecord(v) && typeof v.more === 'boolean' && isList(v.leads) && v.leads.every(isInboxLead)
 }
 
 /** The inbox's `mergeContacts`. */

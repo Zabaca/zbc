@@ -11,6 +11,7 @@ import './calendar.css'
 import './calls.css'
 import './channels.css'
 import './people.css'
+import './leads.css'
 import './newmail.css'
 import './chat.css'
 

@@ -319,6 +319,7 @@ describe('a switch is allowed to any install that declares what it needs, and re
     raw.agent = { path: '/agent/inbox' }
     raw.telegram = { path: '/agent/telegram' }
     raw.clientsDoor = { path: '/agent/clients', source: 'pinecrest.test' }
+    raw.leads = { mailbox: 'desk@pinecrest.test', stages: [{ id: 'new', label: 'New' }, { id: 'done', label: 'Done', settled: true }], fields: { project: { label: 'Project', board: true } } }
     raw.businesses = [{ id: 'lane', name: 'Pinecrest', mailboxes: ['info@pinecrest.test'] }]
     raw.switches = Object.fromEntries(SWITCHES.map((s) => [s, true]))
     return raw
@@ -347,6 +348,7 @@ describe('a switch is allowed to any install that declares what it needs, and re
       claudeScript: [['agent'], 'agent: the claudeScript switch is on'],
       telegram: [['telegram'], 'telegram: the telegram switch is on'],
       clientDirectory: [['clientsDoor'], 'clientsDoor: the clientDirectory switch is on'],
+      leads: [['leads'], 'leads: the leads switch is on'],
     }
     for (const [sw, [settings, say]] of Object.entries(needs)) {
       const raw = everything()
@@ -423,6 +425,41 @@ describe('a switch is allowed to any install that declares what it needs, and re
     expect(install.hostedMailboxes()[0]?.door).toBe('https://jmap.pinecrest.test')
     expect(install.phonePeople()['lane@pinecrest.test']?.emergencyNumber).toBe('line')
     expect(install.googleApp()?.clientId).toBe('123456789-abcdefghij.apps.googleusercontent.com')
+    const leads = install.leads()
+    if (leads?.stages[0]) leads.stages[0].label = 'Changed'
+    expect(install.leads()?.stages[0]?.label).toBe('New')
+  })
+
+  test('the leads: a declared mailbox, two stages or more with the first open and one settled, each id once, and fields by key', () => {
+    const install = createInstall(everything())
+    expect(install.leads()).toEqual({
+      mailbox: 'desk@pinecrest.test',
+      stages: [
+        { id: 'new', label: 'New', settled: false },
+        { id: 'done', label: 'Done', settled: true },
+      ],
+      fields: [{ key: 'project', label: 'Project', board: true }],
+    })
+    expect(install.hasTab('leads')).toBe(true)
+    const bad = (change: (leads: Record<string, unknown>) => void, say: string) => {
+      const raw = everything()
+      change(raw.leads)
+      expect([say, problems(raw).join('\n').includes(say)]).toEqual([say, true])
+    }
+    bad((l) => (l.mailbox = 'nobody@pinecrest.test'), 'leads.mailbox: nobody@pinecrest.test is not a declared Cloudflare or hosted mailbox')
+    bad((l) => (l.stages = [{ id: 'new', label: 'New' }]), 'leads.stages: a list of 2 to 12 stages')
+    bad((l) => (l.stages = [{ id: 'won', label: 'Won', settled: true }, { id: 'lost', label: 'Lost', settled: true }]), 'leads.stages: the first stage is where a new lead starts')
+    bad((l) => (l.stages = [{ id: 'new', label: 'New' }, { id: 'open', label: 'Open' }]), 'leads.stages: at least one stage is settled')
+    bad((l) => (l.stages = [{ id: 'new', label: 'New' }, { id: 'new', label: 'Again', settled: true }]), 'leads.stages[1].id: new is listed twice')
+    bad((l) => (l.fields = { 'not a key': { label: 'X' } }), 'leads.fields.not a key: not a key a field may have')
+    bad((l) => (l.colour = 'blue'), 'unknown field "colour"')
+    // Without the switch there are no leads, and declaring them is refused.
+    const off = everything()
+    off.switches.leads = false
+    expect(problems(off).join('\n')).toContain('leads: only where the leads switch is on')
+    delete off.leads
+    expect(createInstall(off).leads()).toBeNull()
+    expect(createInstall(off).hasTab('leads')).toBe(false)
   })
 })
 

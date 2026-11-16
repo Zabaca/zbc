@@ -10,6 +10,8 @@ import {
   type Env,
   JMAP_METHODS,
   type JmapMethod,
+  LEAD_METHODS,
+  type LeadMethod,
   MAIL_METHODS,
   type MailMethod,
   NOTIFY_METHODS,
@@ -17,8 +19,6 @@ import {
   RESTORE_METHODS,
   type RestoreMethod,
   SPACE_METHODS,
-  LEAD_METHODS,
-  type LeadMethod,
   type SpaceMethod,
   STORE_METHODS,
   type StoreMethod,
@@ -46,8 +46,8 @@ import { inboxOwnerOf, mailboxPeopleOf } from './owner'
 import { Restores } from './restore'
 import { createSpaceInbox } from './space'
 import { SPACE_READ_METHODS, type SpaceReadMethod, SpaceReads } from './space-reads'
-import { migrate } from './store/schema'
 import { LeadStore } from './store/leads'
+import { migrate } from './store/schema'
 import { assistantKeyFor, googleCredentialsFor, hostedMailboxesFor, spamCheckAiFor } from './switches'
 import { TelegramMediaKeeper } from './telegram/media'
 import { bundledContent, bundledInstall } from './workspace'

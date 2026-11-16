@@ -16,9 +16,9 @@ function tabsIn(html: string) {
 }
 
 describe('the tabs of an install that has every part', () => {
-  test('are Today, Inbox, Meet, Calendar, Forms, People and Knowledge, in that order, on every screen', () => {
-    for (const path of ['/today', '/inbox', '/meet', '/calendar', '/forms', '/people', '/knowledge']) {
-      expect(tabsIn(view(path)).map((t) => t[0])).toEqual(['Today', 'Inbox', 'Meet', 'Calendar', 'Forms', 'People', 'Knowledge'])
+  test('are Today, Inbox, Meet, Calendar, Forms, People, Leads and Knowledge, in that order, on every screen', () => {
+    for (const path of ['/today', '/inbox', '/meet', '/calendar', '/forms', '/people', '/leads', '/knowledge']) {
+      expect(tabsIn(view(path)).map((t) => t[0])).toEqual(['Today', 'Inbox', 'Meet', 'Calendar', 'Forms', 'People', 'Leads', 'Knowledge'])
     }
   })
 
@@ -30,6 +30,7 @@ describe('the tabs of an install that has every part', () => {
       ['Calendar', '/calendar', '', ''],
       ['Forms', '/forms', 'on', 'page'],
       ['People', '/people', '', ''],
+      ['Leads', '/leads', '', ''],
       ['Knowledge', '/knowledge', '', ''],
     ])
   })
@@ -133,7 +134,7 @@ describe('the empty tabs say so', () => {
     expect(rail).not.toContain('inbox.northfield.example')
     expect(rail).not.toContain('forms.northfield.example')
     expect(rail).not.toContain('meet.northfield.example')
-    // The seven tabs, and the space's own Settings (at the foot of the rail on a computer, the gear in the strip on a phone): nothing else.
-    expect([...rail.matchAll(/<a [^>]*href="([^"]*)"/g)].map((m) => m[1])).toEqual(['/today', '/inbox', '/meet', '/calendar', '/forms', '/people', '/knowledge', '/settings', '/settings'])
+    // The eight tabs, and the space's own Settings (at the foot of the rail on a computer, the gear in the strip on a phone): nothing else.
+    expect([...rail.matchAll(/<a [^>]*href="([^"]*)"/g)].map((m) => m[1])).toEqual(['/today', '/inbox', '/meet', '/calendar', '/forms', '/people', '/leads', '/knowledge', '/settings', '/settings'])
   })
 })

@@ -253,6 +253,8 @@ import { dayAround } from './today'
 import { fixtureKnowledge } from './fixture-knowledge'
 import { CLIP_WEBM, DROP_OFF_FORM_PDF, SHEET_PHOTO_PNG, RECEIPT_PDF, VOICE_NOTE_OGG } from './fixture-files'
 import { fixtureViews } from './fixture-views'
+import { standInLeads } from './stand-in-leads'
+import { bundledInstall } from './workspace'
 import { standInPeople } from './stand-in-people'
 import { standInCalendar } from './stand-in-calendar'
 import { calendarMailFixtures } from './fixture-calendar-mail'
@@ -464,6 +466,7 @@ export function standInInbox(
   return {
     ...views.methods,
     ...contactMethods,
+    ...standInLeads(bundledInstall, contacts, now),
     views,
     asked,
     fileReads,
