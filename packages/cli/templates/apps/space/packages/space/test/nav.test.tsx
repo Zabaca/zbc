@@ -211,7 +211,9 @@ describe('the foot: Settings, and the lines the inbox says under it', () => {
       ['northfield Gmail needs a look', true, 'No push for two days.'],
       ['Ridgeway Cycles needs a look', true, 'One message is not filed.'],
     ])
-    expect(statusLines({ ...NAV, gmailAccounts: [], mailboxes: [] }, NOW)[0]).toMatchObject({ text: 'Gmail not connected', amber: true })
+    expect(statusLines({ ...NAV, gmailAccounts: [], mailboxes: [] }, NOW)).toEqual([expect.objectContaining({ text: 'No mail connected', amber: true })])
+    // An install with no Gmail says nothing of Gmail: only what it has.
+    expect(statusLines({ ...NAV, gmailAccounts: [] }, NOW).map((l) => l.text)).toEqual(['Ridgeway Cycles: last mail 40 min ago', 'ShiftLantern: no mail yet'])
     expect(statusLines({ ...NAV, gmailAccounts: [account({ connected: false, state: 'disconnected' })], mailboxes: [] }, NOW)[0]).toMatchObject({ text: 'northfield Gmail disconnected', amber: true })
     expect(statusLines({ ...NAV, gmailAccounts: [account({ state: 'filling' })], mailboxes: [] }, NOW)[0]?.text).toBe('northfield Gmail reading in mail')
     expect(statusLines({ ...NAV, gmailAccounts: [account()], mailboxes: [] }, NOW)[0]?.text).toBe('northfield Gmail live, no push yet')
