@@ -73,7 +73,7 @@ export interface InboxNavClient {
 
 /**
  * What the inbox's own left menu reads, in one answer: the views' counts, each business mailbox, each Client with its open count, how many contacts there are, and
- * Gmail's line. Every count is the inbox's own, from the same plan its own Inbox, Unread, Drafts, Bulk and Closed use (`planQueue`), so a badge in the space agrees with the
+ * each Gmail account's line. Every count is the inbox's own, from the same plan its own Inbox, Unread, Drafts, Bulk and Closed use (`planQueue`), so a badge in the space agrees with the
  * inbox's. They are counts of ROWS, the unit of the space's Conversations list (a person each, so a person with two open threads is one row and a thread two people are on is a row under
  * each), over every conversation and not cut to the newest screen the lists are (packages/inbox/src/store/row-counts.ts; packages/space/test/nav-counts.test.ts holds them to the
  * lists). The inbox's own queue routes (Claude's script) still count conversations.

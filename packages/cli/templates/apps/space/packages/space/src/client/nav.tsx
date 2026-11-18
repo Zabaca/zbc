@@ -157,7 +157,7 @@ export function treeOf(nav: InboxNav, current: ListView, onList: boolean): { vie
   }
 }
 
-/** The lines the inbox says at the foot of its menu: each Gmail account, then each business mailbox, then the Telegram bridge (`zone` is for a test; the person's own time zone is the default). Only what the space has is said: an install with no Gmail account has no Gmail line. One amber line when nothing brings mail in at all. Amber when one needs a look, so a list gone quiet is never trusted without it; a lapsed account says so by name. */
+/** The lines the inbox says at the foot of its menu: each Gmail account, then each business mailbox, then the Telegram bridge (`zone` is for a test; the person's own time zone is the default). Only what the space has is said: an install with no Gmail account has no Gmail line. One amber line when the space has no mail source at all. Amber when one needs a look, so a list gone quiet is never trusted without it; a lapsed account says so by name. */
 export function statusLines(nav: InboxNav, now: number, zone?: string): StatusLine[] {
   const gmail: StatusLine[] = nav.gmailAccounts.map((g): StatusLine => {
     const key = `gmail:${g.id}`
@@ -171,9 +171,7 @@ export function statusLines(nav: InboxNav, now: number, zone?: string): StatusLi
       title: `${g.address}. Open Settings for the connection.`,
     }
   })
-  if (nav.gmailAccounts.length === 0 && nav.mailboxes.length === 0 && (nav.jmap ?? []).length === 0 && !nav.telegram)
-    return [{ key: 'none', text: 'No mail connected', amber: true, title: 'No mailbox is connected, so no mail is coming in. Open Settings.' }]
-  return [
+  const lines = [
     ...gmail,
     ...nav.mailboxes.map(
       (m): StatusLine =>
@@ -186,6 +184,7 @@ export function statusLines(nav: InboxNav, now: number, zone?: string): StatusLi
     // The bridge's line says the same sentence as its Settings card (telegram.ts), so signed out and not checked in are read at the foot without opening Settings.
     ...(nav.telegram ? [telegramLine(nav.telegram, now, zone)] : []),
   ]
+  return lines.length > 0 ? lines : [{ key: 'none', text: 'No mail connected', amber: true, title: 'No mailbox is connected, so no mail is coming in. Open Settings.' }]
 }
 
 function jmapLine(m: NonNullable<InboxNav['jmap']>[number], now: number): StatusLine {
