@@ -6,7 +6,7 @@
 //   MAILBOXES  each Gmail account (by the short label its pill wears), then each business mailbox, each mailbox on the mail server and Telegram's, each with its count; a Gmail account that lapsed or was disconnected stays, its mail is still held
 //   CLIENTS    each Client with the rows of its open conversations
 //   (no People group: it would only link to People, which is a tab of its own)
-//   Settings   at the foot, with the lines the inbox says there: Gmail live and its last push, each mailbox's last mail, the Telegram bridge's state
+//   Settings   at the foot, with the lines the inbox says there, for what the space has: each Gmail account and its last push, each mailbox's last mail, the Telegram bridge's state
 //
 // Picking a view or a mailbox or a Client narrows the Inbox's list, which reads it from the address (`?view=`). The counts are of ROWS, the unit the list is drawn in (one per person), so a number is how many rows
 // the view shows when it is opened; the inbox counts them (packages/inbox/src/store/row-counts.ts), held to the lists by test/nav-counts.test.ts.
@@ -157,24 +157,21 @@ export function treeOf(nav: InboxNav, current: ListView, onList: boolean): { vie
   }
 }
 
-/** The lines the inbox says at the foot of its menu: each Gmail account, then each business mailbox, then the Telegram bridge (`zone` is for a test; the person's own time zone is the default). Amber when one needs a look, so a list gone quiet is never trusted without it; a lapsed account says so by name. */
+/** The lines the inbox says at the foot of its menu: each Gmail account, then each business mailbox, then the Telegram bridge (`zone` is for a test; the person's own time zone is the default). Only what the space has is said: an install with no Gmail account has no Gmail line. One amber line when the space has no mail source at all. Amber when one needs a look, so a list gone quiet is never trusted without it; a lapsed account says so by name. */
 export function statusLines(nav: InboxNav, now: number, zone?: string): StatusLine[] {
-  const gmail: StatusLine[] =
-    nav.gmailAccounts.length === 0
-      ? [{ key: 'gmail', text: 'Gmail not connected', amber: true, title: 'Gmail is not connected, so no mail is coming in.' }]
-      : nav.gmailAccounts.map((g): StatusLine => {
-          const key = `gmail:${g.id}`
-          if (!g.connected) return { key, text: `${g.name} Gmail disconnected`, amber: true, title: `${g.address}: connect it to receive mail.` }
-          if (g.state === 'lapsed') return { key, text: `${g.name} Gmail: connect it again`, amber: true, title: g.reason ?? `${g.address}: Google no longer accepts the saved sign-in. Connect it again in Settings.` }
-          if (g.reason !== null) return { key, text: `${g.name} Gmail needs a look`, amber: true, title: g.reason }
-          return {
-            key,
-            text: g.state === 'filling' ? `${g.name} Gmail reading in mail` : g.state === 'resyncing' ? `${g.name} Gmail catching up` : g.lastPushAt ? `${g.name} Gmail live, last push ${agoText(now, g.lastPushAt)}` : `${g.name} Gmail live, no push yet`,
-            amber: false,
-            title: `${g.address}. Open Settings for the connection.`,
-          }
-        })
-  return [
+  const gmail: StatusLine[] = nav.gmailAccounts.map((g): StatusLine => {
+    const key = `gmail:${g.id}`
+    if (!g.connected) return { key, text: `${g.name} Gmail disconnected`, amber: true, title: `${g.address}: connect it to receive mail.` }
+    if (g.state === 'lapsed') return { key, text: `${g.name} Gmail: connect it again`, amber: true, title: g.reason ?? `${g.address}: Google no longer accepts the saved sign-in. Connect it again in Settings.` }
+    if (g.reason !== null) return { key, text: `${g.name} Gmail needs a look`, amber: true, title: g.reason }
+    return {
+      key,
+      text: g.state === 'filling' ? `${g.name} Gmail reading in mail` : g.state === 'resyncing' ? `${g.name} Gmail catching up` : g.lastPushAt ? `${g.name} Gmail live, last push ${agoText(now, g.lastPushAt)}` : `${g.name} Gmail live, no push yet`,
+      amber: false,
+      title: `${g.address}. Open Settings for the connection.`,
+    }
+  })
+  const lines = [
     ...gmail,
     ...nav.mailboxes.map(
       (m): StatusLine =>
@@ -187,6 +184,7 @@ export function statusLines(nav: InboxNav, now: number, zone?: string): StatusLi
     // The bridge's line says the same sentence as its Settings card (telegram.ts), so signed out and not checked in are read at the foot without opening Settings.
     ...(nav.telegram ? [telegramLine(nav.telegram, now, zone)] : []),
   ]
+  return lines.length > 0 ? lines : [{ key: 'none', text: 'No mail connected', amber: true, title: 'No mailbox is connected, so no mail is coming in. Open Settings.' }]
 }
 
 function jmapLine(m: NonNullable<InboxNav['jmap']>[number], now: number): StatusLine {
