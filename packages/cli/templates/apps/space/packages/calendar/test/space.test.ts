@@ -49,10 +49,15 @@ describe('the space’s face', () => {
       await teammates.event(dana, `${Z}|${Z}|e`),
       await teammates.setShown(dana, `${Z}|${Z}`, false),
       await teammates.syncNow(dana),
+      await teammates.blocking(dana),
+      await teammates.setBlocking(dana, true),
+      await teammates.setBlockingAccount(dana, Z, false),
     ]) {
       expect(answer).toMatchObject({ ok: false, kind: 'refused', reason: 'not-admitted' })
     }
     expect(h.store.calendar(`${Z}|${Z}`)?.shown).toBe(true)
+    expect(h.store.blocking().enabled).toBe(false)
+    expect(h.store.account(Z)?.blocks).toBe(true)
   })
 
   test('a refusal of the engine is a refusal, with its words', async () => {

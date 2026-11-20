@@ -57,5 +57,8 @@ export function createSpaceCalendar(deps: SpaceCalendarDeps): CalendarForSpace {
     eventsByUid: (asker, asks) => asOwner(asker, 'eventsByUid', async () => reply(await engine.call('eventsByUid', asks))),
     setShown: (asker, calendarId, shown) => asOwner(asker, 'setShown', async () => reply(await engine.call('setShown', calendarId, shown))),
     syncNow: (asker) => asOwner(asker, 'syncNow', async () => reply(await engine.call('syncNow'))),
+    blocking: (asker) => asOwner(asker, 'blocking', async () => reply(await engine.call('blocking'))),
+    setBlocking: (asker, on) => asOwner(asker, 'setBlocking', async () => reply(await engine.call('setBlocking', on))),
+    setBlockingAccount: (asker, address, takesPart) => asOwner(asker, 'setBlockingAccount', async () => reply(await engine.call('setBlockingAccount', address, takesPart))),
   }
 }

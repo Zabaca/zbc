@@ -1,6 +1,6 @@
 // The Calendar tab, Today's events and Settings, Calendars in a real browser, over the production bundle with the dev bypass and the local fixtures (src/stand-in-calendar.ts: four invented Google accounts and a week of
 // events, laid on the company's clock around the moment the server started): the agenda by day with each account's colour, the card an event opens, Today's Later today and Tomorrow beside Meet's meetings, Settings, Calendars with its
-// switches, and the tab strip with seven tabs and the gear. What no bun test can show: that the strip of seven fits a phone, that the agenda and the card fit both widths, and that nothing runs off the side of a screen.
+// switches, and the tab strip with eight tabs and the gear. What no bun test can show: that the strip of eight fits a phone, that the agenda and the card fit both widths, and that nothing runs off the side of a screen.
 //
 //   bun test e2e/calendar.test.ts
 //   CALENDAR_SHOTS=/tmp/shots bun test e2e/calendar.test.ts   also writes each screen at 1440px and 390px
@@ -53,21 +53,30 @@ async function openWindow(size: keyof typeof SIZES) {
 
 for (const size of ['1440', '390'] as const) {
   describe(`The Calendar at ${size}px`, () => {
-    test('the strip has seven tabs and the gear, each with room to be pressed, and none runs off the screen', async () => {
+    test('the strip has eight tabs and the gear, each with room to be pressed; the strip scrolls sideways when they do not fit and the current tab is in view', async () => {
       const w = await openWindow(size)
       await w.page.goto(`${space.base}/calendar`)
       await w.page.waitForSelector('[data-testid="calendar-tab"]')
       const tabs = w.page.locator('nav.rail a.rail-item')
       const labels = await tabs.evaluateAll((els) => els.map((e) => (e.querySelector('.rail-label') as HTMLElement).innerText.trim()))
-      expect(labels).toEqual(['Today', 'Inbox', 'Meet', 'Calendar', 'Forms', 'People', 'Knowledge', 'Settings'])
+      expect(labels).toEqual(['Today', 'Inbox', 'Meet', 'Calendar', 'Forms', 'People', 'Leads', 'Knowledge', 'Settings'])
       const boxes = await tabs.evaluateAll((els) => els.map((e) => e.getBoundingClientRect()).map((r) => ({ left: r.left, right: r.right, width: r.width })))
-      // Every item is inside the window and wide enough to press.
-      for (const b of boxes) {
-        expect(b.left).toBeGreaterThanOrEqual(0)
-        expect(b.right).toBeLessThanOrEqual(SIZES[size].width + 0.5)
-      }
-      // On a phone the seven tabs have about 49px each and the gear, an icon alone, 42 (the strip is 52px tall).
-      if (size === '390') boxes.forEach((b, i) => expect(b.width).toBeGreaterThanOrEqual(i < 7 ? 44 : 40))
+      // The strip fits the window and the page does not scroll sideways; when the tabs do not all fit (eight and the gear at 390px) the strip scrolls and the current tab is in view.
+      const strip = await w.page.evaluate(() => {
+        const rail = document.querySelector('nav.rail') as HTMLElement
+        const on = rail.querySelector('.rail-item.on') as HTMLElement
+        const r = rail.getBoundingClientRect()
+        const o = on.getBoundingClientRect()
+        return { left: r.left, right: r.right, scrolls: rail.scrollWidth > rail.clientWidth, onLeft: o.left, onRight: o.right, page: document.documentElement.scrollWidth }
+      })
+      expect(strip.left).toBeGreaterThanOrEqual(0)
+      expect(strip.right).toBeLessThanOrEqual(SIZES[size].width + 0.5)
+      expect(strip.page).toBeLessThanOrEqual(SIZES[size].width)
+      expect(strip.onLeft).toBeGreaterThanOrEqual(strip.left - 0.5)
+      expect(strip.onRight).toBeLessThanOrEqual(strip.right + 0.5)
+      if (size === '1440') expect(strip.scrolls).toBe(false)
+      // Every tab is wide enough to press, whether or not the strip scrolls, and the gear, an icon alone, 40 (the strip is 52px tall).
+      if (size === '390') boxes.forEach((b, i) => expect(b.width).toBeGreaterThanOrEqual(i < 8 ? 44 : 40))
       // No label is cut short: Knowledge, the longest, is read whole in its eighth of the strip.
       // Measured on the text itself, since an element can be "just wide enough" and still draw its ellipsis.
       const cut = await w.page.locator('nav.rail .rail-label').evaluateAll((els) =>
@@ -173,6 +182,24 @@ for (const size of ['1440', '390'] as const) {
       await w.page.goto(`${space.base}/settings/calendars`)
       await w.page.locator('[data-testid="calendar-row"]', { hasText: 'Holidays in United States' }).locator('[data-testid="calendar-switch"]').click()
       await w.page.waitForSelector('[data-testid="calendar-row"][data-shown="false"]:has-text("Holidays in United States")')
+      expect(w.errors).toEqual([])
+    })
+
+    test('Settings, Calendars: the busy blocks card has its switch off and every account ticked; the switch says how many blocks are kept, and nothing runs off the screen', async () => {
+      const w = await openWindow(size)
+      await w.page.goto(`${space.base}/settings/calendars`)
+      await w.page.waitForSelector('[data-testid="calendar-blocking"]')
+      expect(await w.page.locator('[data-testid="blocking-switch"]').getAttribute('aria-checked')).toBe('false')
+      expect(await w.page.locator('[data-testid="blocking-check"]:checked').count()).toBe(4)
+      expect(await fits(w.page)).toBe(true)
+      await w.page.locator('[data-testid="blocking-switch"]').click()
+      await w.page.waitForSelector('[data-testid="blocking-count"]')
+      expect(await w.page.locator('[data-testid="blocking-count"]').innerText()).toMatch(/\d+ blocks? kept/)
+      expect(await fits(w.page)).toBe(true)
+      await w.shot('settings-blocking')
+      // Put it back, so the next window starts as the first did.
+      await w.page.locator('[data-testid="blocking-switch"]').click()
+      await w.page.waitForSelector('[data-testid="blocking-switch"][aria-checked="false"]')
       expect(w.errors).toEqual([])
     })
 

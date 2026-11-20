@@ -117,6 +117,13 @@ export function Space({ me, pathname, search = '', go }: { me: Me; pathname: str
   // Settings is not one of the four tabs: it is the menu behind the gear under them, and no tab is current while it is open.
   const tab = settings ? null : tabAt(pathname, me.tabs, me.home)
   const Screen = tab ? SCREENS[tab] : null
+  // On a phone the strip of tabs scrolls sideways when they do not all fit: the current tab (or the gear) is kept in view. The strip is not scrollable on a wide screen, where nothing happens.
+  useEffect(() => {
+    const on = document.querySelector<HTMLElement>('nav.rail .rail-item.on')
+    const rail = on?.parentElement
+    if (!on || !rail || rail.scrollWidth <= rail.clientWidth) return
+    rail.scrollLeft += on.getBoundingClientRect().left - rail.getBoundingClientRect().left - (rail.clientWidth - on.offsetWidth) / 2
+  }, [tab, settings])
   return (
     <InstallContext.Provider value={installWordsOf(me)}>
     <OwnerContext.Provider value={me.owner}>

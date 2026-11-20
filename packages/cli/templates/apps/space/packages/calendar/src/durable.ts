@@ -1,7 +1,7 @@
 import { DurableObject } from 'cloudflare:workers'
 import { liveOf, ownersOf, tellLive } from '@space/workspace'
 import { CalendarEngine, ENGINE_METHODS, type EngineMethod } from './engine'
-import { createCalendarGoogle, createCalendarWriter } from './google'
+import { createCalendarGoogle, createCalendarWriter, createRunWriter } from './google'
 import { migrate } from './schema'
 import { type CalendarEnv, inboxFor } from './store-access'
 import { CalendarStore } from './store'
@@ -55,9 +55,15 @@ export class CalendarDO extends DurableObject<CalendarEnv> {
         fetch: (url, init) => fetch(url, init),
         access: (address, fresh) => inbox.access(address, fresh, 'events'),
       }),
+      // The busy blocks the owner's switch keeps (the space's ADR 0024), made from this object's own alarm: the same token for `calendar.events` alone, asked of the inbox once for an account in a run and dropped when the run ends. No import of the inbox is needed for it.
+      runWriter: createRunWriter({
+        fetch: (url, init) => fetch(url, init),
+        access: (address, fresh) => inbox.access(address, fresh, 'events'),
+      }),
       grants: () => inbox.grants(),
       now,
       zone: bundledInstall.company.timeZone,
+      installId: bundledInstall.company.id,
       pushUrl: pushUrlOf(env.CALENDAR_PUSH_URL),
       newId: () => crypto.randomUUID(),
       newToken: () => hex(crypto.getRandomValues(new Uint8Array(24))),

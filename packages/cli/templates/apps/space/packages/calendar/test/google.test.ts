@@ -8,6 +8,7 @@ import {
   CHANNEL_TTL_SECONDS,
   createCalendarGoogle,
   createCalendarWriter,
+  createRunWriter,
 } from '../src/google'
 
 /**
@@ -241,6 +242,52 @@ describe('the writing client', () => {
     expect((bad as Error).message).toContain('The specified time range is empty.')
     await writer([json({ error: { code: 410, message: 'Resource has been deleted' } }, 410)]).api.deleteEvent('p', 'x')
     expect(await writer([json({ error: { code: 500, message: 'Backend Error' } }, 500)]).api.deleteEvent('p', 'x').catch((e: unknown) => (e as CalendarError).status)).toBe(500)
+  })
+
+  test('quiet (the busy blocks): sendUpdates=none on an insert, a patch and a delete, and no Meet request; the default is unchanged', async () => {
+    const { api, seen } = writer([json({ id: 'b1' }), json({ id: 'b1' }), new Response(null, { status: 204 })])
+    await api.insertEvent('p', { summary: 'Busy' }, true)
+    await api.patchEvent('p', 'b1', { end: { dateTime: '2026-11-18T10:00:00-08:00' } }, true)
+    await api.deleteEvent('p', 'b1', true)
+    expect(seen.map((s) => [s.method, Object.fromEntries(s.url.searchParams)])).toEqual([
+      ['POST', { sendUpdates: 'none' }],
+      ['PATCH', { sendUpdates: 'none' }],
+      ['DELETE', { sendUpdates: 'none' }],
+    ])
+  })
+
+  test('a run writer (the space’s ADR 0024) asks for one token for an account and keeps it for the run only: a 401 asks again, fresh, and the end of the run drops it', async () => {
+    const answers: Response[] = [json({ id: 'a' }), json({ id: 'b' }), json({ error: { code: 401 } }, 401), json({ id: 'c' }), json({ id: 'd' })]
+    const asked: { address: string; fresh: boolean }[] = []
+    const bearers: string[] = []
+    let n = 0
+    const start = createRunWriter({
+      fetch: async (_url, init = {}) => {
+        bearers.push(new Headers(init.headers).get('authorization') ?? '')
+        const next = answers.shift()
+        if (!next) throw new Error('unexpected request')
+        return next
+      },
+      access: async (address, fresh) => {
+        asked.push({ address, fresh })
+        n += 1
+        return { ok: true, accessToken: `run-${n}`, expiresAt: 10_000_000 }
+      },
+    })
+    const run = start()
+    await run.writer('a@x.example').insertEvent('p', {}, true)
+    await run.writer('a@x.example').insertEvent('p', {}, true)
+    expect(asked).toEqual([{ address: 'a@x.example', fresh: false }])
+    // Another account has a token of its own; a 401 is asked for again, fresh, and replaces the kept one.
+    await run.writer('b@x.example').insertEvent('p', {}, true)
+    expect(asked.at(-1)).toEqual({ address: 'b@x.example', fresh: true })
+    expect(bearers).toEqual(['Bearer run-1', 'Bearer run-1', 'Bearer run-2', 'Bearer run-3'])
+    run.end()
+    // The next run asks again: nothing outlives a run.
+    const next = start()
+    await next.writer('a@x.example').insertEvent('p', {}, true)
+    expect(asked.at(-1)).toEqual({ address: 'a@x.example', fresh: false })
+    expect(asked).toHaveLength(4)
   })
 
   test('when the inbox refuses a token the reason comes through, and Google is not asked; no error carries a token', async () => {

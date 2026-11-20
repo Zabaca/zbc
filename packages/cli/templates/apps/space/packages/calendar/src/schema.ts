@@ -124,6 +124,31 @@ export const CALENDAR_MIGRATIONS: readonly CalendarMigration[] = [
   `
   ALTER TABLE "account" ADD COLUMN "events" INTEGER NOT NULL DEFAULT 0;
   `,
+
+  // 2 ── the busy blocks (the space's ADR 0024): a "Busy" event the calendar keeps on one of the owner's calendars for a meeting that makes them busy on another.
+  //
+  // `blocking` is the owner's setting, one row: `enabled` is the switch (off at first), `problem` is the last failure to write or remove blocks in a sentence, `retry_at` when to try again, `failures` how many runs in a row failed (the backoff).
+  // `account.blocks` is whether an account takes part (it gives its busy times and receives blocks): every account does at first, and the owner may take one out.
+  // `event.block` is set on an event that is one of the calendar's own blocks, as read back from Google (the private extended property the block was made with); it holds the meeting key the block stands for. A block is never drawn, never counted busy for
+  // Claude and never the source of another block, so every read of `event` for a screen or for Claude leaves out `block IS NOT NULL`.
+  `
+  ALTER TABLE "account" ADD COLUMN "blocks" INTEGER NOT NULL DEFAULT 1;
+  ALTER TABLE "event" ADD COLUMN "block" TEXT;
+  CREATE INDEX "event_block_idx" ON "event" ("block") WHERE "block" IS NOT NULL;
+  CREATE TABLE "blocking" (
+    "id" TEXT PRIMARY KEY CHECK ("id" = 'blocking'),
+    "enabled" INTEGER NOT NULL DEFAULT 0,
+    "problem" TEXT,
+    "retry_at" INTEGER,
+    "failures" INTEGER NOT NULL DEFAULT 0
+  );
+  INSERT INTO "blocking" ("id") VALUES ('blocking');
+  `,
+
+  // 3 ── whose block it is: the install key in the mark (`spaceBlockBy`), so two spaces on one Google account neither remove nor make again each other's blocks. Null for a block marked before the mark named an install: it is read as this install's.
+  `
+  ALTER TABLE "event" ADD COLUMN "block_by" TEXT;
+  `,
 ]
 
 /** The version a fully migrated store reports. */

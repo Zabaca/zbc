@@ -3,6 +3,8 @@
 // Every call is the person this request's one sign-in check named (packages/workspace/docs/adr/0003), whom the calendar admits if they are the install's owner and no one else. The calendar decides who may do what and
 // every rule of what it keeps; the space only carries the question and refuses an answer that is not the shape the contract says. NOTHING HERE ASKS GOOGLE: the calendar answers from its own store (the sync is its alarm's).
 //
+// The busy blocks (the space's ADR 0024) are settings here: how they stand, the switch and an account's part in it. None of them writes an event to Google; the calendar's own alarm does that, once the setting says so.
+//
 // The agenda is the calendar's events AND the meetings booked in Meet (they are on no Google calendar), merged by the page by time. Meet's are asked in parallel and may fail alone: the agenda then says they are not listed.
 //
 // A READ waits `ANSWER_WITHIN_MS` and is `unreachable` when the app does not answer. A WRITE (showing or hiding a calendar, Check now) waits `WRITE_WITHIN_MS` and is NEVER retried. Both answer a `ViewAnswer`, the same words the
@@ -14,6 +16,7 @@ import {
   CALENDAR_RESPONSES,
   type CalendarAccountView,
   type CalendarAgenda,
+  type CalendarBlocking,
   type CalendarEvent,
   type CalendarView,
   type MeetCall,
@@ -36,6 +39,16 @@ const isMark = (v: unknown): boolean => isRecord(v) && isText(v.address) && isTe
 
 export const isCalendarView = (v: unknown): v is CalendarView =>
   isRecord(v) && isText(v.id) && isText(v.name) && textOrNull(v.color) && isBool(v.primary) && isBool(v.shown) && countOrNull(v.readAt) && textOrNull(v.problem) && textOrNull(v.note)
+
+const blockFixes = new Set<string>(['connect-again', 'connect-calendar'])
+
+/** How the busy blocks stand: the switch, the count, the sentence, and each account's part in it and why it cannot take part. */
+export const isCalendarBlocking = (v: unknown): v is CalendarBlocking =>
+  isRecord(v) &&
+  isBool(v.on) &&
+  isCount(v.kept) &&
+  textOrNull(v.problem) &&
+  each(v.accounts, (a) => isRecord(a) && isText(a.address) && isText(a.label) && isCount(a.hue) && isBool(a.takesPart) && textOrNull(a.skipped) && (a.fix === null || (isText(a.fix) && blockFixes.has(a.fix))))
 
 export const isCalendarAccounts = (v: unknown): v is CalendarAccountView[] =>
   each(
@@ -164,4 +177,30 @@ export async function syncNow(ask: Asking): Promise<ViewAnswer<{ asked: number }
   if (!calendar) return { result: 'failed', message: 'The calendar is not connected to the space. Nothing was done.' }
   const a = ask.signedIn
   return answerOf(await reachWrite(PART, () => calendar.syncNow(a), (v): v is { asked: number } => isRecord(v) && isCount(v.asked), ask.writeWithinMs ?? WRITE_WITHIN_MS))
+}
+
+/** How the busy blocks stand. */
+export async function readBlocking(ask: Asking): Promise<ViewAnswer<CalendarBlocking>> {
+  const { calendar } = ask.apps
+  if (!calendar) return answerOf(notConnected(PART))
+  const a = ask.signedIn
+  return answerOf(await reach(PART, () => calendar.blocking(a), isCalendarBlocking, ask.answerWithinMs ?? ANSWER_WITHIN_MS))
+}
+
+/** Turn the busy blocks on or off, by the owner, never retried. A setting only: the calendar's alarm makes or removes the blocks. */
+export async function setBlocking(ask: Asking, body: unknown): Promise<Parsed<ViewAnswer<CalendarBlocking>>> {
+  if (!isRecord(body) || !isBool(body.on)) return { ok: false, message: 'Say whether the busy blocks are on: {"on": true}.' }
+  const { calendar } = ask.apps
+  if (!calendar) return { ok: true, value: { result: 'failed', message: 'The calendar is not connected to the space. Nothing was changed.' } }
+  const [a, on] = [ask.signedIn, body.on]
+  return { ok: true, value: answerOf(await reachWrite(PART, () => calendar.setBlocking(a, on), isCalendarBlocking, ask.writeWithinMs ?? WRITE_WITHIN_MS)) }
+}
+
+/** Take an account in or out of the busy blocks, by the owner, never retried. */
+export async function setBlockingAccount(ask: Asking, body: unknown): Promise<Parsed<ViewAnswer<CalendarBlocking>>> {
+  if (!isRecord(body) || !isText(body.account) || !KEY.test(body.account) || !isBool(body.takesPart)) return { ok: false, message: 'Say which account and whether it takes part: {"account": "<address>", "takesPart": true}.' }
+  const { calendar } = ask.apps
+  if (!calendar) return { ok: true, value: { result: 'failed', message: 'The calendar is not connected to the space. Nothing was changed.' } }
+  const [a, address, takesPart] = [ask.signedIn, body.account, body.takesPart]
+  return { ok: true, value: answerOf(await reachWrite(PART, () => calendar.setBlockingAccount(a, address, takesPart), isCalendarBlocking, ask.writeWithinMs ?? WRITE_WITHIN_MS)) }
 }

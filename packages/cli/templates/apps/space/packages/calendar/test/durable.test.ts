@@ -29,14 +29,16 @@ beforeAll(async () => {
 })
 
 const Z = 'tessa@northfield.example'
+const F = 'tessa@ashgrove.example'
 const iso = (ms: number) => new Date(ms).toISOString()
 
-function environment(options: { push?: string } = {}) {
+function environment(options: { push?: string; accounts?: string[] } = {}) {
   const mem = memoryDatabase()
   const google = new FakeGoogle({ t: Date.now() })
-  const grants: CalendarGrant[] = [grant(Z)]
+  const accounts = options.accounts ?? [Z]
+  const grants: CalendarGrant[] = accounts.map((a) => grant(a))
   const inboxCalls: string[] = []
-  google.account(Z)
+  for (const a of accounts) google.account(a)
   const told: unknown[] = []
   let alarm: number | null = null
   const ctx = {
@@ -54,7 +56,8 @@ function environment(options: { push?: string } = {}) {
     call: async (method: string, args: unknown[]) => {
       inboxCalls.push(method)
       if (method === 'calendarGrants') return grants
-      if (method === 'calendarAccess') return google.access(args[0] as string, args[1] === true) as Promise<CalendarAccess>
+      // The inbox's own seam: the third argument is the level, and only the word `events` is anything but a read.
+      if (method === 'calendarAccess') return google.access(args[0] as string, args[1] === true, args[2] === 'events' ? 'events' : 'read') as Promise<CalendarAccess>
       throw new Error(`the calendar asked the inbox for ${method}`)
     },
   }
@@ -89,7 +92,7 @@ describe('the object', () => {
     const { mem, getAlarm, restore } = environment()
     try {
       await new Promise((resolve) => setTimeout(resolve, 0))
-      expect((mem.db.query(`SELECT applied FROM calendar_meta`).get() as { applied: number }).applied).toBe(2)
+      expect((mem.db.query(`SELECT applied FROM calendar_meta`).get() as { applied: number }).applied).toBe(4)
       expect(getAlarm()).not.toBeNull()
     } finally {
       restore()
@@ -111,6 +114,26 @@ describe('the object', () => {
       expect(told).toContainEqual({ part: 'calendar', people: expect.arrayContaining([Z]) })
       // Google was shown a calendar-only token (the stand-in names the account), never anything of the refresh token.
       expect(google.bearers.every((b) => b.startsWith('tok-'))).toBe(true)
+    } finally {
+      restore()
+    }
+  })
+
+  test('the alarm keeps the busy blocks once the owner has switched them on, with a token for calendar.events alone asked of the inbox for the account it writes to, and the inbox is asked for nothing else', async () => {
+    const { object, google, inboxCalls, restore } = environment({ accounts: [Z, F] })
+    try {
+      const now = Date.now()
+      google.clock.t = now
+      google.addCalendar(Z, { id: Z, summary: 'Tessa', primary: true })
+      google.addCalendar(F, { id: F, summary: 'Tessa', primary: true })
+      google.setEvent(Z, Z, { id: 'e', summary: 'Standup', start: iso(now + HOUR), end: iso(now + 2 * HOUR) })
+      await object.alarm()
+      // Off at first: the alarm reads and writes nothing.
+      expect(google.writes).toEqual([])
+      expect(await object.call('setBlocking', [true])).toMatchObject({ ok: true, value: { on: true } })
+      await object.alarm()
+      expect(google.writes.map((w) => [w.op, w.calendarId, w.level, w.query.sendUpdates])).toEqual([['events.insert', F, 'events', 'none']])
+      expect(new Set(inboxCalls)).toEqual(new Set(['calendarGrants', 'calendarAccess']))
     } finally {
       restore()
     }

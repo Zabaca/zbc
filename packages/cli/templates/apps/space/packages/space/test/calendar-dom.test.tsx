@@ -6,7 +6,7 @@ import { GlobalRegistrator } from '@happy-dom/global-registrator'
 import { northfield } from '../../workspace/test/helpers'
 import { meOf } from '../src/app'
 import { addDays, dayKey } from '../src/client/calendar-words'
-import { readAccounts, readAgenda, readEvent, setShown, syncNow } from '../src/calendar'
+import { readAccounts, readAgenda, readBlocking, readEvent, setBlocking, setBlockingAccount, setShown, syncNow } from '../src/calendar'
 import { type CalendarFixtureMode, standInCalendar } from '../src/stand-in-calendar'
 import { fixtureApps } from '../src/stand-ins'
 import { OWNER_SIGNED_IN } from './signed-in'
@@ -58,6 +58,15 @@ function standInWorker(mode: CalendarFixtureMode = '1', over: { meet?: boolean; 
       }
       case '/api/calendar/sync':
         return json(await syncNow(ask))
+      case '/api/calendar/blocking': {
+        if (init?.method !== 'POST') return json(await readBlocking(ask))
+        const got = await setBlocking(ask, body)
+        return got.ok ? json(got.value) : json({ error: got.message }, 400)
+      }
+      case '/api/calendar/blocking/account': {
+        const got = await setBlockingAccount(ask, body)
+        return got.ok ? json(got.value) : json({ error: got.message }, 400)
+      }
       case '/api/inbox/mailboxes':
         // The inbox's own list of accounts, which Settings reads to hint Google when an account is connected again.
         return json({ result: 'ok', value: { gmailAccounts: over.gmail ?? [{ id: 'mb-ashgrove', address: 'tessa@ashgrove.example', name: 'ashgrove', connected: true, state: 'lapsed' }], mailboxes: [], assistantKey: false } })
@@ -583,6 +592,76 @@ describe('Settings, Calendars', () => {
     const needs = page.all('calendar-account').find((a) => a.getAttribute('data-state') === 'needs-calendar')
     expect(needs?.querySelector('a[data-testid="calendar-connect"]')?.getAttribute('href')).toBe('/api/inbox/gmail/start?account=mb-homemail&for=calendar')
     await page.unmount()
+  })
+
+  test('the busy blocks: off at first with every account ticked; the switch turns them on and says so, with how many blocks are kept', async () => {
+    const { calendar } = standInWorker()
+    const { page } = await openSettings()
+    const card = page.q('calendar-blocking')
+    expect(card?.getAttribute('data-on')).toBe('false')
+    expect(card?.textContent).toContain('says only “Busy”')
+    expect(page.q('blocking-switch')?.getAttribute('aria-checked')).toBe('false')
+    expect(page.q('blocking-count')).toBeNull()
+    expect(page.all('blocking-check').map((c) => (c as HTMLInputElement).checked)).toEqual([true, true, true, true])
+    await page.click(page.q('blocking-switch'))
+    expect(calendar.blocking.on).toBe(true)
+    expect(page.q('done')?.textContent).toContain('busy blocks are on')
+    expect(page.q('calendar-blocking')?.getAttribute('data-on')).toBe('true')
+    expect(page.q('blocking-switch')?.getAttribute('aria-checked')).toBe('true')
+    expect(page.q('blocking-count')?.textContent).toMatch(/^\d+ blocks? kept$/)
+    expect(page.q('blocking-problem')).toBeNull()
+    await page.click(page.q('blocking-switch'))
+    expect(calendar.blocking.on).toBe(false)
+    expect(page.q('done')?.textContent).toContain('busy blocks are off')
+    expect(page.q('blocking-count')).toBeNull()
+    await page.unmount()
+  })
+
+  test('each account has a checkbox: taking one out is said and kept, and the account is not drawn as skipped for it', async () => {
+    const { calendar } = standInWorker()
+    const { page } = await openSettings()
+    const ashgrove = () => page.all('blocking-account').find((a) => a.getAttribute('data-account') === 'tessa@ashgrove.example') as HTMLElement
+    await page.click(ashgrove().querySelector('[data-testid="blocking-check"]'))
+    expect([...calendar.blocking.out]).toEqual(['tessa@ashgrove.example'])
+    expect(page.q('done')?.textContent).toContain('tessa@ashgrove.example is out of the blocks')
+    expect(ashgrove().getAttribute('data-part')).toBe('false')
+    expect((ashgrove().querySelector('[data-testid="blocking-check"]') as HTMLInputElement).checked).toBe(false)
+    await page.click(ashgrove().querySelector('[data-testid="blocking-check"]'))
+    expect(calendar.blocking.out.size).toBe(0)
+    expect(page.q('done')?.textContent).toContain('takes part in the blocks')
+    await page.unmount()
+  })
+
+  test('an account that cannot hold a block says why and offers the button that cures it: Connect again for a sign-in that ended, Connect calendar for a missing permission; one that is taken out says nothing', async () => {
+    const { calendar } = standInWorker('lapsed', { gmail: [{ id: 'mb-ashgrove', address: 'tessa@ashgrove.example', name: 'ashgrove', connected: true, state: 'lapsed' }] })
+    const { page } = await openSettings()
+    const of = (address: string) => page.all('blocking-account').find((a) => a.getAttribute('data-account') === address) as HTMLElement
+    expect(of('tessa@northfield.example').querySelector('[data-testid="blocking-skipped"]')).toBeNull()
+    expect(of('tessa@ashgrove.example').querySelector('[data-testid="blocking-skipped"]')?.textContent).toContain('sign-in of tessa@ashgrove.example ended')
+    expect(of('tessa@ashgrove.example').querySelector('a[data-testid="blocking-connect-again"]')?.getAttribute('href')).toBe('/api/inbox/gmail/start?account=mb-ashgrove')
+    expect(of('tessa@ashgrove.example').querySelector('[data-testid="blocking-connect-calendar"]')).toBeNull()
+    expect(of('tessa_marlow@gmail.com').querySelector('a[data-testid="blocking-connect-calendar"]')?.getAttribute('href')).toBe('/api/inbox/gmail/start?for=calendar')
+    expect(of('tessa.marlow@fernway.example').querySelector('[data-testid="blocking-skipped"]')?.textContent).toContain('connected for reading only')
+    expect(of('tessa.marlow@fernway.example').querySelector('a[data-testid="blocking-connect-calendar"]')).not.toBeNull()
+    calendar.blocking.out.add('tessa_marlow@gmail.com')
+    await page.unmount()
+    const again = await openSettings()
+    expect(again.page.all('blocking-account').find((a) => a.getAttribute('data-account') === 'tessa_marlow@gmail.com')?.querySelector('[data-testid="blocking-skipped"]')).toBeNull()
+    await again.page.unmount()
+  })
+
+  test('one amber sentence when blocks could not be written or removal is held back, as the calendar words it (a sentence the calendar sends is shown whatever the switch says)', async () => {
+    const { calendar } = standInWorker()
+    const { page } = await openSettings()
+    expect(page.q('blocking-problem')).toBeNull()
+    expect(page.q('calendar-blocking')?.className).not.toContain('amber')
+    await page.unmount()
+    calendar.blocking.problem = 'Could not keep every Busy block up to date: Google did not answer cleanly (the connection was lost); it will be tried again.'
+    const again = await openSettings()
+    expect(again.page.q('blocking-problem')?.textContent).toContain('Could not keep every Busy block up to date')
+    expect(again.page.q('calendar-blocking')?.className).toContain('amber')
+    expect(again.page.q('blocking-switch')?.getAttribute('aria-checked')).toBe('false')
+    await again.page.unmount()
   })
 
   test('Check now asks for every calendar to be read again', async () => {

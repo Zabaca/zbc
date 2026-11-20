@@ -4,7 +4,8 @@
 // inbox holds mail. Every method here reads that store and none asks Google, so the tab and Today are as quick as the space and a Google outage shows as an old picture marked with when it was read.
 //
 // ONE FACE, for the space (`CalendarForSpace`): it runs INSIDE the space's Worker (the company layer's ADR 0003), over a store the Worker owns, and EVERY METHOD takes the person the space's one sign-in
-// check named (`SignedIn`), then admits the install's owner and no one else (the accounts are the owner's). A service token is never a person, so none comes through. Claude has no door to it
+// check named (`SignedIn`), then admits the install's owner and no one else (the accounts are the owner's). A service token is never a person, so none comes through. None of its methods writes an event at Google: the three that
+// change anything change the owner's SETTINGS (a calendar shown, the busy-block switch and an account's part in it), and the writes that follow from the blocking switch are the calendar's own, from its alarm (the space's ADR 0024). Claude has no door to it
 // (the company layer's ADR 0002: Claude's one path leads to the inbox), and reaches the calendar through the inbox's router instead, by the second face at the foot of this file (`CalendarForInbox`): the free time read from
 // the store, and invites made, moved and cancelled under the rule a send of mail is under (the owner's instruction and the owner's switch; the space's ADR 0023).
 //
@@ -21,8 +22,8 @@ export const CALENDAR_READONLY_SCOPE = 'https://www.googleapis.com/auth/calendar
 
 /**
  * The Google permission that creates, changes and deletes events (asked with the reading one, once per account, so a feature that writes events needs no second consent). Not the full `calendar` scope. Connect calendar
- * asks for it beside `CALENDAR_READONLY_SCOPE`. The sync never uses it; only Claude's invites, moves and cancellations do (`CalendarForInbox`), one call at a time, and a grant that has the reading permission without it
- * is connected for reading all the same (see `CalendarGrant.events`) and cannot take one.
+ * asks for it beside `CALENDAR_READONLY_SCOPE`. The sync never uses it; only Claude's invites, moves and cancellations do (`CalendarForInbox`), one call at a time, and the "Busy" blocks the owner's own switch keeps on their other calendars
+ * (the space's ADR 0024), one token for each run of the alarm. A grant that has the reading permission without it is connected for reading all the same (see `CalendarGrant.events`) and cannot take one.
  */
 export const CALENDAR_EVENTS_SCOPE = 'https://www.googleapis.com/auth/calendar.events'
 
@@ -202,6 +203,40 @@ export interface CalendarEventAsk {
 export const CALENDAR_BY_UID_MOST = 50
 export const CALENDAR_UID_MAX = 1024
 
+// ── The busy blocks (the space's ADR 0024) ───────────────────────────────────────────────────────────────────────────────────────
+
+/** What a block says: nothing of the meeting it stands for. */
+export const CALENDAR_BLOCK_TITLE = 'Busy'
+/** A block is made for a meeting that starts within this long from now (and has not ended); a meeting further out is blocked when it comes inside. */
+export const CALENDAR_BLOCK_AHEAD_MS = 60 * 24 * 60 * 60 * 1000
+
+/** Which button cures an account's trouble in Settings: its sign-in ended (Connect again), or it lacks the permission to change events (Connect calendar). */
+export type CalendarBlockingFix = 'connect-again' | 'connect-calendar'
+
+/** One account in the blocking setting. */
+export interface CalendarBlockingAccount {
+  address: string
+  label: string
+  hue: number
+  /** The owner's choice: the account gives its busy times and receives blocks. Every connected account takes part at first. */
+  takesPart: boolean
+  /** One sentence when the account is chosen and cannot take part now (its sign-in ended, it lacks the permission to change events, its main calendar is not read), else null. */
+  skipped: string | null
+  /** The button that cures `skipped`, or null (nothing to press: a main calendar that is hidden is the owner's choice, shown in the list above). */
+  fix: CalendarBlockingFix | null
+}
+
+/** How the owner's other calendars are kept busy, as Settings, Calendars shows it. */
+export interface CalendarBlocking {
+  /** The one switch. Off at first; only the owner flips it. */
+  on: boolean
+  /** How many blocks are held that have not ended. */
+  kept: number
+  /** One sentence when blocks could not be written or removed, else null. */
+  problem: string | null
+  accounts: CalendarBlockingAccount[]
+}
+
 /** What the space calls in-process for the Calendar tab, Today's events and Settings › Calendars. Owner only. */
 export interface CalendarForSpace {
   /** The accounts and their calendars. Asks the inbox who is connected first (a few seconds old at most). */
@@ -220,10 +255,16 @@ export interface CalendarForSpace {
   setShown(asker: SignedIn, calendarId: string, shown: boolean): Promise<SpaceReply<CalendarView>>
   /** Ask for every account's calendars to be read again now (the alarm does it in a moment). Answers how many calendars were asked. */
   syncNow(asker: SignedIn): Promise<SpaceReply<{ asked: number }>>
+  /** How the busy blocks stand: the switch, each account's part in it and why one cannot take part, how many blocks are held, and a sentence when they could not be written. */
+  blocking(asker: SignedIn): Promise<SpaceReply<CalendarBlocking>>
+  /** Turn the busy blocks on or off. A setting only: the alarm makes or removes the blocks in a moment (the space's ADR 0024). Answers how it now stands. */
+  setBlocking(asker: SignedIn, on: boolean): Promise<SpaceReply<CalendarBlocking>>
+  /** Take an account in or out of the blocks (both ways: it gives its busy times and receives blocks). `not-found` for an address that is not an account. Answers how it now stands. */
+  setBlockingAccount(asker: SignedIn, address: string, takesPart: boolean): Promise<SpaceReply<CalendarBlocking>>
 }
 
 /** The method names, so a stub, a test and the binding agree on exactly these and no others. */
-export const CALENDAR_FOR_SPACE_METHODS = ['calendars', 'agenda', 'event', 'eventsByUid', 'setShown', 'syncNow'] as const satisfies readonly (keyof CalendarForSpace)[]
+export const CALENDAR_FOR_SPACE_METHODS = ['calendars', 'agenda', 'event', 'eventsByUid', 'setShown', 'syncNow', 'blocking', 'setBlocking', 'setBlockingAccount'] as const satisfies readonly (keyof CalendarForSpace)[]
 
 // ── What Claude's script does with the calendar, through the inbox (the space's ADR 0023) ────────────────────────────────────────────
 

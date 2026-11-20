@@ -1,7 +1,7 @@
 import { type CalendarGrant, createInstall, type Install } from '@space/workspace'
 import declaration from '../../workspace/northfield/workspace.json'
 import { CalendarEngine, type EngineApi } from '../src/engine'
-import { createCalendarGoogle, createCalendarWriter } from '../src/google'
+import { createCalendarGoogle, createCalendarWriter, createRunWriter } from '../src/google'
 import { migrate } from '../src/schema'
 import { CalendarStore } from '../src/store'
 import { FakeGoogle } from './fake-google'
@@ -38,6 +38,10 @@ export interface HarnessOptions {
   grants?: CalendarGrant[]
   /** False for an engine with no writing client wired (a Worker that cannot change events). */
   writer?: boolean
+  /** A Google another harness already uses (two spaces on one Google account); the clock is that Google's. */
+  google?: FakeGoogle
+  /** The install's declared company id (default: Northfield's). */
+  installId?: string
 }
 
 /**
@@ -47,8 +51,8 @@ export interface HarnessOptions {
 export function harness(options: HarnessOptions = {}) {
   const mem = memoryDatabase()
   migrate(mem.sql)
-  const clock = { t: T0 }
-  const google = new FakeGoogle(clock)
+  const google = options.google ?? new FakeGoogle({ t: T0 })
+  const clock = google.clock
   const grants: CalendarGrant[] = options.grants ?? []
   const logs: string[] = []
   const told = { n: 0 }
@@ -64,6 +68,8 @@ export function harness(options: HarnessOptions = {}) {
     api: createCalendarGoogle({ fetch: google.fetch, access: google.access, now: () => clock.t }),
     // The writer the object builds (src/durable.ts): its own token, for `calendar.events`, asked for each call.
     ...(options.writer !== false && { writer: createCalendarWriter({ fetch: google.fetch, access: (address, fresh) => google.access(address, fresh, 'events') }) }),
+    // The writing client of the alarm's own run (the busy blocks, the space's ADR 0024): its token kept for the run and dropped at its end.
+    ...(options.writer !== false && { runWriter: createRunWriter({ fetch: google.fetch, access: (address, fresh) => google.access(address, fresh, 'events') }) }),
     grants: async () => {
       grantAsks.n += 1
       if (inbox.down) throw new Error('the inbox could not be reached')
@@ -71,6 +77,7 @@ export function harness(options: HarnessOptions = {}) {
     },
     now: () => clock.t,
     zone: ZONE,
+    installId: options.installId ?? NORTHFIELD.company.id,
     pushUrl: options.pushUrl === undefined ? PUSH_URL : options.pushUrl,
     newId: () => `channel-${++ids}`,
     newToken: () => `secret-${++tokens}`,

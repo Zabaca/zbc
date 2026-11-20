@@ -752,6 +752,19 @@ a.cal-mo-num:hover {
   gap: 6px;
   margin-top: 12px;
 }
+.cs-blocking {
+  margin-bottom: 14px;
+}
+.cs-blocking .cs-lead {
+  margin-bottom: 8px;
+}
+.cs-tick {
+  cursor: pointer;
+}
+.cs-tick input {
+  align-self: center;
+  margin: 0 2px 0 0;
+}
 
 /* ---------- a phone ---------- */
 @media (max-width: 760px) {

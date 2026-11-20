@@ -12,6 +12,7 @@ import {
   CALENDAR_WINDOW_MAX_MS,
   type CalendarAccountView,
   type CalendarAgenda,
+  type CalendarBlocking,
   type CalendarEventCancelled,
   type CalendarClaudeAgenda,
   type CalendarEvent,
@@ -20,7 +21,8 @@ import {
   type CalendarEventMade,
   type RefusalReason,
 } from '@space/workspace'
-import type { CalendarWriteApi } from './google'
+import { CalendarBlocks } from './blocks'
+import type { CalendarWriteApi, RunWriter } from './google'
 import { CalendarSync, type PushHeaders, type SyncDeps } from './sync'
 import { CalendarWrites } from './writes'
 
@@ -44,17 +46,26 @@ export interface EngineDeps extends SyncDeps {
    * words. The sync never uses it.
    */
   writer?: ((address: string) => CalendarWriteApi) | undefined
+  /**
+   * The writing client for the calendar's own alarm (the space's ADR 0024): a new one for every run of the busy blocks, its tokens (for `calendar.events` alone) kept for that run and dropped when it ends. Absent where nothing is wired to write: a run
+   * with blocks to make or remove then says so. The sync never uses it, and nothing but `src/blocks.ts` asks for one.
+   */
+  runWriter?: (() => RunWriter) | undefined
+  /** The install's declared company id (the busy blocks' install key is hashed from it, so a block is known as this install's across a lost store). */
+  installId: string
 }
 
 export class CalendarEngine {
   readonly sync: CalendarSync
   private readonly writes: CalendarWrites
+  private readonly blocks: CalendarBlocks
   private lastRefresh = Number.NEGATIVE_INFINITY
   private chain: Promise<unknown> = Promise.resolve()
 
   constructor(private readonly d: EngineDeps) {
     this.sync = new CalendarSync(d)
     this.writes = new CalendarWrites({ store: d.store, writer: d.writer, newId: d.newId, now: d.now, zone: d.zone, tell: d.tell, alarmAt: d.alarmAt, log: d.log })
+    this.blocks = new CalendarBlocks({ store: d.store, runWriter: d.runWriter, now: d.now, zone: d.zone, installId: d.installId, tell: d.tell, log: d.log })
   }
 
   /** Ask the inbox who is connected, unless it was asked a moment ago. A new or returning account owes the alarm a read. */
@@ -118,6 +129,35 @@ export class CalendarEngine {
     })
   }
 
+  /** How the busy blocks stand (the space's ADR 0024). Asks the inbox who is connected first, so an account's trouble is as current as the screen. */
+  async blocking(): Promise<Result<CalendarBlocking>> {
+    await this.fresh()
+    return ok(await this.blocks.view())
+  }
+
+  /** The switch. A setting only: it is stored and owes the alarm a run, which is where Google is asked. */
+  async setBlocking(on: unknown): Promise<Result<CalendarBlocking>> {
+    if (typeof on !== 'boolean') return no('bad-request', 'Say whether the busy blocks are on.')
+    await this.fresh()
+    this.d.store.setBlockingEnabled(on)
+    this.d.tell()
+    await this.d.alarmAt(this.d.now())
+    return ok(await this.blocks.view())
+  }
+
+  /** An account's part in the blocks: a setting like the switch. */
+  async setBlockingAccount(address: unknown, takesPart: unknown): Promise<Result<CalendarBlocking>> {
+    if (typeof address !== 'string' || typeof takesPart !== 'boolean') return no('bad-request', 'Say which account and whether it takes part.')
+    await this.fresh()
+    const changed = this.d.store.setAccountBlocks(address.trim().toLowerCase(), takesPart)
+    if (changed === null) return no('not-found', 'No such account.')
+    if (changed) {
+      this.d.tell()
+      await this.d.alarmAt(this.d.now())
+    }
+    return ok(await this.blocks.view())
+  }
+
   /** Make an event on an account's primary calendar, Google sending the invitations (src/writes.ts). Who may ask is the inbox's rule, applied before this is called. */
   async claudeInvite(input: unknown): Promise<Result<CalendarEventMade>> {
     // Who is connected, and with what, as the inbox last said: an account that was disconnected a moment ago is refused here in words and not at Google.
@@ -171,8 +211,10 @@ export class CalendarEngine {
       } catch (error) {
         this.d.log?.(`calendar: a run failed: ${error instanceof Error ? error.message : String(error)}`)
       }
+      // The busy blocks follow the read (the space's ADR 0024): what the sync just brought in is what they are worked out from. They never throw.
+      if (await this.blocks.run()) this.d.tell()
       // At least a second on: a read that is owed and cannot be done must not spin the alarm.
-      await this.d.alarmAt(Math.max(this.sync.nextWake(), this.d.now() + 1000))
+      await this.d.alarmAt(Math.max(Math.min(this.sync.nextWake(), this.blocks.nextWake()), this.d.now() + 1000))
     })
     this.chain = run.catch(() => undefined)
     return run
@@ -185,7 +227,7 @@ export class CalendarEngine {
 }
 
 /** The methods the object's `call` runs, and no others. */
-export const ENGINE_METHODS = ['calendars', 'agenda', 'event', 'eventsByUid', 'setShown', 'syncNow', 'receivePush', 'claudeEvents', 'claudeInvite', 'claudeMove', 'claudeCancel'] as const satisfies readonly (keyof CalendarEngine)[]
+export const ENGINE_METHODS = ['calendars', 'agenda', 'event', 'eventsByUid', 'setShown', 'syncNow', 'receivePush', 'claudeEvents', 'claudeInvite', 'claudeMove', 'claudeCancel', 'blocking', 'setBlocking', 'setBlockingAccount'] as const satisfies readonly (keyof CalendarEngine)[]
 export type EngineMethod = (typeof ENGINE_METHODS)[number]
 
 /** The typed face of the object's untyped `call`. */

@@ -1,10 +1,10 @@
-// Settings, Calendars: one card per Google account, with its calendars and a switch for whether each is shown in the Calendar tab and Today.
+// Settings, Calendars: the busy blocks (one switch, and which accounts take part), then one card per Google account, with its calendars and a switch for whether each is shown in the Calendar tab and Today.
 //
 // THE GRANT IS THE INBOX'S. One Google permission per account serves mail and calendar (the calendar reuses the inbox's Google client), so this section has no Connect or Disconnect of its own: an account
 // that needs the calendar permission, or whose sign-in Google ended, is connected again through the same sign-in as its mail (a link to it, with the account hinted), and removing an account is Mailboxes' Disconnect, which takes
-// mail and calendar away together. Saying so is part of the page. Nothing here changes Google.
+// mail and calendar away together. Saying so is part of the page. Nothing here changes Google: the busy blocks' switch and ticks are the owner's settings, and the calendar's own alarm makes the blocks (the space's ADR 0024).
 import type { MouseEvent } from 'react'
-import { type CalendarAccountView, type CalendarView, GMAIL_ACCOUNT_PARAM, GMAIL_FOR_PARAM, GMAIL_START_PATH, type InboxMailboxes } from '@space/workspace'
+import { type CalendarAccountView, type CalendarBlocking, type CalendarBlockingAccount, type CalendarView, GMAIL_ACCOUNT_PARAM, GMAIL_FOR_PARAM, GMAIL_START_PATH, type InboxMailboxes } from '@space/workspace'
 import { Glyph } from './icons'
 import { useFresh } from './liveHub'
 import { settingsPath } from './route'
@@ -56,6 +56,82 @@ function CalendarRow({ c, busy, onToggle, now }: { c: CalendarView; busy: boolea
         )}
       </span>
       <Switch on={c.shown} label={`Show ${c.name}`} busy={busy} onChange={onToggle} testid="calendar-switch" />
+    </li>
+  )
+}
+
+/** The busy blocks: the one switch (off until the owner turns it on), each account's part in it with why one cannot take part and the button that cures it, how many blocks are kept, and one amber sentence when they could not be written. */
+function BlockingCard({
+  b,
+  busy,
+  onSwitch,
+  onAccount,
+  hrefs,
+}: {
+  b: CalendarBlocking
+  busy: boolean
+  onSwitch(next: boolean): void
+  onAccount(address: string, next: boolean): void
+  hrefs(address: string): { connect: string; calendar: string }
+}) {
+  return (
+    <section className={`s-card cs-blocking${b.problem !== null ? ' amber' : ''}`} aria-label="Busy blocks" data-testid="calendar-blocking" data-on={b.on}>
+      <h3 className="s-sub">Keep your other calendars busy</h3>
+      <p className="sub cs-lead">
+        When a meeting makes you busy on one account, each other account ticked below gets a block that says only “Busy”: nothing of the meeting, and nobody is told. The block moves with the meeting and goes when it is cancelled, declined or marked as free time, and
+        a block is never shown in the Calendar tab or Today. Meetings in the next 60 days are blocked, and all-day events are not.
+      </p>
+      <div className="cs-cal">
+        <span className="cs-name">
+          <span>Block my busy time on my other calendars</span>
+          {b.on && (
+            <span className="sub cs-read" data-testid="blocking-count">
+              {b.kept === 0 ? 'No blocks are kept yet' : `${b.kept} block${b.kept === 1 ? '' : 's'} kept`}
+            </span>
+          )}
+        </span>
+        <Switch on={b.on} label="Block my busy time on my other calendars" busy={busy} onChange={onSwitch} testid="blocking-switch" />
+      </div>
+      {b.problem !== null && (
+        <p className="s-warn" role="status" data-testid="blocking-problem">
+          {b.problem}
+        </p>
+      )}
+      {b.accounts.length > 0 && (
+        <ul className="cs-cals" aria-label="Accounts that take part in the blocks">
+          {b.accounts.map((a) => (
+            <BlockingAccount key={a.address} a={a} busy={busy} onTick={(next) => onAccount(a.address, next)} href={hrefs(a.address)} />
+          ))}
+        </ul>
+      )}
+      <p className="sub cs-foot">An account that is ticked gives its busy times and receives blocks; an account that is not ticked does neither.</p>
+    </section>
+  )
+}
+
+function BlockingAccount({ a, busy, onTick, href }: { a: CalendarBlockingAccount; busy: boolean; onTick(next: boolean): void; href: { connect: string; calendar: string } }) {
+  return (
+    <li className="cs-cal" data-testid="blocking-account" data-account={a.address} data-part={a.takesPart}>
+      <label className="cs-name cs-tick">
+        <input type="checkbox" checked={a.takesPart} disabled={busy} onChange={(e) => onTick(e.target.checked)} data-testid="blocking-check" />
+        <span>{a.address}</span>
+        <span className="sub">({a.label})</span>
+        {a.skipped !== null && (
+          <span className="cs-problem" data-testid="blocking-skipped">
+            {a.skipped}
+          </span>
+        )}
+      </label>
+      {a.fix === 'connect-calendar' && (
+        <a className="btn" href={href.calendar} data-testid="blocking-connect-calendar">
+          Connect calendar
+        </a>
+      )}
+      {a.fix === 'connect-again' && (
+        <a className="btn" href={href.connect} data-testid="blocking-connect-again">
+          Connect again
+        </a>
+      )}
     </li>
   )
 }
@@ -117,10 +193,12 @@ function AccountCard({ a, now, connectHref, calendarHref, busy, onToggle }: { a:
 /** The calendars section. */
 export function CalendarsSection({ go }: { go: Go }) {
   const view = useView<CalendarAccountView[]>('calendar/accounts')
+  const blocking = useView<CalendarBlocking>('calendar/blocking')
   // The inbox's own list of accounts says which mailbox is which address, so "Connect again" can hint Google to offer the right account first. Without it the link still works (Google asks which).
   const mailboxes = useView<InboxMailboxes>('mailboxes')
   useFresh(['calendar', 'mail'], () => {
     view.reload()
+    blocking.reload()
     mailboxes.reload()
   })
   const action = useAction()
@@ -130,6 +208,14 @@ export function CalendarsSection({ go }: { go: Go }) {
   const toggle = async (calendarId: string, shown: boolean) => {
     await action.run(() => postView<CalendarView>('calendar/shown', { calendar: calendarId, shown }), shown ? 'It is shown now, and being read in.' : 'It is hidden now, and its events are dropped.')
     view.reload()
+  }
+  const switchBlocking = async (on: boolean) => {
+    await action.run(() => postView<CalendarBlocking>('calendar/blocking', { on }), on ? 'The busy blocks are on: they are being made in a moment.' : 'The busy blocks are off: they are being taken down in a moment.')
+    blocking.reload()
+  }
+  const tickAccount = async (address: string, takesPart: boolean) => {
+    await action.run(() => postView<CalendarBlocking>('calendar/blocking/account', { account: address, takesPart }), takesPart ? `${address} takes part in the blocks.` : `${address} is out of the blocks.`)
+    blocking.reload()
   }
   const checkNow = async () => {
     await action.run(() => postView<{ asked: number }>('calendar/sync', {}), (v) => `Asked Google about ${v.asked} calendar${v.asked === 1 ? '' : 's'}.`)
@@ -142,6 +228,17 @@ export function CalendarsSection({ go }: { go: Go }) {
         Your Google calendars are read into the space and kept here, so the Calendar tab and Today never wait on Google. Each account is the same Google sign-in as its mail; the calendar's permission is added to it here, on its own. A calendar you switch on is read in full and then kept current by Google telling the space
         when it changes.
       </p>
+      <Viewed view={blocking.state} problem={blocking.problem} reload={blocking.reload} loading="Loading the busy blocks">
+        {(b) => (
+          <BlockingCard
+            b={b}
+            busy={action.busy}
+            onSwitch={(next) => void switchBlocking(next)}
+            onAccount={(address, next) => void tickAccount(address, next)}
+            hrefs={(address) => ({ connect: connectPath(idOf(address)), calendar: connectPath(idOf(address), true) })}
+          />
+        )}
+      </Viewed>
       <Viewed view={view.state} problem={view.problem} reload={view.reload} loading="Loading the calendars">
         {(accounts) => (
           <div data-testid="calendar-accounts" data-count={accounts.length}>
@@ -165,7 +262,7 @@ export function CalendarsSection({ go }: { go: Go }) {
               </button>
             </div>
             <p className="sub cs-foot">
-              <Glyph name="lock" size={12} /> The calendar can only read. To remove an account, use Disconnect in{' '}
+              <Glyph name="lock" size={12} /> Apart from the Busy blocks above, which you turn on, the calendar only reads. To remove an account, use Disconnect in{' '}
               <a href={settingsPath('mailboxes')} onClick={(e) => follow(e, settingsPath('mailboxes'), go)}>
                 Mailboxes
               </a>

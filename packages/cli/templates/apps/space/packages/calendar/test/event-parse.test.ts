@@ -38,6 +38,24 @@ describe('reading a timed event', () => {
   })
 })
 
+describe('reading the calendar’s own busy block back (the space’s ADR 0024)', () => {
+  test('a private extended property of the calendar’s shape marks the event as a block, and carries the meeting key it stands for', () => {
+    const mark = { extendedProperties: { private: { spaceBlock: 'k4m2p0a9t7v1c3d5', spaceBlockFor: 'tessa@northfield.example' } } }
+    expect(event(timed(mark)).block).toBe('k4m2p0a9t7v1c3d5')
+    expect(event(timed(mark)).blockBy).toBeNull()
+    expect(event(timed({ extendedProperties: { private: { spaceBlock: 'k4m2p0a9t7v1c3d5', spaceBlockBy: 'i4m2p0a9t7v1c3d5' } } })).blockBy).toBe('i4m2p0a9t7v1c3d5')
+    expect(event(timed({ extendedProperties: { private: { spaceBlock: 'k4m2p0a9t7v1c3d5', spaceBlockBy: 'NO!' } } })).blockBy).toBeNull()
+    expect(event(timed()).block).toBeNull()
+  })
+
+  test('anything else is no mark: a shared property, a value of another shape, one that is not text', () => {
+    expect(event(timed({ extendedProperties: { shared: { spaceBlock: 'k4m2p0a9t7v1c3d5' } } })).block).toBeNull()
+    expect(event(timed({ extendedProperties: { private: { spaceBlock: 'Not A Key!' } } })).block).toBeNull()
+    expect(event(timed({ extendedProperties: { private: { spaceBlock: 12345678 } } })).block).toBeNull()
+    expect(event(timed({ extendedProperties: 'x' })).block).toBeNull()
+  })
+})
+
 describe('reading an all-day event', () => {
   test('it has days and no hour: midnight to midnight on the company’s clock, and the days as Google gives them', () => {
     const e = event({ id: 'a', summary: 'Off site', start: { date: '2026-11-06' }, end: { date: '2026-11-08' } })

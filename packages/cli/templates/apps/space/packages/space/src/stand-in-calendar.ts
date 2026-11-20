@@ -13,7 +13,9 @@ import {
   CALENDAR_BY_UID_MOST,
   type CalendarAccountMark,
   type CalendarAccountView,
+  CALENDAR_BLOCK_AHEAD_MS,
   type CalendarAgenda,
+  type CalendarBlocking,
   type CalendarEvent,
   type CalendarForSpace,
   type CalendarGuest,
@@ -56,6 +58,8 @@ export interface StandInCalendarApp {
   accounts: { address: string; label: string; hue: number; events: boolean; state: CalendarAccountView['state']; reason: string | null }[]
   calendars: StandInCalendar[]
   events: StandInEvent[]
+  /** The busy blocks as the stand-in keeps them: the switch (off at first), the accounts taken out, and a sentence when blocks could not be written. */
+  blocking: { on: boolean; out: Set<string>; problem: string | null }
   methods: CalendarForSpace
 }
 
@@ -214,6 +218,7 @@ export function standInCalendar(now: number, zone: string, mode: CalendarFixture
 
   const calls: StandInCalendarApp['calls'] = []
   const script: StandInCalendarApp['script'] = []
+  const blocking: StandInCalendarApp['blocking'] = { on: false, out: new Set(), problem: null }
 
   async function enter<T>(asker: SignedIn, method: string, args: unknown[]): Promise<SpaceReply<T> | null> {
     calls.push({ method, args, asker: asker.person.address })
@@ -238,6 +243,32 @@ export function standInCalendar(now: number, zone: string, mode: CalendarFixture
     const { on: _on, uid: _uid, ...rest } = e
     const lapsed = marks.every((a) => a.state === 'lapsed')
     return { ...rest, accounts: marks.map(mark), stale: lapsed, readAt: lapsed ? now - 3 * 24 * HOUR : now - 4 * MIN }
+  }
+
+  /** How the busy blocks stand, as the real calendar words it: the accounts that cannot hold one say why, and the count is the blocks that would be kept (every timed, busy meeting still to come on a shown calendar of a taking-part account, on each other taking-part account that can hold one). */
+  function blockingView(): CalendarBlocking {
+    const holds = (acct: (typeof accounts)[number]) => acct.state === 'live' && acct.events
+    const skipped = (acct: (typeof accounts)[number]): Pick<CalendarBlocking['accounts'][number], 'skipped' | 'fix'> => {
+      if (acct.state === 'lapsed') return { skipped: `The sign-in of ${acct.address} ended, so no block can be kept on it until it is connected again.`, fix: 'connect-again' }
+      if (acct.state === 'needs-calendar') return { skipped: `${acct.address} is connected for mail without the calendar permission, so no block can be kept on it. Press Connect calendar and accept it.`, fix: 'connect-calendar' }
+      if (!holds(acct)) return { skipped: `${acct.address} was connected for reading only, so no block can be kept on it. Press Connect calendar and accept the permission to change events.`, fix: 'connect-calendar' }
+      return { skipped: null, fix: null }
+    }
+    let kept = 0
+    if (blocking.on) {
+      for (const e of events) {
+        if (e.allDay || e.free || e.response === 'declined' || e.end <= now || e.start >= now + CALENDAR_BLOCK_AHEAD_MS) continue
+        const held = new Set(e.on.filter((id) => shownCalendar(id)).map((id) => calendars.find((c) => c.id === id)?.account))
+        if (![...held].some((address) => address !== undefined && !blocking.out.has(address))) continue
+        kept += accounts.filter((acct) => !blocking.out.has(acct.address) && holds(acct) && !held.has(acct.address)).length
+      }
+    }
+    return {
+      on: blocking.on,
+      kept,
+      problem: blocking.problem,
+      accounts: accounts.map((acct) => ({ address: acct.address, label: acct.label, hue: acct.hue, takesPart: !blocking.out.has(acct.address), ...(blocking.out.has(acct.address) ? { skipped: null, fix: null } : skipped(acct)) })),
+    }
   }
 
   const methods: CalendarForSpace = {
@@ -299,7 +330,27 @@ export function standInCalendar(now: number, zone: string, mode: CalendarFixture
       if (early) return early
       return answered({ asked: calendars.filter((c) => c.shown).length })
     },
+    async blocking(a) {
+      const early = await enter<CalendarBlocking>(a, 'blocking', [])
+      if (early) return early
+      return answered(blockingView())
+    },
+    async setBlocking(a, on) {
+      const early = await enter<CalendarBlocking>(a, 'setBlocking', [on])
+      if (early) return early
+      if (typeof on !== 'boolean') return refused('bad-request', 'Say whether the busy blocks are on.')
+      blocking.on = on
+      return answered(blockingView())
+    },
+    async setBlockingAccount(a, address, takesPart) {
+      const early = await enter<CalendarBlocking>(a, 'setBlockingAccount', [address, takesPart])
+      if (early) return early
+      if (!accountOf(address)) return refused('not-found', 'No such account.')
+      if (takesPart) blocking.out.delete(address)
+      else blocking.out.add(address)
+      return answered(blockingView())
+    },
   }
 
-  return { calls, script, accounts, calendars, events, methods }
+  return { calls, script, accounts, calendars, events, blocking, methods }
 }
