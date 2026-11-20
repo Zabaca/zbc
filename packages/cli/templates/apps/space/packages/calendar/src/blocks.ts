@@ -20,7 +20,7 @@
  * of another install is hidden like this install's, never a meeting to block, never counted, never touched; and where another install already holds a block for the same meeting on a target, none is made there (the meeting is blocked once, and is made
  * by this install when the other's goes). A block is known by its mark, by the mark a row already held (a read that brings none keeps it, `CalendarStore.insertEvent`) and, failing both, by its id AND its shape: an unmarked event on a main calendar whose id this install
  * would derive for some meeting in the store, for the account it is on, and that is titled "Busy", organised by that account and has no other guest, is marked as the block it is (`recognise`). The id is no secret, so an invitation made with a guessed
- * id is an ordinary event: drawn, busy, never made over and never removed. A block that stops being shaped so (the owner renamed it) is no longer the writer's. So a Google that did not give the private properties back does not turn a block into a meeting that is blocked in turn.
+ * id is an ordinary event: drawn, busy, never made over and never removed. A block that stops being shaped so (the owner renamed it) is read as the ordinary event it has become (`CalendarStore.insertEvent` drops its mark): drawn, busy, no longer the writer's. So a Google that did not give the private properties back does not turn a block into a meeting that is blocked in turn.
  *
  * ── WHAT A BLOCK IS ──────────────────────────────────────────────────────
  * "Busy", and nothing of the meeting: no title, guests, place, description or link; private; opaque; no reminders; `sendUpdates=none`. Two private extended properties mark it (`BLOCK_PROPERTY`), which `parseEvent` reads back, so the store knows it for a block:
@@ -363,7 +363,13 @@ export class CalendarBlocks {
     } catch (error) {
       this.d.log?.(`calendar: the busy blocks could not be worked out: ${describe(error)}`)
       this.more = false
-      return false
+      // Never silent: the sentence is Settings', and the backoff keeps a run that always throws from spinning the alarm.
+      try {
+        this.store.recordBlockingFailure(`The Busy blocks could not be worked out this time (${describe(error)}); it will be tried again.`)
+        return true
+      } catch {
+        return false
+      }
     }
   }
 

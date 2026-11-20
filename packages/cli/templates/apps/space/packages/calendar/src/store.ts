@@ -53,6 +53,8 @@ export const renewAtOf = (c: Pick<ChannelRow, 'createdAt' | 'expiresAt'>): numbe
 }
 /** The inbox is asked who is connected this often, besides whenever a screen is read. */
 export const ACCOUNTS_CHECK_MS = HOUR
+/** How many values are bound in one query at most: well under the 100 a Durable Object's SQLite allows. */
+const BIND_CHUNK = 50
 /** The first retry after a failure, doubling to the longest. */
 const BACKOFF_FIRST_MS = 30_000
 const BACKOFF_LONGEST_MS = HOUR
@@ -149,11 +151,12 @@ export interface BlockHeld {
  * Whether a stored event is shaped like one of the calendar's blocks on the account its calendar belongs to: titled "Busy", organised by that account itself (or by no one Google named), and with no guest but that account. A block is made so and
  * nothing else is: an invitation somebody made with an id they guessed has another organiser or other guests or another title, so it is an ordinary event whatever its id, never hidden and never removed by the writer.
  */
-export function looksLikeBlock(r: Record<string, unknown>, account?: string): boolean {
+export function looksLikeBlock(r: Record<string, unknown>, account?: string, organiser = true): boolean {
   const own = account ?? text(r.account)
   if (text(r.title) !== CALENDAR_BLOCK_TITLE) return false
+  // The organiser is asked only where nothing else says the event is a block (recognition by id): a row that carries the mark is ours whatever spelling of the account Google names.
   const organizer = textOrNull(r.organizer_email)
-  if (organizer !== null && organizer !== own) return false
+  if (organiser && organizer !== null && organizer !== own) return false
   if (num(r.guests_left) > 0) return false
   try {
     const guests: unknown = JSON.parse(text(r.guests))
@@ -590,6 +593,11 @@ export class CalendarStore {
     if (block === null) {
       const held = carried ?? this.knownBlock(calendarId, e.id)
       if (held) ({ block, by: blockBy } = held)
+    }
+    // A block that is no longer shaped like one (the owner renamed it, or a guest was added) is an ordinary event again. Who Google names as the organiser is not asked of a marked row: it may spell the account another way (an alias), and a block would then come back as a meeting: drawn, busy, and read for what it is. The writer leaves it alone (src/blocks.ts).
+    if (block !== null && !looksLikeBlock({ title: e.title, organizer_email: e.organizer?.email ?? null, guests: JSON.stringify(e.guests), guests_left: e.guestsLeft }, calendarId.slice(0, calendarId.indexOf('|')), false)) {
+      block = null
+      blockBy = null
     }
     this.sql.exec(
       `INSERT OR REPLACE INTO event (calendar_id, id, ical_uid, title, location, description, start_ms, end_ms, all_day, start_date, end_date, status, response,
@@ -1082,7 +1090,7 @@ export class CalendarStore {
     return this.sql
       .exec(`SELECT e.calendar_id, e.id, e.title, e.organizer_email, e.guests, e.guests_left, e.start_ms, e.end_ms, e.block, e.block_by, c.account, c.google_id, c.is_primary FROM event e JOIN calendar c ON c.id = e.calendar_id WHERE e.block IS NOT NULL ORDER BY e.start_ms, e.id`)
       .toArray()
-      .map((r) => ({ calendarId: text(r.calendar_id), calendarGoogleId: text(r.google_id), eventId: text(r.id), start: num(r.start_ms), end: num(r.end_ms), meeting: text(r.block), by: textOrNull(r.block_by), account: text(r.account), primary: flag(r.is_primary), looks: looksLikeBlock(r) }))
+      .map((r) => ({ calendarId: text(r.calendar_id), calendarGoogleId: text(r.google_id), eventId: text(r.id), start: num(r.start_ms), end: num(r.end_ms), meeting: text(r.block), by: textOrNull(r.block_by), account: text(r.account), primary: flag(r.is_primary), looks: looksLikeBlock(r, undefined, false) }))
   }
 
   /** A row the store knows as one of the calendar's blocks without Google having given the mark back (its id is one the space derived, and it looks like a block): marked, so it is a block from now on. */
@@ -1104,11 +1112,15 @@ export class CalendarStore {
 
   /** The meetings (timed events that are not marked as blocks) that start at one of these moments: what a block's id can be derived from, since a block starts when its meeting does. */
   meetingsStartingAt(starts: readonly number[]): { calendarId: string; eventId: string; iCalUid: string | null; start: number }[] {
-    if (starts.length === 0) return []
-    return this.sql
-      .exec(`SELECT calendar_id, id, ical_uid, start_ms FROM event WHERE block IS NULL AND all_day = 0 AND start_ms IN (${starts.map((_, i) => `?${i + 1}`).join(', ')})`, ...starts)
-      .toArray()
-      .map((r) => ({ calendarId: text(r.calendar_id), eventId: text(r.id), iCalUid: textOrNull(r.ical_uid), start: num(r.start_ms) }))
+    const found: { calendarId: string; eventId: string; iCalUid: string | null; start: number }[] = []
+    // A Durable Object's SQLite takes at most 100 bound parameters in one query, so the moments are asked for in chunks.
+    for (let from = 0; from < starts.length; from += BIND_CHUNK) {
+      const chunk = starts.slice(from, from + BIND_CHUNK)
+      for (const r of this.sql.exec(`SELECT calendar_id, id, ical_uid, start_ms FROM event WHERE block IS NULL AND all_day = 0 AND start_ms IN (${chunk.map((_, i) => `?${i + 1}`).join(', ')})`, ...chunk).toArray()) {
+        found.push({ calendarId: text(r.calendar_id), eventId: text(r.id), iCalUid: textOrNull(r.ical_uid), start: num(r.start_ms) })
+      }
+    }
+    return found
   }
 
   /** How many blocks of this install's are held on an account's main calendar that have not ended: the blocks the calendar keeps, and none of another install's. */

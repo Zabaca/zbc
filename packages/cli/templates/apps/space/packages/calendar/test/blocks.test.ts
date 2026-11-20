@@ -815,20 +815,109 @@ describe('an invitation made with a guessed id is an ordinary event', () => {
     expect(writes(h).filter((w) => w.eventId === id)).toEqual([])
   })
 
-  test('a block the owner has made their own (retitled) is no longer the writer’s: it is not changed or removed, and its id is not made over', async () => {
+  test('a block the owner has made their own (retitled) is an ordinary event again: drawn, busy for Claude, a source of blocks, and not the writer’s to change or remove, nor its id to make over', async () => {
     const h = await world()
     meet(h, Z, 'm1', at(24), at(25))
     await sync(h)
     await turnOn(h)
     expect(blocksAt(h, F)).toHaveLength(1)
     const held = h.store.blocksHeld()[0]
+    const id = held?.eventId as string
     // The owner renames it in Google Calendar (the private properties are gone with the edit in this fake, as they may be).
-    h.google.setEvent(F, F, { id: held?.eventId as string, summary: 'Dentist', start: iso(at(24)), end: iso(at(25)) })
+    h.google.setEvent(F, F, { id, summary: 'Dentist', start: iso(at(24)), end: iso(at(25)) })
     h.google.writes.length = 0
     h.google.cancelEvent(Z, Z, 'm1')
     await sync(h)
+    // What is shown and counted: it is on the agenda, busy in the free time Claude reads, and no longer a block.
+    expect(await agendaTitles(h)).toEqual(['Dentist'])
+    const claude = await h.engine.claudeEvents(T0, T0 + 3 * DAY)
+    expect(claude.ok && claude.value.events.map((e) => [e.title, e.busy])).toEqual([['Dentist', true]])
+    expect(h.store.blocksHeld().some((b) => b.eventId === id)).toBe(false)
+    // It is a meeting like any other: blocked on the other account.
+    expect(blocksAt(h, Z)).toHaveLength(1)
     await h.engine.setBlocking(false)
     await h.work()
-    expect(writes(h)).toEqual([])
+    expect(writes(h).filter((w) => w.eventId === id)).toEqual([])
+    expect(await agendaTitles(h)).toEqual(['Dentist'])
+  })
+})
+
+describe('limits of the store and a run that throws', () => {
+  test('more than 100 candidates are asked in chunks: no query binds more than a Durable Object’s SQLite allows', async () => {
+    const h = await world()
+    const original = h.sql.exec
+    let widest = 0
+    h.sql.exec = ((query: string, ...bindings: unknown[]) => {
+      widest = Math.max(widest, bindings.length)
+      if (bindings.length > 100) throw new Error('too many SQL variables')
+      return original(query, ...bindings)
+    }) as typeof h.sql.exec
+    // 130 events whose ids have the shape of a block's, each starting at a moment of its own: 130 starts to look up.
+    for (let n = 0; n < 130; n++) h.google.setEvent(F, F, { id: `a${String(n).padStart(3, '0')}`.padEnd(32, 'v'), summary: `Thing ${n}`, start: iso(at(24 + n)), end: iso(at(24.5 + n)) })
+    await sync(h)
+    await turnOn(h)
+    expect(widest).toBeGreaterThan(0)
+    expect(await h.engine.blocking()).toMatchObject({ ok: true, value: { problem: null } })
+    // Each is a meeting like any other, blocked on the other account.
+    expect(blocksAt(h, Z).length).toBeGreaterThan(0)
+  })
+
+  test('a run that throws is said in Settings’ sentence, backed off, and taken down when the next run works', async () => {
+    const h = await world()
+    meet(h, Z, 'm1', at(24), at(25))
+    await sync(h)
+    await h.engine.setBlocking(true)
+    const real = h.store.blockSources.bind(h.store)
+    h.store.blockSources = () => {
+      throw new Error('the store could not be read')
+    }
+    await h.work()
+    const view = await h.engine.blocking()
+    expect(view.ok && view.value.problem).toContain('could not be worked out this time')
+    expect(view.ok && view.value.problem).toContain('the store could not be read')
+    expect(h.store.blocking().failures).toBe(1)
+    // Backed off: the next wake is not a spin.
+    expect(h.store.blocking().retryAt).toBe(h.clock.t + 30_000)
+    h.store.blockSources = real
+    h.advance(31_000)
+    await h.work()
+    expect(await h.engine.blocking()).toMatchObject({ ok: true, value: { problem: null, kept: 1 } })
+    expect(blocksAt(h, F)).toHaveLength(1)
+  })
+})
+
+describe('a Google that names the account another way', () => {
+  test('blocks come back with an organiser spelled as an alias: the mark stays, no block of a block, no rewrite at any read, and switching off removes them', async () => {
+    const h = await world([Z, F, G])
+    h.google.aliasAddresses = true
+    meet(h, Z, 'm1', at(24), at(25))
+    await sync(h)
+    await turnOn(h)
+    expect(writes(h).map((w) => [w.op, w.calendarId])).toEqual([['events.insert', F], ['events.insert', G]])
+    for (let n = 0; n < 3; n++) await sync(h)
+    h.store.forgetToken(`${F}|${F}`)
+    h.store.forgetToken(`${G}|${G}`)
+    await sync(h)
+    expect(writes(h)).toHaveLength(2)
+    expect(h.store.blocksHeld()).toHaveLength(2)
+    expect(await agendaTitles(h)).toEqual(['Secret plan m1'])
+    expect(await h.engine.blocking()).toMatchObject({ ok: true, value: { kept: 2, problem: null } })
+    await h.engine.setBlocking(false)
+    await h.work()
+    expect(blocksAt(h, F)).toEqual([])
+    expect(blocksAt(h, G)).toEqual([])
+  })
+
+  test('a guest added to a block, or its title changed, still makes it an ordinary event', async () => {
+    const h = await world()
+    meet(h, Z, 'm1', at(24), at(25))
+    await sync(h)
+    await turnOn(h)
+    const id = h.store.blocksHeld()[0]?.eventId as string
+    h.google.setEvent(F, F, { id, summary: 'Busy', start: iso(at(24)), end: iso(at(25)), attendees: [{ email: F, self: true, responseStatus: 'accepted' }, { email: 'dana@example.com', responseStatus: 'accepted' }] })
+    await sync(h)
+    // On F it is a meeting now (drawn, and blocked in turn on Z); it is not a block there.
+    expect(h.store.blocksHeld().every((b) => b.account !== F)).toBe(true)
+    expect(await agendaTitles(h)).toContain('Busy')
   })
 })
