@@ -239,9 +239,10 @@ export function GmailAccounts({
       {accounts.length === 0 && (
         <div className="s-card amber" data-testid="gmail" data-connected="false">
           <p>
-            Gmail has never been connected. Connecting reads the account you sign in with at Google and keeps the inbox in step with it. Google will ask for permission to manage your mail in Gmail, and to read your calendars. The mail permission can read, organize and send
-            your mail and move it to the trash; Google offers no narrower one that also lets the inbox mark mail read and archive it. The calendar permission only reads. The inbox itself uses it only to read mail, to mark a conversation read when you open it, to archive or
-            unarchive one when you press Close or Reopen, and to send what you press Send on.
+            Gmail has never been connected. Connecting reads the account you sign in with at Google and keeps the inbox in step with it. Google will ask for permission to manage your mail in Gmail and for nothing else. The mail permission can read, organize and send
+            your mail and move it to the trash; Google offers no narrower one that also lets the inbox mark mail read and archive it. The inbox itself uses it only to read mail, to mark a conversation read when you open it, to archive or
+            unarchive one when you press Close or Reopen, and to send what you press Send on. The calendar's permissions are asked separately, in Settings, Calendars: to read your calendars, and to change events, which is used only for what you ask Claude to do and for the Busy
+            blocks you turn on there.
           </p>
         </div>
       )}

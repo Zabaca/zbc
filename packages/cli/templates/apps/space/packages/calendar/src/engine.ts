@@ -51,6 +51,8 @@ export interface EngineDeps extends SyncDeps {
    * with blocks to make or remove then says so. The sync never uses it, and nothing but `src/blocks.ts` asks for one.
    */
   runWriter?: (() => RunWriter) | undefined
+  /** The install's declared company id (the busy blocks' install key is hashed from it, so a block is known as this install's across a lost store). */
+  installId: string
 }
 
 export class CalendarEngine {
@@ -63,7 +65,7 @@ export class CalendarEngine {
   constructor(private readonly d: EngineDeps) {
     this.sync = new CalendarSync(d)
     this.writes = new CalendarWrites({ store: d.store, writer: d.writer, newId: d.newId, now: d.now, zone: d.zone, tell: d.tell, alarmAt: d.alarmAt, log: d.log })
-    this.blocks = new CalendarBlocks({ store: d.store, runWriter: d.runWriter, now: d.now, zone: d.zone, tell: d.tell, log: d.log })
+    this.blocks = new CalendarBlocks({ store: d.store, runWriter: d.runWriter, now: d.now, zone: d.zone, installId: d.installId, tell: d.tell, log: d.log })
   }
 
   /** Ask the inbox who is connected, unless it was asked a moment ago. A new or returning account owes the alarm a read. */
@@ -130,7 +132,7 @@ export class CalendarEngine {
   /** How the busy blocks stand (the space's ADR 0024). Asks the inbox who is connected first, so an account's trouble is as current as the screen. */
   async blocking(): Promise<Result<CalendarBlocking>> {
     await this.fresh()
-    return ok(this.blocks.view())
+    return ok(await this.blocks.view())
   }
 
   /** The switch. A setting only: it is stored and owes the alarm a run, which is where Google is asked. */
@@ -140,7 +142,7 @@ export class CalendarEngine {
     this.d.store.setBlockingEnabled(on)
     this.d.tell()
     await this.d.alarmAt(this.d.now())
-    return ok(this.blocks.view())
+    return ok(await this.blocks.view())
   }
 
   /** An account's part in the blocks: a setting like the switch. */
@@ -153,7 +155,7 @@ export class CalendarEngine {
       this.d.tell()
       await this.d.alarmAt(this.d.now())
     }
-    return ok(this.blocks.view())
+    return ok(await this.blocks.view())
   }
 
   /** Make an event on an account's primary calendar, Google sending the invitations (src/writes.ts). Who may ask is the inbox's rule, applied before this is called. */

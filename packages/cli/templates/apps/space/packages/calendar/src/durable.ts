@@ -63,6 +63,7 @@ export class CalendarDO extends DurableObject<CalendarEnv> {
       grants: () => inbox.grants(),
       now,
       zone: bundledInstall.company.timeZone,
+      installId: bundledInstall.company.id,
       pushUrl: pushUrlOf(env.CALENDAR_PUSH_URL),
       newId: () => crypto.randomUUID(),
       newToken: () => hex(crypto.getRandomValues(new Uint8Array(24))),

@@ -144,6 +144,11 @@ export const CALENDAR_MIGRATIONS: readonly CalendarMigration[] = [
   );
   INSERT INTO "blocking" ("id") VALUES ('blocking');
   `,
+
+  // 3 ── whose block it is: the install key in the mark (`spaceBlockBy`), so two spaces on one Google account neither remove nor make again each other's blocks. Null for a block marked before the mark named an install: it is read as this install's.
+  `
+  ALTER TABLE "event" ADD COLUMN "block_by" TEXT;
+  `,
 ]
 
 /** The version a fully migrated store reports. */

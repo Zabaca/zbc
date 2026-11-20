@@ -11,9 +11,15 @@
  * nothing to repair: the next run sees the same store and makes the same plan.
  *
  * ── ONE MEETING, ONE ID ──────────────────────────────────────────────────
- * A block's Google event id is derived from the meeting (its iCalendar id and its start, which is one occurrence of a repeating meeting) and the account it is on, in the letters Google allows (a to v and 0 to 9). Making the same block twice is therefore refused by
+ * A block's Google event id is derived from the install, the meeting (its iCalendar id and its start, which is one occurrence of a repeating meeting) and the account it is on, in the letters Google allows (a to v and 0 to 9). Making the same block twice is therefore refused by
  * Google (409), and that is read as "it is already there" (or was removed once: the same request then makes it confirmed again). A block whose making had an unknown outcome is found again by its id, never doubled. A meeting that MOVES is a new meeting key: its
  * block is made at the new time and the old one is removed (the old one stands for nothing), and an end that moves alone is a patch.
+ *
+ * ── WHOSE BLOCK, AND KNOWING ONE WITHOUT ITS MARK ────────────────────────
+ * The install key (hashed from the install's own declared company id, so it survives a lost store) is in the derived id and in the mark. Two spaces on one Google account therefore make blocks of their own and never remove or make again each other's: a block
+ * of another install is hidden like this install's, never a meeting to block, never counted, never touched; and where another install already holds a block for the same meeting on a target, none is made there (the meeting is blocked once, and is made
+ * by this install when the other's goes). A block is known by its mark, by the mark a row already held (a read that brings none keeps it, `CalendarStore.insertEvent`) and, failing both, by its id: an unmarked event on a main calendar whose id this install
+ * would derive for some meeting in the store is marked as the block it is (`recognise`). So a Google that did not give the private properties back does not turn a block into a meeting that is blocked in turn.
  *
  * ── WHAT A BLOCK IS ──────────────────────────────────────────────────────
  * "Busy", and nothing of the meeting: no title, guests, place, description or link; private; opaque; no reminders; `sendUpdates=none`. Two private extended properties mark it (`BLOCK_PROPERTY`), which `parseEvent` reads back, so the store knows it for a block:
@@ -25,7 +31,7 @@
  */
 
 import { CALENDAR_BLOCK_AHEAD_MS, CALENDAR_BLOCK_TITLE, type CalendarBlocking, type CalendarBlockingAccount, isoAt } from '@space/workspace'
-import { BLOCK_FOR_PROPERTY, BLOCK_PROPERTY, parseEvent } from './event-parse'
+import { BLOCK_BY_PROPERTY, BLOCK_FOR_PROPERTY, BLOCK_PROPERTY, parseEvent } from './event-parse'
 import { CalendarAccessError, CalendarError, CalendarGone, CalendarNotFound, CalendarRefused, type RunWriter } from './google'
 import type { AccountRow, BlockHeld, CalendarRow, CalendarStore } from './store'
 
@@ -41,6 +47,8 @@ export interface BlockDeps {
   now: () => number
   /** The company's time zone: the zone a block is made in. */
   zone: string
+  /** The install's declared company id: what the install key is hashed from, so a block is known as this install's across a lost store. Never written anywhere as it is. */
+  installId: string
   /** Tell the page the calendar changed (after it is stored). */
   tell: () => void
   log?: ((line: string) => void) | undefined
@@ -77,13 +85,18 @@ export async function meetingKey(identity: string, start: number): Promise<strin
   return base32hex((await digest(`meeting\n${identity}\n${start}`)).slice(0, 10))
 }
 
-/** The Google event id of the block that stands for a meeting on an account's calendar: 32 letters, a to v and 0 to 9, the same for the same meeting and account for ever. */
-export async function blockEventId(meeting: string, target: string): Promise<string> {
-  return base32hex((await digest(`block\n${meeting}\n${target}`)).slice(0, 20))
+/** The key of an install: hashed from its declared company id, so it is the same after a lost store and says nothing of the company. 16 letters. */
+export async function installKey(installId: string): Promise<string> {
+  return base32hex((await digest(`install\n${installId}`)).slice(0, 10))
+}
+
+/** The Google event id of the block an install keeps for a meeting on an account's calendar: 32 letters, a to v and 0 to 9, the same for the same install, meeting and account for ever. */
+export async function blockEventId(install: string, meeting: string, target: string): Promise<string> {
+  return base32hex((await digest(`block\n${install}\n${meeting}\n${target}`)).slice(0, 20))
 }
 
 /** The body of a block, as Google is given it: "Busy" and the mark, nothing of the meeting. */
-export function blockBody(eventId: string, meeting: string, target: string, start: number, end: number, zone: string): Record<string, unknown> {
+export function blockBody(eventId: string, install: string, meeting: string, target: string, start: number, end: number, zone: string): Record<string, unknown> {
   return {
     id: eventId,
     status: 'confirmed',
@@ -93,7 +106,7 @@ export function blockBody(eventId: string, meeting: string, target: string, star
     transparency: 'opaque',
     visibility: 'private',
     reminders: { useDefault: false, overrides: [] },
-    extendedProperties: { private: { [BLOCK_PROPERTY]: meeting, [BLOCK_FOR_PROPERTY]: target } },
+    extendedProperties: { private: { [BLOCK_PROPERTY]: meeting, [BLOCK_FOR_PROPERTY]: target, [BLOCK_BY_PROPERTY]: install } },
   }
 }
 
@@ -111,14 +124,24 @@ type Step =
   | { kind: 'remove'; held: BlockHeld; target: Target }
 
 const rank = { make: 0, change: 1, remove: 2 } as const
+const keyOf = (step: Step): string => (step.kind === 'make' ? `make:${step.eventId}` : `${step.kind}:${step.held.eventId}`)
 
 const describe = (error: unknown): string => (error instanceof Error ? error.message : String(error)).replace(/\s+/g, ' ').slice(0, 300)
 
 export class CalendarBlocks {
   /** A run left work that its pace did not allow: the next run is owed a few seconds on. In memory only: a restarted object runs at once anyway and works the plan out again. */
   private more = false
+  /** Steps Google refused with a decision (a 400, a 404) in a run that otherwise went on: they are tried last from then on, so one that cannot be done does not fill every batch and starve the rest. In memory only. */
+  private readonly stuck = new Set<string>()
+  private key: Promise<string> | null = null
 
   constructor(private readonly d: BlockDeps) {}
+
+  /** This install's key (see `installKey`), worked out once. */
+  private install(): Promise<string> {
+    this.key ??= installKey(this.d.installId)
+    return this.key
+  }
 
   private get store(): CalendarStore {
     return this.d.store
@@ -140,16 +163,37 @@ export class CalendarBlocks {
     return accounts.every((a) => !a.blocks || a.state !== 'live' || (a.listToken !== null && this.store.calendars(a.address).every((c) => !c.shown || c.syncToken !== null)))
   }
 
-  /** How the blocks stand, as Settings shows them. */
-  view(): CalendarBlocking {
+  /** The first calendar of an account that takes part whose first read keeps failing, as a name: while one is unread no block is taken down for want of a meeting. Null when every one is read, or is only being read in. */
+  private unread(accounts: readonly AccountRow[]): string | null {
+    for (const a of accounts) {
+      if (!a.blocks || a.state !== 'live') continue
+      if (a.listToken === null && a.listProblem !== null) return `the calendars of ${a.address}`
+      const c = this.store.calendars(a.address).find((x) => x.shown && x.syncToken === null && x.problem !== null)
+      if (c) return `${c.name} (${a.address})`
+    }
+    return null
+  }
+
+  /** How the blocks stand, as Settings shows them. The one sentence is the last failure to write, or, while removal is held back for a calendar that cannot be read, that. */
+  async view(): Promise<CalendarBlocking> {
     const s = this.store.blocking()
+    const now = this.d.now()
+    const install = await this.install()
+    const accounts = this.store.accounts()
+    const ours = this.store.blocksHeld().filter((b) => b.primary && (b.by === null || b.by === install))
+    const unread = s.enabled ? this.unread(accounts) : null
     return {
       on: s.enabled,
-      kept: this.store.keptBlocks(this.d.now()),
-      problem: s.problem,
-      accounts: this.store.accounts().map((a) => {
+      kept: this.store.keptBlocks(now, install),
+      problem: s.problem ?? (unread === null ? null : `No block is taken down for now: ${unread} has not been read yet, so a block that looks like it stands for nothing may stand for a meeting there.`),
+      accounts: accounts.map((a) => {
         const held = this.holder(a)
-        return { address: a.address, label: a.label, hue: a.hue, takesPart: a.blocks, skipped: a.blocks && 'skipped' in held ? held.skipped : null, fix: a.blocks && 'skipped' in held ? held.fix : null }
+        if (!('skipped' in held)) return { address: a.address, label: a.label, hue: a.hue, takesPart: a.blocks, skipped: null, fix: null }
+        // An account that cannot be written to keeps the blocks it holds when the switch goes off or it is ticked out: they go when it can be.
+        const staying = !s.enabled || !a.blocks ? ours.filter((b) => b.account === a.address).length : 0
+        if (!a.blocks && staying === 0) return { address: a.address, label: a.label, hue: a.hue, takesPart: false, skipped: null, fix: null }
+        const skipped = staying > 0 ? `${staying} Busy block${staying === 1 ? '' : 's'} stay${staying === 1 ? 's' : ''} on it until it can be written to. ${held.skipped}` : held.skipped
+        return { address: a.address, label: a.label, hue: a.hue, takesPart: a.blocks, skipped, fix: held.fix }
       }),
     }
   }
@@ -162,10 +206,30 @@ export class CalendarBlocks {
     return this.more ? now + BLOCKS_PACE_MS : Number.POSITIVE_INFINITY
   }
 
+  /**
+   * An unmarked event on an account's main calendar whose id is one this install derives for some meeting in the store (for the account it is on) is a block whose mark Google did not give back: it is marked, and from then on is a block like any other.
+   * Worked out from the meetings the store holds, past ones too; a block whose meeting is no longer held is known only by the mark the store kept (`CalendarStore.insertEvent`).
+   */
+  private async recognise(install: string, accounts: readonly AccountRow[]): Promise<void> {
+    const all = this.store.unmarkedTimed()
+    const candidates = all.filter((e) => e.shaped && e.primary)
+    if (candidates.length === 0) return
+    const derived = new Map<string, string>()
+    for (const e of all) {
+      const meeting = await meetingKey(e.iCalUid ?? `k:${e.calendarId}|${e.eventId}`, e.start)
+      for (const a of accounts) derived.set(await blockEventId(install, meeting, a.address), meeting)
+    }
+    for (const c of candidates) {
+      const meeting = derived.get(c.eventId)
+      if (meeting !== undefined) this.store.setBlock(c.calendarId, c.eventId, meeting, install)
+    }
+  }
+
   /** What the store says should be done, in the order it is done: what protects the owner's time first. */
-  private async plan(now: number): Promise<Step[]> {
+  private async plan(now: number, install: string): Promise<Step[]> {
     const s = this.store.blocking()
     const accounts = this.store.accounts()
+    await this.recognise(install, accounts)
     const takingPart = new Set(accounts.filter((a) => a.blocks).map((a) => a.address))
     const targets = new Map<string, Target>()
     for (const a of accounts) {
@@ -173,9 +237,15 @@ export class CalendarBlocks {
       const held = this.holder(a)
       if ('target' in held) targets.set(a.address, held.target)
     }
-    // Every block that is held on a calendar this can write to, by its id. One on a calendar that is not the main one of its account is not the calendar's own work to keep.
+    // Every block of this install's that is held on an account's main calendar, by its id: the ones this keeps. A block of another install is never touched, and counts only to say that a meeting is already blocked on a target. One on a calendar that
+    // is not the main one of its account is nobody's to keep.
     const blocks = new Map<string, BlockHeld>()
-    for (const b of this.store.blocksHeld()) if (b.primary) blocks.set(b.eventId, b)
+    const elsewhere = new Set<string>()
+    for (const b of this.store.blocksHeld()) {
+      if (!b.primary) continue
+      if (b.by === null || b.by === install) blocks.set(b.eventId, b)
+      else elsewhere.add(`${b.meeting}|${b.account}`)
+    }
     const holderOf = (address: string): Target | null => {
       const a = accounts.find((x) => x.address === address)
       if (!a) return null
@@ -206,9 +276,11 @@ export class CalendarBlocks {
         if (m.holders.has(target.account.address)) continue
         // The target's main calendar must have been read once, or a block already there is not known and would be made again.
         if (target.calendar.syncToken === null) continue
-        const eventId = await blockEventId(meeting, target.account.address)
+        const eventId = await blockEventId(install, meeting, target.account.address)
         wanted.add(eventId)
         const have = blocks.get(eventId)
+        // Another install already blocks this meeting here: once is enough, and it is not this install's to touch.
+        if (!have && elsewhere.has(`${meeting}|${target.account.address}`)) continue
         if (!have) steps.push({ kind: 'make', target, eventId, meeting, start: m.start, end: m.end })
         else if (have.end !== m.end) steps.push({ kind: 'change', held: have, target, meeting, end: m.end })
       }
@@ -223,24 +295,25 @@ export class CalendarBlocks {
       const unwanted = !s.enabled || !takingPart.has(b.account) || (complete && b.end > now)
       if (unwanted) steps.push({ kind: 'remove', held: b, target })
     }
-    return steps.sort((x, y) => rank[x.kind] - rank[y.kind])
+    // What protects the owner's time first, and what Google refused with a decision last, so it cannot fill every batch.
+    return steps.sort((x, y) => Number(this.stuck.has(keyOf(x))) - Number(this.stuck.has(keyOf(y))) || rank[x.kind] - rank[y.kind])
   }
 
   /**
    * Put what Google answered for a block into the store, marked, so `events` and the plan see it at once and the read Google's own notification wakes only confirms it (the calendar is not marked owed a read: a read that found no mark on a block would make
    * the block again at every wake). Whatever Google echoed of the mark, the row is the calendar's own block.
    */
-  private keep(calendarId: string, meeting: string, raw: unknown): void {
+  private keep(calendarId: string, install: string, meeting: string, raw: unknown): void {
     const parsed = parseEvent(raw, this.d.zone)
-    if (parsed.kind === 'event') this.store.putEvent(calendarId, { ...parsed, block: meeting })
+    if (parsed.kind === 'event') this.store.putEvent(calendarId, { ...parsed, block: meeting, blockBy: install })
   }
 
   /** One step at Google, and in the store after Google has answered. A decision about the write throws nothing; anything that is not one is thrown. */
-  private async apply(step: Step, writer: ReturnType<RunWriter['writer']>): Promise<void> {
+  private async apply(step: Step, install: string, writer: ReturnType<RunWriter['writer']>): Promise<void> {
     const { zone } = this.d
     if (step.kind === 'make') {
       const { target, eventId, meeting, start, end } = step
-      const body = blockBody(eventId, meeting, target.account.address, start, end, zone)
+      const body = blockBody(eventId, install, meeting, target.account.address, start, end, zone)
       let raw: Record<string, unknown>
       try {
         raw = await writer.insertEvent(target.calendar.googleId, body, true)
@@ -250,14 +323,14 @@ export class CalendarBlocks {
         const { id: _id, ...again } = body
         raw = await writer.patchEvent(target.calendar.googleId, eventId, again, true)
       }
-      this.keep(target.calendar.id, meeting, raw)
+      this.keep(target.calendar.id, install, meeting, raw)
       return
     }
     if (step.kind === 'change') {
       const { held, meeting, end } = step
       try {
         const raw = await writer.patchEvent(held.calendarGoogleId, held.eventId, { end: { dateTime: isoAt(end, zone), timeZone: zone } }, true)
-        this.keep(held.calendarId, meeting, raw)
+        this.keep(held.calendarId, install, meeting, raw)
       } catch (error) {
         // Gone at Google since it was read: forget it, and the next run makes it.
         if (!(error instanceof CalendarNotFound || error instanceof CalendarGone)) throw error
@@ -294,7 +367,8 @@ export class CalendarBlocks {
     if (!s.enabled && this.store.blocksHeld().length === 0) return this.store.clearBlockingFailure()
     if (s.failures > 0 && s.retryAt !== null && s.retryAt > now) return false
 
-    const steps = await this.plan(now)
+    const install = await this.install()
+    const steps = await this.plan(now, install)
     if (steps.length === 0) return this.store.clearBlockingFailure()
     if (!this.d.runWriter) {
       this.store.recordBlockingFailure('This install cannot change calendar events from here, so the Busy blocks are not kept.')
@@ -305,6 +379,7 @@ export class CalendarBlocks {
     this.more = steps.length > batch.length
     const run = this.d.runWriter()
     const problems: string[] = []
+    let hard = false
     const skipped = new Set<string>()
     let changed = false
     let done = 0
@@ -313,23 +388,28 @@ export class CalendarBlocks {
         const account = step.kind === 'make' ? step.target.account.address : step.held.account
         if (skipped.has(account)) continue
         try {
-          await this.apply(step, run.writer(account))
+          await this.apply(step, install, run.writer(account))
+          this.stuck.delete(keyOf(step))
           changed = true
           done += 1
         } catch (error) {
           this.d.log?.(`calendar: a busy block could not be ${step.kind === 'make' ? 'made' : step.kind === 'change' ? 'changed' : 'removed'} on ${account}: ${describe(error)}`)
           if (error instanceof CalendarAccessError) {
             skipped.add(account)
+            hard = true
             problems.push(error.message)
           } else if (error instanceof CalendarRefused) {
             skipped.add(account)
+            hard = true
             problems.push(`${error.message} Press Connect calendar in Settings, Calendars and accept it.`)
           } else if (error instanceof CalendarNotFound || error instanceof CalendarGone || (error instanceof CalendarError && error.status >= 400 && error.status < 500 && error.status !== 403 && error.status !== 429)) {
-            // Google decided about this one write; the others are not affected.
+            // Google decided about this one write; the others are not affected, and this one goes last from now on.
+            this.stuck.add(keyOf(step))
             problems.push(error.message)
           } else {
             // Not a decision (no answer, a server error, a rate limit): stop, and say that nothing is known of this one.
             problems.push(`Google did not answer cleanly (${describe(error)}); it will be tried again.`)
+            hard = true
             this.more = false
             break
           }
@@ -339,8 +419,16 @@ export class CalendarBlocks {
       run.end()
     }
     if (problems.length > 0) {
-      this.more = false
-      this.store.recordBlockingFailure(`Could not keep every Busy block up to date: ${problems[0]}`)
+      const sentence = `Could not keep every Busy block up to date: ${problems[0]}`
+      if (hard || done === 0) {
+        // Nothing was done, or Google did not answer or the account cannot be written to: back off.
+        this.more = false
+        this.store.recordBlockingFailure(sentence)
+      } else {
+        // Most of the run was done and Google refused a write or two with a decision: say so, and go on at the pace, those last.
+        this.store.recordBlockingProblem(sentence)
+      }
+      if (changed) this.d.tell()
       return true
     }
     if (done === 0) this.more = false

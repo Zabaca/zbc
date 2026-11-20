@@ -1,7 +1,8 @@
 import { describe, expect, test } from 'bun:test'
 import { CALENDAR_BLOCK_AHEAD_MS, signedIn } from '@space/workspace'
-import { BLOCKS_PACE_MS, BLOCKS_PER_RUN, blockBody, blockEventId, meetingKey } from '../src/blocks'
+import { BLOCKS_PACE_MS, BLOCKS_PER_RUN, blockBody, blockEventId, installKey, meetingKey } from '../src/blocks'
 import { createSpaceCalendar } from '../src/space'
+import { FakeGoogle } from '../test-support/fake-google'
 import { type Harness, harness, HOUR, DAY, NORTHFIELD, OWNER, person, T0 } from '../test-support/harness'
 
 /**
@@ -112,8 +113,12 @@ describe('what gets a block', () => {
     const marks = (w?.body.extendedProperties as { private: Record<string, string> }).private
     expect(marks.spaceBlockFor).toBe(F)
     expect(marks.spaceBlock).toBe(await meetingKey('m1@meet.test', at(24)))
-    // The id is derived from the meeting and the account: the letters Google allows, five to 1024 of them.
-    expect(w?.body.id).toBe(await blockEventId(marks.spaceBlock as string, F))
+    // The install is named by a key hashed from its declared company id, never by the id itself.
+    const install = await installKey(NORTHFIELD.company.id)
+    expect(marks.spaceBlockBy).toBe(install)
+    expect(sent).not.toContain(NORTHFIELD.company.id)
+    // The id is derived from the install, the meeting and the account: the letters Google allows, five to 1024 of them.
+    expect(w?.body.id).toBe(await blockEventId(install, marks.spaceBlock as string, F))
     expect(String(w?.body.id)).toMatch(/^[0-9a-v]{5,1024}$/)
   })
 
@@ -572,14 +577,193 @@ describe('the token for changing events', () => {
 
 describe('what a block is made of', () => {
   test('the body is exactly the calendar’s: Busy, private, opaque, no reminders, the mark; and the id is stable for a meeting and an account', async () => {
-    const body = blockBody('abcde', 'k'.repeat(16), F, at(1), at(2), 'America/Los_Angeles')
+    const body = blockBody('abcde', 'i'.repeat(16), 'k'.repeat(16), F, at(1), at(2), 'America/Los_Angeles')
     expect(Object.keys(body).sort()).toEqual(['end', 'extendedProperties', 'id', 'reminders', 'start', 'status', 'summary', 'transparency', 'visibility'])
-    const a = await blockEventId('m'.repeat(16), F)
-    expect(a).toBe(await blockEventId('m'.repeat(16), F))
-    expect(a).not.toBe(await blockEventId('m'.repeat(16), Z))
-    expect(a).not.toBe(await blockEventId('n'.repeat(16), F))
+    const a = await blockEventId('i'.repeat(16), 'm'.repeat(16), F)
+    expect(a).toBe(await blockEventId('i'.repeat(16), 'm'.repeat(16), F))
+    expect(a).not.toBe(await blockEventId('i'.repeat(16), 'm'.repeat(16), Z))
+    expect(a).not.toBe(await blockEventId('i'.repeat(16), 'n'.repeat(16), F))
+    expect(a).not.toBe(await blockEventId('j'.repeat(16), 'm'.repeat(16), F))
     expect(a).toMatch(/^[0-9a-v]{32}$/)
     expect(await meetingKey('x@y', 1)).not.toBe(await meetingKey('x@y', 2))
     expect(await meetingKey('x@y', 1)).toMatch(/^[0-9a-v]{16}$/)
+  })
+})
+
+describe('a Google that does not give the mark back', () => {
+  async function unmarked() {
+    const h = await world([Z, F, G])
+    h.google.dropPrivateProperties = true
+    meet(h, Z, 'm1', at(24), at(25))
+    await sync(h)
+    await turnOn(h)
+    return h
+  }
+
+  test('a block is not read back as a meeting: no block of a block, no write at any later read (a full read included), and the meeting is still the only thing drawn', async () => {
+    const h = await unmarked()
+    expect(writes(h).map((w) => [w.op, w.calendarId])).toEqual([['events.insert', F], ['events.insert', G]])
+    for (let n = 0; n < 3; n++) await sync(h)
+    // A read in full replaces every row: the store keeps what it knew of each.
+    h.store.forgetToken(`${F}|${F}`)
+    h.store.forgetToken(`${G}|${G}`)
+    await sync(h)
+    expect(writes(h)).toHaveLength(2)
+    expect(h.store.blocksHeld()).toHaveLength(2)
+    expect(await agendaTitles(h)).toEqual(['Secret plan m1'])
+    expect(await h.engine.blocking()).toMatchObject({ ok: true, value: { kept: 2 } })
+  })
+
+  test('a block whose meeting is gone is still a block, by the mark the store kept: it is removed, and not read as a meeting', async () => {
+    const h = await unmarked()
+    h.google.writes.length = 0
+    h.google.cancelEvent(Z, Z, 'm1')
+    await sync(h)
+    expect(writes(h).map((w) => [w.op, w.calendarId]).sort()).toEqual([['events.delete', F], ['events.delete', G]])
+    expect(h.store.blocksHeld()).toEqual([])
+  })
+
+  test('a block the store has lost the mark of is known again by its id, and switching off removes it all the same', async () => {
+    const h = await unmarked()
+    h.db.run('UPDATE event SET block = NULL, block_by = NULL')
+    expect(h.store.blocksHeld()).toEqual([])
+    h.google.writes.length = 0
+    await sync(h)
+    // Worked out again from the meeting the id was derived for: marked, not blocked in turn, nothing written.
+    expect(h.store.blocksHeld()).toHaveLength(2)
+    expect(writes(h)).toEqual([])
+    expect(await agendaTitles(h)).toEqual(['Secret plan m1'])
+    await h.engine.setBlocking(false)
+    await h.work()
+    expect(writes(h, 'events.delete').map((w) => w.calendarId).sort()).toEqual([F, G])
+    expect(h.store.blocksHeld()).toEqual([])
+    const events = (a: string) => [...(h.google.account(a).calendars.get(a)?.events.values() ?? [])].filter((e) => e.raw.status !== 'cancelled')
+    expect([events(F).length, events(G).length]).toEqual([0, 0])
+  })
+})
+
+describe('two spaces on one Google account', () => {
+  async function two() {
+    const google = new FakeGoogle({ t: T0 })
+    const a = harness({ google, installId: 'northfield' })
+    const b = harness({ google, installId: 'ashgrove-space' })
+    for (const h of [a, b]) {
+      for (const acct of [Z, F]) h.grants.push({ address: acct, label: acct.split('@')[0] as string, connected: true, lapsed: false, calendar: true, events: true })
+    }
+    for (const acct of [Z, F]) {
+      google.account(acct)
+      google.addCalendar(acct, { id: acct, summary: acct, primary: true })
+    }
+    await a.work()
+    await b.work()
+    return { google, a, b }
+  }
+
+  test('each makes and removes its own block and never touches the other’s; a block of the other is hidden, never a meeting, never counted', async () => {
+    const { google, a, b } = await two()
+    meet(a, Z, 'm1', at(24), at(25))
+    await sync(a)
+    await sync(b)
+    await turnOn(a)
+    expect(blocksAt(a, F)).toHaveLength(1)
+    await sync(b)
+    // The other space reads it: not a meeting, not drawn, not counted, and nothing is written for it.
+    await turnOn(b)
+    await sync(b)
+    expect(await agendaTitles(b)).toEqual(['Secret plan m1'])
+    expect(b.store.blocksHeld()).toHaveLength(1)
+    expect(await b.engine.blocking()).toMatchObject({ ok: true, value: { kept: 0 } })
+    expect(await a.engine.blocking()).toMatchObject({ ok: true, value: { kept: 1 } })
+    // The meeting is blocked on F once, by the space that was first, and neither removes the other's.
+    for (let n = 0; n < 3; n++) {
+      await sync(a)
+      await sync(b)
+    }
+    expect(blocksAt(a, F)).toHaveLength(1)
+    expect(google.writes.filter((w) => w.op !== 'events.insert')).toEqual([])
+    expect(google.writes).toHaveLength(1)
+    // The first space switches off: its block goes, and the other space, which only waited, makes its own.
+    await a.engine.setBlocking(false)
+    await a.work()
+    expect(blocksAt(a, F)).toEqual([])
+    await sync(b)
+    expect(blocksAt(b, F)).toHaveLength(1)
+    expect(await b.engine.blocking()).toMatchObject({ ok: true, value: { kept: 1 } })
+    expect(google.writes.filter((w) => w.op === 'events.delete')).toHaveLength(1)
+  })
+})
+
+describe('what the owner is told', () => {
+  test('while no block is taken down because a calendar has not been read, the sentence says which', async () => {
+    const h = await world()
+    meet(h, Z, 'm1', at(24), at(25))
+    await sync(h)
+    await turnOn(h)
+    expect(await h.engine.blocking()).toMatchObject({ ok: true, value: { problem: null } })
+    h.google.cancelEvent(Z, Z, 'm1')
+    h.db.run(`DELETE FROM event WHERE calendar_id = '${Z}|${Z}'`)
+    h.store.forgetToken(`${Z}|${Z}`)
+    h.google.failNext('events.list', 500, { error: { code: 500, message: 'Backend Error' } }, 5, Z)
+    await sync(h)
+    const view = await h.engine.blocking()
+    expect(view.ok && view.value.problem).toContain('No block is taken down for now')
+    expect(view.ok && view.value.problem).toContain(Z)
+    expect(blocksAt(h, F)).toHaveLength(1)
+    // Switched off, nothing is held back and nothing is said of it.
+    await h.engine.setBlocking(false)
+    const off = await h.engine.blocking()
+    expect(off.ok && off.value.problem).toBeNull()
+  })
+
+  test('an account that cannot be written to keeps its blocks when the switch goes off, and says so beside its tick', async () => {
+    const h = await world([Z, F, G])
+    meet(h, Z, 'm1', at(24), at(25))
+    await sync(h)
+    await turnOn(h)
+    h.grants.find((g) => g.address === F)!.lapsed = true
+    h.advance(31_000)
+    await sync(h)
+    await h.engine.setBlocking(false)
+    await h.work()
+    expect(blocksAt(h, G)).toEqual([])
+    expect(blocksAt(h, F)).toHaveLength(1)
+    const view = await h.engine.blocking()
+    const card = view.ok ? view.value.accounts.find((a) => a.address === F) : undefined
+    expect(card?.skipped).toContain('1 Busy block stays on it until it can be written to')
+    expect(card?.fix).toBe('connect-again')
+    expect(view.ok && view.value.accounts.find((a) => a.address === G)?.skipped).toBeNull()
+    // Ticked out the same way.
+    await h.engine.setBlocking(true)
+    await h.engine.setBlockingAccount(F, false)
+    const out = await h.engine.blocking()
+    expect(out.ok && out.value.accounts.find((a) => a.address === F)?.skipped).toContain('stays on it')
+  })
+})
+
+describe('a step Google keeps refusing', () => {
+  test('is tried last from then on, so one that cannot be done does not fill every batch: the rest of the work is done at the next run', async () => {
+    const h = await world()
+    const n = BLOCKS_PER_RUN + 2
+    for (let i = 0; i < n; i++) meet(h, Z, `m${i}`, at(24 + i), at(24.5 + i))
+    await sync(h)
+    await turnOn(h)
+    await h.work()
+    expect(blocksAt(h, F)).toHaveLength(n)
+    // Off, then on: every block was removed at Google, so making one again is a 409 and then a change that says confirmed, which Google refuses here (404) for every one of them.
+    await h.engine.setBlocking(false)
+    await h.work()
+    await h.work()
+    expect(blocksAt(h, F)).toEqual([])
+    h.google.failNext('events.patch', 404, { error: { code: 404, message: 'Not Found' } }, 1000)
+    meet(h, Z, 'late', at(24 + n + 5), at(25 + n + 5))
+    await sync(h)
+    await h.engine.setBlocking(true)
+    await h.work()
+    expect(await h.engine.blocking()).toMatchObject({ ok: true, value: { problem: expect.stringContaining('Could not keep every Busy block') } })
+    // Next run, the ones Google refused go last: the meeting that was never tried (the last of 23, which the first batch of 20 did not reach) gets its block at once.
+    h.advance(31_000)
+    await h.work()
+    expect(blocksAt(h, F)).toHaveLength(1)
+    expect(blocksAt(h, F).some((b) => Date.parse((b.start as { dateTime: string }).dateTime) === at(24 + n + 5))).toBe(true)
   })
 })

@@ -78,11 +78,14 @@ function dayOf(v: unknown): { y: number; m: number; d: number } | null {
 }
 
 /**
- * How the calendar's own busy block is marked at Google (the space's ADR 0024): two PRIVATE extended properties, which belong to the copy on the calendar they were set on and which no guest's invitation can carry. `spaceBlock` holds the key of the
- * meeting the block stands for; `spaceBlockFor` the account whose calendar it is on. Reading one back is what makes a block known to the sync: it is never drawn, never counted busy for Claude and never the source of another block.
+ * How the calendar's own busy block is marked at Google (the space's ADR 0024): three PRIVATE extended properties, which belong to the copy on the calendar they were set on and which no guest's invitation can carry. `spaceBlock` holds the key of the
+ * meeting the block stands for; `spaceBlockFor` the account whose calendar it is on; `spaceBlockBy` the install that made it (a key derived from the install's own declaration), so two spaces on one Google account know each other's blocks apart.
+ * Reading the mark back is what makes a block known to the sync: it is never drawn, never counted busy for Claude and never the source of another block. A block is also known by the id the space derived for it (src/blocks.ts), so a Google that
+ * did not give the mark back does not turn a block into a meeting.
  */
 export const BLOCK_PROPERTY = 'spaceBlock'
 export const BLOCK_FOR_PROPERTY = 'spaceBlockFor'
+export const BLOCK_BY_PROPERTY = 'spaceBlockBy'
 /** What a meeting key looks like (lower case base32hex, the same letters as a Google event id), so a mark that is anything else is no mark. */
 export const MEETING_KEY = /^[0-9a-v]{8,64}$/
 
@@ -108,8 +111,10 @@ export interface ParsedEvent {
   videoLink: string | null
   htmlLink: string | null
   free: boolean
-  /** The meeting key a block of the calendar's own stands for, or null for every event that is not one of its blocks. */
+  /** The meeting key a block (of this install's or another's) stands for, or null for every event that is not marked as one. */
   block: string | null
+  /** The install key that made the block, or null (not a block, or a mark that names none). */
+  blockBy: string | null
 }
 
 /** An event Google says is gone (cancelled, or deleted): in an incremental read it is removed from the store; in a full read it is simply not kept. */
@@ -182,6 +187,7 @@ export function parseEvent(raw: unknown, zone: string): ParsedEvent | GoneEvent 
   const description = cleanText(htmlToText(str(raw.description)), CALENDAR_DESCRIPTION_MAX, true)
   const marks = isRecord(raw.extendedProperties) && isRecord(raw.extendedProperties.private) ? raw.extendedProperties.private : {}
   const mark = str(marks[BLOCK_PROPERTY])
+  const by = str(marks[BLOCK_BY_PROPERTY])
   return {
     kind: 'event',
     id,
@@ -203,6 +209,7 @@ export function parseEvent(raw: unknown, zone: string): ParsedEvent | GoneEvent 
     htmlLink: googleLink(raw.htmlLink),
     free: raw.transparency === 'transparent',
     block: MEETING_KEY.test(mark) ? mark : null,
+    blockBy: MEETING_KEY.test(mark) && MEETING_KEY.test(by) ? by : null,
   }
 }
 

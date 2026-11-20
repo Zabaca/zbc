@@ -266,7 +266,7 @@ export function standInCalendar(now: number, zone: string, mode: CalendarFixture
     return {
       on: blocking.on,
       kept,
-      problem: blocking.on ? blocking.problem : null,
+      problem: blocking.problem,
       accounts: accounts.map((acct) => ({ address: acct.address, label: acct.label, hue: acct.hue, takesPart: !blocking.out.has(acct.address), ...(blocking.out.has(acct.address) ? { skipped: null, fix: null } : skipped(acct)) })),
     }
   }

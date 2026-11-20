@@ -105,6 +105,8 @@ export class FakeGoogle {
   noSyncToken = false
   /** Called after each request has been answered and before the answer is returned, so a test can make something happen DURING a read (a notification, a change). */
   afterRequest: ((op: string) => void | Promise<void>) | null = null
+  /** Answer events WITHOUT their private extended properties (a Google that does not give them back): what a read and a write return leaves the property out, though the event holds it. */
+  dropPrivateProperties = false
   /** How long a channel lives, ms. Default: 7 days (Google's `params.ttl` default). */
   channelLife = 604_800_000
   private tokenNo = 0
@@ -361,7 +363,7 @@ export class FakeGoogle {
       }
       calendar.seq += 1
       calendar.events.set(id, { raw, seq: calendar.seq })
-      return json(raw)
+      return json(this.shown(raw))
     }
     const held = calendar.events.get(eventId ?? '')
     if (!held) return json({ error: { code: 404, message: 'Not Found' } }, 404)
@@ -376,7 +378,14 @@ export class FakeGoogle {
     const changed = ['summary', 'start', 'end', 'transparency', 'visibility', 'reminders', 'extendedProperties', 'status'].filter((k) => body[k] !== undefined)
     const raw: Json = { ...held.raw, ...Object.fromEntries(changed.map((k) => [k, body[k]])) }
     calendar.events.set(held.raw.id as string, { raw, seq: calendar.seq })
-    return json(raw)
+    return json(this.shown(raw))
+  }
+
+  /** An event as Google answers it: with `dropPrivateProperties`, without the private extended properties. */
+  private shown(raw: Json): Json {
+    if (!this.dropPrivateProperties || raw.extendedProperties === undefined) return raw
+    const { extendedProperties: _dropped, ...rest } = raw
+    return rest
   }
 
   private detailOf(op: string, path: string, params: URLSearchParams): string {
@@ -454,7 +463,7 @@ export class FakeGoogle {
     const { slice, next } = this.page(items, params)
     return json({
       kind: 'calendar#events',
-      items: slice.map((e) => e.raw),
+      items: slice.map((e) => this.shown(e.raw)),
       ...(next !== null ? { nextPageToken: next } : this.noSyncToken ? {} : { nextSyncToken: this.newSyncToken('events', calendar.seq, window) }),
     })
   }

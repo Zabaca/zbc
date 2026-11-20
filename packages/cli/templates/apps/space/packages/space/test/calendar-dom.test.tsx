@@ -650,15 +650,18 @@ describe('Settings, Calendars', () => {
     await again.page.unmount()
   })
 
-  test('one amber sentence when blocks could not be written, only while they are on', async () => {
+  test('one amber sentence when blocks could not be written or removal is held back, as the calendar words it (a sentence the calendar sends is shown whatever the switch says)', async () => {
     const { calendar } = standInWorker()
-    calendar.blocking.problem = 'Could not keep every Busy block up to date: Google did not answer cleanly (the connection was lost); it will be tried again.'
     const { page } = await openSettings()
     expect(page.q('blocking-problem')).toBeNull()
-    await page.click(page.q('blocking-switch'))
-    expect(page.q('blocking-problem')?.textContent).toContain('Could not keep every Busy block up to date')
-    expect(page.q('calendar-blocking')?.className).toContain('amber')
+    expect(page.q('calendar-blocking')?.className).not.toContain('amber')
     await page.unmount()
+    calendar.blocking.problem = 'Could not keep every Busy block up to date: Google did not answer cleanly (the connection was lost); it will be tried again.'
+    const again = await openSettings()
+    expect(again.page.q('blocking-problem')?.textContent).toContain('Could not keep every Busy block up to date')
+    expect(again.page.q('calendar-blocking')?.className).toContain('amber')
+    expect(again.page.q('blocking-switch')?.getAttribute('aria-checked')).toBe('false')
+    await again.page.unmount()
   })
 
   test('Check now asks for every calendar to be read again', async () => {

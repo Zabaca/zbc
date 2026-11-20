@@ -92,7 +92,7 @@ describe('the object', () => {
     const { mem, getAlarm, restore } = environment()
     try {
       await new Promise((resolve) => setTimeout(resolve, 0))
-      expect((mem.db.query(`SELECT applied FROM calendar_meta`).get() as { applied: number }).applied).toBe(3)
+      expect((mem.db.query(`SELECT applied FROM calendar_meta`).get() as { applied: number }).applied).toBe(4)
       expect(getAlarm()).not.toBeNull()
     } finally {
       restore()

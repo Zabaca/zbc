@@ -136,6 +136,8 @@ export interface BlockHeld {
   end: number
   /** The key of the meeting it stands for. */
   meeting: string
+  /** The install key that made it; null for a block marked before the mark named one (read as this install's). */
+  by: string | null
   account: string
   primary: boolean
 }
@@ -558,11 +560,20 @@ export class CalendarStore {
 
   // ── Events ────────────────────────────────────────────────────────────────────────────────────────────────────────────
 
-  private insertEvent(calendarId: string, e: ParsedEvent): void {
+  /**
+   * One event into the store. A block is marked when Google gives the mark back, and a row the store already knew as a block KEEPS its mark when a read brings none (`carried`, or the row held under the same id): a Google that did not return the private
+   * properties must not turn a block into a meeting of its own, which would be blocked in turn.
+   */
+  private insertEvent(calendarId: string, e: ParsedEvent, carried?: { block: string; by: string | null }): void {
+    let { block, blockBy } = e
+    if (block === null) {
+      const held = carried ?? this.knownBlock(calendarId, e.id)
+      if (held) ({ block, by: blockBy } = held)
+    }
     this.sql.exec(
       `INSERT OR REPLACE INTO event (calendar_id, id, ical_uid, title, location, description, start_ms, end_ms, all_day, start_date, end_date, status, response,
-                                     organizer_name, organizer_email, guests, guests_left, video_link, html_link, free, block)
-       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21)`,
+                                     organizer_name, organizer_email, guests, guests_left, video_link, html_link, free, block, block_by)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22)`,
       calendarId,
       e.id,
       e.iCalUid,
@@ -583,8 +594,15 @@ export class CalendarStore {
       e.videoLink,
       e.htmlLink,
       e.free ? 1 : 0,
-      e.block,
+      block,
+      blockBy,
     )
+  }
+
+  /** The mark of a row the store holds under this id, or null when it is no block (or is not held). */
+  private knownBlock(calendarId: string, eventId: string): { block: string; by: string | null } | null {
+    const r = this.sql.exec(`SELECT block, block_by FROM event WHERE calendar_id = ?1 AND id = ?2 AND block IS NOT NULL`, calendarId, eventId).toArray()[0]
+    return r ? { block: text(r.block), by: textOrNull(r.block_by) } : null
   }
 
   /**
@@ -596,8 +614,10 @@ export class CalendarStore {
     return this.ports.transaction(() => {
       if (!this.calendar(calendarId)) return { changed: false }
       const before = this.eventDigest(calendarId)
+      // The blocks the store knows are carried through the full read: the rows are replaced, their marks are not forgotten.
+      const known = new Map(this.sql.exec(`SELECT id, block, block_by FROM event WHERE calendar_id = ?1 AND block IS NOT NULL`, calendarId).toArray().map((r) => [text(r.id), { block: text(r.block), by: textOrNull(r.block_by) }] as const))
       this.sql.exec(`DELETE FROM event WHERE calendar_id = ?1`, calendarId)
-      for (const e of events) if (e.kind === 'event') this.insertEvent(calendarId, e)
+      for (const e of events) if (e.kind === 'event') this.insertEvent(calendarId, e, known.get(e.id))
       this.sql.exec(
         `UPDATE calendar SET sync_token = ?2, window_from = ?3, window_to = ?4, full_at = ?5, synced_at = ?5, problem = NULL, retry_at = NULL, failures = 0 WHERE id = ?1`,
         calendarId,
@@ -1005,6 +1025,11 @@ export class CalendarStore {
     this.sql.exec(`UPDATE blocking SET problem = ?1, failures = ?2, retry_at = ?3 WHERE id = 'blocking'`, cleanText(problem, 300), failures, this.ports.now() + backoffMs(failures))
   }
 
+  /** The sentence alone, with no backoff: a run that did most of its work and was refused one write (a decision about it), so the rest is not held up for it. */
+  recordBlockingProblem(problem: string): void {
+    this.sql.exec(`UPDATE blocking SET problem = ?1 WHERE id = 'blocking'`, cleanText(problem, 300))
+  }
+
   /** A run of the blocks ended without a failure. Answers whether there was a sentence to take down. */
   clearBlockingFailure(): boolean {
     const held = this.blocking()
@@ -1031,32 +1056,34 @@ export class CalendarStore {
       .map((r) => ({ calendarId: text(r.calendar_id), eventId: text(r.id), iCalUid: textOrNull(r.ical_uid), start: num(r.start_ms), end: num(r.end_ms), account: text(r.account) }))
   }
 
-  /** Every block the store holds (they are read back from Google like any event), with the calendar each is on. */
+  /** Every block the store holds, of this install's or another's (they are read back from Google like any event), with the calendar each is on and the install key that made it (null: marked before the mark named one). */
   blocksHeld(): BlockHeld[] {
     return this.sql
-      .exec(`SELECT e.calendar_id, e.id, e.start_ms, e.end_ms, e.block, c.account, c.google_id, c.is_primary FROM event e JOIN calendar c ON c.id = e.calendar_id WHERE e.block IS NOT NULL ORDER BY e.start_ms, e.id`)
+      .exec(`SELECT e.calendar_id, e.id, e.start_ms, e.end_ms, e.block, e.block_by, c.account, c.google_id, c.is_primary FROM event e JOIN calendar c ON c.id = e.calendar_id WHERE e.block IS NOT NULL ORDER BY e.start_ms, e.id`)
       .toArray()
-      .map((r) => ({ calendarId: text(r.calendar_id), calendarGoogleId: text(r.google_id), eventId: text(r.id), start: num(r.start_ms), end: num(r.end_ms), meeting: text(r.block), account: text(r.account), primary: flag(r.is_primary) }))
+      .map((r) => ({ calendarId: text(r.calendar_id), calendarGoogleId: text(r.google_id), eventId: text(r.id), start: num(r.start_ms), end: num(r.end_ms), meeting: text(r.block), by: textOrNull(r.block_by), account: text(r.account), primary: flag(r.is_primary) }))
   }
 
-  /** An event of this calendar that a person's meeting is already on the calendar's account as (busy), so a block would only double it: whether the account holds the same meeting. */
-  holdsMeeting(iCalUid: string, start: number, account: string): boolean {
-    return (
+  /** A row the store knows as one of the calendar's blocks without Google having given the mark back (its id is one the space derived): marked, so it is a block from now on. */
+  setBlock(calendarId: string, eventId: string, meeting: string, by: string): void {
+    this.sql.exec(`UPDATE event SET block = ?3, block_by = ?4 WHERE calendar_id = ?1 AND id = ?2`, calendarId, eventId, meeting, by)
+  }
+
+  /** The timed events that are not marked as blocks, past ones too, for working out which of them are blocks all the same (an id of the shape the space derives, on an account's main calendar). */
+  unmarkedTimed(): { calendarId: string; eventId: string; iCalUid: string | null; start: number; shaped: boolean; primary: boolean }[] {
+    return this.sql
+      .exec(`SELECT e.calendar_id, e.id, e.ical_uid, e.start_ms, c.is_primary FROM event e JOIN calendar c ON c.id = e.calendar_id WHERE e.block IS NULL AND e.all_day = 0`)
+      .toArray()
+      .map((r) => ({ calendarId: text(r.calendar_id), eventId: text(r.id), iCalUid: textOrNull(r.ical_uid), start: num(r.start_ms), shaped: /^[0-9a-v]{32}$/.test(text(r.id)), primary: flag(r.is_primary) }))
+  }
+
+  /** How many blocks of this install's are held on an account's main calendar that have not ended: the blocks the calendar keeps, and none of another install's. */
+  keptBlocks(now: number, install: string): number {
+    return Number(
       this.sql
-        .exec(
-          `SELECT 1 FROM event e JOIN calendar c ON c.id = e.calendar_id
-            WHERE e.ical_uid = ?1 AND e.start_ms = ?2 AND c.account = ?3 AND e.block IS NULL AND e.free = 0 AND (e.response IS NULL OR e.response != 'declined') LIMIT 1`,
-          iCalUid,
-          start,
-          account,
-        )
-        .toArray().length > 0
+        .exec(`SELECT count(*) AS n FROM event e JOIN calendar c ON c.id = e.calendar_id WHERE e.block IS NOT NULL AND (e.block_by IS NULL OR e.block_by = ?2) AND c.is_primary = 1 AND e.end_ms > ?1`, now, install)
+        .one().n,
     )
-  }
-
-  /** How many blocks are held that have not ended. */
-  keptBlocks(now: number): number {
-    return Number(this.sql.exec(`SELECT count(*) AS n FROM event WHERE block IS NOT NULL AND end_ms > ?1`, now).one().n)
   }
 }
 

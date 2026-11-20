@@ -42,6 +42,9 @@ describe('reading the calendar’s own busy block back (the space’s ADR 0024)'
   test('a private extended property of the calendar’s shape marks the event as a block, and carries the meeting key it stands for', () => {
     const mark = { extendedProperties: { private: { spaceBlock: 'k4m2p0a9t7v1c3d5', spaceBlockFor: 'tessa@northfield.example' } } }
     expect(event(timed(mark)).block).toBe('k4m2p0a9t7v1c3d5')
+    expect(event(timed(mark)).blockBy).toBeNull()
+    expect(event(timed({ extendedProperties: { private: { spaceBlock: 'k4m2p0a9t7v1c3d5', spaceBlockBy: 'i4m2p0a9t7v1c3d5' } } })).blockBy).toBe('i4m2p0a9t7v1c3d5')
+    expect(event(timed({ extendedProperties: { private: { spaceBlock: 'k4m2p0a9t7v1c3d5', spaceBlockBy: 'NO!' } } })).blockBy).toBeNull()
     expect(event(timed()).block).toBeNull()
   })
 
