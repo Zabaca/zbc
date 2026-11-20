@@ -767,3 +767,68 @@ describe('a step Google keeps refusing', () => {
     expect(blocksAt(h, F).some((b) => Date.parse((b.start as { dateTime: string }).dateTime) === at(24 + n + 5))).toBe(true)
   })
 })
+
+describe('an invitation made with a guessed id is an ordinary event', () => {
+  const forgedId = async (account: string) => blockEventId(await installKey(NORTHFIELD.company.id), await meetingKey('m1@meet.test', at(24)), account)
+
+  test('it keeps its id and stays drawn and busy: it is not hidden, not made over, and never removed by the writer, even when its meeting is cancelled and the switch goes off', async () => {
+    const h = await world([Z, F, G])
+    h.google.setEvent(F, F, {
+      id: await forgedId(F),
+      summary: 'Dinner with a stranger',
+      start: iso(at(24)),
+      end: iso(at(25)),
+      organizer: { email: 'stranger@example.com' },
+      attendees: [{ email: 'stranger@example.com', organizer: true, responseStatus: 'accepted' }, { email: F, self: true, responseStatus: 'needsAction' }],
+    })
+    meet(h, Z, 'm1', at(24), at(25))
+    await sync(h)
+    await turnOn(h)
+    await sync(h)
+    // The invitation is a meeting like any other (blocked on the other accounts); on F, where it holds the id, nothing is made over it, and it is not a block.
+    expect(writes(h).filter((w) => w.calendarId === F)).toEqual([])
+    expect(h.store.blocksHeld().every((b) => b.account !== F)).toBe(true)
+    expect(await agendaTitles(h)).toContain('Dinner with a stranger')
+    const claude = await h.engine.claudeEvents(T0, T0 + 3 * DAY)
+    expect(claude.ok && claude.value.events.find((e) => e.title === 'Dinner with a stranger')?.busy).toBe(true)
+    h.google.cancelEvent(Z, Z, 'm1')
+    await sync(h)
+    await h.engine.setBlocking(false)
+    await h.work()
+    expect(writes(h).filter((w) => w.calendarId === F)).toEqual([])
+    expect(await agendaTitles(h)).toEqual(['Dinner with a stranger'])
+    expect(h.store.blocksHeld()).toEqual([])
+    expect([...(h.google.account(F).calendars.get(F)?.events.values() ?? [])].filter((e) => e.raw.status !== 'cancelled')).toHaveLength(1)
+  })
+
+  test('one that looks like a block but sits on another account than the id was derived for is an ordinary event too', async () => {
+    const h = await world([Z, F, G])
+    h.google.setEvent(G, G, { id: await forgedId(F), summary: 'Busy', start: iso(at(24)), end: iso(at(25)) })
+    meet(h, Z, 'm1', at(24), at(25))
+    await sync(h)
+    await turnOn(h)
+    const id = await forgedId(F)
+    expect(await agendaTitles(h)).toContain('Busy')
+    expect(h.store.blocksHeld().some((b) => b.eventId === id)).toBe(false)
+    await h.engine.setBlocking(false)
+    await h.work()
+    expect(writes(h).filter((w) => w.eventId === id)).toEqual([])
+  })
+
+  test('a block the owner has made their own (retitled) is no longer the writer’s: it is not changed or removed, and its id is not made over', async () => {
+    const h = await world()
+    meet(h, Z, 'm1', at(24), at(25))
+    await sync(h)
+    await turnOn(h)
+    expect(blocksAt(h, F)).toHaveLength(1)
+    const held = h.store.blocksHeld()[0]
+    // The owner renames it in Google Calendar (the private properties are gone with the edit in this fake, as they may be).
+    h.google.setEvent(F, F, { id: held?.eventId as string, summary: 'Dentist', start: iso(at(24)), end: iso(at(25)) })
+    h.google.writes.length = 0
+    h.google.cancelEvent(Z, Z, 'm1')
+    await sync(h)
+    await h.engine.setBlocking(false)
+    await h.work()
+    expect(writes(h)).toEqual([])
+  })
+})

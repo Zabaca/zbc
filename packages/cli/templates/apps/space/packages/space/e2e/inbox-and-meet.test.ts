@@ -68,7 +68,7 @@ for (const size of ['1440', '390'] as const) {
       expect(await w.page.locator('[data-testid="search"]').count()).toBe(1)
       for (const absent of ['new-call', 'channel-tools', 'live']) expect([absent, await w.page.locator(`[data-testid="${absent}"]`).count()]).toEqual([absent, 0])
       expect(await w.page.locator('body').textContent()).not.toContain('Chat messages cannot be searched')
-      expect((await w.railLabels()).map((r) => r[0])).toEqual(['Today', 'Inbox', 'Meet', 'Calendar', 'Forms', 'People', 'Knowledge', 'Settings'])
+      expect((await w.railLabels()).map((r) => r[0])).toEqual(['Today', 'Inbox', 'Meet', 'Calendar', 'Forms', 'People', 'Leads', 'Knowledge', 'Settings'])
       expect((await w.railLabels()).filter((r) => r[1]).map((r) => r[0])).toEqual(['Inbox'])
       expect(await w.page.title()).toContain('Inbox | ')
       expect(await fits(w.page)).toBe(true)

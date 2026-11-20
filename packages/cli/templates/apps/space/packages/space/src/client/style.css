@@ -1282,12 +1282,21 @@ a.file-chip:hover {
   .rail .grow {
     display: none;
   }
+  /* The tabs share the strip when they fit, and when they do not (eight tabs and the gear at 390px) each keeps its 44px and its whole label and the strip scrolls sideways, the current tab kept in view (src/client/App.tsx). */
+  .shell > .rail {
+    overflow-x: auto;
+    overflow-y: hidden;
+    scrollbar-width: none;
+  }
+  .shell > .rail::-webkit-scrollbar {
+    display: none;
+  }
   .rail-item {
-    flex: 1;
+    flex: 1 0 auto;
     flex-direction: column;
     justify-content: center;
     gap: 2px;
-    min-width: 0;
+    min-width: 44px;
     min-height: 52px;
     padding: 6px 2px;
     font-size: 11px;
@@ -1298,7 +1307,7 @@ a.file-chip:hover {
     text-overflow: ellipsis;
     white-space: nowrap;
   }
-  /* Seven tabs and the gear in a 390px strip (the Calendar tab made it seven): each gets about 47px, and the longest label, Knowledge, still has to be read whole, so the type is a half point smaller and tighter, and the gear (an icon alone) is 42px wide, not 52 (settings.css), to leave the tabs about 49px each. */
+  /* Eight tabs and the gear in a 390px strip: the type is a half point smaller and tighter so the longest label, Knowledge, is read whole in about 47px, and the gear (an icon alone) is 42px wide, not 52 (settings.css). They do not all fit at 44px each, so the strip scrolls sideways by a few pixels. */
   @media (max-width: 440px) {
     .rail {
       gap: 0;

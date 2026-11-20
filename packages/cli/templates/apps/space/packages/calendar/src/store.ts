@@ -14,6 +14,7 @@
 import {
   CALENDAR_AHEAD_MS,
   CALENDAR_BACK_MS,
+  CALENDAR_BLOCK_TITLE,
   type CalendarAccountMark,
   type CalendarAccountState,
   type CalendarAccountView,
@@ -25,7 +26,7 @@ import {
   type CalendarResponse,
   type CalendarView,
 } from '@space/workspace'
-import { cleanText, lastDay, type GoneEvent, type ParsedEvent } from './event-parse'
+import { BLOCK_EVENT_ID, cleanText, lastDay, type GoneEvent, type ParsedEvent } from './event-parse'
 import type { CalendarSql } from './schema'
 
 // ── The clocks the sync works to ────────────────────────────────────────────────────────────────────────────────────────
@@ -138,8 +139,28 @@ export interface BlockHeld {
   meeting: string
   /** The install key that made it; null for a block marked before the mark named one (read as this install's). */
   by: string | null
+  /** Whether it is still shaped like a block (see `looksLikeBlock`): one that is not (the owner made it their own, or it was never a block) is not the writer's to change or remove. */
+  looks: boolean
   account: string
   primary: boolean
+}
+
+/**
+ * Whether a stored event is shaped like one of the calendar's blocks on the account its calendar belongs to: titled "Busy", organised by that account itself (or by no one Google named), and with no guest but that account. A block is made so and
+ * nothing else is: an invitation somebody made with an id they guessed has another organiser or other guests or another title, so it is an ordinary event whatever its id, never hidden and never removed by the writer.
+ */
+export function looksLikeBlock(r: Record<string, unknown>, account?: string): boolean {
+  const own = account ?? text(r.account)
+  if (text(r.title) !== CALENDAR_BLOCK_TITLE) return false
+  const organizer = textOrNull(r.organizer_email)
+  if (organizer !== null && organizer !== own) return false
+  if (num(r.guests_left) > 0) return false
+  try {
+    const guests: unknown = JSON.parse(text(r.guests))
+    return Array.isArray(guests) && guests.every((g) => typeof g === 'object' && g !== null && ((g as CalendarGuest).self === true || (g as CalendarGuest).email === own))
+  } catch {
+    return false
+  }
 }
 
 export interface ChannelRow {
@@ -1059,22 +1080,35 @@ export class CalendarStore {
   /** Every block the store holds, of this install's or another's (they are read back from Google like any event), with the calendar each is on and the install key that made it (null: marked before the mark named one). */
   blocksHeld(): BlockHeld[] {
     return this.sql
-      .exec(`SELECT e.calendar_id, e.id, e.start_ms, e.end_ms, e.block, e.block_by, c.account, c.google_id, c.is_primary FROM event e JOIN calendar c ON c.id = e.calendar_id WHERE e.block IS NOT NULL ORDER BY e.start_ms, e.id`)
+      .exec(`SELECT e.calendar_id, e.id, e.title, e.organizer_email, e.guests, e.guests_left, e.start_ms, e.end_ms, e.block, e.block_by, c.account, c.google_id, c.is_primary FROM event e JOIN calendar c ON c.id = e.calendar_id WHERE e.block IS NOT NULL ORDER BY e.start_ms, e.id`)
       .toArray()
-      .map((r) => ({ calendarId: text(r.calendar_id), calendarGoogleId: text(r.google_id), eventId: text(r.id), start: num(r.start_ms), end: num(r.end_ms), meeting: text(r.block), by: textOrNull(r.block_by), account: text(r.account), primary: flag(r.is_primary) }))
+      .map((r) => ({ calendarId: text(r.calendar_id), calendarGoogleId: text(r.google_id), eventId: text(r.id), start: num(r.start_ms), end: num(r.end_ms), meeting: text(r.block), by: textOrNull(r.block_by), account: text(r.account), primary: flag(r.is_primary), looks: looksLikeBlock(r) }))
   }
 
-  /** A row the store knows as one of the calendar's blocks without Google having given the mark back (its id is one the space derived): marked, so it is a block from now on. */
+  /** A row the store knows as one of the calendar's blocks without Google having given the mark back (its id is one the space derived, and it looks like a block): marked, so it is a block from now on. */
   setBlock(calendarId: string, eventId: string, meeting: string, by: string): void {
     this.sql.exec(`UPDATE event SET block = ?3, block_by = ?4 WHERE calendar_id = ?1 AND id = ?2`, calendarId, eventId, meeting, by)
   }
 
-  /** The timed events that are not marked as blocks, past ones too, for working out which of them are blocks all the same (an id of the shape the space derives, on an account's main calendar). */
-  unmarkedTimed(): { calendarId: string; eventId: string; iCalUid: string | null; start: number; shaped: boolean; primary: boolean }[] {
+  /**
+   * The unmarked timed events on an account's main calendar whose id has the shape of the space's own (`BLOCK_EVENT_ID`): the only ones that can be blocks Google gave back without their mark. `looks` is whether the event is shaped like a block
+   * (see `looksLikeBlock`), which an invitation somebody made with a guessed id is not.
+   */
+  blockCandidates(): { calendarId: string; eventId: string; account: string; start: number; looks: boolean }[] {
     return this.sql
-      .exec(`SELECT e.calendar_id, e.id, e.ical_uid, e.start_ms, c.is_primary FROM event e JOIN calendar c ON c.id = e.calendar_id WHERE e.block IS NULL AND e.all_day = 0`)
+      .exec(`SELECT e.calendar_id, e.id, e.title, e.organizer_email, e.guests, e.guests_left, e.start_ms, c.account FROM event e JOIN calendar c ON c.id = e.calendar_id WHERE e.block IS NULL AND e.all_day = 0 AND c.is_primary = 1 AND length(e.id) = 32`)
       .toArray()
-      .map((r) => ({ calendarId: text(r.calendar_id), eventId: text(r.id), iCalUid: textOrNull(r.ical_uid), start: num(r.start_ms), shaped: /^[0-9a-v]{32}$/.test(text(r.id)), primary: flag(r.is_primary) }))
+      .filter((r) => BLOCK_EVENT_ID.test(text(r.id)))
+      .map((r) => ({ calendarId: text(r.calendar_id), eventId: text(r.id), account: text(r.account), start: num(r.start_ms), looks: looksLikeBlock(r) }))
+  }
+
+  /** The meetings (timed events that are not marked as blocks) that start at one of these moments: what a block's id can be derived from, since a block starts when its meeting does. */
+  meetingsStartingAt(starts: readonly number[]): { calendarId: string; eventId: string; iCalUid: string | null; start: number }[] {
+    if (starts.length === 0) return []
+    return this.sql
+      .exec(`SELECT calendar_id, id, ical_uid, start_ms FROM event WHERE block IS NULL AND all_day = 0 AND start_ms IN (${starts.map((_, i) => `?${i + 1}`).join(', ')})`, ...starts)
+      .toArray()
+      .map((r) => ({ calendarId: text(r.calendar_id), eventId: text(r.id), iCalUid: textOrNull(r.ical_uid), start: num(r.start_ms) }))
   }
 
   /** How many blocks of this install's are held on an account's main calendar that have not ended: the blocks the calendar keeps, and none of another install's. */

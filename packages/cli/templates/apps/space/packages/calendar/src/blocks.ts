@@ -18,8 +18,9 @@
  * ── WHOSE BLOCK, AND KNOWING ONE WITHOUT ITS MARK ────────────────────────
  * The install key (hashed from the install's own declared company id, so it survives a lost store) is in the derived id and in the mark. Two spaces on one Google account therefore make blocks of their own and never remove or make again each other's: a block
  * of another install is hidden like this install's, never a meeting to block, never counted, never touched; and where another install already holds a block for the same meeting on a target, none is made there (the meeting is blocked once, and is made
- * by this install when the other's goes). A block is known by its mark, by the mark a row already held (a read that brings none keeps it, `CalendarStore.insertEvent`) and, failing both, by its id: an unmarked event on a main calendar whose id this install
- * would derive for some meeting in the store is marked as the block it is (`recognise`). So a Google that did not give the private properties back does not turn a block into a meeting that is blocked in turn.
+ * by this install when the other's goes). A block is known by its mark, by the mark a row already held (a read that brings none keeps it, `CalendarStore.insertEvent`) and, failing both, by its id AND its shape: an unmarked event on a main calendar whose id this install
+ * would derive for some meeting in the store, for the account it is on, and that is titled "Busy", organised by that account and has no other guest, is marked as the block it is (`recognise`). The id is no secret, so an invitation made with a guessed
+ * id is an ordinary event: drawn, busy, never made over and never removed. A block that stops being shaped so (the owner renamed it) is no longer the writer's. So a Google that did not give the private properties back does not turn a block into a meeting that is blocked in turn.
  *
  * ── WHAT A BLOCK IS ──────────────────────────────────────────────────────
  * "Busy", and nothing of the meeting: no title, guests, place, description or link; private; opaque; no reminders; `sendUpdates=none`. Two private extended properties mark it (`BLOCK_PROPERTY`), which `parseEvent` reads back, so the store knows it for a block:
@@ -207,29 +208,33 @@ export class CalendarBlocks {
   }
 
   /**
-   * An unmarked event on an account's main calendar whose id is one this install derives for some meeting in the store (for the account it is on) is a block whose mark Google did not give back: it is marked, and from then on is a block like any other.
-   * Worked out from the meetings the store holds, past ones too; a block whose meeting is no longer held is known only by the mark the store kept (`CalendarStore.insertEvent`).
+   * An unmarked event on an account's main calendar is a block whose mark Google did not give back only when BOTH hold: its id is one this install derives for a meeting the store holds, for the account the event is on, AND it is shaped like a block (titled
+   * "Busy", organised by that account, no other guest). Nothing about the id is secret, so the shape is what an invitation made with a guessed id lacks: it stays an ordinary event, drawn and busy and never removed. Answers the ids that match and are not
+   * blocks, which the plan does not make a block over (Google would refuse the id, and the event is not ours to change).
+   * Worked out from the meetings that start where a candidate does (a block starts when its meeting does), past ones too; a block whose meeting is no longer held is known only by the mark the store kept (`CalendarStore.insertEvent`).
    */
-  private async recognise(install: string, accounts: readonly AccountRow[]): Promise<void> {
-    const all = this.store.unmarkedTimed()
-    const candidates = all.filter((e) => e.shaped && e.primary)
-    if (candidates.length === 0) return
-    const derived = new Map<string, string>()
-    for (const e of all) {
+  private async recognise(install: string, accounts: readonly AccountRow[]): Promise<Set<string>> {
+    const forged = new Set<string>()
+    const candidates = this.store.blockCandidates()
+    if (candidates.length === 0) return forged
+    const derived = new Map<string, { meeting: string; target: string }>()
+    for (const e of this.store.meetingsStartingAt([...new Set(candidates.map((c) => c.start))])) {
       const meeting = await meetingKey(e.iCalUid ?? `k:${e.calendarId}|${e.eventId}`, e.start)
-      for (const a of accounts) derived.set(await blockEventId(install, meeting, a.address), meeting)
+      for (const a of accounts) derived.set(await blockEventId(install, meeting, a.address), { meeting, target: a.address })
     }
     for (const c of candidates) {
-      const meeting = derived.get(c.eventId)
-      if (meeting !== undefined) this.store.setBlock(c.calendarId, c.eventId, meeting, install)
+      const hit = derived.get(c.eventId)
+      if (hit === undefined) continue
+      if (c.looks && hit.target === c.account) this.store.setBlock(c.calendarId, c.eventId, hit.meeting, install)
+      else forged.add(c.eventId)
     }
+    return forged
   }
 
   /** What the store says should be done, in the order it is done: what protects the owner's time first. */
-  private async plan(now: number, install: string): Promise<Step[]> {
+  private async plan(now: number, install: string, occupied: Set<string>): Promise<Step[]> {
     const s = this.store.blocking()
     const accounts = this.store.accounts()
-    await this.recognise(install, accounts)
     const takingPart = new Set(accounts.filter((a) => a.blocks).map((a) => a.address))
     const targets = new Map<string, Target>()
     for (const a of accounts) {
@@ -243,7 +248,9 @@ export class CalendarBlocks {
     const elsewhere = new Set<string>()
     for (const b of this.store.blocksHeld()) {
       if (!b.primary) continue
-      if (b.by === null || b.by === install) blocks.set(b.eventId, b)
+      // One that is no longer shaped like a block is not the writer's to change or remove, and its id is not free to make a block on.
+      if (!b.looks) occupied.add(b.eventId)
+      else if (b.by === null || b.by === install) blocks.set(b.eventId, b)
       else elsewhere.add(`${b.meeting}|${b.account}`)
     }
     const holderOf = (address: string): Target | null => {
@@ -281,6 +288,7 @@ export class CalendarBlocks {
         const have = blocks.get(eventId)
         // Another install already blocks this meeting here: once is enough, and it is not this install's to touch.
         if (!have && elsewhere.has(`${meeting}|${target.account.address}`)) continue
+        if (!have && occupied.has(eventId)) continue
         if (!have) steps.push({ kind: 'make', target, eventId, meeting, start: m.start, end: m.end })
         else if (have.end !== m.end) steps.push({ kind: 'change', held: have, target, meeting, end: m.end })
       }
@@ -363,12 +371,14 @@ export class CalendarBlocks {
     const s = this.store.blocking()
     const now = this.d.now()
     this.more = false
+    // Blocks whose mark Google did not give back are known first, with the switch on or off: a block that stood unmarked would be drawn and counted busy, and left at Google.
+    const install = await this.install()
+    const occupied = await this.recognise(install, this.store.accounts())
     // Nothing to keep and nothing held: the common case of an owner who has not turned it on.
     if (!s.enabled && this.store.blocksHeld().length === 0) return this.store.clearBlockingFailure()
     if (s.failures > 0 && s.retryAt !== null && s.retryAt > now) return false
 
-    const install = await this.install()
-    const steps = await this.plan(now, install)
+    const steps = await this.plan(now, install, occupied)
     if (steps.length === 0) return this.store.clearBlockingFailure()
     if (!this.d.runWriter) {
       this.store.recordBlockingFailure('This install cannot change calendar events from here, so the Busy blocks are not kept.')

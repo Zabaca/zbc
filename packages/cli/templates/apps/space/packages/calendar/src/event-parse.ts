@@ -86,6 +86,8 @@ function dayOf(v: unknown): { y: number; m: number; d: number } | null {
 export const BLOCK_PROPERTY = 'spaceBlock'
 export const BLOCK_FOR_PROPERTY = 'spaceBlockFor'
 export const BLOCK_BY_PROPERTY = 'spaceBlockBy'
+/** What the id of a block of the space's looks like: 32 letters of base32hex (a Google-made id is another length, and an id of an invitation or an app is whatever its maker chose). */
+export const BLOCK_EVENT_ID = /^[0-9a-v]{32}$/
 /** What a meeting key looks like (lower case base32hex, the same letters as a Google event id), so a mark that is anything else is no mark. */
 export const MEETING_KEY = /^[0-9a-v]{8,64}$/
 
