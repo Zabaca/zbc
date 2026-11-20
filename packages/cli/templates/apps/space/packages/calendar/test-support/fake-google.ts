@@ -331,7 +331,11 @@ export class FakeGoogle {
     if (!calendar || calendar.deleted) return json({ error: { code: 404, message: 'Not Found' } }, 404)
     if (op === 'events.insert') {
       this.eventNo += 1
-      const id = `made${this.eventNo}`
+      // An id the caller chose must be 5 to 1024 letters a to v and 0 to 9, and is never used twice on a calendar, an event that was deleted included (Google keeps it as cancelled): 400 and 409, as the documents say.
+      const chosen = typeof body.id === 'string' ? body.id : null
+      if (chosen !== null && !/^[0-9a-v]{5,1024}$/.test(chosen)) return json({ error: { code: 400, message: 'Invalid resource id value.', errors: [{ reason: 'invalid' }] } }, 400)
+      if (chosen !== null && calendar.events.has(chosen)) return json({ error: { code: 409, message: 'The requested identifier already exists.', errors: [{ reason: 'duplicate' }] } }, 409)
+      const id = chosen ?? `made${this.eventNo}`
       const wantsMeet = typeof (body.conferenceData as Json | undefined)?.createRequest === 'object' && query.conferenceDataVersion === '1'
       const raw: Json = {
         kind: 'calendar#event',
@@ -343,6 +347,10 @@ export class FakeGoogle {
         iCalUID: `${id}@google.com`,
         start: body.start,
         end: body.end,
+        ...(body.transparency !== undefined && { transparency: body.transparency }),
+        ...(body.visibility !== undefined && { visibility: body.visibility }),
+        ...(body.reminders !== undefined && { reminders: body.reminders }),
+        ...(body.extendedProperties !== undefined && { extendedProperties: body.extendedProperties }),
         organizer: { email: account.address, self: true },
         creator: { email: account.address, self: true },
         attendees: [
@@ -357,14 +365,16 @@ export class FakeGoogle {
     }
     const held = calendar.events.get(eventId ?? '')
     if (!held) return json({ error: { code: 404, message: 'Not Found' } }, 404)
-    if (held.raw.status === 'cancelled') return json({ error: { code: 410, message: 'Resource has been deleted' } }, 410)
+    // A cancelled event is gone (410) unless the change says it is confirmed again, which restores it: how an event that was removed is made again under its own id.
+    if (held.raw.status === 'cancelled' && !(op === 'events.patch' && body.status === 'confirmed')) return json({ error: { code: 410, message: 'Resource has been deleted' } }, 410)
     if ((held.raw.organizer as Json | undefined)?.email !== account.address) return json({ error: { code: 403, message: 'Forbidden', errors: [{ reason: 'forbidden' }] } }, 403)
     calendar.seq += 1
     if (op === 'events.delete') {
       calendar.events.set(held.raw.id as string, { raw: { ...held.raw, status: 'cancelled' }, seq: calendar.seq })
       return new Response(null, { status: 204 })
     }
-    const raw: Json = { ...held.raw, ...(body.start !== undefined && { start: body.start }), ...(body.end !== undefined && { end: body.end }) }
+    const changed = ['summary', 'start', 'end', 'transparency', 'visibility', 'reminders', 'extendedProperties', 'status'].filter((k) => body[k] !== undefined)
+    const raw: Json = { ...held.raw, ...Object.fromEntries(changed.map((k) => [k, body[k]])) }
     calendar.events.set(held.raw.id as string, { raw, seq: calendar.seq })
     return json(raw)
   }

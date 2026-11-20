@@ -1,7 +1,7 @@
 import { type CalendarGrant, createInstall, type Install } from '@space/workspace'
 import declaration from '../../workspace/northfield/workspace.json'
 import { CalendarEngine, type EngineApi } from '../src/engine'
-import { createCalendarGoogle, createCalendarWriter } from '../src/google'
+import { createCalendarGoogle, createCalendarWriter, createRunWriter } from '../src/google'
 import { migrate } from '../src/schema'
 import { CalendarStore } from '../src/store'
 import { FakeGoogle } from './fake-google'
@@ -64,6 +64,8 @@ export function harness(options: HarnessOptions = {}) {
     api: createCalendarGoogle({ fetch: google.fetch, access: google.access, now: () => clock.t }),
     // The writer the object builds (src/durable.ts): its own token, for `calendar.events`, asked for each call.
     ...(options.writer !== false && { writer: createCalendarWriter({ fetch: google.fetch, access: (address, fresh) => google.access(address, fresh, 'events') }) }),
+    // The writing client of the alarm's own run (the busy blocks, the space's ADR 0024): its token kept for the run and dropped at its end.
+    ...(options.writer !== false && { runWriter: createRunWriter({ fetch: google.fetch, access: (address, fresh) => google.access(address, fresh, 'events') }) }),
     grants: async () => {
       grantAsks.n += 1
       if (inbox.down) throw new Error('the inbox could not be reached')

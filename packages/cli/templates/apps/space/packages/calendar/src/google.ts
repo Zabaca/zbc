@@ -9,6 +9,8 @@ import type { CalendarAccess, CalendarAccessRefusal } from '@space/workspace'
  * inbox asks Google for that scope alone), so nothing it does could change an event or touch mail if a bug tried to. It has no call that writes an event.
  * The writer (`createCalendarWriter`, the space's ADR 0023) makes `events.insert`, `events.patch` and `events.delete`, and only for a call Claude makes on the owner's instruction (the inbox decides that before the engine is asked). Its token is for
  * `calendar.events` alone, asked of the inbox for each call, used for that call and dropped: it is never cached, so the permission to change events is held only for as long as one request takes.
+ * The same writer, handed a map to keep its tokens in for one run (`createRunWriter`, the space's ADR 0024), serves the calendar's own alarm: the "Busy" blocks the owner's switch keeps are made, moved and removed in one run, with a token for each
+ * account asked once, when its first write needs it, and dropped when the run ends (`end`).
  *
  * ── TOKENS ───────────────────────────────────────────────────────────────
  * The calendar never holds a refresh token. `access(address, fresh)` is the inbox's door (packages/space/docs/adr/0020): a short-lived access token, kept here in memory until a minute before it ends (the sync's) or not kept at all
@@ -166,28 +168,34 @@ async function ok(res: Response, what: string): Promise<Json> {
  * (`conferenceDataVersion=1`) when the body carries a `conferenceData` request. The answer is Google's event, as Google gave it: the engine reads it with `parseEvent` like any other.
  */
 export interface CalendarWriteApi {
-  /** `calendarId` is the account's primary calendar's id, or `primary`. */
-  insertEvent(calendarId: string, event: Record<string, unknown>): Promise<Record<string, unknown>>
-  patchEvent(calendarId: string, eventId: string, changes: Record<string, unknown>): Promise<Record<string, unknown>>
-  deleteEvent(calendarId: string, eventId: string): Promise<void>
+  /** `calendarId` is the account's primary calendar's id, or `primary`. `quiet` is for the calendar's own busy block: `sendUpdates=none`, so nobody is told, and no Meet link is asked for. */
+  insertEvent(calendarId: string, event: Record<string, unknown>, quiet?: boolean): Promise<Record<string, unknown>>
+  patchEvent(calendarId: string, eventId: string, changes: Record<string, unknown>, quiet?: boolean): Promise<Record<string, unknown>>
+  deleteEvent(calendarId: string, eventId: string, quiet?: boolean): Promise<void>
 }
 
 /**
  * The calendar's writing client: a token for `calendar.events` alone, asked of the inbox (`config.access`) for EACH call and dropped after it (a 401 asks once more, fresh). Nothing is cached, so the permission to change events is in
- * this object's hands for as long as one request takes, and the sync's client (which never holds it) is untouched.
+ * this object's hands for as long as one request takes, and the sync's client (which never holds it) is untouched. With `held` (a map the caller owns and empties, see `createRunWriter`) a token is kept in it for as long as the caller keeps the map, which is one run.
  */
-export function createCalendarWriter(config: Pick<CalendarGoogleConfig, 'fetch' | 'access'>): (address: string) => CalendarWriteApi {
+export function createCalendarWriter(config: Pick<CalendarGoogleConfig, 'fetch' | 'access'>, held?: Map<string, string>): (address: string) => CalendarWriteApi {
   return (address) => {
     async function send(method: string, path: string, body: unknown, fresh: boolean): Promise<Response> {
-      const got = await config.access(address, fresh)
-      if (!got.ok) throw new CalendarAccessError(got.why, got.message)
+      let token = fresh ? undefined : held?.get(address)
+      if (token === undefined) {
+        const got = await config.access(address, fresh)
+        if (!got.ok) throw new CalendarAccessError(got.why, got.message)
+        token = got.accessToken
+        held?.set(address, token)
+      }
       const res = await config.fetch(`${CALENDAR_API}${path}`, {
         method,
-        headers: { authorization: `Bearer ${got.accessToken}`, ...(body === undefined ? {} : { 'content-type': 'application/json' }) },
+        headers: { authorization: `Bearer ${token}`, ...(body === undefined ? {} : { 'content-type': 'application/json' }) },
         body: body === undefined ? undefined : JSON.stringify(body),
       })
       if (res.status === 401 && !fresh) {
         await res.body?.cancel()
+        held?.delete(address)
         return send(method, path, body, true)
       }
       return res
@@ -195,14 +203,14 @@ export function createCalendarWriter(config: Pick<CalendarGoogleConfig, 'fetch' 
     const event = (calendarId: string, eventId?: string) => `/calendars/${encodeURIComponent(calendarId)}/events${eventId === undefined ? '' : `/${encodeURIComponent(eventId)}`}`
 
     return {
-      insertEvent: async (calendarId, body) =>
-        ok(await send('POST', `${event(calendarId)}?sendUpdates=all&conferenceDataVersion=1`, body, false), 'the new event'),
+      insertEvent: async (calendarId, body, quiet = false) =>
+        ok(await send('POST', `${event(calendarId)}?${quiet ? 'sendUpdates=none' : 'sendUpdates=all&conferenceDataVersion=1'}`, body, false), 'the new event'),
 
-      patchEvent: async (calendarId, eventId, changes) =>
-        ok(await send('PATCH', `${event(calendarId, eventId)}?sendUpdates=all`, changes, false), 'that event'),
+      patchEvent: async (calendarId, eventId, changes, quiet = false) =>
+        ok(await send('PATCH', `${event(calendarId, eventId)}?sendUpdates=${quiet ? 'none' : 'all'}`, changes, false), 'that event'),
 
-      async deleteEvent(calendarId, eventId) {
-        const res = await send('DELETE', `${event(calendarId, eventId)}?sendUpdates=all`, undefined, false)
+      async deleteEvent(calendarId, eventId, quiet = false) {
+        const res = await send('DELETE', `${event(calendarId, eventId)}?sendUpdates=${quiet ? 'none' : 'all'}`, undefined, false)
         // Already gone (410) is as good as deleted; any other refusal is the caller's to see.
         if (res.status === 410) {
           await res.body?.cancel()
@@ -215,6 +223,20 @@ export function createCalendarWriter(config: Pick<CalendarGoogleConfig, 'fetch' 
         await ok(res, 'that event')
       },
     }
+  }
+}
+
+/** The writing client for ONE RUN of the alarm: tokens are kept in memory for the run and dropped by `end`, whatever the run did. Made new for every run, so nothing outlives it. */
+export interface RunWriter {
+  writer: (address: string) => CalendarWriteApi
+  end(): void
+}
+
+/** A factory of run writers (the space's ADR 0024): the same writer as Claude's, its token held for the run and not for each call. */
+export function createRunWriter(config: Pick<CalendarGoogleConfig, 'fetch' | 'access'>): () => RunWriter {
+  return () => {
+    const held = new Map<string, string>()
+    return { writer: createCalendarWriter(config, held), end: () => held.clear() }
   }
 }
 

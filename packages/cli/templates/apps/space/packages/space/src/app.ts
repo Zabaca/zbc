@@ -47,7 +47,7 @@ import { returnGmail, startGmail } from './gmail'
 import { formsAnswer, formsPathFor, formsUnavailable, forwardRequest } from './forms'
 import { createGuestParts, createParts, type Parts, type PartsEnv, type PartsFor } from './parts'
 import { type GuestPartsFor, guestAnswer } from './guests'
-import { readAccounts, readAgenda, readEvent, setShown, syncNow } from './calendar'
+import { readAccounts, readAgenda, readBlocking, readEvent, setBlocking, setBlockingAccount, setShown, syncNow } from './calendar'
 import { changeKnowledge, readKnowledge, restartStore, restoreStore, storeBookmark } from './knowledge'
 import { inboxBookmark, inboxCounts, inboxRestart } from './inbox-store'
 import { meetBookmark, meetCounts, meetRestart, meetRestore } from './meet-store'
@@ -202,8 +202,8 @@ const MEET_STORE_PATHS = ['/api/meet/store/bookmark', '/api/meet/store/restart',
 /** The operator's three for the inbox's store (inbox-store.ts): bookmark, restart and counts. Their order is the routes'. */
 const INBOX_STORE_PATHS = ['/api/inbox/store/bookmark', '/api/inbox/store/restart', '/api/inbox/store/counts'] as const
 
-/** The calendar's two writes (calendar.ts): show or hide a calendar, and Check now. Their order is the routes'. */
-const CALENDAR_WRITE_PATHS = ['/api/calendar/shown', '/api/calendar/sync'] as const
+/** The calendar's four writes (calendar.ts): show or hide a calendar, Check now, the busy-block switch and an account's part in the blocks (the last two are settings: the calendar's alarm writes the blocks). Their order is the routes'. */
+const CALENDAR_WRITE_PATHS = ['/api/calendar/shown', '/api/calendar/sync', '/api/calendar/blocking', '/api/calendar/blocking/account'] as const
 
 /** The operator's three for the Clients store (clients.ts): bookmark, restart and counts. Their order is the routes'. */
 const CLIENTS_STORE_PATHS = ['/api/clients/store/bookmark', '/api/clients/store/restart', '/api/clients/store/counts'] as const
@@ -707,6 +707,22 @@ export function createApp(deps: Deps = { fetch: (u, i) => fetch(u, i), now: Date
     return c.json(got.value, 200, NO_STORE)
   })
   app.post(CALENDAR_WRITE_PATHS[1], async (c) => c.json(await syncNow(await asking(c)), 200, NO_STORE))
+  // The busy blocks (the space's ADR 0024): how they stand, the switch, and an account's part in them. Settings only; nothing here asks Google.
+  app.get('/api/calendar/blocking', async (c) => c.json(await readBlocking(await asking(c)), 200, NO_STORE))
+  app.post(CALENDAR_WRITE_PATHS[2], async (c) => {
+    const raw = await bodyOf(c)
+    if (!raw.ok) return c.json({ error: 'Too large' }, raw.status)
+    const got = await setBlocking(await asking(c), raw.value)
+    if (!got.ok) return c.json({ error: got.message }, 400)
+    return c.json(got.value, 200, NO_STORE)
+  })
+  app.post(CALENDAR_WRITE_PATHS[3], async (c) => {
+    const raw = await bodyOf(c)
+    if (!raw.ok) return c.json({ error: 'Too large' }, raw.status)
+    const got = await setBlockingAccount(await asking(c), raw.value)
+    if (!got.ok) return c.json({ error: got.message }, 400)
+    return c.json(got.value, 200, NO_STORE)
+  })
 
   // The operator's three, for a move of the knowledge store (knowledge.ts): a bookmark, a restart and a restore, each the owner's alone (the app refuses anyone else) and each a POST like every write here.
   app.post(KNOWLEDGE_STORE_PATHS[0], async (c) => c.json(await storeBookmark(await asking(c)), 200, NO_STORE))

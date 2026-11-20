@@ -176,6 +176,24 @@ for (const size of ['1440', '390'] as const) {
       expect(w.errors).toEqual([])
     })
 
+    test('Settings, Calendars: the busy blocks card has its switch off and every account ticked; the switch says how many blocks are kept, and nothing runs off the screen', async () => {
+      const w = await openWindow(size)
+      await w.page.goto(`${space.base}/settings/calendars`)
+      await w.page.waitForSelector('[data-testid="calendar-blocking"]')
+      expect(await w.page.locator('[data-testid="blocking-switch"]').getAttribute('aria-checked')).toBe('false')
+      expect(await w.page.locator('[data-testid="blocking-check"]:checked').count()).toBe(4)
+      expect(await fits(w.page)).toBe(true)
+      await w.page.locator('[data-testid="blocking-switch"]').click()
+      await w.page.waitForSelector('[data-testid="blocking-count"]')
+      expect(await w.page.locator('[data-testid="blocking-count"]').innerText()).toMatch(/\d+ blocks? kept/)
+      expect(await fits(w.page)).toBe(true)
+      await w.shot('settings-blocking')
+      // Put it back, so the next window starts as the first did.
+      await w.page.locator('[data-testid="blocking-switch"]').click()
+      await w.page.waitForSelector('[data-testid="blocking-switch"][aria-checked="false"]')
+      expect(w.errors).toEqual([])
+    })
+
     test('the week: a column a day (three on a phone), an all-day row, today lit with a line for now, events as blocks inside their columns; a block opens its card and the address keeps the week', async () => {
       const w = await openWindow(size)
       await w.page.goto(`${space.base}/calendar?view=week`)

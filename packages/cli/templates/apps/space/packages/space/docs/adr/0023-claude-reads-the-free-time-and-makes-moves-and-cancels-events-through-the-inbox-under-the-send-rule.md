@@ -1,6 +1,6 @@
 # Claude reads the free time and makes, moves and cancels events through the inbox, under the send rule
 
-Status: accepted. **Amends [0020](0020-the-calendar-is-the-seventh-tab-over-a-store-of-its-own-synced-from-google-by-push-and-it-reads-through-the-inboxs-one-grant.md)** on three sentences: that the calendar never writes to Google, that Claude has no door to it, and that nothing asks for the write-level token. The company layer's [ADR 0002](../../../workspace/docs/adr/0002-one-service-token-comes-through-the-space-on-one-path-to-one-app.md) is not amended: Claude still has one path, to the inbox.
+Status: accepted. **Amended by [0024](0024-the-calendar-keeps-a-busy-block-on-the-owners-other-calendars-for-every-meeting-that-makes-them-busy-under-a-switch-the-owner-turns-on.md)** (the write-level token is also asked for by the calendar's own alarm, one for each account in a run, to keep the "Busy" blocks the owner's switch asks for; Claude's three writes are unchanged and stay under the send rule). **Amends [0020](0020-the-calendar-is-the-seventh-tab-over-a-store-of-its-own-synced-from-google-by-push-and-it-reads-through-the-inboxs-one-grant.md)** on three sentences: that the calendar never writes to Google, that Claude has no door to it, and that nothing asks for the write-level token. The company layer's [ADR 0002](../../../workspace/docs/adr/0002-one-service-token-comes-through-the-space-on-one-path-to-one-app.md) is not amended: Claude still has one path, to the inbox.
 
 ## Why
 

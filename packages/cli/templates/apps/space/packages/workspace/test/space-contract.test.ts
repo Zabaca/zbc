@@ -13,6 +13,8 @@ import {
   CALENDAR_INVITE_GUESTS_MAX,
   CALENDAR_INVITE_LONGEST_MS,
   CALENDAR_INVITE_TITLE_MAX,
+  CALENDAR_BLOCK_AHEAD_MS,
+  CALENDAR_BLOCK_TITLE,
   CALENDAR_PUSH_PATH,
   type CalendarForInbox,
   isoAt,
@@ -382,15 +384,20 @@ describe('what each app answers the space', () => {
 })
 
 describe('the calendar', () => {
-  test('one face for the space, owner only, reading the calendar’s own store; nothing that writes to Google', () => {
-    expect(sorted(CALENDAR_FOR_SPACE_METHODS)).toEqual(sorted(['calendars', 'agenda', 'event', 'eventsByUid', 'setShown', 'syncNow']))
-    // The space's face reads Google and never writes to it: no method creates, moves, answers or deletes an event. Claude's three writes are the inbox's face, below, behind the inbox's rule.
-    for (const m of ['createEvent', 'moveEvent', 'respond', 'deleteEvent', 'book', 'invite', 'move', 'cancel']) expect(CALENDAR_FOR_SPACE_METHODS as readonly string[]).not.toContain(m)
+  test('one face for the space, owner only, reading the calendar’s own store; its three changes are settings (a calendar shown, the busy-block switch, an account’s part in it), and nothing writes an event to Google', () => {
+    expect(sorted(CALENDAR_FOR_SPACE_METHODS)).toEqual(sorted(['calendars', 'agenda', 'event', 'eventsByUid', 'setShown', 'syncNow', 'blocking', 'setBlocking', 'setBlockingAccount']))
+    // The space's face never writes an event to Google: no method creates, moves, answers or deletes one. Claude's three writes are the inbox's face, below, behind the inbox's rule; the "Busy" blocks the owner's switch keeps are written by
+    // the calendar's own alarm (the space's ADR 0024), which a method here only owes a run.
+    for (const m of ['createEvent', 'moveEvent', 'respond', 'deleteEvent', 'book', 'invite', 'move', 'cancel', 'makeBlock', 'removeBlock']) expect(CALENDAR_FOR_SPACE_METHODS as readonly string[]).not.toContain(m)
+    // Every one of them takes the person the space's one sign-in check named, so the owner-only rule is the calendar's for the settings too.
+    holds<Equal<Parameters<CalendarForSpace['setBlocking']>, [SignedIn, boolean]>>()
+    holds<Equal<Parameters<CalendarForSpace['setBlockingAccount']>, [SignedIn, string, boolean]>>()
+    expect([CALENDAR_BLOCK_TITLE, CALENDAR_BLOCK_AHEAD_MS]).toEqual(['Busy', 60 * 24 * 60 * 60 * 1000])
   })
 
   test('the inbox’s face, for Claude’s script alone: the free time, and an invite, a move and a cancellation; nothing that answers an invitation, and no person to take', () => {
     expect(sorted(CALENDAR_FOR_INBOX_METHODS)).toEqual(sorted(['events', 'invite', 'move', 'cancel']))
-    for (const m of ['respond', 'accept', 'decline', 'setShown', 'syncNow', 'calendars']) expect(CALENDAR_FOR_INBOX_METHODS as readonly string[]).not.toContain(m)
+    for (const m of ['respond', 'accept', 'decline', 'setShown', 'syncNow', 'calendars', 'setBlocking', 'setBlockingAccount', 'blocking']) expect(CALENDAR_FOR_INBOX_METHODS as readonly string[]).not.toContain(m)
     // It takes no `SignedIn`: the rule in front of it is the inbox's (the owner's switch and instruction), not a person's admission.
     holds<Equal<Parameters<CalendarForInbox['events']>, [number, number]>>()
     holds<Equal<Parameters<CalendarForInbox['cancel']>, [string]>>()

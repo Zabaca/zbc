@@ -3,7 +3,7 @@
 // handed on; a write is never retried; the app's own words come through; a reply that is not the contract's shape is not half read; the agenda carries Meet's meetings beside Google's events and says when they are not
 // listed; and the tab says it could not be reached while everything else keeps working. The calendar's own rules (the sync, the store) are packages/calendar's tests.
 import { describe, expect, test } from 'bun:test'
-import { answered, type CalendarAccountView, type CalendarEvent } from '@space/workspace'
+import { answered, type CalendarAccountView, type CalendarBlocking, type CalendarEvent } from '@space/workspace'
 import { T0, northfield } from '../../workspace/test/helpers'
 import type { CalendarAgendaAnswer } from '../src/calendar'
 import { standInCalendar } from '../src/stand-in-calendar'
@@ -32,8 +32,8 @@ async function asOwner(options: { noCalendar?: boolean; noMeet?: boolean; mode?:
   return { w, jwt, calendar, get, agenda, post, calls: () => calendar.calls.map((c) => c.method) }
 }
 
-const READS = ['/api/calendar/agenda?from=1&to=2', '/api/calendar/accounts', '/api/calendar/event?id=a%7Cb%7Cc']
-const WRITES = ['/api/calendar/shown', '/api/calendar/sync']
+const READS = ['/api/calendar/agenda?from=1&to=2', '/api/calendar/accounts', '/api/calendar/event?id=a%7Cb%7Cc', '/api/calendar/blocking']
+const WRITES = ['/api/calendar/shown', '/api/calendar/sync', '/api/calendar/blocking', '/api/calendar/blocking/account']
 
 describe('no sign-in is refused, and the calendar app is not asked', () => {
   test('without a sign-in, whatever the method and whatever else rides along, at every read and write', async () => {
@@ -74,6 +74,20 @@ describe('what a write has to be', () => {
     expect((await call(JSON_POST, 'not json')).status).toBe(400)
     for (const bad of [{}, { calendar: 'a', shown: 'yes' }, { shown: true }, { calendar: '../../x', shown: true }, { calendar: 'a b', shown: true }, { calendar: 'x'.repeat(1000), shown: true }]) {
       expect([JSON.stringify(bad), (await s.post('/api/calendar/shown', bad)).status]).toEqual([JSON.stringify(bad), 400])
+    }
+    expect(s.calendar.calls).toEqual([])
+  })
+
+  test('the busy blocks’ two writes take only what they are: the switch as true or false, an account as an address and true or false', async () => {
+    const s = await asOwner()
+    for (const bad of [{}, { on: 'yes' }, { on: 1 }, { enabled: true }, []]) expect([JSON.stringify(bad), (await s.post('/api/calendar/blocking', bad)).status]).toEqual([JSON.stringify(bad), 400])
+    for (const bad of [{}, { account: 'a@x.example' }, { takesPart: true }, { account: 'a@x.example', takesPart: 'yes' }, { account: '../../x', takesPart: true }, { account: 'a b', takesPart: true }, { account: 'x'.repeat(1000), takesPart: true }]) {
+      expect([JSON.stringify(bad), (await s.post('/api/calendar/blocking/account', bad)).status]).toEqual([JSON.stringify(bad), 400])
+    }
+    for (const path of ['/api/calendar/blocking', '/api/calendar/blocking/account']) {
+      expect((await s.w.call(path, { method: 'POST', jwt: s.jwt, headers: { 'content-type': 'application/json' }, body: '{}' })).status).toBe(403)
+      expect((await s.w.call(path, { method: 'POST', jwt: s.jwt, headers: { origin: 'https://evil.example', 'content-type': 'application/json' }, body: '{}' })).status).toBe(403)
+      expect((await s.w.call(path, { method: 'PUT', jwt: s.jwt, headers: JSON_POST, body: '{}' })).status).toBe(405)
     }
     expect(s.calendar.calls).toEqual([])
   })
@@ -205,6 +219,26 @@ describe('the accounts and an event’s card', () => {
     s.calendar.script.push('throw')
     expect(await (await s.post('/api/calendar/sync', {})).json()).toMatchObject({ result: 'outcome-unknown' })
     expect(s.calls().filter((m) => m === 'syncNow')).toHaveLength(2)
+  })
+
+  test('the busy blocks are read, switched and ticked through the app, each write once and never retried, the owner the one named', async () => {
+    const s = await asOwner({ mode: 'lapsed' })
+    const read = await s.get<CalendarBlocking>('/api/calendar/blocking')
+    expect(read).toMatchObject({ result: 'ok', value: { on: false, kept: 0, problem: null } })
+    if (read.result !== 'ok') throw new Error('no blocking')
+    expect(read.value.accounts.map((a) => [a.label, a.takesPart, a.fix])).toEqual([
+      ['northfield', true, null],
+      ['ashgrove', true, 'connect-again'],
+      ['tessa_marlow', true, 'connect-calendar'],
+      ['fernway', true, 'connect-calendar'],
+    ])
+    expect(await (await s.post('/api/calendar/blocking', { on: true })).json()).toMatchObject({ result: 'ok', value: { on: true } })
+    expect(await (await s.post('/api/calendar/blocking/account', { account: 'tessa@northfield.example', takesPart: false })).json()).toMatchObject({ result: 'ok', value: { on: true, accounts: [{ takesPart: false }, { takesPart: true }, { takesPart: true }, { takesPart: true }] } })
+    expect(await (await s.post('/api/calendar/blocking/account', { account: 'nobody@example.com', takesPart: true })).json()).toEqual({ result: 'refused', reason: 'not-found', message: 'No such account.' })
+    s.calendar.script.push('throw')
+    expect(await (await s.post('/api/calendar/blocking', { on: false })).json()).toMatchObject({ result: 'outcome-unknown' })
+    expect(s.calls().filter((m) => m === 'setBlocking')).toHaveLength(2)
+    expect(s.calendar.calls.filter((c) => c.method !== 'blocking').every((c) => c.asker === 'tessa@northfield.example')).toBe(true)
   })
 
   test('showing a calendar that is none is the app’s refusal, in its words', async () => {

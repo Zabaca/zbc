@@ -42,7 +42,7 @@ const OFFLINE: Said = { tone: 'warn', text: 'The space could not be reached just
 
 /**
  * Where a view lives: the inbox's other views at `/api/inbox/<name>`, the knowledge base, which is the knowledge app's and not the inbox's, at `/api/knowledge`, and meet's calls
- * (`meet/cards`, `meet/huddle`, ...) at `/api/meet/<name>`, and the calendar's (`calendar/agenda`, `calendar/event`, `calendar/accounts`, `calendar/shown`, `calendar/sync`) at `/api/calendar/<name>`, and the Clients part's (`clients/list`, `clients/one`, `clients/make`, `clients/edit`, `clients/archive`, `clients/put-back`) at `/api/clients/<name>`. All answer a `ViewAnswer`, so the rest of this file does not care which it asked.
+ * (`meet/cards`, `meet/huddle`, ...) at `/api/meet/<name>`, and the calendar's (`calendar/agenda`, `calendar/event`, `calendar/accounts`, `calendar/shown`, `calendar/sync`, `calendar/blocking`, `calendar/blocking/account`) at `/api/calendar/<name>`, and the Clients part's (`clients/list`, `clients/one`, `clients/make`, `clients/edit`, `clients/archive`, `clients/put-back`) at `/api/clients/<name>`. All answer a `ViewAnswer`, so the rest of this file does not care which it asked.
  */
 const viewUrl = (name: string): string => (name === 'knowledge' ? '/api/knowledge' : name.startsWith('meet/') || name.startsWith('calendar/') || name.startsWith('clients/') ? `/api/${name}` : `/api/inbox/${name}`)
 
