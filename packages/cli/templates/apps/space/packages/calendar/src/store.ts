@@ -53,6 +53,8 @@ export const renewAtOf = (c: Pick<ChannelRow, 'createdAt' | 'expiresAt'>): numbe
 }
 /** The inbox is asked who is connected this often, besides whenever a screen is read. */
 export const ACCOUNTS_CHECK_MS = HOUR
+/** How many values are bound in one query at most: well under the 100 a Durable Object's SQLite allows. */
+const BIND_CHUNK = 50
 /** The first retry after a failure, doubling to the longest. */
 const BACKOFF_FIRST_MS = 30_000
 const BACKOFF_LONGEST_MS = HOUR
@@ -591,6 +593,11 @@ export class CalendarStore {
       const held = carried ?? this.knownBlock(calendarId, e.id)
       if (held) ({ block, by: blockBy } = held)
     }
+    // A block that is no longer shaped like one (the owner renamed it, or someone changed it) is an ordinary event again: drawn, busy, and read for what it is. The writer leaves it alone (src/blocks.ts).
+    if (block !== null && !looksLikeBlock({ title: e.title, organizer_email: e.organizer?.email ?? null, guests: JSON.stringify(e.guests), guests_left: e.guestsLeft }, calendarId.slice(0, calendarId.indexOf('|')))) {
+      block = null
+      blockBy = null
+    }
     this.sql.exec(
       `INSERT OR REPLACE INTO event (calendar_id, id, ical_uid, title, location, description, start_ms, end_ms, all_day, start_date, end_date, status, response,
                                      organizer_name, organizer_email, guests, guests_left, video_link, html_link, free, block, block_by)
@@ -1104,11 +1111,15 @@ export class CalendarStore {
 
   /** The meetings (timed events that are not marked as blocks) that start at one of these moments: what a block's id can be derived from, since a block starts when its meeting does. */
   meetingsStartingAt(starts: readonly number[]): { calendarId: string; eventId: string; iCalUid: string | null; start: number }[] {
-    if (starts.length === 0) return []
-    return this.sql
-      .exec(`SELECT calendar_id, id, ical_uid, start_ms FROM event WHERE block IS NULL AND all_day = 0 AND start_ms IN (${starts.map((_, i) => `?${i + 1}`).join(', ')})`, ...starts)
-      .toArray()
-      .map((r) => ({ calendarId: text(r.calendar_id), eventId: text(r.id), iCalUid: textOrNull(r.ical_uid), start: num(r.start_ms) }))
+    const found: { calendarId: string; eventId: string; iCalUid: string | null; start: number }[] = []
+    // A Durable Object's SQLite takes at most 100 bound parameters in one query, so the moments are asked for in chunks.
+    for (let from = 0; from < starts.length; from += BIND_CHUNK) {
+      const chunk = starts.slice(from, from + BIND_CHUNK)
+      for (const r of this.sql.exec(`SELECT calendar_id, id, ical_uid, start_ms FROM event WHERE block IS NULL AND all_day = 0 AND start_ms IN (${chunk.map((_, i) => `?${i + 1}`).join(', ')})`, ...chunk).toArray()) {
+        found.push({ calendarId: text(r.calendar_id), eventId: text(r.id), iCalUid: textOrNull(r.ical_uid), start: num(r.start_ms) })
+      }
+    }
+    return found
   }
 
   /** How many blocks of this install's are held on an account's main calendar that have not ended: the blocks the calendar keeps, and none of another install's. */
