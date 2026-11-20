@@ -151,11 +151,12 @@ export interface BlockHeld {
  * Whether a stored event is shaped like one of the calendar's blocks on the account its calendar belongs to: titled "Busy", organised by that account itself (or by no one Google named), and with no guest but that account. A block is made so and
  * nothing else is: an invitation somebody made with an id they guessed has another organiser or other guests or another title, so it is an ordinary event whatever its id, never hidden and never removed by the writer.
  */
-export function looksLikeBlock(r: Record<string, unknown>, account?: string): boolean {
+export function looksLikeBlock(r: Record<string, unknown>, account?: string, organiser = true): boolean {
   const own = account ?? text(r.account)
   if (text(r.title) !== CALENDAR_BLOCK_TITLE) return false
+  // The organiser is asked only where nothing else says the event is a block (recognition by id): a row that carries the mark is ours whatever spelling of the account Google names.
   const organizer = textOrNull(r.organizer_email)
-  if (organizer !== null && organizer !== own) return false
+  if (organiser && organizer !== null && organizer !== own) return false
   if (num(r.guests_left) > 0) return false
   try {
     const guests: unknown = JSON.parse(text(r.guests))
@@ -593,8 +594,8 @@ export class CalendarStore {
       const held = carried ?? this.knownBlock(calendarId, e.id)
       if (held) ({ block, by: blockBy } = held)
     }
-    // A block that is no longer shaped like one (the owner renamed it, or someone changed it) is an ordinary event again: drawn, busy, and read for what it is. The writer leaves it alone (src/blocks.ts).
-    if (block !== null && !looksLikeBlock({ title: e.title, organizer_email: e.organizer?.email ?? null, guests: JSON.stringify(e.guests), guests_left: e.guestsLeft }, calendarId.slice(0, calendarId.indexOf('|')))) {
+    // A block that is no longer shaped like one (the owner renamed it, or a guest was added) is an ordinary event again. Who Google names as the organiser is not asked of a marked row: it may spell the account another way (an alias), and a block would then come back as a meeting: drawn, busy, and read for what it is. The writer leaves it alone (src/blocks.ts).
+    if (block !== null && !looksLikeBlock({ title: e.title, organizer_email: e.organizer?.email ?? null, guests: JSON.stringify(e.guests), guests_left: e.guestsLeft }, calendarId.slice(0, calendarId.indexOf('|')), false)) {
       block = null
       blockBy = null
     }
@@ -1089,7 +1090,7 @@ export class CalendarStore {
     return this.sql
       .exec(`SELECT e.calendar_id, e.id, e.title, e.organizer_email, e.guests, e.guests_left, e.start_ms, e.end_ms, e.block, e.block_by, c.account, c.google_id, c.is_primary FROM event e JOIN calendar c ON c.id = e.calendar_id WHERE e.block IS NOT NULL ORDER BY e.start_ms, e.id`)
       .toArray()
-      .map((r) => ({ calendarId: text(r.calendar_id), calendarGoogleId: text(r.google_id), eventId: text(r.id), start: num(r.start_ms), end: num(r.end_ms), meeting: text(r.block), by: textOrNull(r.block_by), account: text(r.account), primary: flag(r.is_primary), looks: looksLikeBlock(r) }))
+      .map((r) => ({ calendarId: text(r.calendar_id), calendarGoogleId: text(r.google_id), eventId: text(r.id), start: num(r.start_ms), end: num(r.end_ms), meeting: text(r.block), by: textOrNull(r.block_by), account: text(r.account), primary: flag(r.is_primary), looks: looksLikeBlock(r, undefined, false) }))
   }
 
   /** A row the store knows as one of the calendar's blocks without Google having given the mark back (its id is one the space derived, and it looks like a block): marked, so it is a block from now on. */

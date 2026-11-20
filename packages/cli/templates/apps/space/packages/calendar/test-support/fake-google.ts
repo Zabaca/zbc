@@ -107,6 +107,8 @@ export class FakeGoogle {
   afterRequest: ((op: string) => void | Promise<void>) | null = null
   /** Answer events WITHOUT their private extended properties (a Google that does not give them back): what a read and a write return leaves the property out, though the event holds it. */
   dropPrivateProperties = false
+  /** Answer events with the organiser and guests named by another spelling of the account (an alias: the address at another domain), as Google may for an account with a second name. */
+  aliasAddresses = false
   /** How long a channel lives, ms. Default: 7 days (Google's `params.ttl` default). */
   channelLife = 604_800_000
   private tokenNo = 0
@@ -383,8 +385,13 @@ export class FakeGoogle {
 
   /** An event as Google answers it: with `dropPrivateProperties`, without the private extended properties. */
   private shown(raw: Json): Json {
-    if (!this.dropPrivateProperties || raw.extendedProperties === undefined) return raw
-    const { extendedProperties: _dropped, ...rest } = raw
+    let out = raw
+    if (this.aliasAddresses) {
+      const alias = (p: unknown): unknown => (p !== null && typeof p === 'object' && typeof (p as Json).email === 'string' ? { ...(p as Json), email: String((p as Json).email).replace(/@.*$/, '@googlemail.example') } : p)
+      out = { ...out, ...(out.organizer !== undefined && { organizer: alias(out.organizer) }), ...(Array.isArray(out.attendees) && { attendees: out.attendees.map(alias) }) }
+    }
+    if (!this.dropPrivateProperties || out.extendedProperties === undefined) return out
+    const { extendedProperties: _dropped, ...rest } = out
     return rest
   }
 

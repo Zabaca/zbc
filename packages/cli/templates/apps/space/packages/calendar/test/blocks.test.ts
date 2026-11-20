@@ -885,3 +885,39 @@ describe('limits of the store and a run that throws', () => {
     expect(blocksAt(h, F)).toHaveLength(1)
   })
 })
+
+describe('a Google that names the account another way', () => {
+  test('blocks come back with an organiser spelled as an alias: the mark stays, no block of a block, no rewrite at any read, and switching off removes them', async () => {
+    const h = await world([Z, F, G])
+    h.google.aliasAddresses = true
+    meet(h, Z, 'm1', at(24), at(25))
+    await sync(h)
+    await turnOn(h)
+    expect(writes(h).map((w) => [w.op, w.calendarId])).toEqual([['events.insert', F], ['events.insert', G]])
+    for (let n = 0; n < 3; n++) await sync(h)
+    h.store.forgetToken(`${F}|${F}`)
+    h.store.forgetToken(`${G}|${G}`)
+    await sync(h)
+    expect(writes(h)).toHaveLength(2)
+    expect(h.store.blocksHeld()).toHaveLength(2)
+    expect(await agendaTitles(h)).toEqual(['Secret plan m1'])
+    expect(await h.engine.blocking()).toMatchObject({ ok: true, value: { kept: 2, problem: null } })
+    await h.engine.setBlocking(false)
+    await h.work()
+    expect(blocksAt(h, F)).toEqual([])
+    expect(blocksAt(h, G)).toEqual([])
+  })
+
+  test('a guest added to a block, or its title changed, still makes it an ordinary event', async () => {
+    const h = await world()
+    meet(h, Z, 'm1', at(24), at(25))
+    await sync(h)
+    await turnOn(h)
+    const id = h.store.blocksHeld()[0]?.eventId as string
+    h.google.setEvent(F, F, { id, summary: 'Busy', start: iso(at(24)), end: iso(at(25)), attendees: [{ email: F, self: true, responseStatus: 'accepted' }, { email: 'dana@example.com', responseStatus: 'accepted' }] })
+    await sync(h)
+    // On F it is a meeting now (drawn, and blocked in turn on Z); it is not a block there.
+    expect(h.store.blocksHeld().every((b) => b.account !== F)).toBe(true)
+    expect(await agendaTitles(h)).toContain('Busy')
+  })
+})
