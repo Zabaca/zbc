@@ -7,7 +7,13 @@
 import { describe, expect, test } from 'bun:test'
 import { lane, northfield } from './helpers'
 import {
+  BOOKING_DEFAULTS,
+  BOOKING_LIMITS,
+  type BookingLinkInput,
+  bookingLinkPath,
+  bookingManagePath,
   CALENDAR_ACCESS_REFUSALS,
+  CALENDAR_FOR_GUESTS_METHODS,
   CALENDAR_FOR_INBOX_METHODS,
   CALENDAR_FOR_SPACE_METHODS,
   CALENDAR_INVITE_GUESTS_MAX,
@@ -16,7 +22,9 @@ import {
   CALENDAR_BLOCK_AHEAD_MS,
   CALENDAR_BLOCK_TITLE,
   CALENDAR_PUSH_PATH,
+  type CalendarForGuests,
   type CalendarForInbox,
+  type GuestBookingInput,
   isoAt,
   CLIENTS_FOR_INBOX_METHODS,
   CLIENTS_FOR_SOURCE_METHODS,
@@ -385,13 +393,16 @@ describe('what each app answers the space', () => {
 
 describe('the calendar', () => {
   test('one face for the space, owner only, reading the calendar’s own store; its three changes are settings (a calendar shown, the busy-block switch, an account’s part in it), and nothing writes an event to Google', () => {
-    expect(sorted(CALENDAR_FOR_SPACE_METHODS)).toEqual(sorted(['calendars', 'agenda', 'event', 'eventsByUid', 'setShown', 'syncNow', 'blocking', 'setBlocking', 'setBlockingAccount']))
+    expect(sorted(CALENDAR_FOR_SPACE_METHODS)).toEqual(sorted(['calendars', 'agenda', 'event', 'eventsByUid', 'setShown', 'syncNow', 'blocking', 'setBlocking', 'setBlockingAccount', 'bookingLinks', 'makeBookingLink', 'changeBookingLink', 'deleteBookingLink']))
     // The space's face never writes an event to Google: no method creates, moves, answers or deletes one. Claude's three writes are the inbox's face, below, behind the inbox's rule; the "Busy" blocks the owner's switch keeps are written by
     // the calendar's own alarm (the space's ADR 0024), which a method here only owes a run.
-    for (const m of ['createEvent', 'moveEvent', 'respond', 'deleteEvent', 'book', 'invite', 'move', 'cancel', 'makeBlock', 'removeBlock']) expect(CALENDAR_FOR_SPACE_METHODS as readonly string[]).not.toContain(m)
+    for (const m of ['createEvent', 'moveEvent', 'respond', 'deleteEvent', 'book', 'invite', 'move', 'cancel', 'makeBlock', 'removeBlock', 'slots', 'booking', 'bookingSlots']) expect(CALENDAR_FOR_SPACE_METHODS as readonly string[]).not.toContain(m)
     // Every one of them takes the person the space's one sign-in check named, so the owner-only rule is the calendar's for the settings too.
     holds<Equal<Parameters<CalendarForSpace['setBlocking']>, [SignedIn, boolean]>>()
     holds<Equal<Parameters<CalendarForSpace['setBlockingAccount']>, [SignedIn, string, boolean]>>()
+    holds<Equal<Parameters<CalendarForSpace['bookingLinks']>, [SignedIn]>>()
+    holds<Equal<Parameters<CalendarForSpace['makeBookingLink']>, [SignedIn, BookingLinkInput]>>()
+    holds<Equal<Parameters<CalendarForSpace['deleteBookingLink']>, [SignedIn, string]>>()
     expect([CALENDAR_BLOCK_TITLE, CALENDAR_BLOCK_AHEAD_MS]).toEqual(['Busy', 60 * 24 * 60 * 60 * 1000])
   })
 
@@ -402,6 +413,25 @@ describe('the calendar', () => {
     holds<Equal<Parameters<CalendarForInbox['events']>, [number, number]>>()
     holds<Equal<Parameters<CalendarForInbox['cancel']>, [string]>>()
     expect([CALENDAR_INVITE_GUESTS_MAX, CALENDAR_INVITE_TITLE_MAX, CALENDAR_INVITE_LONGEST_MS]).toEqual([50, 300, 36 * 60 * 60 * 1000])
+  })
+
+  test('a third face for the open path, for the visitor of a booking link, who is nobody the space knows: it takes no person, and each method is authorised by the link’s name or the booking’s own secret', () => {
+    expect(sorted(CALENDAR_FOR_GUESTS_METHODS)).toEqual(sorted(['link', 'slots', 'book', 'booking', 'bookingSlots', 'move', 'cancel']))
+    // The visitor's face has no method of the owner's: it reads no calendar, no account and no setting, and makes no link.
+    for (const m of ['calendars', 'agenda', 'event', 'eventsByUid', 'setShown', 'syncNow', 'blocking', 'setBlocking', 'setBlockingAccount', 'bookingLinks', 'makeBookingLink', 'changeBookingLink', 'deleteBookingLink', 'events', 'invite']) {
+      expect(CALENDAR_FOR_GUESTS_METHODS as readonly string[]).not.toContain(m)
+    }
+    // And the other two faces have none of the visitor's: a booking is made at the open path alone.
+    for (const m of CALENDAR_FOR_GUESTS_METHODS.filter((x) => x !== 'move' && x !== 'cancel')) expect(CALENDAR_FOR_INBOX_METHODS as readonly string[]).not.toContain(m)
+    holds<Equal<Parameters<CalendarForGuests['book']>, [string, GuestBookingInput, string]>>()
+    holds<Equal<Parameters<CalendarForGuests['move']>, [string, number]>>()
+    holds<Equal<Parameters<CalendarForGuests['cancel']>, [string]>>()
+    expect(bookingLinkPath('intro-call')).toBe('/book/intro-call')
+    expect(bookingManagePath('abc')).toBe('/book/manage/abc')
+    expect(BOOKING_DEFAULTS).toMatchObject({ minutes: 30, noticeMinutes: 240, aheadDays: 30, gapMinutes: 15, perDay: null })
+    expect(BOOKING_DEFAULTS.hours.mon).toEqual([{ from: 540, to: 1020 }])
+    expect(BOOKING_DEFAULTS.hours.sat).toEqual([])
+    expect([BOOKING_LIMITS.perVisitor, BOOKING_LIMITS.upcomingPerVisitor, BOOKING_LIMITS.perNetwork, BOOKING_LIMITS.perLink, BOOKING_LIMITS.moves]).toEqual([3, 5, 10, 30, 3])
   })
 
   test('a moment is written on a zone’s clock with its offset, to the second', () => {

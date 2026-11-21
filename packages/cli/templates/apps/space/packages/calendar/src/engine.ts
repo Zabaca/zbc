@@ -10,18 +10,25 @@ import {
   CALENDAR_BY_UID_MOST,
   CALENDAR_UID_MAX,
   CALENDAR_WINDOW_MAX_MS,
+  type BookingLinkView,
   type CalendarAccountView,
   type CalendarAgenda,
   type CalendarBlocking,
+  type CalendarBookingLinks,
   type CalendarEventCancelled,
   type CalendarClaudeAgenda,
   type CalendarEvent,
   type CalendarEventAsk,
   type CalendarView,
   type CalendarEventMade,
+  type GuestBooked,
+  type GuestBookingLink,
+  type GuestBookingSlots,
+  type GuestBookingView,
   type RefusalReason,
 } from '@space/workspace'
 import { CalendarBlocks } from './blocks'
+import { CalendarBookings } from './bookings'
 import type { CalendarWriteApi, RunWriter } from './google'
 import { CalendarSync, type PushHeaders, type SyncDeps } from './sync'
 import { CalendarWrites } from './writes'
@@ -51,14 +58,21 @@ export interface EngineDeps extends SyncDeps {
    * with blocks to make or remove then says so. The sync never uses it, and nothing but `src/blocks.ts` asks for one.
    */
   runWriter?: (() => RunWriter) | undefined
-  /** The install's declared company id (the busy blocks' install key is hashed from it, so a block is known as this install's across a lost store). */
+  /** The install's declared company id (the busy blocks' install key is hashed from it, so a block is known as this install's across a lost store; so is a booking's event id). */
   installId: string
+  /** The company's name, as a visitor to a booking link reads it. */
+  company: string
+  /** `https://<space host>`: what a booking link's address and a booking's own address are made from. */
+  origin: string
+  /** Tell the owner a booking was made, in their own notifications (the inbox's, asked in-process by the object). Absent where nothing is wired: nobody is told. Best effort. */
+  notify?: ((booking: { id: string; name: string; start: number; end: number; linkName: string }) => Promise<void>) | undefined
 }
 
 export class CalendarEngine {
   readonly sync: CalendarSync
   private readonly writes: CalendarWrites
   private readonly blocks: CalendarBlocks
+  private readonly bookings: CalendarBookings
   private lastRefresh = Number.NEGATIVE_INFINITY
   private chain: Promise<unknown> = Promise.resolve()
 
@@ -66,6 +80,22 @@ export class CalendarEngine {
     this.sync = new CalendarSync(d)
     this.writes = new CalendarWrites({ store: d.store, writer: d.writer, newId: d.newId, now: d.now, zone: d.zone, tell: d.tell, alarmAt: d.alarmAt, log: d.log })
     this.blocks = new CalendarBlocks({ store: d.store, runWriter: d.runWriter, now: d.now, zone: d.zone, installId: d.installId, tell: d.tell, log: d.log })
+    this.bookings = new CalendarBookings({
+      store: d.store,
+      api: d.api,
+      writer: d.writer,
+      now: d.now,
+      zone: d.zone,
+      installId: d.installId,
+      company: d.company,
+      origin: d.origin,
+      newId: d.newId,
+      newToken: d.newToken,
+      tell: d.tell,
+      alarmAt: d.alarmAt,
+      notify: d.notify,
+      log: d.log,
+    })
   }
 
   /** Ask the inbox who is connected, unless it was asked a moment ago. A new or returning account owes the alarm a read. */
@@ -158,6 +188,67 @@ export class CalendarEngine {
     return ok(await this.blocks.view())
   }
 
+  // ── Booking links (the space's ADR 0025) ────────────────────────────────────────────────────────────────────────────────
+
+  /** The owner's side: the links and what they did. Settings only; nothing here asks Google. */
+  async bookingLinks(): Promise<Result<CalendarBookingLinks>> {
+    await this.fresh()
+    return this.bookings.links()
+  }
+
+  async makeBookingLink(input: unknown): Promise<Result<BookingLinkView>> {
+    await this.fresh()
+    return this.bookings.makeLink(input)
+  }
+
+  async changeBookingLink(id: unknown, input: unknown): Promise<Result<BookingLinkView>> {
+    await this.fresh()
+    return this.bookings.changeLink(id, input)
+  }
+
+  async deleteBookingLink(id: unknown): Promise<Result<{ id: string }>> {
+    return this.bookings.deleteLink(id)
+  }
+
+  /**
+   * The visitor's side, on the open path: nobody the space knows asks these, so none takes a person, and what authorises each is the link's address or the booking's own secret (src/bookings.ts). Who is connected is asked of the inbox first, so an account
+   * whose sign-in ended a moment ago is refused in words and not at Google.
+   */
+  async guestLink(slug: unknown): Promise<Result<GuestBookingLink>> {
+    await this.fresh()
+    return this.bookings.guestLink(slug)
+  }
+
+  async guestSlots(slug: unknown): Promise<Result<GuestBookingSlots>> {
+    await this.fresh()
+    return this.bookings.guestSlots(slug)
+  }
+
+  async guestBook(slug: unknown, input: unknown, network: unknown): Promise<Result<GuestBooked>> {
+    await this.fresh()
+    return this.bookings.book(slug, input, network)
+  }
+
+  async guestBooking(secret: unknown): Promise<Result<GuestBookingView>> {
+    await this.fresh()
+    return this.bookings.guestBooking(secret)
+  }
+
+  async guestBookingSlots(secret: unknown): Promise<Result<GuestBookingSlots>> {
+    await this.fresh()
+    return this.bookings.guestBookingSlots(secret)
+  }
+
+  async guestMove(secret: unknown, start: unknown): Promise<Result<GuestBookingView>> {
+    await this.fresh()
+    return this.bookings.move(secret, start)
+  }
+
+  async guestCancel(secret: unknown): Promise<Result<GuestBookingView>> {
+    await this.fresh()
+    return this.bookings.cancel(secret)
+  }
+
   /** Make an event on an account's primary calendar, Google sending the invitations (src/writes.ts). Who may ask is the inbox's rule, applied before this is called. */
   async claudeInvite(input: unknown): Promise<Result<CalendarEventMade>> {
     // Who is connected, and with what, as the inbox last said: an account that was disconnected a moment ago is refused here in words and not at Google.
@@ -211,10 +302,12 @@ export class CalendarEngine {
       } catch (error) {
         this.d.log?.(`calendar: a run failed: ${error instanceof Error ? error.message : String(error)}`)
       }
+      // A booking waiting on Google is found by the event the read just brought in (the space's ADR 0025). It never throws.
+      if (await this.bookings.run()) this.d.tell()
       // The busy blocks follow the read (the space's ADR 0024): what the sync just brought in is what they are worked out from. They never throw.
       if (await this.blocks.run()) this.d.tell()
       // At least a second on: a read that is owed and cannot be done must not spin the alarm.
-      await this.d.alarmAt(Math.max(Math.min(this.sync.nextWake(), this.blocks.nextWake()), this.d.now() + 1000))
+      await this.d.alarmAt(Math.max(Math.min(this.sync.nextWake(), this.blocks.nextWake(), this.bookings.nextWake()), this.d.now() + 1000))
     })
     this.chain = run.catch(() => undefined)
     return run
@@ -227,7 +320,7 @@ export class CalendarEngine {
 }
 
 /** The methods the object's `call` runs, and no others. */
-export const ENGINE_METHODS = ['calendars', 'agenda', 'event', 'eventsByUid', 'setShown', 'syncNow', 'receivePush', 'claudeEvents', 'claudeInvite', 'claudeMove', 'claudeCancel', 'blocking', 'setBlocking', 'setBlockingAccount'] as const satisfies readonly (keyof CalendarEngine)[]
+export const ENGINE_METHODS = ['calendars', 'agenda', 'event', 'eventsByUid', 'setShown', 'syncNow', 'receivePush', 'claudeEvents', 'claudeInvite', 'claudeMove', 'claudeCancel', 'blocking', 'setBlocking', 'setBlockingAccount', 'bookingLinks', 'makeBookingLink', 'changeBookingLink', 'deleteBookingLink', 'guestLink', 'guestSlots', 'guestBook', 'guestBooking', 'guestBookingSlots', 'guestMove', 'guestCancel'] as const satisfies readonly (keyof CalendarEngine)[]
 export type EngineMethod = (typeof ENGINE_METHODS)[number]
 
 /** The typed face of the object's untyped `call`. */

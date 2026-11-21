@@ -48,6 +48,35 @@ function google(answers: (Response | Error)[]) {
 
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } })
 
+describe('the check at the moment of booking (the space’s ADR 0025)', () => {
+  test('asks when calendars are busy, for the ones named, with the token that only reads, and gets back when and nothing else; a calendar Google has an error for, or leaves out, is null', async () => {
+    const { api, seen, accessAsked } = google([
+      json({
+        kind: 'calendar#freeBusy',
+        calendars: {
+          main: { busy: [{ start: '2026-11-06T18:00:00Z', end: '2026-11-06T19:00:00Z' }, { start: 'nonsense', end: '2026-11-06T20:00:00Z' }] },
+          shared: { errors: [{ domain: 'global', reason: 'notFound' }], busy: [] },
+        },
+      }),
+    ])
+    const got = await api.freeBusy(['main', 'shared', 'left-out'], Date.parse('2026-11-06T17:00:00Z'), Date.parse('2026-11-06T21:00:00Z'))
+    expect(got).toEqual({ main: [{ start: Date.parse('2026-11-06T18:00:00Z'), end: Date.parse('2026-11-06T19:00:00Z') }], shared: null, 'left-out': null })
+    expect(seen).toHaveLength(1)
+    expect(seen[0]?.method).toBe('POST')
+    expect(seen[0]?.url.pathname).toBe('/calendar/v3/freeBusy')
+    expect(JSON.parse(seen[0]?.body ?? '{}')).toEqual({ timeMin: '2026-11-06T17:00:00.000Z', timeMax: '2026-11-06T21:00:00.000Z', items: [{ id: 'main' }, { id: 'shared' }, { id: 'left-out' }] })
+    // It is the sync's own client, so its token is the reading one (asked of the inbox without a level), and nothing in the request writes an event.
+    expect(accessAsked).toEqual([false])
+    expect(seen[0]?.headers.get('authorization')).toBe('Bearer access-1')
+  })
+
+  test('a refusal is the error the sync already acts on: a lapsed grant stops asking, anything else is a fault for the caller to fall back from', async () => {
+    const { api } = google([json({ error: { code: 403, message: 'Request had insufficient authentication scopes.', errors: [{ reason: 'insufficientPermissions' }] } }, 403), json({ error: { code: 503, message: 'Backend Error' } }, 503)])
+    await expect(api.freeBusy(['main'], 1, 2)).rejects.toBeInstanceOf(CalendarRefused)
+    await expect(api.freeBusy(['main'], 1, 2)).rejects.toBeInstanceOf(CalendarError)
+  })
+})
+
 describe('what it asks Google', () => {
   test('a full read of events asks for a window, expanded, with the id in the path encoded; an incremental read sends the token and no window', async () => {
     const { api, seen } = google([json({ items: [{ id: 'a' }], nextSyncToken: 'T1' }), json({ items: [], nextSyncToken: 'T2' })])

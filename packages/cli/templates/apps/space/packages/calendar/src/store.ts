@@ -26,6 +26,7 @@ import {
   type CalendarResponse,
   type CalendarView,
 } from '@space/workspace'
+import { BookingStore } from './booking-store'
 import { BLOCK_EVENT_ID, cleanText, lastDay, type GoneEvent, type ParsedEvent } from './event-parse'
 import type { CalendarSql } from './schema'
 
@@ -296,7 +297,12 @@ export interface HeldEvent {
 }
 
 export class CalendarStore {
-  constructor(private readonly ports: StorePorts) {}
+  /** The booking links and what they did (src/booking-store.ts), over the same storage. */
+  readonly bookings: BookingStore
+
+  constructor(private readonly ports: StorePorts) {
+    this.bookings = new BookingStore(ports)
+  }
 
   private get sql(): CalendarSql {
     return this.ports.sql
@@ -718,6 +724,12 @@ export class CalendarStore {
     if (!calendar) return null
     const r = this.sql.exec(`SELECT id, ical_uid, title, start_ms, all_day, organizer_email FROM event WHERE calendar_id = ?1 AND id = ?2 AND block IS NULL`, calendar.id, id.slice(cut + 1)).toArray()[0]
     return r ? this.heldFrom(calendar, r) : null
+  }
+
+  /** One stored event that is not a block, by its calendar and Google's id: when it is and its links, or null when the store does not hold it. What a booking is checked against (the space's ADR 0025). */
+  eventOf(calendarId: string, eventId: string): { start: number; end: number; videoLink: string | null; htmlLink: string | null } | null {
+    const r = this.sql.exec(`SELECT start_ms, end_ms, video_link, html_link FROM event WHERE calendar_id = ?1 AND id = ?2 AND block IS NULL`, calendarId, eventId).toArray()[0]
+    return r ? { start: num(r.start_ms), end: num(r.end_ms), videoLink: textOrNull(r.video_link), htmlLink: textOrNull(r.html_link) } : null
   }
 
   /** The copy of the same meeting (the same iCalendar id and start) that an account holds, or null. The organiser's calendar holds the copy that can be moved. */
