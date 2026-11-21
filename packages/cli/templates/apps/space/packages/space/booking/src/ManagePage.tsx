@@ -131,7 +131,12 @@ export function ManagePage({ secret }: { secret: string }) {
                 <a href={view.meetLink} target="_blank" rel="noopener noreferrer">
                   {whereJoin(view.where)}
                 </a>
-                {whereNote(view.where) !== null && <span className="muted"> {whereNote(view.where)}</span>}
+                {whereNote(view.where) !== null && (
+                  <>
+                    <br />
+                    <span className="muted">{whereNote(view.where)}</span>
+                  </>
+                )}
               </dd>
             </div>
           )}

@@ -67,7 +67,12 @@ export function Done({ booked, link, zone, pollMs = POLL_MS }: { booked: GuestBo
                 <a href={b.meetLink} target="_blank" rel="noopener noreferrer">
                   {whereJoin(b.where)}
                 </a>
-                {whereNote(b.where) !== null && <span className="muted"> {whereNote(b.where)}</span>}
+                {whereNote(b.where) !== null && (
+                  <>
+                    <br />
+                    <span className="muted">{whereNote(b.where)}</span>
+                  </>
+                )}
               </dd>
             </div>
           )}
