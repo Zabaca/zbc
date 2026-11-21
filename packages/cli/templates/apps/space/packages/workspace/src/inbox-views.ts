@@ -341,8 +341,8 @@ export interface InboxDeviceInput {
  */
 export interface SpacePushPayload {
   v: 1
-  /** `lead`: a new lead (or one more request on an open one), whose tap opens the Leads tab. */
-  kind: 'message' | 'summary' | 'test' | 'lead'
+  /** `lead`: a new lead (or one more request on an open one), whose tap opens the Leads tab. `booking`: a visitor took a time on a booking link (the space's ADR 0025), whose tap opens the Calendar tab. */
+  kind: 'message' | 'summary' | 'test' | 'lead' | 'booking'
   conversationId: string | null
   person?: string
   messageId: string

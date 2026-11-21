@@ -43,7 +43,7 @@ function descendants(root: number): number[] {
 }
 
 /** Builds the space and serves the build on a free port (or the one named in the environment variable `portEnv`). */
-export async function startSpace(opts: { portEnv?: string; build?: boolean; formsUrl?: string; fixtures?: string } = {}): Promise<Space> {
+export async function startSpace(opts: { portEnv?: string; build?: boolean; formsUrl?: string; fixtures?: string; booking?: boolean } = {}): Promise<Space> {
   const named = opts.portEnv ? process.env[opts.portEnv] : undefined
   const port = named ? Number(named) : await freePort()
   const base = `http://localhost:${port}`
@@ -54,6 +54,11 @@ export async function startSpace(opts: { portEnv?: string; build?: boolean; form
   if (opts.build !== false) {
     const built = Bun.spawnSync(['bunx', 'vite', 'build'], { cwd: ROOT, stderr: 'pipe', stdout: 'pipe', env: { ...process.env, SPACE_DEV_LOCAL: '1', SPACE_DECLARATION: process.env.SPACE_DECLARATION || NORTHFIELD_DECLARATION_FILE } })
     if (built.exitCode !== 0) throw new Error(`vite build failed:\n${built.stderr.toString()}\n${built.stdout.toString()}`)
+    // The booking page is a bundle of its own (guest-bundle.ts), built after the space's, which empties the folder it goes in: only the tests of the open page ask for it.
+    if (opts.booking) {
+      const guest = Bun.spawnSync(['bunx', 'vite', 'build', '--config', 'vite.guest-booking.config.ts'], { cwd: ROOT, stderr: 'pipe', stdout: 'pipe', env: { ...process.env, SPACE_DEV_LOCAL: '1', SPACE_DECLARATION: process.env.SPACE_DECLARATION || NORTHFIELD_DECLARATION_FILE } })
+      if (guest.exitCode !== 0) throw new Error(`the booking page's build failed:\n${guest.stderr.toString()}\n${guest.stdout.toString()}`)
+    }
   }
   if (await fetch(`${base}/api/me`).then(() => true, () => false)) throw new Error(`something already answers on ${base} (unset ${opts.portEnv ?? 'the port variable'} to be given a free one)`)
   const proc = Bun.spawn(['bunx', 'vite', 'preview', '--port', String(port), '--strictPort'], { cwd: ROOT, env: { ...process.env, SPACE_DEV_LOCAL: '1' }, stdout: process.env.SPACE_E2E_LOGS ? 'inherit' : 'ignore', stderr: process.env.SPACE_E2E_LOGS ? 'inherit' : 'ignore' })

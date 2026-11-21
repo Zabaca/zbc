@@ -1,5 +1,6 @@
 import { DurableObject } from 'cloudflare:workers'
 import { liveOf, ownersOf, tellLive } from '@space/workspace'
+import { bookingNote } from './bookings'
 import { CalendarEngine, ENGINE_METHODS, type EngineMethod } from './engine'
 import { createCalendarGoogle, createCalendarWriter, createRunWriter } from './google'
 import { migrate } from './schema'
@@ -64,6 +65,13 @@ export class CalendarDO extends DurableObject<CalendarEnv> {
       now,
       zone: bundledInstall.company.timeZone,
       installId: bundledInstall.company.id,
+      // A visitor to a booking link reads the company's name, and a link's address is on the space's own host (the space's ADR 0025).
+      company: bundledInstall.company.name,
+      origin: `https://${bundledInstall.declaration.space.host}`,
+      // A booking is told to the owner's devices by the inbox's notifications, asked in-process like the grant (never imported); a booking is made whether or not anyone could be told.
+      notify: async (b) => {
+        await inbox.notifyBooking({ bookingId: b.id, ...bookingNote(b, bundledInstall.company.timeZone), at: new Date().toISOString() })
+      },
       pushUrl: pushUrlOf(env.CALENDAR_PUSH_URL),
       newId: () => crypto.randomUUID(),
       newToken: () => hex(crypto.getRandomValues(new Uint8Array(24))),

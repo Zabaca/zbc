@@ -1,0 +1,462 @@
+/* The booking page: plain and clear at a phone's width and a desktop's. Colours are tokens on :root, redefined for a dark preference; nothing here loads from outside the page's own folder. */
+:root {
+  --bg: #f4f5f7;
+  --card: #ffffff;
+  --ink: #16191e;
+  --muted: #5a6472;
+  --line: #dde1e7;
+  --soft: #eef1f5;
+  --accent: #2250cc;
+  --accent-ink: #ffffff;
+  --accent-soft: #e6edfc;
+  --bad: #a8211a;
+  --bad-soft: #fcebea;
+  --good: #17703d;
+  --good-soft: #e5f4ea;
+  --warn: #8a5a00;
+  --warn-soft: #fdf3dc;
+  --radius: 12px;
+  --focus: #2250cc;
+  color-scheme: light dark;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0f1216;
+    --card: #171b21;
+    --ink: #eceff3;
+    --muted: #9ea8b6;
+    --line: #2a313b;
+    --soft: #1e242c;
+    --accent: #8aa9ff;
+    --accent-ink: #0c1226;
+    --accent-soft: #1c2745;
+    --bad: #ff9a92;
+    --bad-soft: #3a1d1b;
+    --good: #7fd6a0;
+    --good-soft: #17301f;
+    --warn: #f2c66d;
+    --warn-soft: #382c10;
+    --focus: #8aa9ff;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+html {
+  -webkit-text-size-adjust: 100%;
+}
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font: 16px/1.5 system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+}
+:focus-visible {
+  outline: 3px solid var(--focus);
+  outline-offset: 2px;
+}
+h1,
+h2,
+h3,
+p,
+dl,
+dd,
+ul {
+  margin: 0;
+}
+a {
+  color: var(--accent);
+}
+
+.shell {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 16px;
+}
+.card {
+  display: grid;
+  grid-template-columns: 1fr;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+.card.single {
+  max-width: 640px;
+  margin: 0 auto;
+}
+.about {
+  padding: 24px 20px 8px;
+}
+.main {
+  padding: 8px 20px 24px;
+}
+.main.wide {
+  padding-top: 24px;
+}
+.company {
+  font-size: 0.875rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: 4px;
+}
+h1 {
+  font-size: 1.5rem;
+  line-height: 1.25;
+  margin-bottom: 8px;
+}
+.meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  color: var(--muted);
+  font-size: 0.9375rem;
+  margin-bottom: 12px;
+}
+.description {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.step {
+  font-size: 1.0625rem;
+  margin: 16px 0 12px;
+}
+.status {
+  padding: 24px;
+  text-align: center;
+  color: var(--muted);
+}
+.muted {
+  color: var(--muted);
+}
+
+@media (min-width: 760px) {
+  .shell {
+    padding: 48px 24px;
+  }
+  .card:not(.single):not(.notice) {
+    grid-template-columns: 280px 1fr;
+  }
+  .about {
+    padding: 32px 28px;
+    border-right: 1px solid var(--line);
+  }
+  .main {
+    padding: 16px 32px 32px;
+  }
+  .main.wide {
+    padding: 32px;
+  }
+  h1 {
+    font-size: 1.75rem;
+  }
+}
+
+/* The picker: a month, the times of the chosen day, the zone. */
+.pk-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+.pk-month {
+  font-size: 1.0625rem;
+}
+.pk-step {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  border: 1px solid var(--line);
+  background: var(--card);
+  color: var(--ink);
+  font-size: 1.5rem;
+  line-height: 1;
+  cursor: pointer;
+}
+.pk-step:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+.pk-week,
+.pk-days {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 4px;
+}
+.pk-week {
+  font-size: 0.75rem;
+  color: var(--muted);
+  text-align: center;
+  margin-bottom: 4px;
+}
+.pk-day,
+.pk-pad {
+  aspect-ratio: 1;
+  min-height: 40px;
+}
+.pk-day {
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  border: 0;
+  font: inherit;
+  font-weight: 600;
+  background: var(--accent-soft);
+  color: var(--accent);
+  cursor: pointer;
+}
+.pk-day[aria-pressed='true'] {
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+.pk-day.off {
+  background: transparent;
+  color: var(--muted);
+  font-weight: 400;
+  opacity: 0.6;
+  cursor: default;
+}
+.pk-times-wrap {
+  margin-top: 16px;
+}
+.pk-day-name {
+  font-size: 1rem;
+  margin-bottom: 8px;
+}
+.pk-times {
+  list-style: none;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(104px, 1fr));
+  gap: 8px;
+}
+.pk-time {
+  width: 100%;
+  min-height: 44px;
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  background: var(--card);
+  color: var(--accent);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+.pk-time:hover {
+  background: var(--accent-soft);
+}
+.pk-time[aria-pressed='true'] {
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+.pk-zone {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 20px;
+  font-size: 0.875rem;
+  color: var(--muted);
+}
+.pk-zone select {
+  max-width: 100%;
+  min-height: 40px;
+  font: inherit;
+  color: var(--ink);
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 0 8px;
+}
+.pk-none {
+  padding: 16px 0;
+  color: var(--muted);
+}
+
+/* On a wide screen the month and the times of its chosen day sit side by side, so the times are in view without scrolling. */
+@media (min-width: 900px) {
+  .shell {
+    max-width: 1040px;
+  }
+  .picker {
+    display: grid;
+    grid-template-columns: 340px minmax(0, 1fr);
+    grid-template-areas:
+      'head times'
+      'week times'
+      'days times'
+      'zone times';
+    grid-template-rows: auto auto auto 1fr;
+    column-gap: 36px;
+    align-items: start;
+  }
+  .pk-head {
+    grid-area: head;
+  }
+  .pk-week {
+    grid-area: week;
+  }
+  .pk-days {
+    grid-area: days;
+  }
+  .pk-times-wrap {
+    grid-area: times;
+    margin-top: 0;
+    padding-top: 4px;
+  }
+  .pk-zone {
+    grid-area: zone;
+  }
+  .pk-day,
+  .pk-pad {
+    min-height: 0;
+  }
+}
+
+/* The form, the buttons, what is said. */
+.form {
+  display: grid;
+  gap: 16px;
+}
+.chosen {
+  background: var(--soft);
+  border-radius: 8px;
+  padding: 12px 14px;
+}
+.field {
+  display: grid;
+  gap: 4px;
+}
+.field span {
+  font-weight: 600;
+  font-size: 0.9375rem;
+}
+.field em {
+  font-weight: 400;
+  color: var(--muted);
+}
+.field small {
+  color: var(--muted);
+}
+.field input,
+.field textarea {
+  width: 100%;
+  font: inherit;
+  color: var(--ink);
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 10px 12px;
+  min-height: 44px;
+}
+.field textarea {
+  resize: vertical;
+}
+.hp {
+  position: absolute;
+  left: -10000px;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+}
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  justify-content: space-between;
+}
+.actions.left {
+  justify-content: flex-start;
+  margin-top: 20px;
+}
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;
+  padding: 0 18px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: var(--card);
+  color: var(--ink);
+  font: inherit;
+  font-weight: 600;
+  text-decoration: none;
+  cursor: pointer;
+}
+.btn.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-ink);
+}
+.btn.danger {
+  color: var(--bad);
+  border-color: var(--bad);
+}
+.btn:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+.say {
+  border-radius: 8px;
+  padding: 10px 14px;
+  margin: 12px 0;
+}
+.say.good {
+  background: var(--good-soft);
+  color: var(--good);
+}
+.say.bad {
+  background: var(--bad-soft);
+  color: var(--bad);
+}
+.say.warn {
+  background: var(--warn-soft);
+  color: var(--warn);
+}
+.facts {
+  display: grid;
+  gap: 12px;
+  margin: 16px 0;
+}
+.facts dt {
+  font-size: 0.8125rem;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.facts dd {
+  overflow-wrap: anywhere;
+}
+.manage {
+  color: var(--muted);
+  font-size: 0.9375rem;
+}
+.confirm {
+  background: var(--soft);
+  border-radius: 8px;
+  padding: 14px;
+  margin-top: 16px;
+}
+.notice {
+  padding: 28px 20px;
+}
+.notice.quiet {
+  padding: 16px 0;
+}
+.notice-title {
+  font-size: 1.25rem;
+}
+.notice p {
+  margin-bottom: 12px;
+  color: var(--muted);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .pk-time,
+  .pk-day,
+  .btn {
+    transition: background-color 0.12s ease, color 0.12s ease;
+  }
+}

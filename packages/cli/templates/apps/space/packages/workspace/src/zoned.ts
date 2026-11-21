@@ -10,9 +10,28 @@ export interface Wall {
   mi: number
 }
 
+/** The most formatters kept: the company's zone and a few more are what is asked for, but a zone name also arrives from outside (an email's calendar attachment names one, in any capitalisation, and each spelling is a new entry), so the map is bounded. */
+export const CLOCKS_KEPT = 64
+
+/** A formatter is made once for each zone: making one is the costly part of reading a clock, and a booking link's free times read it thousands of times. */
+const clocks = new Map<string, Intl.DateTimeFormat>()
+const clockOf = (zone: string): Intl.DateTimeFormat => {
+  let held = clocks.get(zone)
+  if (!held) {
+    held = new Intl.DateTimeFormat('en-US', { timeZone: zone, hourCycle: 'h23', year: 'numeric', month: 'numeric', day: 'numeric', hour: 'numeric', minute: 'numeric', second: 'numeric' })
+    // Full: start again (the few zones in use are made again at once), rather than grow for ever in a Worker that lives for days.
+    if (clocks.size >= CLOCKS_KEPT) clocks.clear()
+    clocks.set(zone, held)
+  }
+  return held
+}
+
+/** How many formatters are kept now. For the tests of the bound. */
+export const clocksKept = (): number => clocks.size
+
 /** What a clock in `zone` reads at this moment. */
 export function wallAt(ms: number, zone: string): Wall & { s: number } {
-  const parts = new Intl.DateTimeFormat('en-US', { timeZone: zone, hourCycle: 'h23', year: 'numeric', month: 'numeric', day: 'numeric', hour: 'numeric', minute: 'numeric', second: 'numeric' }).formatToParts(ms)
+  const parts = clockOf(zone).formatToParts(ms)
   const n = (type: string) => Number(parts.find((p) => p.type === type)?.value)
   return { y: n('year'), m: n('month'), d: n('day'), h: n('hour'), mi: n('minute'), s: n('second') }
 }

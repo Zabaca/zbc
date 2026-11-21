@@ -3,8 +3,8 @@
 // after the deploy watches them work. The payloads here are made by the INBOX'S OWN code (packages/inbox/src/notify/rule.ts), so the two cannot drift apart unseen.
 import { describe, expect, test } from 'bun:test'
 import type { InboxDevice } from '@space/workspace'
-import { leadPayload, messagePayload, summaryPayload, testPayload } from '../../inbox/src/notify/rule'
-import { LEADS_PATH, MESSAGES, conversationPathOf, isAppWindow, notificationFor, readPayload, showsEveryPush, stayQuiet, tapPath, tapTarget } from '../src/client/sw-push'
+import { bookingPayload, leadPayload, messagePayload, summaryPayload, testPayload } from '../../inbox/src/notify/rule'
+import { CALENDAR_PATH, LEADS_PATH, MESSAGES, conversationPathOf, isAppWindow, notificationFor, readPayload, showsEveryPush, stayQuiet, tapPath, tapTarget } from '../src/client/sw-push'
 import { type BrowserFacts, WINDOW_MESSAGES, appleDevice, browserState, failing, safePath, serverKey } from '../src/client/notify'
 import { inboxPath } from '../src/client/route'
 import { ordered } from '../src/client/Notifications'
@@ -90,6 +90,19 @@ describe('a new lead’s notification', () => {
     expect(stayQuiet(shown.options.data.person, [['jo@home.example']])).toBe(false)
     expect(tapTarget(null, [], 'https://space.northfield.example', shown.options.data.path)).toEqual({ kind: 'open', url: '/leads' })
     expect(tapTarget(null, [{ url: 'https://space.northfield.example/today', focused: true }], 'https://space.northfield.example', shown.options.data.path)).toEqual({ kind: 'focus', index: 0, path: '/leads' })
+  })
+})
+
+describe('a booking’s notification', () => {
+  test('is read and shown in the calendar’s words, names no person, and a tap opens the Calendar tab', () => {
+    const payload = readPayload(JSON.stringify(bookingPayload({ bookingId: 'b-1', title: 'Booked: Ada Quill, Fri, Nov 6, 10:00 AM PST', body: 'Intro call', at: '2026-11-05T20:00:00.000Z' })))
+    expect(payload).toMatchObject({ kind: 'booking', title: 'Booked: Ada Quill, Fri, Nov 6, 10:00 AM PST', body: 'Intro call', messageId: 'booking-b-1' })
+    const shown = notificationFor(payload)
+    expect(shown.options.data).toEqual({ person: null, path: CALENDAR_PATH })
+    expect(CALENDAR_PATH).toBe('/calendar')
+    expect(stayQuiet(shown.options.data.person, [['ada@example.org']])).toBe(false)
+    expect(tapTarget(null, [], 'https://space.northfield.example', shown.options.data.path)).toEqual({ kind: 'open', url: '/calendar' })
+    expect(tapTarget(null, [{ url: 'https://space.northfield.example/today', focused: true }], 'https://space.northfield.example', shown.options.data.path)).toEqual({ kind: 'focus', index: 0, path: '/calendar' })
   })
 })
 

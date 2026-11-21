@@ -5,9 +5,9 @@ import type { CalendarAccess, CalendarAccessRefusal } from '@space/workspace'
  * tested against a fake that can fail and this file is tested against a fake `fetch` that answers as the documented API does.
  *
  * ── TWO CLIENTS, ONE FOR READING AND ONE FOR WRITING ─────────────────────
- * The sync's client (`createCalendarGoogle`) makes `calendarList.list`, `events.list`, `events.watch`, `calendarList.watch` and `channels.stop`. The access token the inbox hands it carries `calendar.readonly` and nothing else (the
+ * The sync's client (`createCalendarGoogle`) makes `calendarList.list`, `events.list`, `events.watch`, `calendarList.watch`, `channels.stop` and, for a booking (the space's ADR 0025), `freeBusy.query`, which tells when calendars are busy and nothing more. The access token the inbox hands it carries `calendar.readonly` and nothing else (the
  * inbox asks Google for that scope alone), so nothing it does could change an event or touch mail if a bug tried to. It has no call that writes an event.
- * The writer (`createCalendarWriter`, the space's ADR 0023) makes `events.insert`, `events.patch` and `events.delete`, and only for a call Claude makes on the owner's instruction (the inbox decides that before the engine is asked). Its token is for
+ * The writer (`createCalendarWriter`, the space's ADR 0023) makes `events.insert`, `events.patch` and `events.delete`, for a call Claude makes on the owner's instruction (the inbox decides that before the engine is asked) and for a visitor's booking, move and cancellation (the space's ADR 0025: the owner's link is the word for it). Its token is for
  * `calendar.events` alone, asked of the inbox for each call, used for that call and dropped: it is never cached, so the permission to change events is held only for as long as one request takes.
  * The same writer, handed a map to keep its tokens in for one run (`createRunWriter`, the space's ADR 0024), serves the calendar's own alarm: the "Busy" blocks the owner's switch keeps are made, moved and removed in one run, with a token for each
  * account asked once, when its first write needs it, and dropped when the run ends (`end`).
@@ -106,6 +106,11 @@ export interface CalendarApi {
   watchCalendarList(request: WatchRequest): Promise<Watched>
   /** End a channel at Google. */
   stopChannel(id: string, resourceId: string): Promise<void>
+  /**
+   * When these calendars of the account are busy between two moments, as Google itself says (`freeBusy.query`: the check a booking makes at the moment of booking, the space's ADR 0025). One answer for each id asked, in Google's own words for it: the busy stretches, or
+   * `null` for a calendar Google would not answer for. Nothing of an event comes back, only when. It works with the reading token.
+   */
+  freeBusy(calendarIds: readonly string[], timeMin: number, timeMax: number): Promise<Record<string, { start: number; end: number }[] | null>>
 }
 
 export interface CalendarGoogleConfig {
@@ -314,6 +319,28 @@ export function createCalendarGoogle(config: CalendarGoogleConfig): (address: st
       watchEvents: (calendarId, request) => watch(`/calendars/${encodeURIComponent(calendarId)}/events/watch`, request, 'a push channel for events'),
 
       watchCalendarList: (request) => watch('/users/me/calendarList/watch', request, 'a push channel for the calendar list'),
+
+      async freeBusy(calendarIds, timeMin, timeMax) {
+        const body = await ok(await call('POST', '/freeBusy', { timeMin: new Date(timeMin).toISOString(), timeMax: new Date(timeMax).toISOString(), items: calendarIds.map((id) => ({ id })) }), 'the free time')
+        const calendars = isRecord(body.calendars) ? body.calendars : {}
+        const out: Record<string, { start: number; end: number }[] | null> = {}
+        for (const id of calendarIds) {
+          const one = calendars[id]
+          // A calendar Google names an error for (not found, not shared) or leaves out is one it did not answer for.
+          if (!isRecord(one) || (Array.isArray(one.errors) && one.errors.length > 0) || !Array.isArray(one.busy)) {
+            out[id] = null
+            continue
+          }
+          const busy: { start: number; end: number }[] = []
+          for (const b of one.busy) {
+            const start = isRecord(b) ? Date.parse(str(b.start)) : Number.NaN
+            const end = isRecord(b) ? Date.parse(str(b.end)) : Number.NaN
+            if (Number.isFinite(start) && Number.isFinite(end)) busy.push({ start, end })
+          }
+          out[id] = busy
+        }
+        return out
+      },
 
       async stopChannel(id, resourceId) {
         const res = await call('POST', '/channels/stop', { id, resourceId })

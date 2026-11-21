@@ -2206,5 +2206,5 @@ export function fixtureApps(now: number, mode: FixtureMode = '1', options: { for
   const calendar = standInCalendar(now, options.zone ?? 'America/Los_Angeles', mode === 'calendar-lapsed' ? 'lapsed' : mode === 'calendar-down' ? 'down' : mode === 'calendar-empty' ? 'empty' : '1')
   // What the Clients part asks of Forms (stand-in-forms-names.ts): Harbor Dental (7) is the one Client Forms signs for; with a real forms beside the preview its own rows are read instead.
   const formsNames = standInFormsNames([{ id: '77777777-7777-4777-8777-777777777777', number: 7, name: 'Harbor Dental', legalName: 'Harbor Dental Group, Inc.', replyTo: 'office@harbordental.example' }], options.formsAt ? { formsAt: options.formsAt } : {})
-  return { inbox, meet, forms: options.formsAt ? withFormsAt(forms, options.formsAt) : forms, formsNames: formsNames.methods, formsNamesStandIn: formsNames, knowledge: knowledge.methods, calendar: calendar.methods, clients: clientsPart.methods, clientsStandIn: clientsPart }
+  return { inbox, meet, forms: options.formsAt ? withFormsAt(forms, options.formsAt) : forms, formsNames: formsNames.methods, formsNamesStandIn: formsNames, knowledge: knowledge.methods, calendar: calendar.methods, calendarStandIn: calendar, clients: clientsPart.methods, clientsStandIn: clientsPart }
 }

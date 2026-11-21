@@ -24,6 +24,12 @@ export function cleanText(v: unknown, max: number, keepBreaks = false): string {
   return stripped.trim().slice(0, max)
 }
 
+/**
+ * A booking's own address (`/book/manage/<secret>`, the space's ADR 0025) is in the description of the event the booking made, because the guest's invitation must carry it: it is the only thing that moves or cancels the booking from outside. The calendar keeps
+ * only a hash of that secret, so it keeps it nowhere else either: wherever an event's description is read in, the secret is left out of what is stored, and the owner's card shows the place of it as `[hidden]`.
+ */
+export const withoutManageSecret = (text: string): string => text.replace(/(\/book\/manage\/)[A-Za-z0-9_-]{8,}/g, '$1[hidden]')
+
 const ENTITIES: Record<string, string> = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ' }
 
 /**
@@ -186,7 +192,7 @@ export function parseEvent(raw: unknown, zone: string): ParsedEvent | GoneEvent 
     }
   }
 
-  const description = cleanText(htmlToText(str(raw.description)), CALENDAR_DESCRIPTION_MAX, true)
+  const description = withoutManageSecret(cleanText(htmlToText(str(raw.description)), CALENDAR_DESCRIPTION_MAX, true))
   const marks = isRecord(raw.extendedProperties) && isRecord(raw.extendedProperties.private) ? raw.extendedProperties.private : {}
   const mark = str(marks[BLOCK_PROPERTY])
   const by = str(marks[BLOCK_BY_PROPERTY])

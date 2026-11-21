@@ -5,11 +5,21 @@
 // both accounts, a lapsed account's events are the last picture and say so, and showing or hiding a calendar answers the calendar as it now stands. It checks nothing about who is asking: the real app admits the owner only,
 // and the space's own tests prove the person its one sign-in check named is the one handed over (`calls[].asker`). Every call is recorded.
 //
+// The booking links (the space's ADR 0025) are kept here as the calendar keeps them, with the real rules (`readBookingLink`, `readGuestBooking` and `slotStarts`, which are pure) over the stand-in's own events: a link made in Settings is a page a visitor can open, a booking
+// a visitor makes is an event in the Calendar tab and a line under its link in Settings, and a move or a cancellation is the visitor's own. Nothing is at Google, and the visitor's secret is kept as it is (this is not a store).
+//
 // The invented days are laid on the company's clock around `now`: two events soon, a few later today and tomorrow, and a week of others, so Today's lists and the agenda have something at any hour (a little after 22:00 the
 // "soon" ones fall on tomorrow).
 
+import { slotStarts } from '@space/calendar/src/booking-slots'
+import { CLOSED_WORDS, readBookingLink, readGuestBooking, TAKEN_WORDS } from '@space/calendar/src/bookings'
 import {
   answered,
+  BOOKING_DEFAULTS,
+  BOOKING_LIMITS,
+  type BookingLinkView,
+  type BookingRecord,
+  bookingLinkPath,
   CALENDAR_BY_UID_MOST,
   type CalendarAccountMark,
   type CalendarAccountView,
@@ -17,11 +27,16 @@ import {
   type CalendarAgenda,
   type CalendarBlocking,
   type CalendarEvent,
+  type CalendarBookingLinks,
+  type CalendarForGuests,
   type CalendarForSpace,
   type CalendarGuest,
   type CalendarResponse,
   type CalendarView,
   failed,
+  type GuestBookingLink,
+  type GuestBookingView,
+  isoAt,
   momentAt,
   refused,
   type SignedIn,
@@ -60,7 +75,44 @@ export interface StandInCalendarApp {
   events: StandInEvent[]
   /** The busy blocks as the stand-in keeps them: the switch (off at first), the accounts taken out, and a sentence when blocks could not be written. */
   blocking: { on: boolean; out: Set<string>; problem: string | null }
+  /** The booking links and bookings as the stand-in keeps them (see the header). */
+  booking: { links: StandInLink[]; bookings: StandInBooking[] }
   methods: CalendarForSpace
+  /** The visitor's face, over the same links and bookings: what the open path's door (src/booking.ts) is handed in a local run with the fixtures. */
+  guests: CalendarForGuests
+}
+
+/** A link as the stand-in keeps it: what the owner set. */
+interface StandInLink {
+  id: string
+  slug: string
+  name: string
+  description: string
+  account: string
+  minutes: number
+  hours: BookingLinkView['hours']
+  noticeMinutes: number
+  aheadDays: number
+  gapMinutes: number
+  perDay: number | null
+  enabled: boolean
+}
+
+/** A booking as the stand-in keeps it: the visitor's own secret is kept as it is. */
+interface StandInBooking {
+  id: string
+  linkId: string
+  linkName: string
+  secret: string
+  name: string
+  email: string
+  note: string | null
+  start: number
+  end: number
+  bookedAt: number
+  state: 'booked' | 'cancelled'
+  moves: number
+  eventId: string
 }
 
 const guest = (name: string, email: string, response: CalendarResponse, extra: Partial<CalendarGuest> = {}): CalendarGuest => ({ name, email, response, organizer: false, self: false, ...extra })
@@ -271,6 +323,180 @@ export function standInCalendar(now: number, zone: string, mode: CalendarFixture
     }
   }
 
+  // ── The booking links (see the header) ────────────────────────────────────────────────────────────────────────────────────────
+
+  const started = Date.now()
+  /** The stand-in's clock: the moment it was laid out around, moving as real time does, so a page left open sees times pass. */
+  const clock = (): number => now + (Date.now() - started)
+  const booking: StandInCalendarApp['booking'] = { links: [], bookings: [] }
+  const ORIGIN = 'https://space.northfield.example'
+  const COMPANY = 'Northfield Works'
+  let linkNo = 0
+  let bookingNo = 0
+
+  /** Why a link cannot be booked now, in the owner's words, or null. */
+  function problemOf(l: StandInLink): string | null {
+    const acct = accountOf(l.account)
+    if (!acct) return `${l.account} is not a connected Google account.`
+    if (acct.state === 'lapsed') return `The sign-in of ${acct.address} ended, so nothing can be booked on it until it is connected again.`
+    if (acct.state === 'needs-calendar') return `${acct.address} is connected for mail without the calendar permission, so nothing can be booked on it. Press Connect calendar and accept it.`
+    if (!acct.events) return `${acct.address} was connected for reading only, so nothing can be booked on it. Press Connect calendar and accept the permission to change events.`
+    return null
+  }
+
+  const recordOf = (b: StandInBooking): BookingRecord => ({ id: b.id, linkName: b.linkName, name: b.name, email: b.email, note: b.note, start: b.start, end: b.end, bookedAt: b.bookedAt, state: b.state, checked: 'google', link: b.state === 'booked' ? 'https://www.google.com/calendar/event?eid=standin' : null })
+
+  function linkViewOf(l: StandInLink): BookingLinkView {
+    const acct = accountOf(l.account)
+    const { id, slug, name, description, account, minutes, hours, noticeMinutes, aheadDays, gapMinutes, perDay, enabled } = l
+    return {
+      id,
+      slug,
+      name,
+      description,
+      account,
+      accountLabel: acct?.label ?? account,
+      minutes,
+      hours,
+      noticeMinutes,
+      aheadDays,
+      gapMinutes,
+      perDay,
+      enabled,
+      url: `${ORIGIN}${bookingLinkPath(slug)}`,
+      problem: problemOf(l),
+      bookings: booking.bookings
+        .filter((b) => b.linkId === l.id && b.end > clock() - 30 * 24 * HOUR)
+        .sort((x, y) => Number(y.end > clock()) - Number(x.end > clock()) || (x.end > clock() ? x.start - y.start : y.start - x.start))
+        .map(recordOf),
+    }
+  }
+
+  /** The free starting times of a link: the real rules over the stand-in's events that make the owner busy on a shown calendar, and the link's own bookings. `except` is a booking asking to move: its own time is free to itself. */
+  function slotsOf(l: StandInLink, except?: StandInBooking): number[] {
+    const busy = events
+      .map(present)
+      .filter((e): e is CalendarEvent => e !== null && !e.free && e.response !== 'declined' && e.id !== except?.eventId)
+      .map((e) => ({ start: e.start, end: e.end }))
+    return slotStarts({
+      rules: { hours: l.hours, noticeMinutes: l.noticeMinutes, aheadDays: l.aheadDays, gapMinutes: l.gapMinutes, perDay: l.perDay },
+      minutes: l.minutes,
+      now: clock(),
+      zone,
+      busy,
+      taken: booking.bookings.filter((b) => b.linkId === l.id && b.state === 'booked' && b !== except).map((b) => b.start),
+    })
+  }
+
+  /** A booking is an event on its link's account's main calendar, so the Calendar tab shows it and later free times leave it out. */
+  function putEvent(l: StandInLink, b: StandInBooking): void {
+    const primary = calendars.find((c) => c.account === l.account && c.primary)
+    const made = timed(`${b.linkName}: ${b.name}`, b.start, (b.end - b.start) / MIN, [primary?.id ?? `${l.account}|${l.account}`], { videoLink: 'https://meet.google.com/standin-book', response: null })
+    const old = events.findIndex((e) => e.id === b.eventId)
+    if (old >= 0) events.splice(old, 1)
+    b.eventId = made.id
+    events.push(made)
+  }
+
+  const bookingFor = (secret: unknown): StandInBooking | undefined => (typeof secret === 'string' && secret.length >= 8 ? booking.bookings.find((b) => b.secret === secret) : undefined)
+
+  function guestViewOf(b: StandInBooking): GuestBookingView {
+    const l = booking.links.find((x) => x.id === b.linkId)
+    const state: GuestBookingView['state'] = b.state === 'cancelled' ? 'cancelled' : b.end <= clock() ? 'past' : 'booked'
+    const open = l !== undefined && l.enabled && problemOf(l) === null
+    return {
+      company: COMPANY,
+      title: b.linkName,
+      slug: l?.slug ?? null,
+      minutes: Math.round((b.end - b.start) / MIN),
+      start: b.start,
+      end: b.end,
+      name: b.name,
+      email: b.email,
+      state,
+      zone,
+      meetLink: state === 'cancelled' ? null : 'https://meet.google.com/standin-book',
+      canMove: state === 'booked' && b.start > clock() && b.moves < BOOKING_LIMITS.moves && open,
+      canCancel: state === 'booked',
+      linkOpen: open,
+    }
+  }
+
+  const guests: CalendarForGuests = {
+    async link(slug) {
+      const l = booking.links.find((x) => x.slug === slug)
+      if (!l) return refused('not-found', 'There is no such booking link.')
+      const out: GuestBookingLink = { company: COMPANY, name: l.name, description: l.description, minutes: l.minutes, zone, open: l.enabled && problemOf(l) === null }
+      return answered(out)
+    },
+    async slots(slug) {
+      const l = booking.links.find((x) => x.slug === slug)
+      if (!l) return refused('not-found', 'There is no such booking link.')
+      if (!l.enabled || problemOf(l) !== null) return refused('conflict', CLOSED_WORDS)
+      return answered({ from: clock(), to: clock() + l.aheadDays * 24 * HOUR, starts: slotsOf(l) })
+    },
+    async book(slug, input) {
+      const l = booking.links.find((x) => x.slug === slug)
+      if (!l) return refused('not-found', 'There is no such booking link.')
+      const read = readGuestBooking(input)
+      if (!read.ok) return refused(read.reason, read.error)
+      if (!l.enabled || problemOf(l) !== null) return refused('conflict', CLOSED_WORDS)
+      if (!slotsOf(l).includes(read.value.start)) return refused('conflict', TAKEN_WORDS)
+      const b: StandInBooking = {
+        id: `booking-${++bookingNo}`,
+        linkId: l.id,
+        linkName: l.name,
+        secret: `standin-secret-${bookingNo}-${Math.random().toString(36).slice(2, 12)}`,
+        name: read.value.name,
+        email: read.value.email,
+        note: read.value.note === '' ? null : read.value.note,
+        start: read.value.start,
+        end: read.value.start + l.minutes * MIN,
+        bookedAt: clock(),
+        state: 'booked',
+        moves: 0,
+        eventId: '',
+      }
+      booking.bookings.push(b)
+      putEvent(l, b)
+      return answered({ secret: b.secret, booking: guestViewOf(b) })
+    },
+    async booking(secret) {
+      const b = bookingFor(secret)
+      return b ? answered(guestViewOf(b)) : refused('not-found', 'There is no such booking.')
+    },
+    async bookingSlots(secret) {
+      const b = bookingFor(secret)
+      const l = b ? booking.links.find((x) => x.id === b.linkId) : undefined
+      if (!b || !l) return refused('not-found', 'There is no such booking.')
+      if (!guestViewOf(b).canMove) return refused('conflict', 'This booking cannot be moved.')
+      return answered({ from: clock(), to: clock() + l.aheadDays * 24 * HOUR, starts: slotsOf(l, b) })
+    },
+    async move(secret, start) {
+      const b = bookingFor(secret)
+      const l = b ? booking.links.find((x) => x.id === b.linkId) : undefined
+      if (!b || !l) return refused('not-found', 'There is no such booking.')
+      if (!guestViewOf(b).canMove) return refused('conflict', 'This booking cannot be moved.')
+      if (start === b.start) return refused('bad-request', 'That is the time it already has.')
+      if (!slotsOf(l, b).includes(start)) return refused('conflict', TAKEN_WORDS)
+      b.end = start + (b.end - b.start)
+      b.start = start
+      b.moves += 1
+      putEvent(l, b)
+      return answered(guestViewOf(b))
+    },
+    async cancel(secret) {
+      const b = bookingFor(secret)
+      if (!b) return refused('not-found', 'There is no such booking.')
+      if (b.state === 'cancelled') return answered(guestViewOf(b))
+      if (!guestViewOf(b).canCancel) return refused('conflict', 'That meeting has been.')
+      b.state = 'cancelled'
+      const at = events.findIndex((e) => e.id === b.eventId)
+      if (at >= 0) events.splice(at, 1)
+      return answered(guestViewOf(b))
+    },
+  }
+
   const methods: CalendarForSpace = {
     async calendars(a) {
       const early = await enter<CalendarAccountView[]>(a, 'calendars', [])
@@ -350,7 +576,53 @@ export function standInCalendar(now: number, zone: string, mode: CalendarFixture
       else blocking.out.add(address)
       return answered(blockingView())
     },
+    async bookingLinks(a) {
+      const early = await enter<CalendarBookingLinks>(a, 'bookingLinks', [])
+      if (early) return early
+      return answered({
+        links: booking.links.map(linkViewOf),
+        accounts: accounts.map((acct) => {
+          const why = problemOf({ account: acct.address } as StandInLink)
+          return { address: acct.address, label: acct.label, canBook: why === null, why }
+        }),
+        defaults: BOOKING_DEFAULTS,
+        zone,
+        origin: ORIGIN,
+      })
+    },
+    async makeBookingLink(a, input) {
+      const early = await enter<BookingLinkView>(a, 'makeBookingLink', [input])
+      if (early) return early
+      const read = readBookingLink(input)
+      if (!read.ok) return refused(read.reason, read.error)
+      if (!accountOf(read.value.account)) return refused('bad-request', `${read.value.account} is not a connected Google account.`)
+      if (booking.links.some((l) => l.slug === read.value.slug)) return refused('conflict', `The address ${read.value.slug} is used by another link. Pick another.`)
+      if (booking.links.length >= BOOKING_LIMITS.linksMax) return refused('limit', `A space holds at most ${BOOKING_LIMITS.linksMax} booking links. Delete one first.`)
+      const made: StandInLink = { id: `link-${++linkNo}`, ...read.value }
+      booking.links.push(made)
+      return answered(linkViewOf(made))
+    },
+    async changeBookingLink(a, id, input) {
+      const early = await enter<BookingLinkView>(a, 'changeBookingLink', [id, input])
+      if (early) return early
+      const held = booking.links.find((l) => l.id === id)
+      if (!held) return refused('not-found', 'No such link.')
+      const read = readBookingLink(input)
+      if (!read.ok) return refused(read.reason, read.error)
+      if (!accountOf(read.value.account)) return refused('bad-request', `${read.value.account} is not a connected Google account.`)
+      if (booking.links.some((l) => l.slug === read.value.slug && l.id !== id)) return refused('conflict', `The address ${read.value.slug} is used by another link. Pick another.`)
+      Object.assign(held, read.value)
+      return answered(linkViewOf(held))
+    },
+    async deleteBookingLink(a, id) {
+      const early = await enter<{ id: string }>(a, 'deleteBookingLink', [id])
+      if (early) return early
+      const at = booking.links.findIndex((l) => l.id === id)
+      if (at < 0) return refused('not-found', 'No such link.')
+      booking.links.splice(at, 1)
+      return answered({ id })
+    },
   }
 
-  return { calls, script, accounts, calendars, events, blocking, methods }
+  return { calls, script, accounts, calendars, events, blocking, booking, methods, guests }
 }

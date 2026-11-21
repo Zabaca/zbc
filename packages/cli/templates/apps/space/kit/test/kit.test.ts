@@ -40,6 +40,7 @@ function brightwater(over: Record<string, unknown> = {}) {
   }
 }
 
+const BOOKING = { application: 'space.brightwater.test/book/*', policy: 'space.brightwater.test/book/* anyone (booking links)' }
 const DOORS = { calls: { application: 'space.brightwater.test/r/*', policy: 'space.brightwater.test/r/* anyone (calls)' }, chat: { application: 'space.brightwater.test/w/*', policy: 'space.brightwater.test/w/* anyone (chat)' }, signing: { application: 'space.brightwater.test/s/*', policy: 'space.brightwater.test/s/* anyone (signers)' } }
 
 function brightwaterFile(over: Record<string, unknown> = {}) {
@@ -89,7 +90,7 @@ function brightwaterEverything() {
         telegram: { application: 'space.brightwater.test/agent/telegram', token: 'brightwater bridge' },
         clients: { application: 'space.brightwater.test/agent/clients', token: 'brightwater clients' },
         leads: { application: 'space.brightwater.test/agent/leads', token: 'brightwater leads' },
-        guests: DOORS,
+        guests: { ...DOORS, booking: BOOKING },
       },
       secrets: {
         forms: { dataKey: 'BRIGHTWATER_FORMS_DATA_KEY', sealKey: 'BRIGHTWATER_FORMS_SEAL_KEY', sealCertChain: 'BRIGHTWATER_FORMS_SEAL_CERT_CHAIN' },
@@ -159,7 +160,11 @@ describe('an invented company’s pair makes a whole install', () => {
   test('one with everything on: every door, the raw-mail bucket and queue, the push host, the senders, the mailboxes and the secrets', () => {
     const { declaration, installFile } = brightwaterEverything()
     const made = buildSpaceInstall<SpaceInstance>({ declaration, installFile, sopsNames: sops, modules: SPACE_MODULES, paths: BRIGHTWATER_PATHS })
-    expect(made.all.map((i) => i.name)).toEqual(['forms-bucket', 'forms-database', 'inbox-raw', 'inbox-delivery', 'space-access', 'space-forms-access', 'space-agent-access', 'space-telegram-access', 'space-clients-access', 'space-leads-access', 'space-guest-calls', 'space-guest-chat', 'space-guest-signing', 'space'])
+    expect(made.all.map((i) => i.name)).toEqual(['forms-bucket', 'forms-database', 'inbox-raw', 'inbox-delivery', 'space-access', 'space-forms-access', 'space-agent-access', 'space-telegram-access', 'space-clients-access', 'space-leads-access', 'space-guest-calls', 'space-guest-chat', 'space-guest-signing', 'space-guest-booking', 'space'])
+    // The booking links' open path is an Access application of its own, a bypass for everyone on `/book/*` and nothing else of the host, named as the install file names it.
+    const booking = made.instances.guestBooking?.config as { name: string; domain: string; bypass: boolean; policyName: string; emails: string[]; appLauncherVisible: boolean }
+    expect([booking.name, booking.domain, booking.bypass, booking.policyName, booking.emails, booking.appLauncherVisible]).toEqual(['space.brightwater.test/book/*', 'space.brightwater.test/book/*', true, 'space.brightwater.test/book/* anyone (booking links)', [], false])
+    expect(made.instances.space.imports.map((i) => i.name)).toContain('space-guest-booking')
     const s = made.settings as Record<string, any>
     expect(s.routes).toEqual([
       { pattern: 'space.brightwater.test', custom_domain: true },
@@ -251,11 +256,12 @@ describe('an install file that does not fit its declaration is refused, with eve
     delete bare.access.clients
     delete bare.access.leads
     delete bare.access.guests.calls
+    delete bare.access.guests.booking
     delete bare.deliveryReports
     delete bare.stores.rawMailBucket
     delete bare.stores.deliveryQueue
     const said = problems(bare, d)
-    for (const want of ['calls: required', 'gmail: required', 'secrets.calls: required', 'secrets.gmail: required', 'secrets.assistant: required', 'secrets.hostedMailboxes: required', 'access.agent: required', 'access.telegram: required', 'access.clients: required', 'access.leads: required', 'access.guests.calls: required', 'deliveryReports: a list', 'stores.rawMailBucket', 'stores.deliveryQueue']) {
+    for (const want of ['calls: required', 'gmail: required', 'secrets.calls: required', 'secrets.gmail: required', 'secrets.assistant: required', 'secrets.hostedMailboxes: required', 'access.agent: required', 'access.telegram: required', 'access.clients: required', 'access.leads: required', 'access.guests.calls: required', 'access.guests.booking: required', 'deliveryReports: a list', 'stores.rawMailBucket', 'stores.deliveryQueue']) {
       expect(said, want).toContain(want)
     }
   })
@@ -266,6 +272,8 @@ describe('an install file that does not fit its declaration is refused, with eve
     expect(said).toContain('gmail: only where the gmail switch is on')
     expect(said).toContain('deliveryReports: only where the declaration lists a business mailbox')
     expect(said).toContain('access.agent: only where the declaration gives Claude')
+    // The booking path comes with Gmail: an install without it has none, and a name for one is refused.
+    expect(problems(brightwaterFile({ access: { ...brightwaterFile().access, guests: { ...DOORS, booking: BOOKING } } }))).toContain('access.guests.booking: only where the gmail switch is on')
   })
 
   test('each machine door has a token of its own, no two applications share a name, and the two rate limits are two', () => {

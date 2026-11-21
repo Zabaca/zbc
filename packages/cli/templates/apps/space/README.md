@@ -8,7 +8,7 @@ This folder is a copy the company owns. It is pulled into a project as `vendor/s
 
 | Folder | What it is |
 |---|---|
-| `packages/space` | The Worker and the page: the one door, the tabs, and the paths open to a call's guests, a channel's guests and a document's signers |
+| `packages/space` | The Worker and the page: the one door, the tabs, and the paths open to a call's guests, a channel's guests, a document's signers and the visitors of a booking link |
 | `packages/inbox` | Mail (Gmail accounts, business mailboxes, a mail server over JMAP, Telegram), drafts, the assistant and notifications |
 | `packages/meet` | Calls, channels and direct messages, and the phone line |
 | `packages/forms` | Forms, and documents sent for signature and sealed |

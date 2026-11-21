@@ -1,5 +1,5 @@
 // The guests' and signers' door (src/guests.ts; the space's ADR 0018), driven with real requests through the real router, the way an outsider
-// and a signed-in person would: three prefixes answer with no sign-in and nothing else of the host does; a guest path never reads the team's sign-in and a team path never reads a guest's credential; the pages carry a
+// and a signed-in person would: four prefixes answer with no sign-in and nothing else of the host does; a guest path never reads the team's sign-in and a team path never reads a guest's credential; the pages carry a
 // policy that keeps them to their own paths. The parts behind the paths (meet's guest routes, forms' public API) have their suites in their packages (packages/meet/test/space-guests.test.ts, packages/forms/test/signer-api-path.test.ts);
 // what is held here is which path goes to which part, and what the door adds and takes away.
 import { describe, expect, test } from 'bun:test'
@@ -12,6 +12,7 @@ import { world } from './world'
 const HOST = 'https://space.northfield.example'
 const CALL = 'k7m2qx9frtn4w6hbc8jd'
 const TOKEN = 'A'.repeat(43)
+const SECRET = 'b'.repeat(48)
 const TEAM_PAGE = '<!doctype html><title>Space</title><link rel="manifest" href="/manifest.webmanifest">'
 
 interface Seen {
@@ -44,39 +45,42 @@ const BUNDLES = {
   '/r/_/assets/index-a1.css': { type: 'text/css', body: 'body{}' },
   '/s/_/': { type: 'text/html', body: `<!doctype html><html><head>${bundleMark('forms')}<title>Northfield Forms</title></head><body></body></html>` },
   '/s/_/assets/index-b2.js': { type: 'application/javascript', body: 'export {}' },
+  '/book/_/': { type: 'text/html', body: `<!doctype html><html><head>${bundleMark('booking')}<title>Booking</title></head><body></body></html>` },
+  '/book/_/assets/index-c3.js': { type: 'text/javascript', body: 'export {}' },
 }
 
 function setup(over: { files?: typeof BUNDLES | Record<string, never>; parts?: Partial<GuestParts> | 'none' } = {}) {
   const meetSeen: Seen[] = []
   const signerSeen: Seen[] = []
+  const bookingSeen: Seen[] = []
   const record = (into: Seen[], answer: string) => async (req: Request): Promise<Response> => {
     into.push({ method: req.method, url: req.url, assertion: req.headers.get('cf-access-jwt-assertion'), cookie: req.headers.get('cookie'), authorization: req.headers.get('authorization') })
     return Response.json({ from: answer })
   }
-  const guests: GuestParts = over.parts === 'none' ? {} : { meet: record(meetSeen, 'meet'), signer: record(signerSeen, 'forms'), ...over.parts }
+  const guests: GuestParts = over.parts === 'none' ? {} : { meet: record(meetSeen, 'meet'), signer: record(signerSeen, 'forms'), booking: record(bookingSeen, 'booking'), ...over.parts }
   const a = assets(over.files ?? BUNDLES)
-  return { a, meetSeen, signerSeen, make: () => world(northfield(), 'northfield.cloudflareaccess.com', { ASSETS: a.binding }, undefined, { guests: () => guests }) }
+  return { a, meetSeen, signerSeen, bookingSeen, make: () => world(northfield(), 'northfield.cloudflareaccess.com', { ASSETS: a.binding }, undefined, { guests: () => guests }) }
 }
 
 const policy = (res: Response) => res.headers.get('content-security-policy') ?? ''
 const directives = (csp: string) => Object.fromEntries(csp.split(';').map((d) => d.trim().split(/\s+/)).map(([name, ...sources]) => [name, sources]))
 
 describe('the pages need no sign-in', () => {
-  test('a call, the channel guests’ page and a signer’s link each answer with no assertion, from their bundle’s page', async () => {
+  test('a call, the channel guests’ page, a signer’s link and a booking link’s page and a booking’s own each answer with no assertion, from their bundle’s page', async () => {
     const s = setup()
     const w = await s.make()
-    for (const [path, mark] of [[`/r/${CALL}`, 'meet'], [`/r/${CALL}/`, 'meet'], ['/w/', 'meet'], [`/s/${TOKEN}`, 'forms'], [`/s/${TOKEN}/`, 'forms']] as const) {
+    for (const [path, mark] of [[`/r/${CALL}`, 'meet'], [`/r/${CALL}/`, 'meet'], ['/w/', 'meet'], [`/s/${TOKEN}`, 'forms'], [`/s/${TOKEN}/`, 'forms'], ['/book/intro-call', 'booking'], ['/book/intro-call/', 'booking'], [`/book/manage/${SECRET}`, 'booking']] as const) {
       const res = await w.call(path)
       expect([path, res.status]).toEqual([path, 200])
       expect(await res.text()).toContain(bundleMark(mark))
     }
     // The page is read from the bundle's own folder and nothing of the team's.
-    expect([...new Set(s.a.asked)]).toEqual(['/r/_/', '/s/_/'])
+    expect([...new Set(s.a.asked)]).toEqual(['/r/_/', '/s/_/', '/book/_/'])
   })
 
   test('a page carries no cache, no referrer, no framing, no indexing, and a policy', async () => {
     const w = await setup().make()
-    for (const path of [`/r/${CALL}`, '/w/', `/s/${TOKEN}`]) {
+    for (const path of [`/r/${CALL}`, '/w/', `/s/${TOKEN}`, '/book/intro-call', `/book/manage/${SECRET}`]) {
       const res = await w.call(path)
       expect(res.headers.get('cache-control')).toBe('no-store')
       expect(res.headers.get('referrer-policy')).toBe('no-referrer')
@@ -89,7 +93,7 @@ describe('the pages need no sign-in', () => {
 
   test('a page is GET and HEAD only; `/w` without its slash goes to `/w/`', async () => {
     const w = await setup().make()
-    for (const path of [`/r/${CALL}`, '/w/', `/s/${TOKEN}`]) {
+    for (const path of [`/r/${CALL}`, '/w/', `/s/${TOKEN}`, '/book/intro-call', `/book/manage/${SECRET}`]) {
       expect([path, (await w.call(path, { method: 'POST' })).status]).toEqual([path, 405])
       const head = await w.call(path, { method: 'HEAD' })
       expect([path, head.status, await head.text()]).toEqual([path, 200, ''])
@@ -100,7 +104,7 @@ describe('the pages need no sign-in', () => {
 
   test('a path under a prefix that is no page and no API is a 404, never the team’s page', async () => {
     const w = await setup().make()
-    for (const path of [`/r/${CALL}/extra`, '/r', '/r/', '/r/api', '/r/_', '/w/x', '/w/_/index.js', '/w/api', '/s', '/s/', '/s/short', `/s/${TOKEN}/more`, '/s/api', '/s/_']) {
+    for (const path of [`/r/${CALL}/extra`, '/r', '/r/', '/r/api', '/r/_', '/w/x', '/w/_/index.js', '/w/api', '/s', '/s/', '/s/short', `/s/${TOKEN}/more`, '/s/api', '/s/_', '/book', '/book/', '/book/_', '/book/Intro', '/book/a_b', '/book/a/b', '/book/manage', '/book/manage/short', `/book/manage/${SECRET}/more`, '/book/api', '/book/m']) {
       const res = await w.call(path)
       expect([path, [401, 404].includes(res.status)]).toEqual([path, true])
       expect(await res.text()).not.toContain('Space')
@@ -121,12 +125,14 @@ describe('the page’s files', () => {
     expect([css.status, policy(css)]).toEqual([200, ''])
     const signer = await w.call('/s/_/assets/index-b2.js')
     expect([signer.status, policy(signer)]).toEqual([200, policyFor('forms', HOST)])
+    const booking = await w.call('/book/_/assets/index-c3.js')
+    expect([booking.status, policy(booking)]).toEqual([200, policyFor('booking', HOST)])
   })
 
   test('a path that climbs out of the guest folder (an encoded slash or dot, a backslash) is refused (a 404, or the sign-in check’s 401 when the URL itself resolves the dots out of the guest prefix) and never reaches the asset router', async () => {
     const s = setup({ files: { ...BUNDLES, '/assets/team.js': { type: 'text/javascript', body: 'team' } } as typeof BUNDLES })
     const w = await s.make()
-    for (const path of ['/r/_/..%2f..%2fassets/team.js', '/s/_/..%2F..%2Fassets/team.js', '/r/_/%2e%2e/%2e%2e/assets/team.js', '/r/_/assets%5c..%5cteam.js']) {
+    for (const path of ['/r/_/..%2f..%2fassets/team.js', '/s/_/..%2F..%2Fassets/team.js', '/r/_/%2e%2e/%2e%2e/assets/team.js', '/r/_/assets%5c..%5cteam.js', '/book/_/..%2f..%2fassets/team.js']) {
       const res = await w.call(path)
       expect([path, [401, 404].includes(res.status)]).toEqual([path, true])
     }
@@ -135,7 +141,7 @@ describe('the page’s files', () => {
 
   test('a file that is not there is a 404, because the asset router would answer with the team’s page', async () => {
     const w = await setup().make()
-    for (const path of ['/r/_/assets/gone.js', '/s/_/assets/gone.css']) {
+    for (const path of ['/r/_/assets/gone.js', '/s/_/assets/gone.css', '/book/_/assets/gone.js']) {
       const res = await w.call(path)
       expect([path, res.status]).toEqual([path, 404])
       expect(await res.text()).not.toContain('manifest')
@@ -144,7 +150,7 @@ describe('the page’s files', () => {
 
   test('a bundle that was never built is a 503, and the team’s page is not served in its place', async () => {
     const w = await setup({ files: {} }).make()
-    for (const path of [`/r/${CALL}`, '/w/', `/s/${TOKEN}`]) {
+    for (const path of [`/r/${CALL}`, '/w/', `/s/${TOKEN}`, '/book/intro-call']) {
       const res = await w.call(path)
       expect([path, res.status]).toEqual([path, 503])
       expect(await res.text()).not.toContain('manifest')
@@ -159,7 +165,7 @@ describe('the page’s files', () => {
 })
 
 describe('the content policy', () => {
-  for (const bundle of ['meet', 'forms'] as const) {
+  for (const bundle of ['meet', 'forms', 'booking'] as const) {
     test(`of the ${bundle} pages names only paths of this host: no inline or evaluated script, no whole-host source, no frames, forms, base or plugins`, () => {
       const d = directives(policyFor(bundle, HOST))
       expect(d['default-src']).toEqual(["'none'"])
@@ -187,7 +193,14 @@ describe('the content policy', () => {
     expect(meet).toEqual([`${HOST}/r/_/`, `${HOST}/r/api/`, `${HOST}/w/api/`, 'wss://space.northfield.example/w/api/'])
     const forms = directives(policyFor('forms', HOST))['connect-src'] ?? []
     expect(forms).toEqual([`${HOST}/s/_/`, `${HOST}/s/api/`])
-    for (const source of [...meet, ...forms]) for (const team of ['/api/me', '/api/today', '/api/conversations', '/forms/api/clients', '/agent/inbox/api/']) expect(`${source}`.endsWith('/') && team.startsWith(new URL(source.replace('wss:', 'https:')).pathname)).toBe(false)
+    const booking = directives(policyFor('booking', HOST))['connect-src'] ?? []
+    expect(booking).toEqual([`${HOST}/book/_/`, `${HOST}/book/api/`])
+    // The booking page takes no WebAssembly, no blob and no socket: it draws text and a few shapes.
+    const bookingPolicy = directives(policyFor('booking', HOST))
+    expect(bookingPolicy['script-src']).toEqual([`${HOST}/book/_/`])
+    expect(bookingPolicy['img-src']).toEqual([`${HOST}/book/_/`, 'data:'])
+    expect(policyFor('booking', HOST)).not.toMatch(/wss:|blob:|wasm/)
+    for (const source of [...meet, ...forms, ...booking]) for (const team of ['/api/me', '/api/today', '/api/conversations', '/forms/api/clients', '/agent/inbox/api/']) expect(`${source}`.endsWith('/') && team.startsWith(new URL(source.replace('wss:', 'https:')).pathname)).toBe(false)
   })
 
   test('follows the host it is served from', () => {
@@ -196,7 +209,7 @@ describe('the content policy', () => {
 })
 
 describe('the APIs', () => {
-  test('go to their part: /r/api and /w/api to meet’s, /s/api to forms’, with the request as it came', async () => {
+  test('go to their part: /r/api and /w/api to meet’s, /s/api to forms’, /book/api to the calendar’s, with the request as it came', async () => {
     const s = setup()
     const w = await s.make()
     expect(await (await w.call(`/r/api/rooms/${CALL}`)).json()).toEqual({ from: 'meet' })
@@ -204,8 +217,11 @@ describe('the APIs', () => {
     expect(await (await w.call('/w/api/auth/request', { method: 'POST', body: '{}' })).json()).toEqual({ from: 'meet' })
     expect(await (await w.call(`/s/api/s/${TOKEN}`)).json()).toEqual({ from: 'forms' })
     expect(await (await w.call('/s/api/logo/abc')).json()).toEqual({ from: 'forms' })
+    expect(await (await w.call('/book/api/links/intro-call')).json()).toEqual({ from: 'booking' })
+    expect(await (await w.call('/book/api/links/intro-call/book', { method: 'POST', body: '{}' })).json()).toEqual({ from: 'booking' })
     expect(s.meetSeen.map((r) => `${r.method} ${new URL(r.url).pathname}`)).toEqual([`GET /r/api/rooms/${CALL}`, 'POST /r/api/phone/webhook', 'POST /w/api/auth/request'])
     expect(s.signerSeen.map((r) => `${r.method} ${new URL(r.url).pathname}`)).toEqual([`GET /s/api/s/${TOKEN}`, 'GET /s/api/logo/abc'])
+    expect(s.bookingSeen.map((r) => `${r.method} ${new URL(r.url).pathname}`)).toEqual(['GET /book/api/links/intro-call', 'POST /book/api/links/intro-call/book'])
   })
 
   test('are handed nothing the team’s sign-in is made of: not the assertion, not the Access cookies, not the token’s headers; the guest’s own cookie goes through', async () => {
@@ -216,13 +232,15 @@ describe('the APIs', () => {
       headers: { 'cf-access-jwt-assertion': jwt, cookie: `CF_Authorization=${jwt}; meet_guest=tok; CF_AppSession=x`, authorization: 'Bearer x', 'cf-access-client-id': 'id', 'cf-access-client-secret': 'secret' },
     })
     await w.call(`/s/api/s/${TOKEN}`, { headers: { 'cf-access-jwt-assertion': jwt, cookie: `CF_Authorization=${jwt}` } })
+    await w.call('/book/api/links/intro-call', { headers: { 'cf-access-jwt-assertion': jwt, cookie: `CF_Authorization=${jwt}; CF_AppSession=x`, authorization: 'Bearer x', 'cf-access-client-id': 'id' } })
     expect(s.meetSeen[0]).toMatchObject({ assertion: null, cookie: 'meet_guest=tok', authorization: null })
     expect(s.signerSeen[0]).toMatchObject({ assertion: null, cookie: null })
+    expect(s.bookingSeen[0]).toMatchObject({ assertion: null, cookie: null, authorization: null })
   })
 
   test('are 503 where the part is not bound, and say so in no more than a sentence', async () => {
     const w = await setup({ parts: 'none' }).make()
-    for (const path of [`/r/api/rooms/${CALL}`, '/w/api/bootstrap', `/s/api/s/${TOKEN}`]) {
+    for (const path of [`/r/api/rooms/${CALL}`, '/w/api/bootstrap', `/s/api/s/${TOKEN}`, '/book/api/links/intro-call']) {
       const res = await w.call(path)
       expect([path, res.status]).toEqual([path, 503])
     }
@@ -230,7 +248,7 @@ describe('the APIs', () => {
 })
 
 describe('everything else is still behind the sign-in', () => {
-  const TEAM = ['/', '/today', '/inbox', '/meet', '/forms', '/forms/api/clients', '/people', '/knowledge', '/sw.js', '/search', '/recover', '/work', '/rooms', '/wx', '/api/me', '/api/search?q=a', '/api/w/socket', '/api/rooms/x', '/api/phone/webhook', '/agent/inbox/api/x', '/assets/x.js', '/r.js', '/s.json', '/w.html', '/rx/y', '/ssh', '/R/x']
+  const TEAM = ['/', '/today', '/inbox', '/meet', '/forms', '/forms/api/clients', '/people', '/knowledge', '/sw.js', '/search', '/recover', '/work', '/rooms', '/wx', '/api/me', '/api/search?q=a', '/api/w/socket', '/api/rooms/x', '/api/phone/webhook', '/agent/inbox/api/x', '/assets/x.js', '/r.js', '/s.json', '/w.html', '/rx/y', '/ssh', '/R/x', '/booking', '/books/x', '/bookx', '/calendar', '/api/calendar/booking-links', '/api/book/x']
 
   test('a look-alike or a team path is refused without a sign-in, and no guest part is asked about it', async () => {
     const s = setup()
@@ -238,6 +256,7 @@ describe('everything else is still behind the sign-in', () => {
     for (const path of TEAM) for (const method of ['GET', 'POST']) expect([method, path, (await w.call(path, { method })).status]).toEqual([method, path, 401])
     expect(s.meetSeen).toEqual([])
     expect(s.signerSeen).toEqual([])
+    expect(s.bookingSeen).toEqual([])
     expect(s.a.asked).toEqual([])
   })
 
@@ -257,7 +276,7 @@ describe('everything else is still behind the sign-in', () => {
     expect((await w.call('/today', { jwt: 'garbage' })).status).toBe(401)
   })
 
-  test('the prefixes are the layer’s three, which the Access bypass applications are made from', () => {
-    expect([...GUEST_PREFIXES]).toEqual(['/r', '/w', '/s'])
+  test('the prefixes are the layer’s four, which the Access bypass applications are made from', () => {
+    expect([...GUEST_PREFIXES]).toEqual(['/r', '/w', '/s', '/book'])
   })
 })

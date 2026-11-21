@@ -3,6 +3,8 @@
 // Every call is the person this request's one sign-in check named (packages/workspace/docs/adr/0003), whom the calendar admits if they are the install's owner and no one else. The calendar decides who may do what and
 // every rule of what it keeps; the space only carries the question and refuses an answer that is not the shape the contract says. NOTHING HERE ASKS GOOGLE: the calendar answers from its own store (the sync is its alarm's).
 //
+// The booking links (the space's ADR 0025) are settings here too: the card's list, and making, changing and deleting a link. A visitor's booking is not asked here: it comes in at the open path (src/booking.ts).
+//
 // The busy blocks (the space's ADR 0024) are settings here: how they stand, the switch and an account's part in it. None of them writes an event to Google; the calendar's own alarm does that, once the setting says so.
 //
 // The agenda is the calendar's events AND the meetings booked in Meet (they are on no Google calendar), merged by the page by time. Meet's are asked in parallel and may fail alone: the agenda then says they are not listed.
@@ -12,11 +14,15 @@
 
 import {
   ANSWER_WITHIN_MS,
+  BOOKING_STATES,
+  BOOKING_WEEKDAYS,
+  type BookingLinkView,
   CALENDAR_ACCOUNT_STATES,
   CALENDAR_RESPONSES,
   type CalendarAccountView,
   type CalendarAgenda,
   type CalendarBlocking,
+  type CalendarBookingLinks,
   type CalendarEvent,
   type CalendarView,
   type MeetCall,
@@ -203,4 +209,81 @@ export async function setBlockingAccount(ask: Asking, body: unknown): Promise<Pa
   if (!calendar) return { ok: true, value: { result: 'failed', message: 'The calendar is not connected to the space. Nothing was changed.' } }
   const [a, address, takesPart] = [ask.signedIn, body.account, body.takesPart]
   return { ok: true, value: answerOf(await reachWrite(PART, () => calendar.setBlockingAccount(a, address, takesPart), isCalendarBlocking, ask.writeWithinMs ?? WRITE_WITHIN_MS)) }
+}
+
+// ── The booking links (the space's ADR 0025) ────────────────────────────────────────────────────────────────────────────────────
+
+const bookingStates = new Set<string>(BOOKING_STATES)
+
+const isSpans = (v: unknown): boolean => each(v, (s) => isRecord(s) && isCount(s.from) && isCount(s.to))
+const isHours = (v: unknown): boolean => isRecord(v) && BOOKING_WEEKDAYS.every((d) => isSpans(v[d]))
+
+const isBookingRecord = (v: unknown): boolean =>
+  isRecord(v) && isText(v.id) && isText(v.linkName) && isText(v.name) && isText(v.email) && textOrNull(v.note) && isCount(v.start) && isCount(v.end) && isCount(v.bookedAt) && isText(v.state) && bookingStates.has(v.state) && (v.checked === 'google' || v.checked === 'copy') && textOrNull(v.link)
+
+export const isBookingLink = (v: unknown): v is BookingLinkView =>
+  isRecord(v) &&
+  isText(v.id) &&
+  isText(v.slug) &&
+  isText(v.name) &&
+  typeof v.description === 'string' &&
+  isText(v.account) &&
+  isText(v.accountLabel) &&
+  isCount(v.minutes) &&
+  isHours(v.hours) &&
+  isCount(v.noticeMinutes) &&
+  isCount(v.aheadDays) &&
+  isCount(v.gapMinutes) &&
+  (v.perDay === null || isCount(v.perDay)) &&
+  isBool(v.enabled) &&
+  isText(v.url) &&
+  textOrNull(v.problem) &&
+  each(v.bookings, isBookingRecord)
+
+export const isBookingLinks = (v: unknown): v is CalendarBookingLinks =>
+  isRecord(v) &&
+  each(v.links, isBookingLink) &&
+  each(v.accounts, (a) => isRecord(a) && isText(a.address) && isText(a.label) && isBool(a.canBook) && textOrNull(a.why)) &&
+  isRecord(v.defaults) &&
+  isCount(v.defaults.minutes) &&
+  isHours(v.defaults.hours) &&
+  isText(v.zone) &&
+  isText(v.origin)
+
+/** The booking links with their bookings, for Settings, Calendars. */
+export async function readBookingLinks(ask: Asking): Promise<ViewAnswer<CalendarBookingLinks>> {
+  const { calendar } = ask.apps
+  if (!calendar) return answerOf(notConnected(PART))
+  const a = ask.signedIn
+  return answerOf(await reach(PART, () => calendar.bookingLinks(a), isBookingLinks, ask.answerWithinMs ?? ANSWER_WITHIN_MS))
+}
+
+/** The calendar's own words refuse a link that is not whole, so the body is passed on as it came: this checks only that there is one. */
+const isBody = (v: unknown): v is Record<string, unknown> => isRecord(v)
+
+/** Make a booking link, by the owner, never retried. A setting only: no event is made until a visitor books. */
+export async function makeBookingLink(ask: Asking, body: unknown): Promise<Parsed<ViewAnswer<BookingLinkView>>> {
+  if (!isBody(body)) return { ok: false, message: 'Send the link as an object: {"slug": "intro", "name": "Intro call", ...}.' }
+  const { calendar } = ask.apps
+  if (!calendar) return { ok: true, value: { result: 'failed', message: 'The calendar is not connected to the space. Nothing was changed.' } }
+  const a = ask.signedIn
+  return { ok: true, value: answerOf(await reachWrite(PART, () => calendar.makeBookingLink(a, body as never), isBookingLink, ask.writeWithinMs ?? WRITE_WITHIN_MS)) }
+}
+
+/** Change a booking link (its rules, its account, whether it is on), by the owner, never retried. */
+export async function changeBookingLink(ask: Asking, body: unknown): Promise<Parsed<ViewAnswer<BookingLinkView>>> {
+  if (!isBody(body) || !isText(body.id) || !isBody(body.link)) return { ok: false, message: 'Say which link and what it is now: {"id": "<id>", "link": {...}}.' }
+  const { calendar } = ask.apps
+  if (!calendar) return { ok: true, value: { result: 'failed', message: 'The calendar is not connected to the space. Nothing was changed.' } }
+  const [a, id, link] = [ask.signedIn, body.id, body.link]
+  return { ok: true, value: answerOf(await reachWrite(PART, () => calendar.changeBookingLink(a, id, link as never), isBookingLink, ask.writeWithinMs ?? WRITE_WITHIN_MS)) }
+}
+
+/** Delete a booking link, by the owner, never retried. Its bookings stay as the events they are. */
+export async function deleteBookingLink(ask: Asking, body: unknown): Promise<Parsed<ViewAnswer<{ id: string }>>> {
+  if (!isBody(body) || !isText(body.id)) return { ok: false, message: 'Say which link: {"id": "<id>"}.' }
+  const { calendar } = ask.apps
+  if (!calendar) return { ok: true, value: { result: 'failed', message: 'The calendar is not connected to the space. Nothing was changed.' } }
+  const [a, id] = [ask.signedIn, body.id]
+  return { ok: true, value: answerOf(await reachWrite(PART, () => calendar.deleteBookingLink(a, id), (v): v is { id: string } => isRecord(v) && isText(v.id), ask.writeWithinMs ?? WRITE_WITHIN_MS)) }
 }

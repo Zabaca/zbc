@@ -1,8 +1,9 @@
-// The guests' and signers' door: three prefixes of the space's host that need NO sign-in (the space's ADR 0018).
+// The guests' and signers' door: four prefixes of the space's host that need NO sign-in (the space's ADR 0018, and 0025 for the fourth).
 //
 //   /r/  a call:           the page /r/<name>, its API /r/api/... (meet's call routes and Telnyx's webhook), the page's files /r/_/...
 //   /w/  channel guests:   the page /w/, their API /w/api/... (the emailed-code sign-in, their channels, their live socket), served by the same bundle as /r/
 //   /s/  a signer:         the page /s/<token>, forms' public API /s/api/... (the signer's calls and a client's logo), the page's files /s/_/...
+//   /book/ a booking link: the page /book/<name> and a booking's own page /book/manage/<secret>, the calendar's public API /book/api/... (src/booking.ts), the page's files /book/_/...
 //
 // The list of prefixes is the layer's (`GUEST_PREFIXES`, packages/workspace/src/guests.ts), the same one the Access bypass applications (the install kit) and the build read, so the edge, this router and the files
 // cannot disagree about which paths are open.
@@ -18,21 +19,23 @@
 // pinned by a test over the bundles' sources), so there is no way to put a script in it either. The pages' files are their own bundles, served from the folders above and from nowhere else, so the team page's files
 // (`/assets/...`) still need the sign-in.
 //
-// The bundles are built by the space's build (vite.guest-meet.config.ts, vite.guest-forms.config.ts) into dist/client/r/_/ and dist/client/s/_/, each page marked with `<meta name="guest-bundle">` so that a missing
+// The bundles are built by the space's build (vite.guest-meet.config.ts, vite.guest-forms.config.ts, vite.guest-booking.config.ts) into dist/client/r/_/, dist/client/s/_/ and dist/client/book/_/, each page marked with `<meta name="guest-bundle">` so that a missing
 // bundle (the asset router's fallback is the TEAM page) is a 503 and never the team's page under a guest's headers.
 //
 // Nothing here imports the Workers runtime, so `bun test` drives it.
 
-import { GUEST_API_DIR, GUEST_BUNDLE_DIR, type GuestPrefix, type Install, type WaitUntil, guestPrefixOf } from '@space/workspace'
+import { BOOKING_RESERVED_SLUGS, GUEST_API_DIR, GUEST_BUNDLE_DIR, type GuestPrefix, type Install, type WaitUntil, guestPrefixOf } from '@space/workspace'
 
-/** The two bundles: meet's page (calls at /r/, channel guests at /w/) and forms' signer page (/s/). */
-export type GuestBundle = 'meet' | 'forms'
+/** The three bundles: meet's page (calls at /r/, channel guests at /w/), forms' signer page (/s/) and the booking page (/book/, a link's page and a booking's own). */
+export type GuestBundle = 'meet' | 'forms' | 'booking'
 
 export interface GuestParts {
   /** Meet's guest side: the call API and Telnyx's webhook (`/r/api/...`) and the channel guests' API with its live socket (`/w/api/...`). Absent where meet's stores are not bound. */
   meet?: ((req: Request) => Promise<Response>) | undefined
   /** Forms' public API (`/s/api/...`): the signer's calls and a client's logo. Absent where forms' database and bucket are not bound. */
   signer?: ((req: Request, wait?: WaitUntil) => Promise<Response>) | undefined
+  /** The calendar's booking API (`/book/api/...`: src/booking.ts, over the calendar's third face). Absent where the calendar's store is not bound. */
+  booking?: ((req: Request) => Promise<Response>) | undefined
 }
 
 export interface GuestEnv {
@@ -42,7 +45,7 @@ export interface GuestEnv {
 export type GuestPartsFor = (env: never) => GuestParts
 
 /** The folder a bundle's files are served from, under the prefix that owns it: `/r/_/` for meet's (the workspace page at `/w/` loads from it too) and `/s/_/` for forms'. */
-export const BUNDLE_FOLDER: Record<GuestBundle, string> = { meet: `/r/${GUEST_BUNDLE_DIR}/`, forms: `/s/${GUEST_BUNDLE_DIR}/` }
+export const BUNDLE_FOLDER: Record<GuestBundle, string> = { meet: `/r/${GUEST_BUNDLE_DIR}/`, forms: `/s/${GUEST_BUNDLE_DIR}/`, booking: `/book/${GUEST_BUNDLE_DIR}/` }
 
 /** The tag every guest page carries and the door looks for, so the team's page can never be served in its place. */
 export const bundleMark = (bundle: GuestBundle): string => `<meta name="guest-bundle" content="${bundle}">`
@@ -51,6 +54,9 @@ export const bundleMark = (bundle: GuestBundle): string => `<meta name="guest-bu
 const ONE_SEGMENT = /^\/[^/]+\/?$/
 /** A signer's private link: 43 characters of URL-safe base64, the length of a 256-bit token. */
 const SIGNER_TOKEN = /^\/[A-Za-z0-9_-]{43}\/?$/
+/** A booking link's page: its slug (lower case letters, digits and single hyphens), which the page itself judges (a slug no link has shows "no such link"); and a booking's own page, `/manage/<secret>`. */
+const BOOKING_LINK = new RegExp(`^/(?!(?:${BOOKING_RESERVED_SLUGS.filter((x) => x !== '_').join('|')})/?$)[a-z0-9]+(-[a-z0-9]+)*/?$`)
+const BOOKING_MANAGE = /^\/manage\/[A-Za-z0-9_-]{8,200}\/?$/
 
 const notFound = () => Response.json({ error: 'Not found' }, { status: 404, headers: { 'cache-control': 'no-store' } })
 const notAllowed = () => Response.json({ error: 'Method not allowed' }, { status: 405, headers: { allow: 'GET, HEAD', 'cache-control': 'no-store' } })
@@ -86,17 +92,19 @@ export function policyFor(bundle: GuestBundle, origin: string): string {
   const at = (path: string) => `${here.origin}${path}`
   const socket = (path: string) => `wss://${here.host}${path}`
   const own = at(BUNDLE_FOLDER[bundle])
-  const connect = bundle === 'meet' ? [own, at(`/r/${GUEST_API_DIR}/`), at(`/w/${GUEST_API_DIR}/`), socket(`/w/${GUEST_API_DIR}/`)] : [own, at(`/s/${GUEST_API_DIR}/`)]
-  const images = bundle === 'meet' ? [own, 'data:', 'blob:'] : [own, at(`/s/${GUEST_API_DIR}/`), 'data:', 'blob:']
+  const connect = bundle === 'meet' ? [own, at(`/r/${GUEST_API_DIR}/`), at(`/w/${GUEST_API_DIR}/`), socket(`/w/${GUEST_API_DIR}/`)] : bundle === 'forms' ? [own, at(`/s/${GUEST_API_DIR}/`)] : [own, at(`/book/${GUEST_API_DIR}/`)]
+  const images = bundle === 'meet' ? [own, 'data:', 'blob:'] : bundle === 'forms' ? [own, at(`/s/${GUEST_API_DIR}/`), 'data:', 'blob:'] : [own, 'data:']
   return [
     "default-src 'none'",
-    `script-src ${own} 'wasm-unsafe-eval'`,
+    // The booking page draws text and a few shapes: no WebAssembly, so none is allowed it.
+    `script-src ${own}${bundle === 'booking' ? '' : " 'wasm-unsafe-eval'"}`,
     `style-src ${own} 'unsafe-inline'`,
     `img-src ${images.join(' ')}`,
     `font-src ${own} data:`,
     `connect-src ${connect.join(' ')}`,
-    `worker-src ${own} blob:`,
-    "media-src blob: mediastream:",
+    // The booking page opens no worker and plays no media.
+    bundle === 'booking' ? "worker-src 'none'" : `worker-src ${own} blob:`,
+    bundle === 'booking' ? "media-src 'none'" : "media-src blob: mediastream:",
     "manifest-src 'none'",
     "object-src 'none'",
     "frame-src 'none'",
@@ -182,6 +190,15 @@ export async function guestAnswer(req: Request, env: GuestEnv, guests: GuestPart
     if (rest.startsWith(bundleFolder)) return read ? file(env, req, 'meet') : notAllowed()
     // A call's page is a switch's: an install without calls has no call to open (its call API answers none either, packages/meet/src/space-guests.ts).
     if (ONE_SEGMENT.test(rest) && rest.split('/')[1] !== GUEST_API_DIR && rest.split('/')[1] !== GUEST_BUNDLE_DIR) return install && !install.has('calls') ? notFound() : read ? page(env, req, 'meet') : notAllowed()
+    return notFound()
+  }
+
+  if (prefix === '/book') {
+    // Booking links come with the calendar, which comes with Google: an install without the gmail switch has none, and nothing here answers.
+    if (install && !install.has('gmail')) return notFound()
+    if (rest.startsWith(api)) return guests.booking ? guests.booking(asGuest(req)) : unavailable()
+    if (rest.startsWith(bundleFolder)) return read ? file(env, req, 'booking') : notAllowed()
+    if (BOOKING_LINK.test(rest) || BOOKING_MANAGE.test(rest)) return read ? page(env, req, 'booking') : notAllowed()
     return notFound()
   }
 

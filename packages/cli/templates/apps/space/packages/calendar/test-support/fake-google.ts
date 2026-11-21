@@ -9,7 +9,9 @@ import type { CalendarAccess, CalendarAccessLevel, CalendarAccessRefusal } from 
  *  - `calendarList.list` and `events.list` with `nextPageToken` pages, and `nextSyncToken` ONLY on the last page;
  *  - an incremental read (`syncToken`) answers what changed since, cancelled events included; a token may be made stale (`expireTokens`), which is a 410; a token refuses `timeMin` and `timeMax` with it (a 400);
  *  - `events.watch` and `calendarList.watch` answer a `resourceId` and an `expiration` (ms, as text), the channel lives `ttl` seconds (7 days by default) or what the test sets (`channelLife`), and `channels.stop` ends one;
- *  - a notification has no body: its HEADERS name the channel, its secret, the resource and the state (`exists`).
+ *  - a notification has no body: its HEADERS name the channel, its secret, the resource and the state (`exists`);
+ *  - `freeBusy.query` answers, for each calendar asked, the stretches of its events that make it busy (an event that is not transparent, not cancelled and not declined by the account) and nothing else about them, with the reading token or any other, and an error
+ *    for a calendar the account does not have.
  * It is NOT evidence about Google. What it does with a sync token and a window is what the documents say, written by the same person who wrote the code under test; the hand test against the real calendars is where
  * those assumptions are checked (packages/calendar/docs/runbooks/calendar-google-setup.md lists them).
  */
@@ -294,6 +296,7 @@ export class FakeGoogle {
     const account = this.account(address)
 
     if (op === 'events.insert' || op === 'events.patch' || op === 'events.delete') return this.writeEvent(op, account, path, u.searchParams, body, this.writeTokens.has(bearer) ? 'events' : 'read')
+    if (op === 'freeBusy.query') return this.freeBusy(account, body)
     if (op === 'calendarList.list') return this.listCalendars(account, u.searchParams)
     if (op === 'events.list') return this.listEvents(account, decodeURIComponent(path.split('/')[2] ?? ''), u.searchParams)
     if (op === 'events.watch') return this.watch(account, decodeURIComponent(path.split('/')[2] ?? ''), body)
@@ -307,12 +310,43 @@ export class FakeGoogle {
     return json({ error: { code: 404, message: 'Not Found' } }, 404)
   }
 
+  /** `freeBusy.query`: when each calendar asked for is busy between `timeMin` and `timeMax`, and nothing of why. */
+  private freeBusy(account: FakeAccount, body: Json): Response {
+    const from = Date.parse(String(body.timeMin))
+    const to = Date.parse(String(body.timeMax))
+    if (!Number.isFinite(from) || !Number.isFinite(to) || to <= from) return json({ error: { code: 400, message: 'Invalid time range', errors: [{ reason: 'timeRangeEmpty' }] } }, 400)
+    const calendars: Json = {}
+    for (const item of (body.items as Json[] | undefined) ?? []) {
+      const id = String(item.id)
+      const calendar = account.calendars.get(id) ?? (id === 'primary' ? [...account.calendars.values()].find((c) => c.primary) : undefined)
+      if (!calendar || calendar.deleted) {
+        calendars[id] = { errors: [{ domain: 'global', reason: 'notFound' }], busy: [] }
+        continue
+      }
+      const busy: { start: string; end: string }[] = []
+      for (const e of calendar.events.values()) {
+        const raw = e.raw
+        if (raw.status === 'cancelled' || raw.transparency === 'transparent') continue
+        const mine = (raw.attendees as Json[] | undefined)?.find((a) => a.self === true)
+        if (mine?.responseStatus === 'declined') continue
+        const start = raw.start as Json
+        const end = raw.end as Json
+        const s = typeof start.dateTime === 'string' ? Date.parse(start.dateTime) : Date.parse(`${String(start.date)}T00:00:00Z`)
+        const f = typeof end.dateTime === 'string' ? Date.parse(end.dateTime) : Date.parse(`${String(end.date)}T00:00:00Z`)
+        if (f > from && s < to) busy.push({ start: new Date(s).toISOString(), end: new Date(f).toISOString() })
+      }
+      calendars[id] = { busy: busy.sort((a, b) => a.start.localeCompare(b.start)) }
+    }
+    return json({ kind: 'calendar#freeBusy', timeMin: body.timeMin, timeMax: body.timeMax, calendars })
+  }
+
   private opOf(method: string, path: string): string {
     if (method === 'GET' && path === '/users/me/calendarList') return 'calendarList.list'
     if (method === 'POST' && path === '/users/me/calendarList/watch') return 'calendarList.watch'
     if (method === 'GET' && /^\/calendars\/[^/]+\/events$/.test(path)) return 'events.list'
     if (method === 'POST' && /^\/calendars\/[^/]+\/events\/watch$/.test(path)) return 'events.watch'
     if (method === 'POST' && path === '/channels/stop') return 'channels.stop'
+    if (method === 'POST' && path === '/freeBusy') return 'freeBusy.query'
     if (method === 'POST' && /^\/calendars\/[^/]+\/events$/.test(path)) return 'events.insert'
     if (method === 'PATCH' && /^\/calendars\/[^/]+\/events\/[^/]+$/.test(path)) return 'events.patch'
     if (method === 'DELETE' && /^\/calendars\/[^/]+\/events\/[^/]+$/.test(path)) return 'events.delete'

@@ -1,13 +1,13 @@
 # Guests and signers use three open paths of the space's host, with no sign-in, and a policy that keeps their pages to those paths
 
-Status: accepted. A stage of the move to one Worker, after [0017](0017-the-inbox-runs-in-the-spaces-worker-and-its-store-is-handed-to-it.md).
+Status: accepted. A stage of the move to one Worker, after [0017](0017-the-inbox-runs-in-the-spaces-worker-and-its-store-is-handed-to-it.md). **Amended by [0025](0025-a-booking-link-is-a-public-page-where-a-visitor-takes-a-free-time-and-the-calendar-makes-the-event-with-the-link-the-owner-made-as-the-word-for-it.md): a fourth open path, `/book/` (a booking link's page and a booking's own page, the calendar's public API and the page's files), under the same policy; read every "three" below as four where an install has the calendar.**
 **Supersedes [0001](0001-one-front-door-four-tabs-the-apps-keep-their-data-and-outsiders-their-addresses.md)'s "outsiders keep their addresses"** for call guests, channel guests and signers; amends [0016](0016-meets-chat-calls-and-phone-run-in-the-spaces-worker-and-its-two-stores-are-handed-to-it.md)
 (the call API, the guests' sign-in and Telnyx's webhook are this Worker's now, not the `meet` Worker's) and [0015](0015-forms-and-the-knowledge-app-run-in-the-spaces-worker-and-the-knowledge-store-is-handed-to-it.md) (forms' public API and its hourly sweep run here).
 The sign-in rule for everything else is still the company layer's [ADR 0003](../../../workspace/docs/adr/0003-the-space-checks-the-sign-in-once-and-the-parts-in-its-worker-are-handed-the-person.md).
 
 ## The paths
 
-Three prefixes of `space.<company domain>` need no sign-in. They are the layer's (`GUEST_PREFIXES`, `packages/workspace/src/guests.ts`), and the Access applications, the Worker's router and the build all read that one list.
+Three prefixes of `space.<company domain>` need no sign-in (a fourth, `/book/`, is 0025's). They are the layer's (`GUEST_PREFIXES`, `packages/workspace/src/guests.ts`), and the Access applications, the Worker's router and the build all read that one list.
 
 | Prefix | Who | Page | API | The page's files |
 |---|---|---|---|---|

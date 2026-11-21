@@ -149,6 +149,81 @@ export const CALENDAR_MIGRATIONS: readonly CalendarMigration[] = [
   `
   ALTER TABLE "event" ADD COLUMN "block_by" TEXT;
   `,
+
+  // 4 ── booking links (the space's ADR 0025): a page where a visitor with no sign-in picks a free time and the calendar makes the event.
+  //
+  // `booking_link` is what the owner sets: the address's last part (`slug`, unique), the name and description a visitor reads, the account whose own calendar a booking is made on, the length, the hours of each weekday as JSON (`hours`, on the company's clock),
+  // the least notice, how far ahead, the gap kept around other meetings, an optional most-per-day (`per_day`) and whether it is on. Deleting a link deletes this row alone; its bookings stay (they are events at Google).
+  //
+  // `booking` is the record of what a link did, one row for each time a visitor took. `link_id` names a link that may be gone, so it is not a foreign key, and `link_name` is the name it had. The calendar and the event it was made on are kept with it, since the link's
+  // account may change later: `event_id` is DERIVED from the booking's own id (the same blocks' way, `bookingEventId`), so an insert whose outcome nobody knows is found again and never doubled. `state` is `held` (the time is taken in the store and Google has not said:
+  // no other visitor can have it), `booked` (Google made the event) or `cancelled` (the visitor cancelled); "removed at Google" is not stored, it is read from the calendar's own copy. `moving_start`, `moving_end` and `moving_at` hold the time a move is
+  // asking for while Google has not answered it. `manage_hash` is the SHA-256 of the booking's secret, which is shown to the visitor once and kept nowhere else; `network` is a keyed hash of the visitor's network address (never the address), and the two
+  // counters of use, `visitor_email` and `network`, are what the limits count. `checked` says whether Google was asked at the moment of booking (`google`) or the calendar's own copy was used for an account Google could not be asked about (`copy`).
+  //
+  // `booking_meta` holds the one value kept for hashing: a random pepper made on first use, so a hash of a network address cannot be worked back by trying every address.
+  `
+  CREATE TABLE "booking_link" (
+    "id" TEXT PRIMARY KEY,
+    "slug" TEXT NOT NULL UNIQUE,
+    "name" TEXT NOT NULL,
+    "description" TEXT NOT NULL DEFAULT '',
+    "account" TEXT NOT NULL,
+    "minutes" INTEGER NOT NULL,
+    "hours" TEXT NOT NULL,
+    "notice_minutes" INTEGER NOT NULL,
+    "ahead_days" INTEGER NOT NULL,
+    "gap_minutes" INTEGER NOT NULL,
+    "per_day" INTEGER,
+    "enabled" INTEGER NOT NULL DEFAULT 1,
+    "created_at" INTEGER NOT NULL,
+    "changed_at" INTEGER NOT NULL
+  );
+
+  CREATE TABLE "booking" (
+    "id" TEXT PRIMARY KEY,
+    "link_id" TEXT NOT NULL,
+    "link_name" TEXT NOT NULL,
+    "account" TEXT NOT NULL,
+    "calendar_id" TEXT NOT NULL,
+    "calendar_google_id" TEXT NOT NULL,
+    "event_id" TEXT NOT NULL,
+    "minutes" INTEGER NOT NULL,
+    "start_ms" INTEGER NOT NULL,
+    "end_ms" INTEGER NOT NULL,
+    "moving_start" INTEGER,
+    "moving_end" INTEGER,
+    "moving_at" INTEGER,
+    "visitor_name" TEXT NOT NULL,
+    "visitor_email" TEXT NOT NULL,
+    "note" TEXT,
+    "manage_hash" TEXT NOT NULL UNIQUE,
+    "state" TEXT NOT NULL CHECK ("state" IN ('held', 'booked', 'cancelled')),
+    "checked" TEXT NOT NULL DEFAULT 'copy' CHECK ("checked" IN ('google', 'copy')),
+    "moves" INTEGER NOT NULL DEFAULT 0,
+    "network" TEXT NOT NULL,
+    "created_at" INTEGER NOT NULL,
+    "booked_at" INTEGER,
+    "cancelled_at" INTEGER
+  );
+  CREATE INDEX "booking_link_idx" ON "booking" ("link_id", "start_ms");
+  CREATE INDEX "booking_time_idx" ON "booking" ("state", "start_ms");
+  CREATE INDEX "booking_visitor_idx" ON "booking" ("visitor_email", "created_at");
+  CREATE INDEX "booking_network_idx" ON "booking" ("network", "created_at");
+
+  CREATE TABLE "booking_meta" (
+    "id" TEXT PRIMARY KEY CHECK ("id" = 'booking'),
+    "pepper" TEXT NOT NULL
+  );
+  `,
+
+  // 5 ── what the per-address limits count (the space's ADR 0025): `visitor_key` is the visitor's address in its canonical form (lower case, no `+tag`, no dots for Gmail's own domains), so one inbox written several ways is one key; `visitor_email`
+  // stays the address as typed, which is the one invited. A row made before this one is keyed by its address as typed.
+  `
+  ALTER TABLE "booking" ADD COLUMN "visitor_key" TEXT NOT NULL DEFAULT '';
+  UPDATE "booking" SET "visitor_key" = "visitor_email";
+  CREATE INDEX "booking_visitor_key_idx" ON "booking" ("visitor_key", "created_at");
+  `,
 ]
 
 /** The version a fully migrated store reports. */

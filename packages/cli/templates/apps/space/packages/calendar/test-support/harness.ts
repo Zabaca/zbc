@@ -13,6 +13,8 @@ export const HOUR = 3_600_000
 export const DAY = 24 * HOUR
 export const ZONE = 'America/Los_Angeles'
 export const PUSH_URL = 'https://inbox-push.northfield.example/calendar/push'
+/** The space's own address in tests (`https://space.northfield.example`). */
+export const ORIGIN = `https://${declaration.space.host}`
 
 export const OWNER = 'tessa@northfield.example'
 export const NORTHFIELD = createInstall(declaration)
@@ -42,6 +44,8 @@ export interface HarnessOptions {
   google?: FakeGoogle
   /** The install's declared company id (default: Northfield's). */
   installId?: string
+  /** Give the engine a way to tell the owner of a booking; what it was told is `h.notified`. */
+  notify?: boolean
 }
 
 /**
@@ -60,6 +64,7 @@ export function harness(options: HarnessOptions = {}) {
   /** While `down` is true the inbox cannot be reached: asking who is connected throws. */
   const inbox = { down: false }
   const alarms: number[] = []
+  const notified: { id: string; name: string; start: number; end: number; linkName: string }[] = []
   let ids = 0
   let tokens = 0
   const store = new CalendarStore({ sql: mem.sql, transaction: mem.transaction, now: () => clock.t })
@@ -78,6 +83,9 @@ export function harness(options: HarnessOptions = {}) {
     now: () => clock.t,
     zone: ZONE,
     installId: options.installId ?? NORTHFIELD.company.id,
+    company: NORTHFIELD.company.name,
+    origin: ORIGIN,
+    ...(options.notify && { notify: async (booking) => void notified.push(booking) }),
     pushUrl: options.pushUrl === undefined ? PUSH_URL : options.pushUrl,
     newId: () => `channel-${++ids}`,
     newToken: () => `secret-${++tokens}`,
@@ -104,6 +112,8 @@ export function harness(options: HarnessOptions = {}) {
     /** `inbox.down = true` makes the inbox unreachable. */
     inbox,
     alarms,
+    /** What the engine told the owner of bookings, in order (only with `notify: true`). */
+    notified,
     logs,
     /** Move the clock. */
     advance: (ms: number) => {

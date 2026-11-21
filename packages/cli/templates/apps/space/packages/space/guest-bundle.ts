@@ -1,9 +1,9 @@
-// The two guest bundles' build, shared (the space's ADR 0018): meet's page (calls at /r/<name>, channel guests at /w/) and forms'
-// signer page (/s/<token>), each built from its own package's source and index.html into a folder of the space's assets that the Worker serves with no sign-in, and that is the only place the
+// The three guest bundles' build, shared (the space's ADR 0018 and 0025): meet's page (calls at /r/<name>, channel guests at /w/), forms'
+// signer page (/s/<token>) and the booking page (/book/<name> and /book/manage/<secret>), each built from its own source and index.html into a folder of the space's assets that the Worker serves with no sign-in, and that is the only place the
 // guest pages' files come from.
 //
 // WHY A BUILD OF THEIR OWN AND NOT ENTRIES OF THE SPACE'S. The team page's files are at /assets/ behind the sign-in, and a guest cannot load them. Two entries of one build would share chunks (react, pdf.js)
-// with the team's, and a shared chunk lives in one folder. So each guest bundle is a build of its own with a `base` that is its folder (`/r/_/`, `/s/_/`), emitted into dist/client/r/_/ and dist/client/s/_/ after the
+// with the team's, and a shared chunk lives in one folder. So each guest bundle is a build of its own with a `base` that is its folder (`/r/_/`, `/s/_/`, `/book/_/`), emitted into dist/client/r/_/, dist/client/s/_/ and dist/client/book/_/ after the
 // space's own build has emptied dist/client (package.json `build` runs them in that order). The Worker's content policy allows a guest page to load scripts from its folder and nowhere else of the host
 // (src/guests.ts), which is why nothing a guest page needs may be outside it.
 //
@@ -24,11 +24,11 @@ const mark = (bundle: string): Plugin => ({
 })
 
 /** The company this build serves is the declaration it bundles, named as vite.config.ts's is (build-install.ts). */
-export function guestBundle(opts: { bundle: 'meet' | 'forms'; root: string; prefix: '/r' | '/s'; plugins: PluginOption[]; publicDir: boolean }): (env: ConfigEnv) => UserConfig {
+export function guestBundle(opts: { bundle: 'meet' | 'forms' | 'booking'; root: string; prefix: '/r' | '/s' | '/book'; plugins: PluginOption[]; publicDir: boolean }): (env: ConfigEnv) => UserConfig {
   return ({ command }) => guestBundleFor(declarationFor(command), opts)
 }
 
-function guestBundleFor(declaration: string, opts: { bundle: 'meet' | 'forms'; root: string; prefix: '/r' | '/s'; plugins: PluginOption[]; publicDir: boolean }): UserConfig {
+function guestBundleFor(declaration: string, opts: { bundle: 'meet' | 'forms' | 'booking'; root: string; prefix: '/r' | '/s' | '/book'; plugins: PluginOption[]; publicDir: boolean }): UserConfig {
   const folder = `${opts.prefix}/${GUEST_BUNDLE_DIR}/`
   return {
     root: resolve(SPACE_ROOT, opts.root),

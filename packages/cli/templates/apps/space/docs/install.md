@@ -7,7 +7,7 @@ The starting files give the smallest install: Today, Meet's chat and channels, F
 ## What you need first
 
 - A Cloudflare account on the Workers Paid plan, with the company's domain as a zone in it. The space takes one hostname of that zone (`space.` by default).
-- A Zero Trust organisation in that account (the free plan is enough) with the one-time PIN sign-in offered. People sign in to the space through it; guests of a channel and signers of a document do not sign in.
+- A Zero Trust organisation in that account (the free plan is enough) with the one-time PIN sign-in offered. People sign in to the space through it; guests of a channel, signers of a document and the visitors of a booking link do not sign in.
 - A repository with zbc in it (`bunx @zabaca/zbc init`), `sops` and an age key for its secrets, and `bun`.
 - Sending from the company's domain turned on in Cloudflare (Email Sending), for the addresses Forms and Meet send from.
 
@@ -91,6 +91,7 @@ Each part is a change to the declaration and, where it needs a store or a secret
 | A business mailbox | The mailbox in the declaration, a raw-mail bucket and a delivery-report queue in the install file (instances `inbox-raw` and `inbox-delivery`), and a routing rule in your zone that sends the address to the Worker by its name, added after the apply |
 | Calls | A Cloudflare Realtime app and a TURN key, their ids in the install file and their secrets in the secrets file (instance `space-guest-calls`) |
 | Gmail and Google calendars | A Google app of the company's own; `vendor/space/packages/inbox/docs/runbooks/inbox-google-setup.md` and `vendor/space/packages/calendar/docs/runbooks/calendar-google-setup.md` |
+| Booking links (with Gmail) | One more open path: the install file's `access.guests.booking` (the names of the Access application and its policy for `/book/*`) and an instance file for `space-guest-booking` (copy `space-guest-signing`'s and change the key); the hand test is in the calendar runbook |
 | The assistant | A persona per mailbox in the content file, and a model key in the secrets file |
 | The phone line | `vendor/space/packages/meet/README.md` |
 

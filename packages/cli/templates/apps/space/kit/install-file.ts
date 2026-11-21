@@ -58,8 +58,8 @@ export interface InstallFile {
     telegram?: DoorNames
     clients?: DoorNames
     leads?: DoorNames
-    /** The three open paths of the space: a call's guests (only where `calls` is on), a channel's guests and a document's signers. */
-    guests: { calls?: ApplicationNames; chat: ApplicationNames; signing: ApplicationNames }
+    /** The open paths of the space: a call's guests (only where `calls` is on), a channel's guests, a document's signers, and the visitors of a booking link (only where `gmail` is on: the calendar comes with Google). */
+    guests: { calls?: ApplicationNames; chat: ApplicationNames; signing: ApplicationNames; booking?: ApplicationNames }
   }
   /** The NAMES of the secrets in the environment's sops file that the Worker is handed, grouped by what they are for. Never a value. */
   secrets: {
@@ -221,19 +221,21 @@ export function parseInstallFile(raw: unknown, install: Install): InstallFile {
     ...optional('leads', door('access.leads', accessO?.leads, d.leads?.door !== undefined, 'where the declaration gives the leads door (leads.door)')),
     guests: { chat: { application: '', policy: '' }, signing: { application: '', policy: '' } },
   }
-  const guestsO = section('access.guests', accessO?.guests, true, 'for the three open paths', ['calls', 'chat', 'signing'], problems)
+  const guestsO = section('access.guests', accessO?.guests, true, 'for the open paths', ['calls', 'chat', 'signing', 'booking'], problems)
   if (guestsO) {
     access.guests = {
       ...(on('calls') ? { calls: people('access.guests.calls', guestsO.calls) } : {}),
       chat: people('access.guests.chat', guestsO.chat),
       signing: people('access.guests.signing', guestsO.signing),
+      ...(on('gmail') ? { booking: people('access.guests.booking', guestsO.booking) } : {}),
     }
     if (!on('calls') && guestsO.calls !== undefined) problems.push('access.guests.calls: only where the calls switch is on')
+    if (!on('gmail') && guestsO.booking !== undefined) problems.push('access.guests.booking: only where the gmail switch is on')
   }
   // Each machine has a token of its own: one token on two doors is two doors with one key.
   const tokens = [access.agent, access.telegram, access.clients, access.leads].filter((x): x is DoorNames => x !== undefined).map((x) => x.token)
   if (new Set(tokens).size !== tokens.length) problems.push('access: each machine door has a token of its own, not another door\'s')
-  const applications = [access.space, access.forms, access.agent, access.telegram, access.clients, access.leads, access.guests.calls, access.guests.chat, access.guests.signing].filter((x) => x !== undefined).map((x) => x.application)
+  const applications = [access.space, access.forms, access.agent, access.telegram, access.clients, access.leads, access.guests.calls, access.guests.chat, access.guests.signing, access.guests.booking].filter((x) => x !== undefined).map((x) => x.application)
   if (new Set(applications).size !== applications.length) problems.push('access: two applications have the same name')
 
   // Secrets

@@ -97,7 +97,7 @@ A day and a week grid were first asked for; the set chosen is Google's own, so t
 
 ## What is not here
 
-No writing to Google from the space's own face (no event is made, moved or answered by a person's page), no booking page, no notifications or reminders. (Section 8 added the week and month grids. [0023](0023-claude-reads-the-free-time-and-makes-moves-and-cancels-events-through-the-inbox-under-the-send-rule.md) added Claude's way in, through the inbox: the free time, and an invite, a move and a cancellation, under the send rule; it is the only thing that asks Google for the write-level token.) The rest are later changes.
+No writing to Google from the space's own face (no event is made, moved or answered by a person's page), no booking page (there is one now: [0025](0025-a-booking-link-is-a-public-page-where-a-visitor-takes-a-free-time-and-the-calendar-makes-the-event-with-the-link-the-owner-made-as-the-word-for-it.md), on an open path, and it is the third writer to Google), no notifications or reminders. (Section 8 added the week and month grids. [0023](0023-claude-reads-the-free-time-and-makes-moves-and-cancels-events-through-the-inbox-under-the-send-rule.md) added Claude's way in, through the inbox: the free time, and an invite, a move and a cancellation, under the send rule; it is the only thing that asks Google for the write-level token.) The rest are later changes.
 
 ## What only the hand test settles
 

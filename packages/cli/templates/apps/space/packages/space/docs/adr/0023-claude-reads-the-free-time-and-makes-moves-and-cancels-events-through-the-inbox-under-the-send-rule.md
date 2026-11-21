@@ -44,7 +44,7 @@ A refusal is answered under its own status and recorded as refused (the account 
 
 ## What is not here
 
-No answering of invitations; no recurring events and no change to a whole series (a move or a cancel acts on the one event the key names, which for a repeating event is one occurrence); no all-day events made or moved; no calendar other than an account's primary one to make an event on; no booking page (that is a separate change, which will have its own rule about guests and strangers); no page or screen for the record (the audit holds it and `calendar writes` reads it). Changing what Connect calendar asks for is not part of this.
+No answering of invitations; no recurring events and no change to a whole series (a move or a cancel acts on the one event the key names, which for a repeating event is one occurrence); no all-day events made or moved; no calendar other than an account's primary one to make an event on; no booking page (that is a separate change, which has its own rule about guests and strangers: [0025](0025-a-booking-link-is-a-public-page-where-a-visitor-takes-a-free-time-and-the-calendar-makes-the-event-with-the-link-the-owner-made-as-the-word-for-it.md), where a booking also asks for the write-level token, for each write, and Claude's three writes stay as they are here); no page or screen for the record (the audit holds it and `calendar writes` reads it). Changing what Connect calendar asks for is not part of this.
 
 ## What only the hand test settles
 

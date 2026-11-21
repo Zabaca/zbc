@@ -1,10 +1,11 @@
-// Settings, Calendars: the busy blocks (one switch, and which accounts take part), then one card per Google account, with its calendars and a switch for whether each is shown in the Calendar tab and Today.
+// Settings, Calendars: the busy blocks (one switch, and which accounts take part), the booking links (src/client/BookingLinksSettings.tsx), then one card per Google account, with its calendars and a switch for whether each is shown in the Calendar tab and Today.
 //
 // THE GRANT IS THE INBOX'S. One Google permission per account serves mail and calendar (the calendar reuses the inbox's Google client), so this section has no Connect or Disconnect of its own: an account
 // that needs the calendar permission, or whose sign-in Google ended, is connected again through the same sign-in as its mail (a link to it, with the account hinted), and removing an account is Mailboxes' Disconnect, which takes
 // mail and calendar away together. Saying so is part of the page. Nothing here changes Google: the busy blocks' switch and ticks are the owner's settings, and the calendar's own alarm makes the blocks (the space's ADR 0024).
 import type { MouseEvent } from 'react'
 import { type CalendarAccountView, type CalendarBlocking, type CalendarBlockingAccount, type CalendarView, GMAIL_ACCOUNT_PARAM, GMAIL_FOR_PARAM, GMAIL_START_PATH, type InboxMailboxes } from '@space/workspace'
+import { BookingLinksCard } from './BookingLinksSettings'
 import { Glyph } from './icons'
 import { useFresh } from './liveHub'
 import { settingsPath } from './route'
@@ -239,6 +240,7 @@ export function CalendarsSection({ go }: { go: Go }) {
           />
         )}
       </Viewed>
+      <BookingLinksCard />
       <Viewed view={view.state} problem={view.problem} reload={view.reload} loading="Loading the calendars">
         {(accounts) => (
           <div data-testid="calendar-accounts" data-count={accounts.length}>

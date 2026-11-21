@@ -4,10 +4,11 @@
 // inbox holds mail. Every method here reads that store and none asks Google, so the tab and Today are as quick as the space and a Google outage shows as an old picture marked with when it was read.
 //
 // ONE FACE, for the space (`CalendarForSpace`): it runs INSIDE the space's Worker (the company layer's ADR 0003), over a store the Worker owns, and EVERY METHOD takes the person the space's one sign-in
-// check named (`SignedIn`), then admits the install's owner and no one else (the accounts are the owner's). A service token is never a person, so none comes through. None of its methods writes an event at Google: the three that
-// change anything change the owner's SETTINGS (a calendar shown, the busy-block switch and an account's part in it), and the writes that follow from the blocking switch are the calendar's own, from its alarm (the space's ADR 0024). Claude has no door to it
-// (the company layer's ADR 0002: Claude's one path leads to the inbox), and reaches the calendar through the inbox's router instead, by the second face at the foot of this file (`CalendarForInbox`): the free time read from
-// the store, and invites made, moved and cancelled under the rule a send of mail is under (the owner's instruction and the owner's switch; the space's ADR 0023).
+// check named (`SignedIn`), then admits the install's owner and no one else (the accounts are the owner's). A service token is never a person, so none comes through. None of its methods writes an event at Google: the ones that
+// change anything change the owner's SETTINGS (a calendar shown, the busy-block switch and an account's part in it, the booking links), and the writes that follow from the blocking switch are the calendar's own, from its alarm (the space's ADR 0024). Claude has no door to it
+// (the company layer's ADR 0002: Claude's one path leads to the inbox), and reaches the calendar through the inbox's router instead, by the second face further down (`CalendarForInbox`): the free time read from
+// the store, and invites made, moved and cancelled under the rule a send of mail is under (the owner's instruction and the owner's switch; the space's ADR 0023). A THIRD face, at the foot of the file (`CalendarForGuests`), is the open path's: the visitor of a
+// booking link, who is nobody the space knows (the space's ADR 0025).
 //
 // TIMES are milliseconds since the epoch; an all-day event is also given as its calendar days, because it has no hour (Google gives it a date, and the days must not move with the reader's zone).
 // EVENT TEXT IS UNTRUSTED (a title, a place, a description and a guest's name are whatever the organiser typed): the page draws it as text, never as markup.
@@ -22,8 +23,8 @@ export const CALENDAR_READONLY_SCOPE = 'https://www.googleapis.com/auth/calendar
 
 /**
  * The Google permission that creates, changes and deletes events (asked with the reading one, once per account, so a feature that writes events needs no second consent). Not the full `calendar` scope. Connect calendar
- * asks for it beside `CALENDAR_READONLY_SCOPE`. The sync never uses it; only Claude's invites, moves and cancellations do (`CalendarForInbox`), one call at a time, and the "Busy" blocks the owner's own switch keeps on their other calendars
- * (the space's ADR 0024), one token for each run of the alarm. A grant that has the reading permission without it is connected for reading all the same (see `CalendarGrant.events`) and cannot take one.
+ * asks for it beside `CALENDAR_READONLY_SCOPE`. The sync never uses it; only Claude's invites, moves and cancellations do (`CalendarForInbox`), one call at a time, the "Busy" blocks the owner's own switch keeps on their other calendars
+ * (the space's ADR 0024), one token for each run of the alarm, and a visitor's booking, move and cancellation (`CalendarForGuests`, the space's ADR 0025), each asking for its own. A grant that has the reading permission without it is connected for reading all the same (see `CalendarGrant.events`) and cannot take one.
  */
 export const CALENDAR_EVENTS_SCOPE = 'https://www.googleapis.com/auth/calendar.events'
 
@@ -261,10 +262,18 @@ export interface CalendarForSpace {
   setBlocking(asker: SignedIn, on: boolean): Promise<SpaceReply<CalendarBlocking>>
   /** Take an account in or out of the blocks (both ways: it gives its busy times and receives blocks). `not-found` for an address that is not an account. Answers how it now stands. */
   setBlockingAccount(asker: SignedIn, address: string, takesPart: boolean): Promise<SpaceReply<CalendarBlocking>>
+  /** The booking links (the space's ADR 0025) with each one's rules, why it cannot be booked now if it cannot, and its upcoming and recent bookings. Settings only: nothing here asks Google. */
+  bookingLinks(asker: SignedIn): Promise<SpaceReply<CalendarBookingLinks>>
+  /** Make a booking link. A setting only: no event is made until a visitor books. `bad-request` says which field is wrong. */
+  makeBookingLink(asker: SignedIn, input: BookingLinkInput): Promise<SpaceReply<BookingLinkView>>
+  /** Change a link (its rules, its account, whether it is on). Bookings already made are not touched. `not-found` for a link that is gone. */
+  changeBookingLink(asker: SignedIn, id: string, input: BookingLinkInput): Promise<SpaceReply<BookingLinkView>>
+  /** Delete a link. It books nothing from now on; the bookings it made stay as ordinary events, and their visitors can still cancel from their invitation. */
+  deleteBookingLink(asker: SignedIn, id: string): Promise<SpaceReply<{ id: string }>>
 }
 
 /** The method names, so a stub, a test and the binding agree on exactly these and no others. */
-export const CALENDAR_FOR_SPACE_METHODS = ['calendars', 'agenda', 'event', 'eventsByUid', 'setShown', 'syncNow', 'blocking', 'setBlocking', 'setBlockingAccount'] as const satisfies readonly (keyof CalendarForSpace)[]
+export const CALENDAR_FOR_SPACE_METHODS = ['calendars', 'agenda', 'event', 'eventsByUid', 'setShown', 'syncNow', 'blocking', 'setBlocking', 'setBlockingAccount', 'bookingLinks', 'makeBookingLink', 'changeBookingLink', 'deleteBookingLink'] as const satisfies readonly (keyof CalendarForSpace)[]
 
 // ── What Claude's script does with the calendar, through the inbox (the space's ADR 0023) ────────────────────────────────────────────
 
@@ -367,3 +376,213 @@ export interface CalendarForInbox {
 }
 
 export const CALENDAR_FOR_INBOX_METHODS = ['events', 'invite', 'move', 'cancel'] as const satisfies readonly (keyof CalendarForInbox)[]
+
+// ── Booking links (the space's ADR 0025) ─────────────────────────────────────────────────────────────────────────────────────────
+
+/** The days of a link's week, Monday first, as the owner sets the hours of each. */
+export const BOOKING_WEEKDAYS = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'] as const
+export type BookingWeekday = (typeof BOOKING_WEEKDAYS)[number]
+
+/** One stretch of a day a link can be booked in, in minutes after midnight on the company's clock: a meeting may start at `from` or later and must END by `to`. */
+export interface BookingSpan {
+  from: number
+  to: number
+}
+
+/** The hours of each weekday: none for a day it cannot be booked. */
+export type BookingHours = Record<BookingWeekday, BookingSpan[]>
+
+/** What a link lets a visitor book, besides its length: the hours of each weekday (on the company's clock), the least notice, how far ahead, the gap kept around other meetings, and an optional most-per-day. */
+export interface BookingRules {
+  hours: BookingHours
+  /** The least time between now and a meeting's start, in minutes. */
+  noticeMinutes: number
+  /** How many days ahead a meeting may be booked. */
+  aheadDays: number
+  /** The gap kept before and after any other meeting, in minutes. */
+  gapMinutes: number
+  /** The most meetings one day of this link holds, or null for no limit. */
+  perDay: number | null
+}
+
+/** The limits of what a link, a visitor's words and a visitor's use of the page may be. One list, for the calendar, the page and the tests. */
+export const BOOKING_LIMITS = {
+  /** A link's name and description, as the visitor reads them. */
+  nameMax: 80,
+  descriptionMax: 600,
+  /** The last part of a link's address. */
+  slugMin: 3,
+  slugMax: 40,
+  /** A meeting's length, in minutes. */
+  minutesMin: 5,
+  minutesMax: 240,
+  noticeMaxMinutes: 30 * 24 * 60,
+  aheadMaxDays: 90,
+  gapMaxMinutes: 120,
+  perDayMax: 20,
+  spansPerDayMax: 4,
+  /** The most links one install holds. */
+  linksMax: 20,
+  /** A visitor's name and note. */
+  visitorNameMax: 80,
+  visitorNoteMax: 1000,
+  /**
+   * What keeps a link from being used to send invitations to people who did not ask: in any 24 hours, one visitor's address is invited at most `perVisitor` times (and holds at most `upcomingPerVisitor` meetings that have not ended), one network address
+   * makes at most `perNetwork` bookings, and one link takes at most `perLink`. A booking is moved at most `moves` times.
+   */
+  perVisitor: 3,
+  upcomingPerVisitor: 5,
+  perNetwork: 10,
+  perLink: 30,
+  moves: 3,
+} as const
+
+/** The slugs a link cannot take: the open path's own folders. */
+export const BOOKING_RESERVED_SLUGS = ['api', '_', 'manage', 'm'] as const
+
+/** What a new link starts as (Monday to Friday, 9am to 5pm; four hours' notice, thirty days ahead, fifteen minutes around other meetings, no daily limit, thirty minutes long). */
+export const BOOKING_DEFAULTS: BookingRules & { minutes: number } = {
+  minutes: 30,
+  hours: { mon: [{ from: 540, to: 1020 }], tue: [{ from: 540, to: 1020 }], wed: [{ from: 540, to: 1020 }], thu: [{ from: 540, to: 1020 }], fri: [{ from: 540, to: 1020 }], sat: [], sun: [] },
+  noticeMinutes: 240,
+  aheadDays: 30,
+  gapMinutes: 15,
+  perDay: null,
+}
+
+/** The path of a link's page on the space's host, and of a booking's own page (the secret is the visitor's alone). */
+export const bookingLinkPath = (slug: string): string => `/book/${slug}`
+export const bookingManagePath = (secret: string): string => `/book/manage/${secret}`
+
+/** What the owner sets for a link. The same fields make and change one. */
+export interface BookingLinkInput extends BookingRules {
+  /** The last part of the address, lower case letters, digits and hyphens. */
+  slug: string
+  /** What the visitor reads as the link's name ("Intro call"); it is also the title of the event, with the visitor's name. */
+  name: string
+  description: string
+  /** The Google account whose own calendar a booking is made on. */
+  account: string
+  minutes: number
+  enabled: boolean
+}
+
+/** What a booking is, to the owner. `pending`: the time is held and Google has not said (it is looked for in the next reads and let go after an hour); `removed`: the event is no longer in the calendar (the owner cancelled it there). */
+export const BOOKING_STATES = ['pending', 'booked', 'cancelled', 'removed'] as const
+export type BookingState = (typeof BOOKING_STATES)[number]
+
+/** One booking, as Settings lists it under its link: who, when, and when it was booked. */
+export interface BookingRecord {
+  id: string
+  /** The link's name when it was booked (a renamed link keeps the old one here). */
+  linkName: string
+  name: string
+  email: string
+  note: string | null
+  start: number
+  end: number
+  bookedAt: number
+  state: BookingState
+  /** How the time was checked at the moment of booking: with Google (`google`), or, for an account Google could not be asked about, against the calendar's own copy of it (`copy`). */
+  checked: 'google' | 'copy'
+  /** The event in Google Calendar, or null. */
+  link: string | null
+}
+
+/** One link in Settings: what the owner set, whether it can be booked now (and why not), the address, and its bookings. */
+export interface BookingLinkView extends BookingLinkInput {
+  id: string
+  accountLabel: string
+  /** The address the owner sends: the space's host and `bookingLinkPath(slug)`. */
+  url: string
+  /** Why the link cannot be booked now, in the owner's words (its account's sign-in ended, it cannot change events, its main calendar is hidden or not read yet), else null. */
+  problem: string | null
+  /** The most recent bookings, upcoming first: those that have not ended, then those of the last 30 days. */
+  bookings: BookingRecord[]
+}
+
+/** The Booking links card: every link, the accounts a link can be made on, and what a new one starts as. */
+export interface CalendarBookingLinks {
+  links: BookingLinkView[]
+  accounts: { address: string; label: string; canBook: boolean; why: string | null }[]
+  defaults: BookingRules & { minutes: number }
+  /** The company's time zone: the hours are on its clock. */
+  zone: string
+  /** `https://<space host>`, which a link's address is made from. */
+  origin: string
+}
+
+// ── What a visitor is shown and may do (the open path's face) ────────────────────────────────────────────────────────────────────
+
+/** A link as a visitor sees it. Nothing of the owner's calendars is in it. */
+export interface GuestBookingLink {
+  company: string
+  name: string
+  description: string
+  minutes: number
+  /** The company's clock, which the hours are on. */
+  zone: string
+  /** False for a link that is turned off or whose account cannot be written to: the page then says it cannot be booked right now. */
+  open: boolean
+}
+
+/** The starting times a link offers, in order (milliseconds), and the span they cover. A time is free only: nothing says what the owner is doing otherwise. */
+export interface GuestBookingSlots {
+  from: number
+  to: number
+  starts: number[]
+}
+
+/** What a visitor gives to book. */
+export interface GuestBookingInput {
+  /** One of the starting times the link offered. */
+  start: number
+  name: string
+  email: string
+  note: string
+}
+
+/** What a visitor's booking page shows. `pending`: the invitation is not confirmed yet (Google has not answered); `removed`: the host removed it from their calendar; `past`: it has been. */
+export interface GuestBookingView {
+  company: string
+  /** The link's name when it was booked. */
+  title: string
+  slug: string | null
+  minutes: number
+  start: number
+  end: number
+  name: string
+  email: string
+  state: 'booked' | 'pending' | 'cancelled' | 'removed' | 'past'
+  zone: string
+  meetLink: string | null
+  canMove: boolean
+  canCancel: boolean
+  /** The link is still open, so another time can be picked. */
+  linkOpen: boolean
+}
+
+/** What a booking answers: the booking's own page, with the secret that is its address (shown once: the calendar keeps only a hash of it). */
+export interface GuestBooked {
+  secret: string
+  booking: GuestBookingView
+}
+
+/**
+ * The calendar as the OPEN PATH is given it (the space's ADR 0025): for the visitor of a booking link and for nothing else. It takes NO PERSON, because a visitor is nobody the space knows: what lets a visitor do anything is the link's address
+ * (public, and the owner's word that it may be booked) or a booking's own secret (the one thing that moves or cancels it). It is handed to the guest door of the space's Worker (packages/space/src/booking.ts) and to nothing else, never to the inbox,
+ * and it is the third thing in the calendar that writes an event to Google, after Claude's three writes and the owner's busy blocks: a booking makes, moves and deletes the one event it is, and Google sends the guest the invitation.
+ * `network` is the visitor's network address as the edge gave it; the calendar keeps only a keyed hash of it, to limit use of the page.
+ */
+export interface CalendarForGuests {
+  link(slug: string): Promise<SpaceReply<GuestBookingLink>>
+  slots(slug: string): Promise<SpaceReply<GuestBookingSlots>>
+  book(slug: string, input: GuestBookingInput, network: string): Promise<SpaceReply<GuestBooked>>
+  booking(secret: string): Promise<SpaceReply<GuestBookingView>>
+  /** The times a booking can be moved to: the link's own, with the booking's own time counted as free. */
+  bookingSlots(secret: string): Promise<SpaceReply<GuestBookingSlots>>
+  move(secret: string, start: number): Promise<SpaceReply<GuestBookingView>>
+  cancel(secret: string): Promise<SpaceReply<GuestBookingView>>
+}
+
+export const CALENDAR_FOR_GUESTS_METHODS = ['link', 'slots', 'book', 'booking', 'bookingSlots', 'move', 'cancel'] as const satisfies readonly (keyof CalendarForGuests)[]

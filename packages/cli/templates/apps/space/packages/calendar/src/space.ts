@@ -60,5 +60,10 @@ export function createSpaceCalendar(deps: SpaceCalendarDeps): CalendarForSpace {
     blocking: (asker) => asOwner(asker, 'blocking', async () => reply(await engine.call('blocking'))),
     setBlocking: (asker, on) => asOwner(asker, 'setBlocking', async () => reply(await engine.call('setBlocking', on))),
     setBlockingAccount: (asker, address, takesPart) => asOwner(asker, 'setBlockingAccount', async () => reply(await engine.call('setBlockingAccount', address, takesPart))),
+    // The booking links (the space's ADR 0025): settings only, like the blocks'. A visitor's booking is not asked here: it comes in at the open path, through the third face (src/guests.ts).
+    bookingLinks: (asker) => asOwner(asker, 'bookingLinks', async () => reply(await engine.call('bookingLinks'))),
+    makeBookingLink: (asker, input) => asOwner(asker, 'makeBookingLink', async () => reply(await engine.call('makeBookingLink', input))),
+    changeBookingLink: (asker, id, input) => asOwner(asker, 'changeBookingLink', async () => reply(await engine.call('changeBookingLink', id, input))),
+    deleteBookingLink: (asker, id) => asOwner(asker, 'deleteBookingLink', async () => reply(await engine.call('deleteBookingLink', id))),
   }
 }
