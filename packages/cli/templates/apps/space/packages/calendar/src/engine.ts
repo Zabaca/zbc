@@ -17,6 +17,7 @@ import {
   type CalendarBookingLinks,
   type CalendarEventCancelled,
   type CalendarClaudeAgenda,
+  type BookingCalls,
   type CalendarEvent,
   type CalendarEventAsk,
   type CalendarView,
@@ -66,6 +67,8 @@ export interface EngineDeps extends SyncDeps {
   origin: string
   /** Tell the owner a booking was made, in their own notifications (the inbox's, asked in-process by the object). Absent where nothing is wired: nobody is told. Best effort. */
   notify?: ((booking: { id: string; name: string; start: number; end: number; linkName: string }) => Promise<void>) | undefined
+  /** A way to make, move and close a call in the space's own Meet, for a booking link that holds its meetings there (the space's ADR 0026). Absent where nothing is wired: such a link cannot be booked, and "Where" is not offered. */
+  calls?: BookingCalls | undefined
 }
 
 export class CalendarEngine {
@@ -94,6 +97,7 @@ export class CalendarEngine {
       tell: d.tell,
       alarmAt: d.alarmAt,
       notify: d.notify,
+      calls: d.calls,
       log: d.log,
     })
   }

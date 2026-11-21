@@ -117,6 +117,11 @@ export interface RoomInfo {
   count: number
   cap: number
   full: boolean
+  /**
+   * Present only for a call made for a booking link (the space's ADR 0026), which is open only around its time: when it opens and closes to new people, and where it stands now. A call with no window (every other call) has none, and
+   * is exactly as it always was.
+   */
+  window?: { opensAt: number; closesAt: number; state: 'early' | 'open' | 'closed' }
 }
 
 /** One chat message as everyone in the call, and the owner's page, sees it. `memberId` is the sender's Member id (it is in the Snapshot too). */

@@ -6,6 +6,7 @@ import { api, managePath } from './api'
 import { Done } from './Done'
 import { Picker } from './Picker'
 import { dayFull, ownZone, span, zoneLabel } from './time'
+import { whereShort } from './where'
 
 type Load = { kind: 'loading' } | { kind: 'missing' } | { kind: 'failed'; message: string } | { kind: 'ready'; link: GuestBookingLink; starts: number[] }
 
@@ -55,7 +56,7 @@ export function LinkPage({ slug }: { slug: string }) {
         <h1>{link.name}</h1>
         <p className="meta">
           <span>{link.minutes} minutes</span>
-          <span>Google Meet</span>
+          <span data-testid="where">{whereShort(link.where)}</span>
         </p>
         {link.description !== '' && <p className="description">{link.description}</p>}
       </section>

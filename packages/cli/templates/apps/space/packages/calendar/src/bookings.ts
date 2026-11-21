@@ -22,10 +22,14 @@
  */
 
 import {
+  BOOKING_CALL_CLOSES_AFTER_MS,
+  BOOKING_CALL_OPENS_BEFORE_MS,
   BOOKING_DEFAULTS,
   BOOKING_LIMITS,
   BOOKING_RESERVED_SLUGS,
   BOOKING_WEEKDAYS,
+  BOOKING_WHERES,
+  type BookingCalls,
   type BookingHours,
   type BookingLinkView,
   type BookingRecord,
@@ -113,8 +117,8 @@ function readHours(raw: unknown): Result<BookingHours> {
 
 /** What the owner sets, checked: the link as it will be stored, or the sentence that refuses it. Unknown fields are refused, so a misspelt rule is not a link with a default. */
 export function readBookingLink(raw: unknown): Result<LinkWrite> {
-  if (!isRecord(raw)) return no('bad-request', 'A link is an object: slug, name, description, account, minutes, hours, noticeMinutes, aheadDays, gapMinutes, perDay and enabled.')
-  const known = ['slug', 'name', 'description', 'account', 'minutes', 'hours', 'noticeMinutes', 'aheadDays', 'gapMinutes', 'perDay', 'enabled']
+  if (!isRecord(raw)) return no('bad-request', 'A link is an object: slug, name, description, account, minutes, hours, noticeMinutes, aheadDays, gapMinutes, perDay, enabled and where.')
+  const known = ['slug', 'name', 'description', 'account', 'minutes', 'hours', 'noticeMinutes', 'aheadDays', 'gapMinutes', 'perDay', 'enabled', 'where']
   const extra = Object.keys(raw).filter((k) => !known.includes(k))
   if (extra.length > 0) return no('bad-request', `A link carries ${known.join(', ')} only, never ${extra.join(', ')}.`)
   const slug = typeof raw.slug === 'string' ? raw.slug.trim().toLowerCase() : ''
@@ -137,6 +141,9 @@ export function readBookingLink(raw: unknown): Result<LinkWrite> {
   if (!whole(raw.gapMinutes, 0, BOOKING_LIMITS.gapMaxMinutes)) return no('bad-request', `The gap around other meetings is 0 to ${BOOKING_LIMITS.gapMaxMinutes} minutes.`)
   if (raw.perDay !== null && raw.perDay !== undefined && !whole(raw.perDay, 1, BOOKING_LIMITS.perDayMax)) return no('bad-request', `The most in a day is 1 to ${BOOKING_LIMITS.perDayMax}, or no limit.`)
   if (typeof raw.enabled !== 'boolean') return no('bad-request', 'Say whether the link is on.')
+  // Where its meetings are held: Google Meet when it is left out (every link made before this was asked), or a call in the space.
+  const where = raw.where === undefined ? 'meet' : (BOOKING_WHERES as readonly unknown[]).includes(raw.where) ? (raw.where as 'meet' | 'space') : null
+  if (where === null) return no('bad-request', 'Where is Google Meet or a call in the space.')
   return ok({
     slug,
     name,
@@ -149,6 +156,7 @@ export function readBookingLink(raw: unknown): Result<LinkWrite> {
     gapMinutes: raw.gapMinutes,
     perDay: raw.perDay === undefined ? null : (raw.perDay as number | null),
     enabled: raw.enabled,
+    where,
   })
 }
 
@@ -264,6 +272,8 @@ export interface BookingDeps {
   newToken: () => string
   tell: () => void
   alarmAt: (at: number) => void | Promise<void>
+  /** A way to make, move and close a call in the space's own Meet, for a link set to hold its meetings there (the space's ADR 0026). Absent where nothing is wired: such a link cannot be booked, and "Where" is not offered. */
+  calls?: BookingCalls | undefined
   /** Tell the owner a booking was made, in their own notifications. Best effort: a booking is made whether or not anyone could be told. */
   notify?: ((booking: { id: string; name: string; start: number; end: number; linkName: string }) => Promise<void>) | undefined
   log?: ((line: string) => void) | undefined
@@ -271,6 +281,9 @@ export interface BookingDeps {
 
 /** What an account needs to hold a booking: or why it cannot, in the owner's words. */
 type Holder = { account: AccountRow; calendar: CalendarRow } | { problem: string }
+
+/** How long what the call allowance said is believed: a public page asks it for every visitor, and it is one read of Meet's ledger. */
+const METER_FRESH_MS = 30_000
 
 const describe = (error: unknown): string => (error instanceof Error ? error.message : String(error)).replace(/\s+/g, ' ').slice(0, 300)
 
@@ -302,10 +315,39 @@ export class CalendarBookings {
     return { account, calendar: main }
   }
 
-  /** The sentence for why a link cannot be booked, or null when it can. */
+  /** The sentence for why a link cannot be booked, or null when it can: its account, and for a link held in the space's call, that calls are switched on. */
   private problemOf(link: LinkRow): string | null {
     const held = this.holder(link.account)
-    return 'problem' in held ? held.problem : null
+    if ('problem' in held) return held.problem
+    if (link.where === 'space' && this.d.calls?.on !== true) return 'Calls are not turned on in this space, so a meeting cannot be held in a call. Choose Google Meet for this link, or turn calls on.'
+    return null
+  }
+
+  /** What the call allowance says, asked of Meet at most every half minute: why no call can be made now (the month's allowance is used up), or null. Only a link held in the space's call asks it. */
+  private meter: { at: number; why: string | null } | null = null
+  private async meterWhy(): Promise<string | null> {
+    const calls = this.d.calls
+    if (calls === undefined) return null
+    const now = this.d.now()
+    if (this.meter !== null && now - this.meter.at < METER_FRESH_MS) return this.meter.why
+    let why: string | null
+    try {
+      const c = await calls.check()
+      why = c.ok ? null : c.why
+    } catch (error) {
+      // Meet did not answer: no call can be made now, and the owner is told no more than that.
+      this.d.log?.(`calendar: whether a call can be made could not be asked: ${describe(error)}`)
+      why = 'The space\'s calls did not answer just now.'
+    }
+    this.meter = { at: now, why }
+    return why
+  }
+
+  /** `problemOf`, and for a link held in the space's call whether the month's allowance lets a call be made. */
+  private async problemNow(link: LinkRow): Promise<string | null> {
+    const fixed = this.problemOf(link)
+    if (fixed !== null || link.where !== 'space') return fixed
+    return this.meterWhy()
   }
 
   // ── The owner's side ──────────────────────────────────────────────────────────────────────────────────────────────────
@@ -317,6 +359,7 @@ export class CalendarBookings {
     const removed = b.state === 'booked' && event === null && calendar !== null && calendar.syncedAt !== null && b.bookedAt !== null && calendar.syncedAt > b.bookedAt
     return {
       id: b.id,
+      where: b.where,
       linkName: b.linkName,
       name: b.visitorName,
       email: b.visitorEmail,
@@ -330,7 +373,7 @@ export class CalendarBookings {
     }
   }
 
-  private viewOf(link: LinkRow): BookingLinkView {
+  private viewOf(link: LinkRow, problem: string | null): BookingLinkView {
     const now = this.d.now()
     const account = this.store.account(link.account)
     return {
@@ -347,15 +390,18 @@ export class CalendarBookings {
       gapMinutes: link.gapMinutes,
       perDay: link.perDay,
       enabled: link.enabled,
+      where: link.where,
       url: `${this.d.origin}/book/${link.slug}`,
-      problem: this.problemOf(link),
+      problem,
       bookings: this.rows.recentOf(link.id, now, now - BOOKING_RECENT_MS, BOOKING_LIST_MAX).map((b) => this.recordOf(b)),
     }
   }
 
-  links(): Result<CalendarBookingLinks> {
+  async links(): Promise<Result<CalendarBookingLinks>> {
+    const links: BookingLinkView[] = []
+    for (const l of this.rows.links()) links.push(this.viewOf(l, await this.problemNow(l)))
     return ok({
-      links: this.rows.links().map((l) => this.viewOf(l)),
+      links,
       accounts: this.store.accounts().map((a) => {
         const held = this.holder(a.address)
         return { address: a.address, label: a.label, canBook: !('problem' in held), why: 'problem' in held ? held.problem : null }
@@ -363,6 +409,7 @@ export class CalendarBookings {
       defaults: BOOKING_DEFAULTS,
       zone: this.d.zone,
       origin: this.d.origin,
+      calls: this.d.calls?.on === true,
     })
   }
 
@@ -372,28 +419,32 @@ export class CalendarBookings {
     if (!read.ok) return read
     const w = read.value
     if (!this.store.account(w.account)) return no('bad-request', `${w.account} is not a connected Google account.`)
+    // A call in the space is offered only where calls are on; a link already set to it may be saved as it is (its problem is said in Settings), but not newly set to it.
+    if (w.where === 'space' && this.d.calls?.on !== true && (except === null || this.rows.link(except)?.where !== 'space')) return no('bad-request', 'Calls are not turned on in this space, so a link cannot hold its meetings in a call.')
     const taken = this.rows.linkBySlug(w.slug)
     if (taken && taken.id !== except) return no('conflict', `The address ${w.slug} is used by another link. Pick another.`)
     return ok(w)
   }
 
-  makeLink(input: unknown): Result<BookingLinkView> {
+  async makeLink(input: unknown): Promise<Result<BookingLinkView>> {
     const read = this.checked(input, null)
     if (!read.ok) return read
     if (this.rows.links().length >= BOOKING_LIMITS.linksMax) return no('limit', `A space holds at most ${BOOKING_LIMITS.linksMax} booking links. Delete one first.`)
     const id = this.d.newId()
     this.rows.addLink(id, read.value)
     this.d.tell()
-    return ok(this.viewOf(this.rows.link(id) as LinkRow))
+    const made = this.rows.link(id) as LinkRow
+    return ok(this.viewOf(made, await this.problemNow(made)))
   }
 
-  changeLink(id: unknown, input: unknown): Result<BookingLinkView> {
+  async changeLink(id: unknown, input: unknown): Promise<Result<BookingLinkView>> {
     if (typeof id !== 'string' || !this.rows.link(id)) return no('not-found', 'No such link.')
     const read = this.checked(input, id)
     if (!read.ok) return read
     this.rows.changeLink(id, read.value)
     this.d.tell()
-    return ok(this.viewOf(this.rows.link(id) as LinkRow))
+    const changed = this.rows.link(id) as LinkRow
+    return ok(this.viewOf(changed, await this.problemNow(changed)))
   }
 
   deleteLink(id: unknown): Result<{ id: string }> {
@@ -470,16 +521,21 @@ export class CalendarBookings {
     return link.enabled && this.problemOf(link) === null
   }
 
-  guestLink(slug: unknown): Result<GuestBookingLink> {
-    const link = typeof slug === 'string' ? this.rows.linkBySlug(slug) : null
-    if (!link) return no('not-found', 'There is no such booking link.')
-    return ok({ company: this.d.company, name: link.name, description: link.description, minutes: link.minutes, zone: this.d.zone, open: this.open(link) })
+  /** `open`, and for a link held in the space's call whether a call can be made now (the month's allowance): what decides whether a NEW booking may be taken. A booking already made does not ask it. */
+  private async openNow(link: LinkRow): Promise<boolean> {
+    return this.open(link) && (link.where !== 'space' || (await this.meterWhy()) === null)
   }
 
-  guestSlots(slug: unknown): Result<GuestBookingSlots> {
+  async guestLink(slug: unknown): Promise<Result<GuestBookingLink>> {
     const link = typeof slug === 'string' ? this.rows.linkBySlug(slug) : null
     if (!link) return no('not-found', 'There is no such booking link.')
-    if (!this.open(link)) return no('conflict', CLOSED_WORDS)
+    return ok({ company: this.d.company, name: link.name, description: link.description, minutes: link.minutes, zone: this.d.zone, open: await this.openNow(link), where: link.where })
+  }
+
+  async guestSlots(slug: unknown): Promise<Result<GuestBookingSlots>> {
+    const link = typeof slug === 'string' ? this.rows.linkBySlug(slug) : null
+    if (!link) return no('not-found', 'There is no such booking link.')
+    if (!(await this.openNow(link))) return no('conflict', CLOSED_WORDS)
     const now = this.d.now()
     return ok({ from: now, to: now + link.aheadDays * DAY, starts: this.slotsFor(link) })
   }
@@ -505,7 +561,9 @@ export class CalendarBookings {
       email: b.visitorEmail,
       state,
       zone: this.d.zone,
-      meetLink: event?.videoLink ?? null,
+      where: b.where,
+      // Where it is held: Google's Meet link, or the call made for the booking (which is gone when the booking is).
+      meetLink: b.where === 'space' ? (state === 'cancelled' ? null : b.callLink) : (event?.videoLink ?? null),
       canMove: state === 'booked' && start > now && b.moves < BOOKING_LIMITS.moves && linkOpen,
       canCancel: state === 'booked' && end > now,
       linkOpen,
@@ -550,8 +608,55 @@ export class CalendarBookings {
    * The description of the event: what the link is and the address only that visitor has. NEVER the visitor's note: the invitation goes in the owner's name to an address the visitor typed, and a note could carry a link or a claim into it. The owner reads the note in
    * Settings, Calendars (the booking's record), not in the event.
    */
-  private descriptionOf(link: LinkRow, secret: string): string {
-    return `Booked through "${link.name}". To move or cancel this meeting, use this address: ${this.d.origin}${bookingManagePath(secret)}`
+  private descriptionOf(link: LinkRow, secret: string, callLink: string | null): string {
+    const manage = `To move or cancel this meeting, use this address: ${this.d.origin}${bookingManagePath(secret)}`
+    // A call in the space is joined from a browser with no account: the description says so, and where.
+    return callLink === null ? `Booked through "${link.name}". ${manage}` : `Booked through "${link.name}". Join the video call in your browser, no account needed: ${callLink}\n${manage}`
+  }
+
+  /** The window a call is open for, from the booked time: from 30 minutes before the start until 2 hours after the end. */
+  private windowOf(start: number, end: number): { startsAt: number; opensAt: number; closesAt: number } {
+    return { startsAt: start, opensAt: start - BOOKING_CALL_OPENS_BEFORE_MS, closesAt: end + BOOKING_CALL_CLOSES_AFTER_MS }
+  }
+
+  /** A booking's call is closed (its link says there is no such call), now or, when Meet does not answer, by the alarm. Answers whether it is closed. */
+  private async closeCall(b: BookingRow): Promise<boolean> {
+    if (b.callName === null) return true
+    if (b.callClosed) return true
+    const calls = this.d.calls
+    if (calls === undefined) return false
+    try {
+      const done = await calls.close(b.callName)
+      if (!done.ok) this.d.log?.(`calendar: the call of a booking would not close: ${done.why}`)
+      // A refusal ("there is no such call") leaves nothing open to close: it is not tried again.
+      this.rows.markCallClosed(b.id)
+      return true
+    } catch (error) {
+      this.d.log?.(`calendar: the call of a booking could not be closed, it will be tried again: ${describe(error)}`)
+      return false
+    }
+  }
+
+  /** A booking moved: its call's window follows. When Meet does not answer, the call keeps the old time and the alarm tries again (the start the window was set for is what says it is behind). */
+  private async followCall(b: BookingRow): Promise<boolean> {
+    if (b.callName === null || b.callClosed || b.callStart === b.start) return true
+    const calls = this.d.calls
+    if (calls === undefined) return false
+    try {
+      const done = await calls.move(b.callName, this.windowOf(b.start, b.end))
+      if (!done.ok) this.d.log?.(`calendar: the call of a moved booking would not move: ${done.why}`)
+      // A refusal leaves nothing to move (the call is gone): not tried again.
+      this.rows.setCallStart(b.id, b.start)
+      return true
+    } catch (error) {
+      this.d.log?.(`calendar: the call of a moved booking could not be moved, it will be tried again: ${describe(error)}`)
+      return false
+    }
+  }
+
+  /** The calls waiting on Meet: those of cancelled bookings (to close) and of moved ones (to follow). */
+  private callsBehind(): BookingRow[] {
+    return this.rows.openCalls(this.d.now() - BOOKING_CALL_CLOSES_AFTER_MS).filter((b) => b.state === 'cancelled' || b.callStart !== b.start)
   }
 
   private async owe(calendarId: string): Promise<void> {
@@ -597,10 +702,13 @@ export class CalendarBookings {
     const pepper = this.rows.pepper(() => this.d.newToken())
     const [eventId, manageHash, networkHash] = await Promise.all([bookingEventId(this.d.installId, id), secretHash(secret), sha256(`${pepper}\nnetwork\n${networkKeyOf(network)}`).then((b) => hex(b).slice(0, 32))])
 
+    // A link held in the space's call asks, before the time is taken, whether a call can be made (the month's allowance).
+    const meterStops = typeof slug === 'string' && this.rows.linkBySlug(slug)?.where === 'space' ? (await this.meterWhy()) !== null : false
+
     const link = typeof slug === 'string' ? this.rows.linkBySlug(slug) : null
     if (!link) return no('not-found', 'There is no such booking link.')
     const holder = this.holder(link.account)
-    if (!link.enabled || 'problem' in holder) return no('conflict', CLOSED_WORDS)
+    if (!link.enabled || 'problem' in holder || this.problemOf(link) !== null || (link.where === 'space' && meterStops)) return no('conflict', CLOSED_WORDS)
     if (!this.slotsFor(link).includes(asked.start)) return no('conflict', TAKEN_WORDS)
     // After the slot check, so a probe needs a time the link really offers, and with one sentence for all of them: nothing here says whether an address is the owner's, or has booked.
     const key = canonicalAddress(asked.email)
@@ -624,6 +732,7 @@ export class CalendarBookings {
       note: asked.note === '' ? null : asked.note,
       manageHash,
       checked: 'copy',
+      where: link.where,
       network: networkHash,
       createdAt: this.d.now(),
     })
@@ -643,16 +752,43 @@ export class CalendarBookings {
       this.rows.removeBooking(id)
       return no('conflict', CLOSED_WORDS)
     }
+    // A call in the space is made now: after the time is held and Google has said the owner is free, and before the event, which carries its link as the place. The booking's own id is the call's key, so a retry makes no second one.
+    let call: { name: string; link: string } | null = null
+    if (link.where === 'space') {
+      const title = `${link.name}: ${asked.name}`
+      let made: Awaited<ReturnType<BookingCalls['make']>>
+      try {
+        made = this.d.calls === undefined ? { ok: false, why: 'No calls are wired.' } : await this.d.calls.make({ key: id, title, guest: { name: asked.name, email: asked.email }, ...this.windowOf(asked.start, end) })
+      } catch (error) {
+        // Not known whether it was made: nobody has its address (no invitation went out), so the time is let go and nothing is open to anyone.
+        this.d.log?.(`calendar: a call for a booking could not be made: ${describe(error)}`)
+        this.rows.removeBooking(id)
+        return no('conflict', CLOSED_WORDS)
+      }
+      if (!made.ok) {
+        this.d.log?.(`calendar: a call for a booking was refused: ${made.why}`)
+        this.rows.removeBooking(id)
+        return no('conflict', CLOSED_WORDS)
+      }
+      call = { name: made.name, link: made.link }
+      this.rows.setCall(id, made.name, made.link, asked.start)
+    }
+    // A booking that fails after its call was made leaves no open call.
+    const letGo = async (): Promise<void> => {
+      const b = this.rows.booking(id)
+      if (b !== null && !(await this.closeCall(b))) this.d.log?.('calendar: the call of a booking that failed could not be closed; nobody has its address')
+      this.rows.removeBooking(id)
+    }
     const body = {
       id: eventId,
       summary: `${link.name}: ${asked.name}`,
-      description: this.descriptionOf(link, secret),
+      description: this.descriptionOf(link, secret, call === null ? null : call.link),
       start: { dateTime: isoAt(asked.start, this.d.zone), timeZone: this.d.zone },
       end: { dateTime: isoAt(end, this.d.zone), timeZone: this.d.zone },
       attendees: [{ email: asked.email, displayName: asked.name }],
       guestsCanInviteOthers: false,
-      // The request's own id is the booking's, so a Meet link asked for twice is one.
-      conferenceData: { createRequest: { requestId: id, conferenceSolutionKey: { type: 'hangoutsMeet' } } },
+      // Google Meet: the request's own id is the booking's, so a Meet link asked for twice is one. A call in the space: its link is the place, and no Google Meet is asked for.
+      ...(call === null ? { conferenceData: { createRequest: { requestId: id, conferenceSolutionKey: { type: 'hangoutsMeet' } } } } : { location: call.link }),
     }
     let raw: Record<string, unknown> | null = null
     try {
@@ -661,7 +797,7 @@ export class CalendarBookings {
       if (error instanceof CalendarAccessError || error instanceof CalendarRefused || (error instanceof CalendarError && (error.status === 400 || error.status === 403))) {
         // A decision about the write: nothing was made, and the time is let go.
         this.d.log?.(`calendar: a booking was refused by Google: ${describe(error)}`)
-        this.rows.removeBooking(id)
+        await letGo()
         return no('conflict', CLOSED_WORDS)
       }
       if (error instanceof CalendarError && error.status === 409) {
@@ -728,6 +864,8 @@ export class CalendarBookings {
     }
     await this.owe(b.calendarId)
     this.d.tell()
+    // The same call, at the new time: now, or by the alarm when Meet does not answer.
+    await this.followCall(this.rows.booking(b.id) as BookingRow)
     return ok(this.viewFor(this.rows.booking(b.id) as BookingRow))
   }
 
@@ -758,6 +896,8 @@ export class CalendarBookings {
     this.rows.markCancelled(b.id, this.d.now())
     await this.owe(b.calendarId)
     this.d.tell()
+    // Its call is closed: now, or by the alarm when Meet does not answer.
+    await this.closeCall(this.rows.booking(b.id) as BookingRow)
     return ok(this.viewFor(this.rows.booking(b.id) as BookingRow))
   }
 
@@ -783,6 +923,8 @@ export class CalendarBookings {
           await this.told(b)
           changed = true
         } else if (now - b.createdAt >= BOOKING_HOLD_MS && readSince(b.calendarId, b.createdAt)) {
+          // A held booking that is let go has no open call: it is closed first, and while Meet does not answer the hold stays and is looked at again.
+          if (!(await this.closeCall(b))) continue
           this.rows.removeBooking(b.id)
           changed = true
         }
@@ -797,6 +939,11 @@ export class CalendarBookings {
           changed = true
         }
       }
+      // Calls Meet did not answer for: a cancelled booking's (to close) and a moved one's (to follow).
+      for (const b of this.callsBehind()) {
+        const done = b.state === 'cancelled' ? await this.closeCall(b) : await this.followCall(b)
+        if (done) changed = true
+      }
       return changed
     } catch (error) {
       this.d.log?.(`calendar: the bookings waiting on Google could not be looked at: ${describe(error)}`)
@@ -806,6 +953,6 @@ export class CalendarBookings {
 
   /** When the alarm should ring for the bookings: while one is waiting on Google, soon; never (infinity) when none is. */
   nextWake(): number {
-    return this.rows.held().length > 0 || this.rows.moving().length > 0 ? this.d.now() + BOOKING_LOOK_MS : Number.POSITIVE_INFINITY
+    return this.rows.held().length > 0 || this.rows.moving().length > 0 || this.callsBehind().length > 0 ? this.d.now() + BOOKING_LOOK_MS : Number.POSITIVE_INFINITY
   }
 }

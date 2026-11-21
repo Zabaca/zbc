@@ -52,16 +52,17 @@ export const pausedWords = (m: Meter): string => `Calls are paused until ${m.pau
 
 /**
  * Make a call: refused while the meter has tripped (new joins are refused then too), otherwise a fresh name, its Room, and its place in the ledger's
- * index. `maker` is the declared address of the person who made it (the owner's rule for a call with none), or 'guest' for a channel guest.
+ * index. `maker` is the declared address of the person who made it (the owner's rule for a call with none), or 'guest' for a channel guest. `window` is for a booking link's call alone (the space's ADR 0026): it is made with its
+ * opening and closing already set, so a call that is made and then fails to be recorded is still one that closes.
  */
-export async function makeCall(d: CallDeps, maker: string | null): Promise<string> {
+export async function makeCall(d: CallDeps, maker: string | null, window?: { opensAt: number; closesAt: number }): Promise<string> {
   const m = await meterOf(d.ledger(), d.now())
   if (m.paused) throw new RoomError(429, pausedWords(m))
   for (let attempt = 0; attempt < 5; attempt++) {
     const name = newRoomName(d.randomBytes)
     const room = d.room(name)
     if (await room.exists()) continue
-    await room.create(name, d.now())
+    await room.create(name, d.now(), window)
     await d.ledger().recordCall(name, d.now(), maker)
     return name
   }
@@ -75,6 +76,9 @@ export interface CallSpec {
   title?: string | null
   startsAt?: number | null
   invitees?: Array<{ name: string; address: string | null }>
+  /** A call made for a booking link (the space's ADR 0026): a meeting with neither a conversation nor a home, kept out of the Calendar's and Today's lists of meetings (its Google event is there), open only in `window`. Set by `bookingCalls` alone. */
+  booking?: true
+  window?: { opensAt: number; closesAt: number }
 }
 
 /**
@@ -85,7 +89,7 @@ export async function makeKeyedCall(d: CallDeps, actor: Actor, maker: string | n
   const ws = d.workspace()
   const begun = await ws.callBegin(actor, key, spec.kind, spec.convId ?? null, d.now())
   if (begun.held) return { repeated: true, call: begun.held, message: null }
-  const name = await makeCall(d, maker)
+  const name = await makeCall(d, maker, spec.window)
   return ws.callRecord(actor, key, spec, name, callLink(d.appOrigin, name), d.now())
 }
 

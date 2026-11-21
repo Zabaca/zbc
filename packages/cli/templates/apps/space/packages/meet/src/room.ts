@@ -162,6 +162,11 @@ export const ADDITIONS: ReadonlyArray<{ table: string; column: string; definitio
   { table: 'room', column: 'ended_at', definition: 'INTEGER' },
   // When the first person took a seat: with `ended_at`, how long the call ran. A call that began before this column existed has none.
   { table: 'room', column: 'opened_at', definition: 'INTEGER' },
+  // A call made for a booking link is open only around its time (the space's ADR 0026): the moment it opens to new people and the moment it closes to them, both null for every other call, which never closes. `cancelled_at` is set when
+  // the booking is cancelled: the call's link then says there is no such call. People already in carry on in every case.
+  { table: 'room', column: 'opens_at', definition: 'INTEGER' },
+  { table: 'room', column: 'closes_at', definition: 'INTEGER' },
+  { table: 'room', column: 'cancelled_at', definition: 'INTEGER' },
 ]
 
 export class RoomError extends Error {
@@ -260,10 +265,48 @@ export class RoomCore {
     return this.ready && this.sql.all('SELECT 1 FROM room WHERE id = 1').length > 0
   }
 
-  create(name: string, now: number): void {
+  /** Make the call. With a window (a booking link's call) it is open to new people only from `opensAt` to `closesAt`; without one it never closes. */
+  create(name: string, now: number, window?: { opensAt: number; closesAt: number }): void {
     if (this.exists()) throw new RoomError(409, 'room exists')
     this.migrate()
     this.sql.run('INSERT INTO room (id, name, created_at, flushed_at) VALUES (1, ?, ?, ?)', name, now, now)
+    if (window) this.setWindow(window.opensAt, window.closesAt, true)
+  }
+
+  /**
+   * Move the window of a booking link's call (the booking moved). Only a call that HAS a window can be changed, so no other call (a huddle, a call link, a meeting made in the space) can be given one or closed through here: they never close.
+   * `fresh` is the call being made, which has none yet.
+   */
+  setWindow(opensAt: number, closesAt: number, fresh = false): void {
+    this.requireRoom()
+    if (!Number.isSafeInteger(opensAt) || !Number.isSafeInteger(closesAt) || closesAt <= opensAt) throw new RoomError(400, 'bad request')
+    if (!fresh && this.windowRow().opensAt === null) throw new RoomError(400, 'bad request')
+    this.sql.run('UPDATE room SET opens_at = ?, closes_at = ? WHERE id = 1', opensAt, closesAt)
+  }
+
+  /** The booking was cancelled: no new person gets in, and the link says there is no such call. Only a call with a window. People already in carry on. */
+  cancelCall(now: number): void {
+    this.requireRoom()
+    if (this.windowRow().opensAt === null) throw new RoomError(400, 'bad request')
+    this.sql.run('UPDATE room SET cancelled_at = COALESCE(cancelled_at, ?) WHERE id = 1', now)
+  }
+
+  private windowRow(): { opensAt: number | null; closesAt: number | null; cancelledAt: number | null } {
+    const r = this.sql.all<{ opens_at: number | null; closes_at: number | null; cancelled_at: number | null }>('SELECT opens_at, closes_at, cancelled_at FROM room WHERE id = 1')[0]
+    return { opensAt: r?.opens_at ?? null, closesAt: r?.closes_at ?? null, cancelledAt: r?.cancelled_at ?? null }
+  }
+
+  /**
+   * WHERE A NEW PERSON IS LET IN OR NOT, for the window: the ONE place it is decided (the lobby's look and a join both ask it). A call with no window is always open. A cancelled booking's call is not a call. Before it opens and after it closes, a new person is
+   * refused; whoever is already in the call is not asked (`join` for a seat already held does not come here), so a call carries on past its closing for those in it.
+   */
+  private admission(now: number): { open: true } | { open: false; status: 403 | 404; message: string } {
+    const w = this.windowRow()
+    if (w.opensAt === null || w.closesAt === null) return { open: true }
+    if (w.cancelledAt !== null) return { open: false, status: 404, message: 'This is not a call.' }
+    if (now < w.opensAt) return { open: false, status: 403, message: 'This call is not open yet.' }
+    if (now > w.closesAt) return { open: false, status: 403, message: 'This call has closed.' }
+    return { open: true }
   }
 
   // THE THREE BELOW ARE THE OBJECT'S OWN (src/do.ts), for telling the space's live object when who is in the call changes. They are not on
@@ -290,7 +333,12 @@ export class RoomCore {
   info(now: number): RoomInfo {
     this.reap(now)
     const count = this.members().length
-    return { count, cap: ROOM_CAP, full: count >= ROOM_CAP }
+    const w = this.windowRow()
+    if (w.opensAt === null || w.closesAt === null) return { count, cap: ROOM_CAP, full: count >= ROOM_CAP }
+    // A cancelled booking's call is not a call, to anyone who asks.
+    const admitted = this.admission(now)
+    if (!admitted.open && admitted.status === 404) throw new RoomError(404, admitted.message)
+    return { count, cap: ROOM_CAP, full: count >= ROOM_CAP, window: { opensAt: w.opensAt, closesAt: w.closesAt, state: now < w.opensAt ? 'early' : now > w.closesAt ? 'closed' : 'open' } }
   }
 
   // --- Members --------------------------------------------------------------
@@ -333,6 +381,9 @@ export class RoomCore {
     }
     // The usage meter has tripped: a new person may not take a seat.
     if (pausedUntil) throw new RoomError(403, `Calls are paused until ${pausedUntil}.`)
+    // A booking link's call is open only around its time: a new person is refused before it opens and after it closes (`admission`).
+    const admitted = this.admission(now)
+    if (!admitted.open) throw new RoomError(admitted.status, admitted.message)
     if (this.members().length >= ROOM_CAP) throw new RoomError(409, 'This call is full.')
     this.sql.run(
       'INSERT INTO members (id, token_hash, name, generation, joined_at, last_seen, last_meter) VALUES (?, ?, ?, 1, ?, ?, ?)',
@@ -935,6 +986,8 @@ export function cleanName(raw: unknown): string {
 export const ROOM_METHODS = [
   'exists',
   'create',
+  'setWindow',
+  'cancelCall',
   'info',
   'join',
   'setSessions',

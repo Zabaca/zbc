@@ -219,7 +219,10 @@ export default function Lobby({
   const link = callLink(room)
   const mics = devices.filter((d) => d.kind === 'audioinput')
   const cams = devices.filter((d) => d.kind === 'videoinput')
-  const blocked = info.paused ? `Calls are paused until ${info.pausedUntil}.` : info.full ? 'This call is full.' : null
+  // A call made for a booking link is open only around its time (the space's ADR 0026): after it, no new person gets in; before it, the page says when it opens and Join is still pressed once it has (the room decides, not this page).
+  const windowState = info.window?.state
+  const blocked = info.paused ? `Calls are paused until ${info.pausedUntil}.` : windowState === 'closed' ? 'This call has closed.' : info.full ? 'This call is full.' : null
+  const earlyNote = windowState === 'early' && info.window ? `This call is not open yet. It opens at ${new Date(info.window.opensAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}; press Join then.` : null
   const hasCamera = camera !== null && camera.available && !camera.cameraOff
   const micChosen = mics.some((d) => d.deviceId === audio?.micId) ? (audio?.micId ?? '') : ''
   const levelHint = !audio
@@ -336,6 +339,11 @@ export default function Lobby({
           {blocked && (
             <p className="notice notice-error" role="alert">
               {blocked}
+            </p>
+          )}
+          {earlyNote && (
+            <p className="notice" role="status" data-testid="lobby-early">
+              {earlyNote}
             </p>
           )}
 

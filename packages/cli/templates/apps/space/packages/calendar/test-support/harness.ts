@@ -1,4 +1,4 @@
-import { type CalendarGrant, createInstall, type Install } from '@space/workspace'
+import { type BookingCalls, type CalendarGrant, createInstall, type Install } from '@space/workspace'
 import declaration from '../../workspace/northfield/workspace.json'
 import { CalendarEngine, type EngineApi } from '../src/engine'
 import { createCalendarGoogle, createCalendarWriter, createRunWriter } from '../src/google'
@@ -34,6 +34,77 @@ export const grant = (address: string, extra: Partial<CalendarGrant> = {}): Cale
   ...extra,
 })
 
+/** A call as the fake Meet keeps it: what it was made for, its window, and whether it was closed. */
+export interface FakeCall {
+  key: string
+  name: string
+  link: string
+  title: string
+  startsAt: number
+  opensAt: number
+  closesAt: number
+  guest: { name: string; email: string }
+  closed: boolean
+}
+
+/**
+ * The space's Meet as the calendar is handed it (`BookingCalls`): one call for each key, a window each call keeps, and the three ways it can fail a test needs (calls switched off, the month's allowance used up, and Meet not answering).
+ * `h.calls` is the list of what was made, in order.
+ */
+export class FakeCalls implements BookingCalls {
+  on = true
+  /** The words the allowance's refusal says, or null while calls can be made. */
+  meter: string | null = null
+  /** While true Meet does not answer: every ask throws. */
+  down = false
+  readonly made: FakeCall[] = []
+  /** Every ask, in order, as `op name`. */
+  readonly asked: string[] = []
+
+  private byName(name: string): FakeCall | undefined {
+    return this.made.find((c) => c.name === name)
+  }
+
+  async check() {
+    this.asked.push('check')
+    if (this.down) throw new Error('Meet did not answer')
+    if (!this.on) return { ok: false as const, why: 'Calls are not turned on in this space.' }
+    return this.meter === null ? { ok: true as const } : { ok: false as const, why: this.meter }
+  }
+
+  async make(call: { key: string; title: string; startsAt: number; guest: { name: string; email: string }; opensAt: number; closesAt: number }) {
+    this.asked.push(`make ${call.key}`)
+    if (this.down) throw new Error('Meet did not answer')
+    if (!this.on) return { ok: false as const, why: 'Calls are not turned on in this space.' }
+    if (this.meter !== null) return { ok: false as const, why: this.meter }
+    const had = this.made.find((c) => c.key === call.key)
+    if (had) return { ok: true as const, name: had.name, link: had.link }
+    const name = `call-${this.made.length + 1}`
+    const link = `${ORIGIN}/r/${name}`
+    this.made.push({ ...call, name, link, closed: false })
+    return { ok: true as const, name, link }
+  }
+
+  async move(name: string, when: { startsAt: number; opensAt: number; closesAt: number }) {
+    this.asked.push(`move ${name}`)
+    if (this.down) throw new Error('Meet did not answer')
+    const c = this.byName(name)
+    if (!c || c.closed) return { ok: false as const, why: 'There is no such call.' }
+    c.startsAt = when.startsAt
+    c.opensAt = when.opensAt
+    c.closesAt = when.closesAt
+    return { ok: true as const }
+  }
+
+  async close(name: string) {
+    this.asked.push(`close ${name}`)
+    if (this.down) throw new Error('Meet did not answer')
+    const c = this.byName(name)
+    if (c) c.closed = true
+    return { ok: true as const }
+  }
+}
+
 export interface HarnessOptions {
   /** The push address; `null` means none is set (no channels are made). */
   pushUrl?: string | null
@@ -46,6 +117,8 @@ export interface HarnessOptions {
   installId?: string
   /** Give the engine a way to tell the owner of a booking; what it was told is `h.notified`. */
   notify?: boolean
+  /** Give the engine the space's Meet, to make a booking's call in (the fake above; `h.calls`). Left out, no call can be made. */
+  calls?: boolean
 }
 
 /**
@@ -64,6 +137,7 @@ export function harness(options: HarnessOptions = {}) {
   /** While `down` is true the inbox cannot be reached: asking who is connected throws. */
   const inbox = { down: false }
   const alarms: number[] = []
+  const calls = options.calls ? new FakeCalls() : null
   const notified: { id: string; name: string; start: number; end: number; linkName: string }[] = []
   let ids = 0
   let tokens = 0
@@ -86,6 +160,7 @@ export function harness(options: HarnessOptions = {}) {
     company: NORTHFIELD.company.name,
     origin: ORIGIN,
     ...(options.notify && { notify: async (booking) => void notified.push(booking) }),
+    ...(calls && { calls }),
     pushUrl: options.pushUrl === undefined ? PUSH_URL : options.pushUrl,
     newId: () => `channel-${++ids}`,
     newToken: () => `secret-${++tokens}`,
@@ -112,6 +187,8 @@ export function harness(options: HarnessOptions = {}) {
     /** `inbox.down = true` makes the inbox unreachable. */
     inbox,
     alarms,
+    /** The fake Meet (only with `calls: true`). */
+    calls,
     /** What the engine told the owner of bookings, in order (only with `notify: true`). */
     notified,
     logs,

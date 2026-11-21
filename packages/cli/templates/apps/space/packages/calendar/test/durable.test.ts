@@ -75,8 +75,8 @@ function environment(options: { push?: string; accounts?: string[] } = {}) {
 }
 
 describe('the object', () => {
-  test('has `call` and the alarm and nothing else public', () => {
-    expect(Object.getOwnPropertyNames(CalendarDO.prototype).filter((n) => n !== 'constructor').sort()).toEqual(['alarm', 'call'])
+  test('has `call` and the alarm and nothing else public; the one hook is protected, for the space’s subclass', () => {
+    expect(Object.getOwnPropertyNames(CalendarDO.prototype).filter((n) => n !== 'constructor').sort()).toEqual(['alarm', 'bookingCallsPort', 'call'])
   })
 
   test('answers only the engine’s own face by name, and nothing else the class happens to have', () => {
@@ -92,7 +92,7 @@ describe('the object', () => {
     const { mem, getAlarm, restore } = environment()
     try {
       await new Promise((resolve) => setTimeout(resolve, 0))
-      expect((mem.db.query(`SELECT applied FROM calendar_meta`).get() as { applied: number }).applied).toBe(6)
+      expect((mem.db.query(`SELECT applied FROM calendar_meta`).get() as { applied: number }).applied).toBe(7)
       expect(getAlarm()).not.toBeNull()
     } finally {
       restore()

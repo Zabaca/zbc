@@ -36,7 +36,9 @@ test('each class is the very one the other package defines, so the old Worker an
   expect(mod.LiveDO).toBe(live.LiveDO)
   // The calendar's store is the calendar package's own class, made new here (declared under `exports` with no transfer).
   const calendar = (await import('@space/calendar/src/durable')) as Record<string, unknown>
-  expect(mod.CalendarDO).toBe(calendar.CalendarDO)
+  // It is the other package's class, subclassed for ONE method (the way to make a call for a booking, over this Worker's own Meet), under the same name.
+  expect(Object.getPrototypeOf(mod.CalendarDO as object)).toBe(calendar.CalendarDO)
+  expect((mod.CalendarDO as { name: string }).name).toBe('CalendarDO')
   // The Clients part's store is the clients package's own class, made new here (declared under `exports` with no transfer).
   const clients = (await import('@space/clients/src/durable')) as Record<string, unknown>
   expect(mod.ClientsDO).toBe(clients.ClientsDO)
