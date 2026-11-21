@@ -10,9 +10,21 @@ export interface Wall {
   mi: number
 }
 
+/** A formatter is made once for each zone: making one is the costly part of reading a clock, and a booking link's free times read it thousands of times. */
+const clocks = new Map<string, Intl.DateTimeFormat>()
+const clockOf = (zone: string): Intl.DateTimeFormat => {
+  let held = clocks.get(zone)
+  if (!held) {
+    held = new Intl.DateTimeFormat('en-US', { timeZone: zone, hourCycle: 'h23', year: 'numeric', month: 'numeric', day: 'numeric', hour: 'numeric', minute: 'numeric', second: 'numeric' })
+    // A zone is the company's or a test's: a handful, never a visitor's, so the map stays small.
+    clocks.set(zone, held)
+  }
+  return held
+}
+
 /** What a clock in `zone` reads at this moment. */
 export function wallAt(ms: number, zone: string): Wall & { s: number } {
-  const parts = new Intl.DateTimeFormat('en-US', { timeZone: zone, hourCycle: 'h23', year: 'numeric', month: 'numeric', day: 'numeric', hour: 'numeric', minute: 'numeric', second: 'numeric' }).formatToParts(ms)
+  const parts = clockOf(zone).formatToParts(ms)
   const n = (type: string) => Number(parts.find((p) => p.type === type)?.value)
   return { y: n('year'), m: n('month'), d: n('day'), h: n('hour'), mi: n('minute'), s: n('second') }
 }
