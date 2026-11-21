@@ -62,7 +62,7 @@ export const BOOKING_RECENT_MS = 30 * DAY
 /** The most bookings a link's list shows. */
 export const BOOKING_LIST_MAX = 40
 
-const EM_DASH = '—'
+const EM_DASH = '\u2014'
 
 const ok = <T>(value: T): Result<T> => ({ ok: true, value })
 const no = (reason: RefusalReason, error: string): Result<never> => ({ ok: false, reason, error })
@@ -72,6 +72,11 @@ const whole = (v: unknown, min: number, max: number): v is number => typeof v ==
 
 /** What a visitor is told when a link cannot be booked, whatever the reason (the owner's Settings says why). */
 export const CLOSED_WORDS = 'This link cannot be booked right now. Please try again later, or ask the person who sent it.'
+/**
+ * What a visitor is told when a booking is refused for who they are or how much they have used the link (the owner's own address, one address invited too often or holding too many meetings, one network or one link over its day): ONE sentence and one reason for
+ * all of them, so a stranger cannot tell by the words which it was, nor learn whether an address has booked here.
+ */
+export const NOT_NOW_WORDS = 'That could not be booked just now. Please try again later.'
 /** What a visitor is told when the time they picked has gone. */
 export const TAKEN_WORDS = 'That time is no longer free. Please pick another one.'
 /** What a visitor is told when Google did not answer a request that may or may not have been done. */
@@ -166,6 +171,35 @@ export function readGuestBooking(raw: unknown): Result<GuestBookingInput> {
   const note = raw.note === undefined || raw.note === null ? '' : typeof raw.note === 'string' ? visitorText(raw.note, BOOKING_LIMITS.visitorNoteMax, true) : null
   if (note === null) return no('bad-request', 'The note is text.')
   return ok({ start: raw.start, name, email, note })
+}
+
+// ── What a limit counts ─────────────────────────────────────────────────────────────────────────────────────────────────────
+
+/** An address in the form the per-address limits count it: lower case, no `+tag`, and no dots (nor the other domain's name) for Gmail's own domains, so one inbox written several ways is one key. The invitation still goes to the address as typed. */
+export function canonicalAddress(email: string): string {
+  const at = email.lastIndexOf('@')
+  if (at < 0) return email.toLowerCase()
+  let local = email.slice(0, at).toLowerCase()
+  let domain = email.slice(at + 1).toLowerCase()
+  const plus = local.indexOf('+')
+  if (plus > 0) local = local.slice(0, plus)
+  if (domain === 'gmail.com' || domain === 'googlemail.com') {
+    domain = 'gmail.com'
+    local = local.replaceAll('.', '')
+  }
+  return `${local}@${domain}`
+}
+
+/** A network address in the form the per-network limit counts it: an IPv4 address as it is, an IPv6 address by its /64 (the part one subscriber's line holds all of), so rotating through the addresses of one line is one key. */
+export function networkKeyOf(address: string): string {
+  const v4 = /(\d{1,3}(?:\.\d{1,3}){3})$/.exec(address)
+  if (address.includes(':') && v4 && /^(::ffff:|::)/i.test(address)) return v4[1] as string
+  if (!address.includes(':')) return address
+  const [head = '', tail = ''] = address.toLowerCase().split('::')
+  const left = head === '' ? [] : head.split(':')
+  const right = tail === '' || address.indexOf('::') < 0 ? [] : tail.split(':')
+  const groups = address.includes('::') ? [...left, ...Array(Math.max(0, 8 - left.length - right.length)).fill('0'), ...right] : left
+  return `v6:${groups.slice(0, 4).map((g) => g.padStart(4, '0')).join(':')}`
 }
 
 // ── Names ───────────────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -501,19 +535,23 @@ export class CalendarBookings {
   // ── Booking ───────────────────────────────────────────────────────────────────────────────────────────────────────────
 
   /** The limits that keep a link from being used to send invitations to people who did not ask. A sentence for the first one reached, or null. */
-  private overLimit(link: LinkRow, email: string, network: string): string | null {
+  private overLimit(link: LinkRow, key: string, network: string): boolean {
     const now = this.d.now()
     const since = now - DAY
-    if (this.rows.madeByVisitor(email, since) >= BOOKING_LIMITS.perVisitor) return 'That address has been invited as many times as is allowed in a day. Please try again tomorrow.'
-    if (this.rows.upcomingOfVisitor(email, now) >= BOOKING_LIMITS.upcomingPerVisitor) return 'That address already holds as many meetings as is allowed. Cancel one, or wait until one has been.'
-    if (this.rows.madeFromNetwork(network, since) >= BOOKING_LIMITS.perNetwork) return 'Too many bookings have been made from this network today. Please try again tomorrow.'
-    if (this.rows.madeOnLink(link.id, since) >= BOOKING_LIMITS.perLink) return 'This link has taken as many bookings as it takes in a day. Please try again tomorrow.'
-    return null
+    return (
+      this.rows.madeByVisitor(key, since) >= BOOKING_LIMITS.perVisitor ||
+      this.rows.upcomingOfVisitor(key, now) >= BOOKING_LIMITS.upcomingPerVisitor ||
+      this.rows.madeFromNetwork(network, since) >= BOOKING_LIMITS.perNetwork ||
+      this.rows.madeOnLink(link.id, since) >= BOOKING_LIMITS.perLink
+    )
   }
 
-  /** The description of the event: what the visitor wrote, and the address only that visitor has. */
-  private descriptionOf(link: LinkRow, name: string, note: string, secret: string): string {
-    return `${note === '' ? '' : `${name} wrote: ${note}\n\n`}Booked through "${link.name}". To move or cancel this meeting, use this address: ${this.d.origin}${bookingManagePath(secret)}`
+  /**
+   * The description of the event: what the link is and the address only that visitor has. NEVER the visitor's note: the invitation goes in the owner's name to an address the visitor typed, and a note could carry a link or a claim into it. The owner reads the note in
+   * Settings, Calendars (the booking's record), not in the event.
+   */
+  private descriptionOf(link: LinkRow, secret: string): string {
+    return `Booked through "${link.name}". To move or cancel this meeting, use this address: ${this.d.origin}${bookingManagePath(secret)}`
   }
 
   private async owe(calendarId: string): Promise<void> {
@@ -534,13 +572,18 @@ export class CalendarBookings {
     }
   }
 
-  /** Google answered an insert: the event is kept, the booking is booked, the owner is told. */
-  private async made(b: BookingRow, raw: unknown, checked: 'google' | 'copy'): Promise<void> {
-    const parsed = parseEvent(raw, this.d.zone)
-    if (parsed.kind === 'event') this.store.putEvent(b.calendarId, parsed)
-    this.rows.markBooked(b.id, checked, this.d.now())
+  /**
+   * Google answered an insert: the event is kept and, once the calendar's copy HOLDS it, the booking is booked and the owner told. A booking whose event the copy does not hold (Google's answer was not an event, or it said the id exists) stays held, so
+   * its time is never offered in between, and the next read of the calendar finds it (`run`). Answers whether it is booked.
+   */
+  private async made(b: BookingRow, raw: unknown, checked: 'google' | 'copy'): Promise<boolean> {
+    const parsed = raw === null ? null : parseEvent(raw, this.d.zone)
+    if (parsed?.kind === 'event') this.store.putEvent(b.calendarId, parsed)
     await this.owe(b.calendarId)
+    if (this.store.eventOf(b.calendarId, b.eventId) === null) return false
+    this.rows.markBooked(b.id, checked, this.d.now())
     await this.told(b)
+    return true
   }
 
   async book(slug: unknown, input: unknown, network: unknown): Promise<Result<GuestBooked>> {
@@ -552,16 +595,16 @@ export class CalendarBookings {
     const id = this.d.newId()
     const secret = this.d.newToken()
     const pepper = this.rows.pepper(() => this.d.newToken())
-    const [eventId, manageHash, networkHash] = await Promise.all([bookingEventId(this.d.installId, id), secretHash(secret), sha256(`${pepper}\nnetwork\n${network}`).then((b) => hex(b).slice(0, 32))])
+    const [eventId, manageHash, networkHash] = await Promise.all([bookingEventId(this.d.installId, id), secretHash(secret), sha256(`${pepper}\nnetwork\n${networkKeyOf(network)}`).then((b) => hex(b).slice(0, 32))])
 
     const link = typeof slug === 'string' ? this.rows.linkBySlug(slug) : null
     if (!link) return no('not-found', 'There is no such booking link.')
     const holder = this.holder(link.account)
     if (!link.enabled || 'problem' in holder) return no('conflict', CLOSED_WORDS)
-    if (asked.email === link.account || this.store.account(asked.email)) return no('bad-request', 'That address is the owner’s own. Please give your own email address.')
-    const limited = this.overLimit(link, asked.email, networkHash)
-    if (limited !== null) return no('limit', limited)
     if (!this.slotsFor(link).includes(asked.start)) return no('conflict', TAKEN_WORDS)
+    // After the slot check, so a probe needs a time the link really offers, and with one sentence for all of them: nothing here says whether an address is the owner's, or has booked.
+    const key = canonicalAddress(asked.email)
+    if (asked.email === link.account || this.store.account(asked.email) || this.overLimit(link, key, networkHash)) return no('limit', NOT_NOW_WORDS)
     const end = asked.start + link.minutes * MIN
     // THE HOLD: written in the same turn as the check above, so no other visitor can be given this time.
     this.rows.addBooking({
@@ -577,6 +620,7 @@ export class CalendarBookings {
       end,
       visitorName: asked.name,
       visitorEmail: asked.email,
+      visitorKey: key,
       note: asked.note === '' ? null : asked.note,
       manageHash,
       checked: 'copy',
@@ -602,7 +646,7 @@ export class CalendarBookings {
     const body = {
       id: eventId,
       summary: `${link.name}: ${asked.name}`,
-      description: this.descriptionOf(link, asked.name, asked.note, secret),
+      description: this.descriptionOf(link, secret),
       start: { dateTime: isoAt(asked.start, this.d.zone), timeZone: this.d.zone },
       end: { dateTime: isoAt(end, this.d.zone), timeZone: this.d.zone },
       attendees: [{ email: asked.email, displayName: asked.name }],
@@ -631,12 +675,8 @@ export class CalendarBookings {
         return ok({ secret, booking: this.viewFor(held) })
       }
     }
-    if (raw !== null) await this.made(held, raw, verdict.checked)
-    else {
-      this.rows.markBooked(id, verdict.checked, this.d.now())
-      await this.owe(holder.calendar.id)
-      await this.told(held)
-    }
+    // Booked once the copy holds the event; until then it is held, and `run` books it when the next read brings the event in.
+    await this.made(held, raw, verdict.checked)
     return ok({ secret, booking: this.viewFor(this.rows.booking(id) as BookingRow) })
   }
 
@@ -724,19 +764,36 @@ export class CalendarBookings {
   // ── The alarm ─────────────────────────────────────────────────────────────────────────────────────────────────────────
 
   /**
-   * The bookings waiting on Google: one whose event has appeared in the calendar's copy (found by its derived id) is booked, and one whose event has not appeared in an hour lets its time go (it was never made). Never throws. Answers whether the page should be told.
+   * What is waiting on Google. A booking whose event has appeared in the calendar's copy (found by its derived id) is booked. One whose event has not appeared lets its time go only when an hour has passed AND the calendar has been read successfully since it
+   * was made (it was never made); while reads keep failing the time stays held, so it is never offered again behind a booking that may exist. A move whose answer was lost is settled the same way: the event's times, once the copy has them, become the booking's
+   * and the move is counted; a move the copy never shows is let go after the hour and a read. Never throws. Answers whether the page should be told.
    */
   async run(): Promise<boolean> {
     try {
       let changed = false
       const now = this.d.now()
+      const readSince = (calendarId: string, at: number): boolean => {
+        const c = this.store.calendar(calendarId)
+        // A calendar that is gone or hidden is not read any more: nothing waited for will come.
+        return c === null || !c.shown || (c.syncedAt !== null && c.syncedAt > at)
+      }
       for (const b of this.rows.held()) {
         if (this.store.eventOf(b.calendarId, b.eventId) !== null) {
           this.rows.markBooked(b.id, b.checked, now)
           await this.told(b)
           changed = true
-        } else if (now - b.createdAt >= BOOKING_HOLD_MS) {
+        } else if (now - b.createdAt >= BOOKING_HOLD_MS && readSince(b.calendarId, b.createdAt)) {
           this.rows.removeBooking(b.id)
+          changed = true
+        }
+      }
+      for (const b of this.rows.moving()) {
+        const event = this.store.eventOf(b.calendarId, b.eventId)
+        if (event !== null && event.start === b.movingStart && event.end === b.movingEnd) {
+          this.rows.finishMove(b.id, event.start, event.end)
+          changed = true
+        } else if (now - (b.movingAt ?? 0) >= BOOKING_HOLD_MS && readSince(b.calendarId, b.movingAt ?? 0)) {
+          this.rows.endMove(b.id)
           changed = true
         }
       }
@@ -749,6 +806,6 @@ export class CalendarBookings {
 
   /** When the alarm should ring for the bookings: while one is waiting on Google, soon; never (infinity) when none is. */
   nextWake(): number {
-    return this.rows.held().length > 0 ? this.d.now() + BOOKING_LOOK_MS : Number.POSITIVE_INFINITY
+    return this.rows.held().length > 0 || this.rows.moving().length > 0 ? this.d.now() + BOOKING_LOOK_MS : Number.POSITIVE_INFINITY
   }
 }

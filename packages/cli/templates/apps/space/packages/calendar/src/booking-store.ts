@@ -54,6 +54,8 @@ export interface BookingRow {
   movingAt: number | null
   visitorName: string
   visitorEmail: string
+  /** The address in its canonical form: what the per-address limits count. */
+  visitorKey: string
   note: string | null
   manageHash: string
   state: 'held' | 'booked' | 'cancelled'
@@ -100,6 +102,7 @@ const bookingFrom = (r: Record<string, unknown>): BookingRow => ({
   movingAt: numOrNull(r.moving_at),
   visitorName: text(r.visitor_name),
   visitorEmail: text(r.visitor_email),
+  visitorKey: text(r.visitor_key),
   note: textOrNull(r.note),
   manageHash: text(r.manage_hash),
   state: text(r.state) as BookingRow['state'],
@@ -215,6 +218,11 @@ export class BookingStore {
       .map(bookingFrom)
   }
 
+  /** The booked bookings with a move waiting on Google. */
+  moving(): BookingRow[] {
+    return this.sql.exec(`SELECT * FROM booking WHERE state = 'booked' AND moving_start IS NOT NULL ORDER BY moving_at, id`).toArray().map(bookingFrom)
+  }
+
   /** The bookings waiting on Google, oldest first. */
   held(): BookingRow[] {
     return this.sql.exec(`SELECT * FROM booking WHERE state = 'held' ORDER BY created_at, id`).toArray().map(bookingFrom)
@@ -222,8 +230,8 @@ export class BookingStore {
 
   addBooking(w: BookingWrite): void {
     this.sql.exec(
-      `INSERT INTO booking (id, link_id, link_name, account, calendar_id, calendar_google_id, event_id, minutes, start_ms, end_ms, visitor_name, visitor_email, note, manage_hash, state, checked, network, created_at)
-       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, 'held', ?15, ?16, ?17)`,
+      `INSERT INTO booking (id, link_id, link_name, account, calendar_id, calendar_google_id, event_id, minutes, start_ms, end_ms, visitor_name, visitor_email, visitor_key, note, manage_hash, state, checked, network, created_at)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?18, ?13, ?14, 'held', ?15, ?16, ?17)`,
       w.id,
       w.linkId,
       w.linkName,
@@ -241,6 +249,7 @@ export class BookingStore {
       w.checked,
       w.network,
       w.createdAt,
+      w.visitorKey,
     )
   }
 
@@ -284,7 +293,8 @@ export class BookingStore {
    */
   holds(now: number, holdMs: number, except?: string): Hold[] {
     const out: Hold[] = []
-    for (const r of this.sql.exec(`SELECT id, start_ms, end_ms FROM booking WHERE state = 'held' AND created_at > ?1 AND id != ?2`, now - holdMs, except ?? '').toArray()) out.push({ bookingId: text(r.id), start: num(r.start_ms), end: num(r.end_ms) })
+    // A booking waiting on Google holds its time for as long as it waits: it is let go only when the calendar has been read since and the event is not there (`CalendarBookings.run`), never by the clock alone.
+    for (const r of this.sql.exec(`SELECT id, start_ms, end_ms FROM booking WHERE state = 'held' AND id != ?1`, except ?? '').toArray()) out.push({ bookingId: text(r.id), start: num(r.start_ms), end: num(r.end_ms) })
     for (const r of this.sql.exec(`SELECT id, moving_start, moving_end FROM booking WHERE state = 'booked' AND moving_start IS NOT NULL AND moving_at > ?1 AND id != ?2`, now - holdMs, except ?? '').toArray()) {
       out.push({ bookingId: text(r.id), start: num(r.moving_start), end: num(r.moving_end) })
     }
@@ -302,13 +312,13 @@ export class BookingStore {
   // ── What the limits count ───────────────────────────────────────────────────────────────────────────────────────────────
 
   /** How many bookings an address made since a moment, whatever became of them (an invitation that was sent and cancelled still went out). */
-  madeByVisitor(email: string, since: number): number {
-    return Number(this.sql.exec(`SELECT count(*) AS n FROM booking WHERE visitor_email = ?1 AND created_at > ?2`, email, since).one().n)
+  madeByVisitor(key: string, since: number): number {
+    return Number(this.sql.exec(`SELECT count(*) AS n FROM booking WHERE visitor_key = ?1 AND created_at > ?2`, key, since).one().n)
   }
 
   /** How many meetings an address holds that have not ended (waiting on Google or booked). */
-  upcomingOfVisitor(email: string, now: number): number {
-    return Number(this.sql.exec(`SELECT count(*) AS n FROM booking WHERE visitor_email = ?1 AND state IN ('held', 'booked') AND end_ms > ?2`, email, now).one().n)
+  upcomingOfVisitor(key: string, now: number): number {
+    return Number(this.sql.exec(`SELECT count(*) AS n FROM booking WHERE visitor_key = ?1 AND state IN ('held', 'booked') AND end_ms > ?2`, key, now).one().n)
   }
 
   madeFromNetwork(network: string, since: number): number {

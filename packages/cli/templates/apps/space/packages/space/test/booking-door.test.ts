@@ -99,6 +99,10 @@ describe('what the door refuses before the calendar is asked', () => {
     expect([limited.status, limited.headers.get('retry-after')]).toEqual([429, '60'])
     expect(await limited.json()).toMatchObject({ reason: 'limit' })
     expect(keys).toEqual(['book:198.51.100.9', 'book:198.51.100.9', 'book:198.51.100.9'])
+    // An IPv6 caller is limited by its /64, so rotating through the addresses of one line is one caller; the calendar is given the address as the edge gave it.
+    await door(req('/book/api/links/intro', { headers: { 'cf-connecting-ip': '2001:db8:1:2:aaaa::1' } }))
+    await door(req('/book/api/links/intro', { headers: { 'cf-connecting-ip': '2001:db8:1:2:bbbb::9' } }))
+    expect(keys.slice(3)).toEqual(['book:v6:2001:0db8:0001:0002', 'book:v6:2001:0db8:0001:0002'])
     expect(r.calls.map((c) => c.method)).toEqual(['link', 'slots'])
   })
 

@@ -202,6 +202,41 @@ describe('a link’s page', () => {
   })
 })
 
+describe('a booking that is still being confirmed', () => {
+  const view = (state: 'pending' | 'booked') => ({ company: 'Northfield Works', title: 'Intro call', slug: 'intro-call', minutes: 30, start: NOW + 86_400_000, end: NOW + 86_400_000 + 1_800_000, name: 'Ada Quill', email: 'ada@example.org', state, zone: 'America/Los_Angeles', meetLink: state === 'booked' ? 'https://meet.example/abc' : null, canMove: false, canCancel: false, linkOpen: true })
+  const link = { company: 'Northfield Works', name: 'Intro call', description: '', minutes: 30, zone: 'America/Los_Angeles', open: true }
+
+  test('is asked about again and the page changes when it is booked, with the Meet link', async () => {
+    let asks = 0
+    globalThis.fetch = (async () => {
+      asks += 1
+      return Response.json({ value: view(asks >= 3 ? 'booked' : 'pending') })
+    }) as unknown as typeof fetch
+    const { Done } = await import('../booking/src/Done')
+    const page = await mount((h) => h(Done, { booked: { secret: 'secret-abc-123', booking: view('pending') }, link, zone: 'America/Los_Angeles', pollMs: 20 }) as never)
+    expect($('[data-testid="booked-title"]')?.textContent).toBe('Your time is held')
+    expect(page.text()).toContain('checks for a few minutes')
+    await page.wait(150)
+    expect($('[data-testid="booked-title"]')?.textContent).toBe('You are booked')
+    expect($('a[href="https://meet.example/abc"]')?.textContent).toBe('Google Meet')
+    const settled = asks
+    await page.wait(100)
+    expect(asks).toBe(settled)
+    await page.unmount()
+  })
+
+  test('says where to look when it never is', async () => {
+    const { POLL_TIMES, Done } = await import('../booking/src/Done')
+    globalThis.fetch = (async () => Response.json({ value: view('pending') })) as unknown as typeof fetch
+    expect(POLL_TIMES).toBeGreaterThan(10)
+    const page = await mount((h) => h(Done, { booked: { secret: 'secret-abc-123', booking: view('pending') }, link, zone: 'America/Los_Angeles', pollMs: 1 }) as never)
+    await page.wait(POLL_TIMES * 30)
+    expect(page.text()).toContain('still has not confirmed this')
+    expect(page.text()).toContain('the address below shows where it stands')
+    await page.unmount()
+  })
+})
+
 describe('a booking’s own page', () => {
   async function booked(w: ReturnType<typeof world>) {
     await w.make()

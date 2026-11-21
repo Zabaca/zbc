@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import { BOOKING_DEFAULTS, BOOKING_LIMITS, type BookingLinkInput } from '@space/workspace'
-import { BOOKING_HOLD_MS, bookingEventId, bookingNote, CLOSED_WORDS, readBookingLink, readGuestBooking, TAKEN_WORDS, UNSURE_WORDS } from '../src/bookings'
+import { BOOKING_HOLD_MS, bookingEventId, bookingNote, canonicalAddress, CLOSED_WORDS, networkKeyOf, NOT_NOW_WORDS, readBookingLink, readGuestBooking, TAKEN_WORDS, UNSURE_WORDS } from '../src/bookings'
 import type { Result } from '../src/engine'
 import { type Harness, harness, HOUR, DAY, NORTHFIELD, OWNER, ORIGIN, T0 } from '../test-support/harness'
 
@@ -68,8 +68,8 @@ describe('reading what the owner sets', () => {
       ['another folder', { slug: 'manage' }],
       ['a name that is nothing', { name: '   ' }],
       ['a name that is too long', { name: 'x'.repeat(BOOKING_LIMITS.nameMax + 1) }],
-      ['an em dash in the name', { name: 'Intro — call' }],
-      ['an em dash in the description', { description: 'Hello — there' }],
+      ['an em dash in the name', { name: 'Intro \u2014 call' }],
+      ['an em dash in the description', { description: 'Hello \u2014 there' }],
       ['a length of zero', { minutes: 0 }],
       ['a length of a day', { minutes: 24 * 60 }],
       ['hours of nothing', { hours: { mon: [], tue: [], wed: [], thu: [], fri: [], sat: [], sun: [] } }],
@@ -248,7 +248,9 @@ describe('a booking', () => {
     const record = val(await h.engine.bookingLinks()).links[0]!.bookings[0]!
     expect(w.body.id).toBe(await bookingEventId(NORTHFIELD.company.id, record.id))
     const description = w.body.description as string
-    expect(description).toContain('Ada Quill wrote: Looking forward to it.')
+    // The note is the owner's to read (below, in Settings' record) and is never in the invitation that goes out in their name.
+    expect(description).not.toContain('Looking forward')
+    expect(description).not.toContain('wrote')
     expect(description).toContain(`${ORIGIN}/book/manage/${got.secret}`)
 
     // Google was asked whether the owner is still free, on each live account, with the token that only reads.
@@ -389,7 +391,13 @@ describe('a booking', () => {
     const a = fri(10)
     h.google.failNext('events.insert', 409, { error: { code: 409, message: 'The requested identifier already exists.', errors: [{ reason: 'duplicate' }] } })
     const got = val(await book(h, a))
-    expect(got.booking.state).toBe('booked')
+    // The event is at Google and not yet in the calendar's copy: the booking stays held, so its time is not offered in between, and is booked when a read brings the event in.
+    expect(got.booking.state).toBe('pending')
+    expect(h.notified).toEqual([])
+    expect(await starts(h)).not.toContain(a)
+    h.google.setEvent(Z, Z, { id: h.rows<{ event_id: string }>(`SELECT event_id FROM booking`)[0]!.event_id, summary: 'Intro call: Ada Quill', start: iso(a), end: iso(a + 30 * MIN), organizer: { email: Z, self: true } })
+    await h.work()
+    expect(val(await h.engine.guestBooking(got.secret)).state).toBe('booked')
     expect(h.notified).toHaveLength(1)
     expect(val(await h.engine.bookingLinks()).links[0]?.bookings[0]).toMatchObject({ state: 'booked' })
   })
@@ -401,6 +409,7 @@ describe('a booking', () => {
     h.google.failNext('events.insert', 503, { error: { code: 503, message: 'Backend Error' } })
     const got = val(await book(h, a))
     expect(got.booking.state).toBe('pending')
+    h.advance(MIN)
     await h.work()
     expect(val(await h.engine.guestBooking(got.secret)).state).toBe('pending')
     h.advance(BOOKING_HOLD_MS + MIN)
@@ -476,12 +485,12 @@ describe('the owner’s notification', () => {
 
 describe('the visitor’s words', () => {
   test('the name and the note are cleaned and cut short; an em dash becomes a hyphen; an address in a name is refused', () => {
-    const read = readGuestBooking({ start: 5, name: ' Ada\u0007  Quill — Jr ', email: ' ADA@Example.ORG ', note: `Hi\u0000 there — friend\nsecond line${'x'.repeat(5000)}` })
+    const read = readGuestBooking({ start: 5, name: ' Ada\u0007  Quill \u2014 Jr ', email: ' ADA@Example.ORG ', note: `Hi\u0000 there \u2014 friend\nsecond line${'x'.repeat(5000)}` })
     expect(read).toMatchObject({ ok: true, value: { name: 'Ada Quill - Jr', email: 'ada@example.org' } })
     if (!read.ok) throw new Error('unreachable')
     expect(read.value.note.startsWith('Hi there - friend\nsecond line')).toBe(true)
     expect(read.value.note.length).toBe(BOOKING_LIMITS.visitorNoteMax)
-    expect(read.value.note).not.toContain('—')
+    expect(read.value.note).not.toContain('\u2014')
     const long = readGuestBooking({ start: 5, name: 'N'.repeat(500), email: 'a@example.org', note: '' })
     expect(long.ok && long.value.name.length).toBe(BOOKING_LIMITS.visitorNameMax)
     for (const bad of [
@@ -505,14 +514,125 @@ describe('the visitor’s words', () => {
     const h = await world([Z, F])
     await make(h)
     const [a] = (await starts(h)) as [number]
-    expect(await book(h, a, { email: Z })).toMatchObject({ ok: false, reason: 'bad-request' })
-    expect(await book(h, a, { email: F })).toMatchObject({ ok: false, reason: 'bad-request' })
-    expect(await book(h, a, { name: 'Ada — Quill', note: '<script>alert(1)</script> hi' })).toMatchObject({ ok: true })
+    // The owner's own addresses are refused in the one sentence every refusal for who the visitor is shares (below), and only for a time the link really offers.
+    expect(await book(h, a, { email: Z })).toEqual({ ok: false, reason: 'limit', error: NOT_NOW_WORDS })
+    expect(await book(h, a, { email: F })).toEqual({ ok: false, reason: 'limit', error: NOT_NOW_WORDS })
+    expect(await book(h, a + 7 * MIN, { email: Z })).toEqual({ ok: false, reason: 'conflict', error: TAKEN_WORDS })
+    expect(await book(h, a + 7 * MIN, { email: 'nobody@example.org' })).toEqual({ ok: false, reason: 'conflict', error: TAKEN_WORDS })
+    expect(await book(h, a, { name: 'Ada \u2014 Quill', note: '<script>alert(1)</script> hi https://evil.example/x' })).toMatchObject({ ok: true })
     const w = inserts(h)[0]!
     expect(w.body.summary).toBe('Intro call: Ada - Quill')
-    expect(JSON.stringify(w.body)).not.toContain('—')
-    // Markup is text here: it is kept as typed and drawn as text, never run.
-    expect(w.body.description).toContain('<script>alert(1)</script> hi')
+    expect(JSON.stringify(w.body)).not.toContain('\u2014')
+    // The note (markup, a link) is not in the invitation at all; the owner reads it, as text, in the booking's record.
+    expect(JSON.stringify(w.body)).not.toContain('evil.example')
+    expect(JSON.stringify(w.body)).not.toContain('<script>')
+    expect(val(await h.engine.bookingLinks()).links[0]?.bookings[0]?.note).toBe('<script>alert(1)</script> hi https://evil.example/x')
+  })
+})
+
+describe('what a limit counts, and what it says', () => {
+  test('an address is one key however it is written: no +tag, no dots and one name for Gmail’s own domains; other domains keep their dots', () => {
+    expect(canonicalAddress('Vic_Tim.x+one@GMail.com')).toBe('vic_timx@gmail.com')
+    expect(canonicalAddress('v.i.c_tim@googlemail.com')).toBe('vic_tim@gmail.com')
+    expect(canonicalAddress('a.b+c@example.org')).toBe('a.b@example.org')
+    expect(canonicalAddress('+odd@example.org')).toBe('+odd@example.org')
+  })
+
+  test('a network is one key by its line: an IPv4 address as it is, an IPv6 address by its /64, however it is written', () => {
+    expect(networkKeyOf('203.0.113.7')).toBe('203.0.113.7')
+    expect(networkKeyOf('::ffff:203.0.113.7')).toBe('203.0.113.7')
+    const a = networkKeyOf('2001:db8:1:2:aaaa:bbbb:cccc:dddd')
+    expect(a).toBe('v6:2001:0db8:0001:0002')
+    expect(networkKeyOf('2001:DB8:1:2::1')).toBe(a)
+    expect(networkKeyOf('2001:db8:1:2:0:0:0:9')).toBe(a)
+    expect(networkKeyOf('2001:db8:1:3::1')).not.toBe(a)
+    expect(networkKeyOf('2001:db8::1')).toBe('v6:2001:0db8:0000:0000')
+  })
+
+  test('one inbox written four ways is one address to the limits (three a day), and each invitation still goes to the address as typed', async () => {
+    const h = await world()
+    await make(h, { gapMinutes: 0 })
+    const slots = [mon(9), mon(9, 30), mon(10), mon(10, 30)]
+    const typed = ['vic_tim@gmail.com', 'vic_tim+a@gmail.com', 'v.ic_tim@gmail.com', 'V.I.C_TIM+zz@googlemail.com']
+    for (let i = 0; i < 3; i++) val(await book(h, slots[i] as number, { email: typed[i] }, 'intro', `10.5.0.${i}`))
+    expect(await book(h, slots[3] as number, { email: typed[3] }, 'intro', '10.5.0.9')).toEqual({ ok: false, reason: 'limit', error: NOT_NOW_WORDS })
+    expect(inserts(h).map((w) => (w.body.attendees as { email: string }[])[0]?.email)).toEqual(typed.slice(0, 3))
+  })
+
+  test('one IPv6 line rotating through its addresses is one network (ten a day)', async () => {
+    const h = await world()
+    await make(h, { gapMinutes: 0 })
+    for (let i = 0; i < BOOKING_LIMITS.perNetwork; i++) val(await book(h, (await starts(h))[0] as number, { email: `u${i}@example.org` }, 'intro', `2001:db8:7:7:${i}::1`))
+    expect(await book(h, (await starts(h))[0] as number, { email: 'late@example.org' }, 'intro', '2001:db8:7:7:ffff::2')).toEqual({ ok: false, reason: 'limit', error: NOT_NOW_WORDS })
+    expect(await book(h, (await starts(h))[0] as number, { email: 'late@example.org' }, 'intro', '2001:db8:7:8::1')).toMatchObject({ ok: true })
+  })
+
+  test('every refusal for who the visitor is or how much they used the link is the same words and the same reason: the owner’s address, an address over its day, a network over its day', async () => {
+    const h = await world()
+    await make(h, { gapMinutes: 0 })
+    const refusals: unknown[] = []
+    refusals.push(await book(h, mon(9), { email: Z }, 'intro', '10.6.0.1'))
+    for (let i = 0; i < BOOKING_LIMITS.perVisitor; i++) val(await book(h, mon(10, i * 30), { email: 'ann@example.org' }, 'intro', `10.6.1.${i}`))
+    refusals.push(await book(h, mon(12), { email: 'ann@example.org' }, 'intro', '10.6.2.1'))
+    for (let i = 0; i < BOOKING_LIMITS.perNetwork; i++) val(await book(h, (i < 6 ? mon(13) + i * 30 * MIN : mon(9) + DAY + (i - 6) * 30 * MIN), { email: `n${i}@example.org` }, 'intro', '10.6.3.1'))
+    refusals.push(await book(h, mon(9, 30), { email: 'other@example.org' }, 'intro', '10.6.3.1'))
+    for (const r of refusals) expect(r).toEqual({ ok: false, reason: 'limit', error: NOT_NOW_WORDS })
+    // And a time the link never offered is the same answer whoever asks: the owner's address is no oracle without a real time.
+    expect(await book(h, 1, { email: Z }, 'intro', '10.6.9.1')).toEqual(await book(h, 1, { email: 'x@example.org' }, 'intro', '10.6.9.2'))
+  })
+})
+
+describe('a time waiting on Google is held until a read says otherwise', () => {
+  test('an hour with every read failing does not let a time go, and another visitor is still refused it; the first successful read after the hour does', async () => {
+    const h = await world()
+    await make(h)
+    const a = mon(10)
+    h.google.failNext('events.insert', 503, { error: { code: 503, message: 'Backend Error' } })
+    const got = val(await book(h, a))
+    expect(got.booking.state).toBe('pending')
+    h.google.failNext('events.list', 500, { error: { code: 500, message: 'Backend Error' } }, 200, Z)
+    h.advance(BOOKING_HOLD_MS + 5 * MIN)
+    await h.work()
+    expect(h.rows(`SELECT id FROM booking WHERE state = 'held'`)).toHaveLength(1)
+    expect(await starts(h)).not.toContain(a)
+    expect(await book(h, a, { email: 'bea@example.org' }, 'intro', '10.7.0.1')).toMatchObject({ ok: false, reason: 'conflict' })
+  })
+})
+
+describe('a move whose answer was lost', () => {
+  test('is settled by the next read: the event’s times become the booking’s, and the move is counted', async () => {
+    const h = await world()
+    await make(h)
+    const a = fri(10)
+    const got = val(await book(h, a))
+    const target = fri(14)
+    // Google applies the patch and the answer never arrives.
+    h.google.afterRequest = (op) => {
+      if (op === 'events.patch') {
+        h.google.afterRequest = null
+        throw new Error('connection lost')
+      }
+    }
+    expect(await h.engine.guestMove(got.secret, target)).toEqual({ ok: false, reason: 'conflict', error: UNSURE_WORDS })
+    expect(h.rows<{ moves: number; start_ms: number }>(`SELECT moves, start_ms FROM booking`)[0]).toMatchObject({ moves: 0, start_ms: a })
+    await h.work()
+    expect(h.rows<{ moves: number; start_ms: number; moving_start: number | null }>(`SELECT moves, start_ms, moving_start FROM booking`)[0]).toMatchObject({ moves: 1, start_ms: target, moving_start: null })
+    expect(val(await h.engine.guestBooking(got.secret)).start).toBe(target)
+    // The old day is no longer counted for the link's most-per-day, and the old time is offered again.
+    expect(await starts(h)).toContain(a)
+  })
+
+  test('a move the copy never shows is let go after the hour and a read, and the booking keeps its time without the move counted', async () => {
+    const h = await world()
+    await make(h)
+    const a = fri(10)
+    const got = val(await book(h, a))
+    h.google.failNext('events.patch', 503, { error: { code: 503, message: 'Backend Error' } })
+    expect(await h.engine.guestMove(got.secret, fri(14))).toEqual({ ok: false, reason: 'conflict', error: UNSURE_WORDS })
+    expect(await starts(h)).not.toContain(fri(14))
+    h.advance(BOOKING_HOLD_MS + 5 * MIN)
+    await h.work()
+    expect(h.rows<{ moves: number; start_ms: number; moving_start: number | null }>(`SELECT moves, start_ms, moving_start FROM booking`)[0]).toMatchObject({ moves: 0, start_ms: a, moving_start: null })
   })
 })
 
@@ -524,7 +644,7 @@ describe('the limits', () => {
     for (let i = 0; i < BOOKING_LIMITS.perVisitor; i++) val(await book(h, slots[i] as number, {}, 'intro', `10.0.0.${i}`))
     const fourth = await book(h, slots[3] as number, {}, 'intro', '10.0.0.9')
     expect(fourth).toMatchObject({ ok: false, reason: 'limit' })
-    expect((fourth as { error: string }).error).toContain('as many times as is allowed in a day')
+    expect(fourth).toEqual({ ok: false, reason: 'limit', error: NOT_NOW_WORDS })
     expect(inserts(h)).toHaveLength(3)
     // A day on, more may be made, up to five that have not ended.
     h.advance(25 * HOUR)
@@ -534,7 +654,7 @@ describe('the limits', () => {
     val(await book(h, slots[4] as number, {}, 'intro', '10.0.0.5'))
     const sixth = await book(h, slots[5] as number, {}, 'intro', '10.0.0.6')
     expect(sixth).toMatchObject({ ok: false, reason: 'limit' })
-    expect((sixth as { error: string }).error).toContain('already holds')
+    expect(sixth).toEqual({ ok: false, reason: 'limit', error: NOT_NOW_WORDS })
   })
 
   test('one network address makes at most ten bookings in a day, whoever it says it is', async () => {

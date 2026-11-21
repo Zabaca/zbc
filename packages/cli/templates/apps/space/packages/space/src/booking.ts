@@ -17,6 +17,7 @@
 //
 // The visitor's network address is given to the calendar for its limits (it keeps only a keyed hash) and is never in an answer. Every answer is `no-store`.
 
+import { networkKeyOf } from '@space/calendar/src/bookings'
 import { type CalendarForGuests, type RefusalReason, type SpaceReply } from '@space/workspace'
 import { isRecord } from './guards'
 
@@ -107,7 +108,7 @@ export async function bookingAnswer(req: Request, deps: BookingDoorDeps): Promis
   if (!call) return answer(404, { error: 'Not found' })
   if (call.method === 'GET' ? !read : method !== 'POST') return answer(405, { error: 'Method not allowed' }, { allow: call.method === 'GET' ? 'GET, HEAD' : 'POST' })
   if (call.method === 'POST' && crossSite(req)) return answer(403, { error: 'That did not come from this page.' })
-  const limited = await deps.limit?.limit({ key: `book:${clientIp(req)}` })
+  const limited = await deps.limit?.limit({ key: `book:${networkKeyOf(clientIp(req))}` })
   if (limited && !limited.success) return answer(429, { error: 'Too many requests. Please wait a minute and try again.', reason: 'limit' }, { 'retry-after': '60' })
   try {
     return await call.run()

@@ -216,6 +216,14 @@ export const CALENDAR_MIGRATIONS: readonly CalendarMigration[] = [
     "pepper" TEXT NOT NULL
   );
   `,
+
+  // 5 ── what the per-address limits count (the space's ADR 0025): `visitor_key` is the visitor's address in its canonical form (lower case, no `+tag`, no dots for Gmail's own domains), so one inbox written several ways is one key; `visitor_email`
+  // stays the address as typed, which is the one invited. A row made before this one is keyed by its address as typed.
+  `
+  ALTER TABLE "booking" ADD COLUMN "visitor_key" TEXT NOT NULL DEFAULT '';
+  UPDATE "booking" SET "visitor_key" = "visitor_email";
+  CREATE INDEX "booking_visitor_key_idx" ON "booking" ("visitor_key", "created_at");
+  `,
 ]
 
 /** The version a fully migrated store reports. */
