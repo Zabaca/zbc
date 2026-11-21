@@ -14,6 +14,7 @@ import {
 import { bytesOf } from './base64url'
 import { checkDevice, deviceLabel, isPushEndpoint } from './device'
 import {
+  bookingPayload,
   COLLAPSE_AFTER,
   fresh,
   leadPayload,
@@ -175,6 +176,25 @@ export class Notifications {
     const payload = leadPayload(lead)
     for (const device of devices) await this.deliverTo(key, device, payload)
     console.log(`notify: lead ${lead.leadId} handed to ${devices.length} device(s)`)
+    return { handed: devices.length }
+  }
+
+  /**
+   * A booking a visitor made on one of the owner's booking links (the space's ADR 0025), told now to the owner's devices and to no one else's: the calendar is the owner's (`canSee` over no mailbox is true for the owner alone, as for a lead in a
+   * mailbox no mail has reached). Not through the owed marks, which are a message's. Answers how many devices were handed it. With no key nothing is sent.
+   */
+  async notifyBooking(b: { bookingId: string; title: string; body: string; at: string }): Promise<{ handed: number }> {
+    const key = this.ports.key
+    if (!key) return { handed: 0 }
+    const scopes = new Map<string, MailScope>()
+    const devices = this.ports.store.deviceKeys().filter((d) => {
+      const scope = scopes.get(d.owner) ?? this.ports.store.mailScope(d.owner)
+      scopes.set(d.owner, scope)
+      return canSee(scope, null)
+    })
+    const payload = bookingPayload(b)
+    for (const device of devices) await this.deliverTo(key, device, payload)
+    console.log(`notify: booking ${b.bookingId} handed to ${devices.length} device(s)`)
     return { handed: devices.length }
   }
 

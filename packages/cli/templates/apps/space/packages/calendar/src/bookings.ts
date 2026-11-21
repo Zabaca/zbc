@@ -201,6 +201,13 @@ export async function bookingEventId(installId: string, bookingId: string): Prom
 /** What a booking's secret is kept as: its SHA-256, in hex. The secret itself is kept nowhere. */
 export const secretHash = async (secret: string): Promise<string> => hex(await sha256(`booking-secret\n${secret}`))
 
+/** What the owner's notification says of a booking: `Booked: Ada Quill, Fri, Nov 6, 10:00 AM PST` over the link's name. The time is on the company's clock. */
+export function bookingNote(b: { name: string; start: number; linkName: string }, zone: string): { title: string; body: string } {
+  const day = new Intl.DateTimeFormat('en-US', { timeZone: zone, weekday: 'short', month: 'short', day: 'numeric' }).format(b.start)
+  const time = new Intl.DateTimeFormat('en-US', { timeZone: zone, hour: 'numeric', minute: '2-digit', timeZoneName: 'short' }).format(b.start)
+  return { title: `Booked: ${b.name}, ${day}, ${time}`, body: b.linkName }
+}
+
 // ── The engine's part ───────────────────────────────────────────────────────────────────────────────────────────────────
 
 export interface BookingDeps {

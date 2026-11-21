@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import { BOOKING_DEFAULTS, BOOKING_LIMITS, type BookingLinkInput } from '@space/workspace'
-import { BOOKING_HOLD_MS, bookingEventId, CLOSED_WORDS, readBookingLink, readGuestBooking, TAKEN_WORDS, UNSURE_WORDS } from '../src/bookings'
+import { BOOKING_HOLD_MS, bookingEventId, bookingNote, CLOSED_WORDS, readBookingLink, readGuestBooking, TAKEN_WORDS, UNSURE_WORDS } from '../src/bookings'
 import type { Result } from '../src/engine'
 import { type Harness, harness, HOUR, DAY, NORTHFIELD, OWNER, ORIGIN, T0 } from '../test-support/harness'
 
@@ -448,6 +448,29 @@ describe('a booking', () => {
     }
     // The block names nothing of the booking.
     expect(JSON.stringify(h.google.writes.filter((w) => w.calendarId === F))).not.toContain('Ada')
+  })
+})
+
+describe('the owner’s notification', () => {
+  test('says who and when on the company’s clock over the link’s name, and nothing of the visitor’s address or note', () => {
+    const note = bookingNote({ name: 'Ada Quill', start: Date.UTC(2026, 10, 6, 18, 0), linkName: 'Intro call' }, 'America/Los_Angeles')
+    expect(note.title).toMatch(/^Booked: Ada Quill, Fri, Nov 6, 10:00\sAM\sPST$/)
+    expect(note.body).toBe('Intro call')
+    expect(bookingNote({ name: 'Ada', start: Date.UTC(2026, 6, 6, 18, 0), linkName: 'x' }, 'America/Los_Angeles').title).toMatch(/11:00\sAM\sPDT$/)
+  })
+
+  test('is told once for each booking, whether it was made at once or found later by its event, and never for one that was refused', async () => {
+    const h = await world()
+    await make(h)
+    const a = fri(10)
+    h.google.failNext('events.insert', 400, { error: { code: 400, message: 'Invalid', errors: [{ reason: 'invalid' }] } })
+    await book(h, a)
+    expect(h.notified).toEqual([])
+    val(await book(h, a))
+    expect(h.notified).toHaveLength(1)
+    await h.work()
+    await sync(h)
+    expect(h.notified).toHaveLength(1)
   })
 })
 

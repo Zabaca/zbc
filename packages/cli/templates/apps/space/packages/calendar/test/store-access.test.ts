@@ -46,6 +46,16 @@ describe('a restarted object is asked again at once', () => {
     expect(await inbox.access('tessa@northfield.example', false, 'events')).toEqual({ method: 'calendarAccess', args: ['tessa@northfield.example', false, 'events'] } as never)
   })
 
+  test('a booking is told to the inbox’s notifications on a stub of its own, with the words the calendar made and nothing of a token', async () => {
+    const world = namespace()
+    const inbox = inboxFor({ INBOX: world.ns as never })
+    const told = { bookingId: 'b-1', title: 'Booked: Ada Quill, Fri, Nov 6, 10:00 AM PST', body: 'Intro call', at: '2026-11-05T20:00:00.000Z' }
+    expect(await inbox.notifyBooking(told)).toEqual({ method: 'notifyBooking', args: [told] } as never)
+    world.abort()
+    expect(await inbox.notifyBooking(told)).toEqual({ method: 'notifyBooking', args: [told] } as never)
+    expect(world.gets).toEqual(['inbox', 'inbox'])
+  })
+
   test('the calendar, as the space asks it', async () => {
     const world = namespace()
     const engine = engineFor({ CALENDAR: world.ns as never })

@@ -232,6 +232,23 @@ export function leadPayload(l: {
   }
 }
 
+/**
+ * A booking's notification (the space's ADR 0025): a visitor took a time on one of the owner's booking links. The calendar words it ("Booked: Ada Quill, Fri, Nov 6, 10:00 AM PST" over the link's name), since it knows the company's clock. Names no person,
+ * and a tap opens the Calendar tab. Tagged by the booking, so a booking found a second time (its event was waited for) does not sound twice.
+ */
+export function bookingPayload(b: { bookingId: string; title: string; body: string; at: string }): NotificationPayload {
+  return {
+    v: PAYLOAD_VERSION,
+    kind: 'booking',
+    conversationId: null,
+    messageId: `booking-${b.bookingId}`,
+    // Cut as every payload is: a visitor's name is theirs to make long.
+    title: cut(b.title, MAX_TITLE),
+    body: cut(b.body, MAX_BODY),
+    at: b.at,
+  }
+}
+
 /** A sender as a summary names them: the first word of the contact's name, else the address. */
 const firstName = (name: string, address: string): string => name.trim().split(/\s+/)[0] || address
 

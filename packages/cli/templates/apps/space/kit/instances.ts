@@ -1,6 +1,6 @@
 // The install kit: one function from an install's declaration and install file to what zbc applies for the space.
 //
-// `buildSpaceInstall` makes the zbc instances of one install of the space (packages/space): the Access applications for the whole host, for Forms and for the three open guest paths, the doors a
+// `buildSpaceInstall` makes the zbc instances of one install of the space (packages/space): the Access applications for the whole host, for Forms and for the open guest paths, the doors a
 // machine uses where the install has them (Claude's script, the Telegram bridge, the Clients door), Forms' bucket and database, the raw-mail bucket and the delivery-report queue where the install has business mailboxes, and the
 // Worker itself with its secrets and vars. The Worker's own settings (hostnames, bindings, senders, mailboxes, crons) are `spaceWorkerSettings` (worker-settings.ts), which the space's build writes for the
 // install; this file is the half zbc applies. An environment's instance files are one line each, exporting what this returns (the install's own file in its environment), so that
@@ -44,6 +44,7 @@ export const INSTANCE_NAMES = {
   guestCalls: 'space-guest-calls',
   guestChat: 'space-guest-chat',
   guestSigning: 'space-guest-signing',
+  guestBooking: 'space-guest-booking',
   formsBucket: 'forms-bucket',
   formsDatabase: 'forms-database',
   rawMail: 'inbox-raw',
@@ -100,6 +101,8 @@ export interface SpaceInstances<Instance extends KitInstance = KitInstance> {
   guestCalls?: Instance
   guestChat: Instance
   guestSigning: Instance
+  /** The booking links' open path (`/book/*`), only where the install has Gmail (the calendar comes with Google): the space's ADR 0025. */
+  guestBooking?: Instance
   /** Forms' bucket (every file a signer or an operator gives it) and database (envelopes, requests, the audit trail). Never destroyed. */
   formsBucket: Instance
   formsDatabase: Instance
@@ -200,8 +203,8 @@ export function buildSpaceInstall<Instance extends KitInstance = KitInstance>(in
   const clientsAccess = machineDoor(INSTANCE_NAMES.clientsAccess, install.clientsDoor(), file.access.clients)
   const leadsAccess = machineDoor(INSTANCE_NAMES.leadsAccess, install.leadsDoor(), file.access.leads)
 
-  // ONE OF THE SPACE'S OPEN PATHS, as an Access application (the space's ADR 0018). The whole host is behind the sign-in; a call's guests, a
-  // channel's guests and a document's signers have no account, so three paths are taken out of that gate by a more specific application with Cloudflare's Bypass policy for everyone, and Access serves a request with the
+  // ONE OF THE SPACE'S OPEN PATHS, as an Access application (the space's ADR 0018, and 0025 for the booking path). The whole host is behind the sign-in; a call's guests, a
+  // channel's guests, a document's signers and the visitors of a booking link have no account, so their paths are taken out of that gate by a more specific application with Cloudflare's Bypass policy for everyone, and Access serves a request with the
   // most specific application it has. `GUEST_PREFIXES` (packages/workspace/src/guests.ts) is the list, and the Worker's router and the build read the same one, so the edge cannot open a path the Worker does not
   // answer as a guest's, or the other way round. Each is an instance of its own (the module converges one application), named for what it lets in.
   //
@@ -232,6 +235,7 @@ export function buildSpaceInstall<Instance extends KitInstance = KitInstance>(in
   const guestCalls = file.access.guests.calls ? guestPath(INSTANCE_NAMES.guestCalls, '/r', file.access.guests.calls) : undefined
   const guestChat = guestPath(INSTANCE_NAMES.guestChat, '/w', file.access.guests.chat)
   const guestSigning = guestPath(INSTANCE_NAMES.guestSigning, '/s', file.access.guests.signing)
+  const guestBooking = file.access.guests.booking ? guestPath(INSTANCE_NAMES.guestBooking, '/book', file.access.guests.booking) : undefined
 
   // Forms' bucket and database, each an instance of its own. The database's instance applies forms' migrations (wrangler's own format and ledger) before the Worker that reads it is deployed. Both hold signed
   // records, so neither is ever destroyed.
@@ -344,7 +348,7 @@ export function buildSpaceInstall<Instance extends KitInstance = KitInstance>(in
     },
     // A real dependency AND the thing that orders the apply: the gates go up before the door is served. The buckets are imports so each exists before this Worker binds it, the database so it is migrated before
     // this Worker reads it, and the delivery-report queue so it exists before this Worker is attached as its consumer.
-    imports: [formsBucket, formsDatabase, rawMail, deliveryReports, spaceAccess, formsAccess, agentAccess, telegramAccess, clientsAccess, leadsAccess, guestCalls, guestChat, guestSigning].filter((i): i is Instance => i !== undefined),
+    imports: [formsBucket, formsDatabase, rawMail, deliveryReports, spaceAccess, formsAccess, agentAccess, telegramAccess, clientsAccess, leadsAccess, guestCalls, guestChat, guestSigning, guestBooking].filter((i): i is Instance => i !== undefined),
     // Its Durable Objects are the install's stores: a destroy of this Worker would delete every one.
     retain: true,
   })
@@ -360,11 +364,12 @@ export function buildSpaceInstall<Instance extends KitInstance = KitInstance>(in
     ...(guestCalls ? { guestCalls } : {}),
     guestChat,
     guestSigning,
+    ...(guestBooking ? { guestBooking } : {}),
     formsBucket,
     formsDatabase,
     ...(rawMail ? { rawMail } : {}),
     ...(deliveryReports ? { deliveryReports } : {}),
   }
-  const all = [formsBucket, formsDatabase, rawMail, deliveryReports, spaceAccess, formsAccess, agentAccess, telegramAccess, clientsAccess, leadsAccess, guestCalls, guestChat, guestSigning, space].filter((i): i is Instance => i !== undefined)
+  const all = [formsBucket, formsDatabase, rawMail, deliveryReports, spaceAccess, formsAccess, agentAccess, telegramAccess, clientsAccess, leadsAccess, guestCalls, guestChat, guestSigning, guestBooking, space].filter((i): i is Instance => i !== undefined)
   return { install, file, settings: spaceWorkerSettings(install, file), instances, all }
 }

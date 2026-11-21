@@ -25,7 +25,8 @@
     "guests": {
       "calls": { "application": "space.northfield.example/r/*", "policy": "space.northfield.example/r/* anyone, no sign-in (calls)" },
       "chat": { "application": "space.northfield.example/w/*", "policy": "space.northfield.example/w/* anyone, no sign-in (channel guests)" },
-      "signing": { "application": "space.northfield.example/s/*", "policy": "space.northfield.example/s/* anyone, no sign-in (signers)" }
+      "signing": { "application": "space.northfield.example/s/*", "policy": "space.northfield.example/s/* anyone, no sign-in (signers)" },
+      "booking": { "application": "space.northfield.example/book/*", "policy": "space.northfield.example/book/* anyone, no sign-in (booking links)" }
     }
   },
   "secrets": {

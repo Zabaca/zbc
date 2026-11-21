@@ -40,6 +40,9 @@ export const conversationPathOf = (address: string): string => `${LIST_PATH}/${e
 /** Where a lead's notification opens: the Leads tab. */
 export const LEADS_PATH = '/leads'
 
+/** Where a booking's notification opens: the Calendar tab, where the event is. */
+export const CALENDAR_PATH = '/calendar'
+
 /** The payload a push carried, or null when it cannot be read as one this worker knows. */
 export function readPayload(text: string | null | undefined): SpacePushPayload | null {
   if (!text) return null
@@ -51,7 +54,7 @@ export function readPayload(text: string | null | undefined): SpacePushPayload |
   }
   if (raw === null || typeof raw !== 'object') return null
   const p = raw as Record<string, unknown>
-  if (p.v !== READS_VERSION || (p.kind !== 'message' && p.kind !== 'summary' && p.kind !== 'test' && p.kind !== 'lead')) return null
+  if (p.v !== READS_VERSION || (p.kind !== 'message' && p.kind !== 'summary' && p.kind !== 'test' && p.kind !== 'lead' && p.kind !== 'booking')) return null
   if (typeof p.title !== 'string' || typeof p.body !== 'string' || typeof p.messageId !== 'string') return null
   if (p.conversationId !== null && typeof p.conversationId !== 'string') return null
   const person = typeof p.person === 'string' && p.person.trim() !== '' && p.person.length <= 320 ? p.person.trim().toLowerCase() : undefined
@@ -75,7 +78,7 @@ export interface Shown {
     badge: string
     tag?: string
     timestamp?: number
-    /** `path`: where a tap opens when it is not a person's conversation (a lead's: the Leads tab). */
+    /** `path`: where a tap opens when it is not a person's conversation (a lead's: the Leads tab; a booking's: the Calendar tab). */
     data: { person: string | null; path?: string }
   }
 }
@@ -92,7 +95,7 @@ export function notificationFor(payload: SpacePushPayload | null): Shown {
       badge: BADGE,
       tag: payload.messageId,
       ...(Number.isNaN(at) ? {} : { timestamp: at }),
-      data: { person: payload.kind === 'message' ? (payload.person ?? null) : null, ...(payload.kind === 'lead' && { path: LEADS_PATH }) },
+      data: { person: payload.kind === 'message' ? (payload.person ?? null) : null, ...(payload.kind === 'lead' && { path: LEADS_PATH }), ...(payload.kind === 'booking' && { path: CALENDAR_PATH }) },
     },
   }
 }

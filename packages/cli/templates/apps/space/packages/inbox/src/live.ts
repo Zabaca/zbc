@@ -115,6 +115,8 @@ export const UNFOLLOWED_CALLS = [
   'sendTestNotification',
   // a new lead told to the devices: the lead itself is stored (and followed) by `receiveLead`
   'notifyLead',
+  // a booking a visitor made on a booking link, told to the owner's devices (the calendar asks it, the space's ADR 0025)
+  'notifyBooking',
   'deliverNotifications',
   'setAssistant',
   'assistantUsage',
