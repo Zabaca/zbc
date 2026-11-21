@@ -111,14 +111,38 @@ describe('a link’s page', () => {
     await w.make()
     const page = await open('/book/intro-call')
     const before = $$('.pk-time')[0]?.textContent
-    await page.type($('.pk-zone select'), 'Asia/Calcutta')
+    // A zone whose name is the same in every runtime's list (India's is `Asia/Calcutta` in one and `Asia/Kolkata` in another, so it is not used here).
+    await page.type($('.pk-zone select'), 'Europe/London')
     const after = $$('.pk-time')[0]?.textContent
     expect(before).toMatch(/10:00.AM/)
-    // 10 am in Los Angeles in November is 11:30 pm the same day in India (the browser lists that zone as Calcutta).
-    expect(after).toMatch(/11:30.PM/)
+    // 10 am in Los Angeles in November (UTC-8) is 6 pm the same day in London (UTC+0).
+    expect(after).toMatch(/6:00.PM/)
     expect($('.pk-day-name')?.textContent).toBe('Friday, November 6')
-    expect($('.pk-zone-short')?.textContent).toMatch(/GMT\+5:30|IST/)
+    expect($('.pk-zone-short')?.textContent).toMatch(/GMT/)
     await page.unmount()
+  })
+
+  test('a visitor whose browser reports a zone name the runtime does not list (the old name of a zone) still sees their own zone selected, not another', async () => {
+    const w = world()
+    await w.make()
+    const own = 'Asia/Kolkata'
+    const listed = (Intl as unknown as { supportedValuesOf?: (k: string) => string[] }).supportedValuesOf
+    const realFormat = Intl.DateTimeFormat.prototype.resolvedOptions
+    // The browser says India's zone is Kolkata whatever its own list calls it, and its list holds the old name only.
+    ;(Intl as unknown as { supportedValuesOf: (k: string) => string[] }).supportedValuesOf = () => ['America/Los_Angeles', 'Asia/Calcutta', 'Europe/London']
+    Intl.DateTimeFormat.prototype.resolvedOptions = function (this: Intl.DateTimeFormat) {
+      return { ...realFormat.call(this), timeZone: own }
+    }
+    try {
+      const page = await open('/book/intro-call', null)
+      const select = $('.pk-zone select') as unknown as HTMLSelectElement
+      expect(select.value).toBe(own)
+      expect([...select.options].some((o) => o.value === own)).toBe(true)
+      await page.unmount()
+    } finally {
+      Intl.DateTimeFormat.prototype.resolvedOptions = realFormat
+      ;(Intl as unknown as { supportedValuesOf?: unknown }).supportedValuesOf = listed
+    }
   })
 
   test('words the owner and the visitor typed are drawn as words: markup in a description or a name is text, and nothing runs', async () => {
