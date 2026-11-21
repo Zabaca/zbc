@@ -6,7 +6,7 @@
  * A visitor's time is taken the moment its row is written, in the same turn of the object as the check that the time was free (no await between them), so two visitors cannot take one time. The row is `held` until Google has made the event.
  */
 
-import type { BookingHours, BookingState } from '@space/workspace'
+import type { BookingHours, BookingState, BookingWhere } from '@space/workspace'
 import type { CalendarSql } from './schema'
 import type { StorePorts } from './store'
 
@@ -30,6 +30,8 @@ export interface LinkRow {
   gapMinutes: number
   perDay: number | null
   enabled: boolean
+  /** Where its meetings are held. */
+  where: BookingWhere
   createdAt: number
   changedAt: number
 }
@@ -60,6 +62,15 @@ export interface BookingRow {
   manageHash: string
   state: 'held' | 'booked' | 'cancelled'
   checked: 'google' | 'copy'
+  /** Where it was booked to be held, whatever its link says now. */
+  where: BookingWhere
+  /** The call in the space made for it (its name and address on the space's host), for a booking held there; null otherwise. */
+  callName: string | null
+  callLink: string | null
+  /** The start the call's window was last set for: when it is not the booking's start, a move has not reached the call yet. */
+  callStart: number | null
+  /** The call was closed after the booking was cancelled. */
+  callClosed: boolean
   moves: number
   network: string
   createdAt: number
@@ -67,7 +78,7 @@ export interface BookingRow {
   cancelledAt: number | null
 }
 
-export type BookingWrite = Omit<BookingRow, 'movingStart' | 'movingEnd' | 'movingAt' | 'moves' | 'bookedAt' | 'cancelledAt' | 'state'>
+export type BookingWrite = Omit<BookingRow, 'movingStart' | 'movingEnd' | 'movingAt' | 'moves' | 'bookedAt' | 'cancelledAt' | 'state' | 'callName' | 'callLink' | 'callStart' | 'callClosed'>
 
 const linkFrom = (r: Record<string, unknown>): LinkRow => ({
   id: text(r.id),
@@ -82,6 +93,7 @@ const linkFrom = (r: Record<string, unknown>): LinkRow => ({
   gapMinutes: num(r.gap_minutes),
   perDay: numOrNull(r.per_day),
   enabled: flag(r.enabled),
+  where: text(r.where_kind) === 'space' ? 'space' : 'meet',
   createdAt: num(r.created_at),
   changedAt: num(r.changed_at),
 })
@@ -107,6 +119,11 @@ const bookingFrom = (r: Record<string, unknown>): BookingRow => ({
   manageHash: text(r.manage_hash),
   state: text(r.state) as BookingRow['state'],
   checked: text(r.checked) === 'google' ? 'google' : 'copy',
+  where: text(r.where_kind) === 'space' ? 'space' : 'meet',
+  callName: textOrNull(r.call_name),
+  callLink: textOrNull(r.call_link),
+  callStart: numOrNull(r.call_start),
+  callClosed: flag(r.call_closed),
   moves: num(r.moves),
   network: text(r.network),
   createdAt: num(r.created_at),
@@ -147,8 +164,8 @@ export class BookingStore {
   addLink(id: string, w: LinkWrite): void {
     const now = this.ports.now()
     this.sql.exec(
-      `INSERT INTO booking_link (id, slug, name, description, account, minutes, hours, notice_minutes, ahead_days, gap_minutes, per_day, enabled, created_at, changed_at)
-       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?13)`,
+      `INSERT INTO booking_link (id, slug, name, description, account, minutes, hours, notice_minutes, ahead_days, gap_minutes, per_day, enabled, created_at, changed_at, where_kind)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?13, ?14)`,
       id,
       w.slug,
       w.name,
@@ -162,6 +179,7 @@ export class BookingStore {
       w.perDay,
       w.enabled ? 1 : 0,
       now,
+      w.where,
     )
   }
 
@@ -169,7 +187,7 @@ export class BookingStore {
   changeLink(id: string, w: LinkWrite): boolean {
     return (
       this.sql.exec(
-        `UPDATE booking_link SET slug = ?2, name = ?3, description = ?4, account = ?5, minutes = ?6, hours = ?7, notice_minutes = ?8, ahead_days = ?9, gap_minutes = ?10, per_day = ?11, enabled = ?12, changed_at = ?13 WHERE id = ?1`,
+        `UPDATE booking_link SET slug = ?2, name = ?3, description = ?4, account = ?5, minutes = ?6, hours = ?7, notice_minutes = ?8, ahead_days = ?9, gap_minutes = ?10, per_day = ?11, enabled = ?12, changed_at = ?13, where_kind = ?14 WHERE id = ?1`,
         id,
         w.slug,
         w.name,
@@ -183,6 +201,7 @@ export class BookingStore {
         w.perDay,
         w.enabled ? 1 : 0,
         this.ports.now(),
+        w.where,
       ).rowsWritten > 0
     )
   }
@@ -230,8 +249,8 @@ export class BookingStore {
 
   addBooking(w: BookingWrite): void {
     this.sql.exec(
-      `INSERT INTO booking (id, link_id, link_name, account, calendar_id, calendar_google_id, event_id, minutes, start_ms, end_ms, visitor_name, visitor_email, visitor_key, note, manage_hash, state, checked, network, created_at)
-       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?18, ?13, ?14, 'held', ?15, ?16, ?17)`,
+      `INSERT INTO booking (id, link_id, link_name, account, calendar_id, calendar_google_id, event_id, minutes, start_ms, end_ms, visitor_name, visitor_email, visitor_key, note, manage_hash, state, checked, network, created_at, where_kind)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?18, ?13, ?14, 'held', ?15, ?16, ?17, ?19)`,
       w.id,
       w.linkId,
       w.linkName,
@@ -250,7 +269,28 @@ export class BookingStore {
       w.network,
       w.createdAt,
       w.visitorKey,
+      w.where,
     )
+  }
+
+  /** The call made for a booking: its name and address, kept as soon as it exists, with the start its window was set for. */
+  setCall(id: string, name: string, link: string, start: number): void {
+    this.sql.exec(`UPDATE booking SET call_name = ?2, call_link = ?3, call_start = ?4 WHERE id = ?1`, id, name, link, start)
+  }
+
+  /** The call's window now matches this start. */
+  setCallStart(id: string, start: number): void {
+    this.sql.exec(`UPDATE booking SET call_start = ?2 WHERE id = ?1`, id, start)
+  }
+
+  /** The call was closed (or never needs to be): it is not tried again. */
+  markCallClosed(id: string): void {
+    this.sql.exec(`UPDATE booking SET call_closed = 1 WHERE id = ?1`, id)
+  }
+
+  /** The bookings that have a call not yet closed and whose window has not ended before `since`: the alarm finds among them the cancelled ones (to close) and the moved ones (whose window is to follow). */
+  openCalls(since: number): BookingRow[] {
+    return this.sql.exec(`SELECT * FROM booking WHERE where_kind = 'space' AND call_name IS NOT NULL AND call_closed = 0 AND state IN ('booked', 'cancelled') AND end_ms > ?1 ORDER BY start_ms, id`, since).toArray().map(bookingFrom)
   }
 
   /** A time that was held and is let go: the hold is gone and nothing was made. Only a hold: a booking Google made is never removed from here. */

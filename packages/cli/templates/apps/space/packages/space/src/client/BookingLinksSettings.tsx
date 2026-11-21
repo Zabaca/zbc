@@ -1,4 +1,4 @@
-// Settings, Calendars: the booking links (the space's ADR 0025). Each link is a page where a visitor with no sign-in picks a free time; a booking becomes an event on the link's account with a Google Meet link, and Google sends the invitation in the owner's name.
+// Settings, Calendars: the booking links (the space's ADR 0025). Each link is a page where a visitor with no sign-in picks a free time; a booking becomes an event on the link's account with a Google Meet link or the link of a call in the space (ADR 0026), and Google sends the invitation in the owner's name.
 // The owner makes, changes, turns off and deletes links here, copies a link's address, and reads what each link did: who booked, when, and when it was booked. Nothing here asks Google: a link is a setting, and no event is made until a visitor books.
 //
 // What a visitor typed (a name, an email, a note) is drawn as text, never as markup.
@@ -11,6 +11,7 @@ import {
   type BookingLinkView,
   type BookingRecord,
   type BookingWeekday,
+  type BookingWhere,
   type CalendarBookingLinks,
 } from '@space/workspace'
 import { useFresh } from './liveHub'
@@ -62,6 +63,9 @@ const timeIn = (at: number, zone: string): string => {
   }
 }
 
+/** Where a meeting is held, in the owner's words: a link's, and a booking's. */
+const WHERE_TEXT: Record<BookingWhere, string> = { meet: 'Google Meet', space: 'a call in the space' }
+
 const STATE_TEXT: Record<BookingRecord['state'], string> = { booked: 'On the calendar', pending: 'Waiting for Google', cancelled: 'Cancelled by the visitor', removed: 'Removed from the calendar' }
 
 /** The fields of the form, as text a person edits. */
@@ -77,9 +81,10 @@ interface Draft {
   gap: string
   perDay: string
   enabled: boolean
+  where: BookingWhere
 }
 
-const draftOf = (input: BookingLinkInput | (CalendarBookingLinks['defaults'] & { slug?: string; name?: string; description?: string; account?: string; enabled?: boolean })): Draft => ({
+const draftOf = (input: BookingLinkInput | (CalendarBookingLinks['defaults'] & { slug?: string; name?: string; description?: string; account?: string; enabled?: boolean; where?: BookingWhere })): Draft => ({
   slug: input.slug ?? '',
   name: input.name ?? '',
   description: input.description ?? '',
@@ -91,6 +96,7 @@ const draftOf = (input: BookingLinkInput | (CalendarBookingLinks['defaults'] & {
   gap: String(input.gapMinutes),
   perDay: input.perDay === null ? '' : String(input.perDay),
   enabled: input.enabled ?? true,
+  where: input.where ?? 'meet',
 })
 
 /** The link the draft says, as the calendar takes it. A field that is not a number is sent as one the calendar refuses in words. */
@@ -106,10 +112,11 @@ const inputOf = (d: Draft): BookingLinkInput => ({
   gapMinutes: Number(d.gap),
   perDay: d.perDay.trim() === '' ? null : Number(d.perDay),
   enabled: d.enabled,
+  where: d.where,
 })
 
 /** A link's own fields back as the calendar takes them (what the quick on and off sends). */
-const inputOfView = (l: BookingLinkView): BookingLinkInput => ({ slug: l.slug, name: l.name, description: l.description, account: l.account, minutes: l.minutes, hours: l.hours, noticeMinutes: l.noticeMinutes, aheadDays: l.aheadDays, gapMinutes: l.gapMinutes, perDay: l.perDay, enabled: l.enabled })
+const inputOfView = (l: BookingLinkView): BookingLinkInput => ({ slug: l.slug, name: l.name, description: l.description, account: l.account, minutes: l.minutes, hours: l.hours, noticeMinutes: l.noticeMinutes, aheadDays: l.aheadDays, gapMinutes: l.gapMinutes, perDay: l.perDay, enabled: l.enabled, where: l.where })
 
 function BookingRow({ b, zone }: { b: BookingRecord; zone: string }) {
   return (
@@ -119,8 +126,8 @@ function BookingRow({ b, zone }: { b: BookingRecord; zone: string }) {
       </span>
       <span className="cs-bk-when">{timeIn(b.start, zone)}</span>
       <span className={`kindtag cs-bk-state ${b.state}`}>{STATE_TEXT[b.state]}</span>
-      <span className="sub cs-bk-at">
-        Booked {when(b.bookedAt)}
+      <span className="sub cs-bk-at" data-testid="booking-row-where">
+        Held on {WHERE_TEXT[b.where]}. Booked {when(b.bookedAt)}
         {b.checked === 'copy' && ' (checked against the calendar’s own copy for an account Google could not be asked about)'}
       </span>
       {b.note !== null && <span className="sub cs-bk-note">“{b.note}”</span>}
@@ -210,6 +217,16 @@ function LinkForm({ links, id, initial, busy, onSave, onCancel }: { links: Calen
         </select>
         {d.account !== '' && links.accounts.find((a) => a.address === d.account)?.why != null && <span className="cs-problem">{links.accounts.find((a) => a.address === d.account)?.why}</span>}
       </label>
+      {(links.calls || d.where === 'space') && (
+        <label className="s-field">
+          <span>Where the meeting is held</span>
+          <select name="where" disabled={busy} value={d.where} onChange={(e) => setD({ ...d, where: e.target.value === 'space' ? 'space' : 'meet' })} data-testid="booking-where">
+            <option value="meet">Google Meet (Google’s link, in Google’s invitation)</option>
+            <option value="space">A call in the space (opens in the visitor’s browser, no account; open from 30 minutes before to 2 hours after)</option>
+          </select>
+          {!links.calls && <span className="cs-problem">Calls are not turned on in this space, so a link cannot hold its meetings in a call. Choose Google Meet, or turn calls on.</span>}
+        </label>
+      )}
       <div className="cs-nums">
         <label className="s-field">
           <span>Length, minutes</span>
@@ -260,7 +277,7 @@ function LinkItem({ l, zone, busy, editing, asking, onCopy, onEdit, onSwitch, on
             {l.url}
           </code>
           <span className="sub">
-            {lengthText(l.minutes)}, on {l.account}. {hoursText(l.hours) || 'No hours set'}; {noticeText(l.noticeMinutes)}, up to {l.aheadDays} days ahead, {l.gapMinutes === 0 ? 'no gap' : `a ${l.gapMinutes} minute gap`}
+            {lengthText(l.minutes)}, on {l.account}, held on <span data-testid="booking-where-now">{WHERE_TEXT[l.where]}</span>. {hoursText(l.hours) || 'No hours set'}; {noticeText(l.noticeMinutes)}, up to {l.aheadDays} days ahead, {l.gapMinutes === 0 ? 'no gap' : `a ${l.gapMinutes} minute gap`}
             {l.perDay === null ? '' : `, at most ${l.perDay} a day`}.
           </span>
         </span>
@@ -348,7 +365,7 @@ export function BookingLinksCard() {
     <section className="s-card cs-booking" aria-label="Booking links" data-testid="booking-links">
       <h3 className="s-sub">Booking links</h3>
       <p className="sub cs-lead">
-        Send someone a link and they pick a free time themselves, with no sign-in. A booking is an event on the link’s account, with a Google Meet link, and Google sends the invitation in your name. A visitor sees only that a time is free, never what you are doing. The times
+        Send someone a link and they pick a free time themselves, with no sign-in. A booking is an event on the link’s account, held on Google Meet or in a call of your own space (the link’s choice, where calls are on), and Google sends the invitation in your name. A visitor sees only that a time is free, never what you are doing. The times
         come from every connected calendar, and Google is asked again at the moment of booking. A link that is on is your word for the events it makes; turn it off and it takes no new booking.
       </p>
       <Viewed view={view.state} problem={view.problem} reload={view.reload} loading="Loading the booking links">

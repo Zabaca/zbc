@@ -224,6 +224,17 @@ export const CALENDAR_MIGRATIONS: readonly CalendarMigration[] = [
   UPDATE "booking" SET "visitor_key" = "visitor_email";
   CREATE INDEX "booking_visitor_key_idx" ON "booking" ("visitor_key", "created_at");
   `,
+
+  // 6 ── where a link's meetings are held (the space's ADR 0026): `where_kind` is `meet` (Google Meet, every link made before) or `space` (a call in the space's own Meet). A booking keeps what it was booked with (`booking.where_kind`), and, for a call in
+  // the space, the call's name and address (`call_name`, `call_link`: the call is made for the booking and is the event's place) the start its window was last set for (`call_start`: a move that did not reach the call is found by it and tried again), and whether it has been closed since the booking was cancelled (`call_closed`; a close that did not go through is tried again).
+  `
+  ALTER TABLE "booking_link" ADD COLUMN "where_kind" TEXT NOT NULL DEFAULT 'meet';
+  ALTER TABLE "booking" ADD COLUMN "where_kind" TEXT NOT NULL DEFAULT 'meet';
+  ALTER TABLE "booking" ADD COLUMN "call_name" TEXT;
+  ALTER TABLE "booking" ADD COLUMN "call_link" TEXT;
+  ALTER TABLE "booking" ADD COLUMN "call_start" INTEGER;
+  ALTER TABLE "booking" ADD COLUMN "call_closed" INTEGER NOT NULL DEFAULT 0;
+  `,
 ]
 
 /** The version a fully migrated store reports. */

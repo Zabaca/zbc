@@ -1,5 +1,5 @@
 import { DurableObject } from 'cloudflare:workers'
-import { liveOf, ownersOf, tellLive } from '@space/workspace'
+import { type BookingCalls, liveOf, ownersOf, tellLive } from '@space/workspace'
 import { bookingNote } from './bookings'
 import { CalendarEngine, ENGINE_METHODS, type EngineMethod } from './engine'
 import { createCalendarGoogle, createCalendarWriter, createRunWriter } from './google'
@@ -72,6 +72,8 @@ export class CalendarDO extends DurableObject<CalendarEnv> {
       notify: async (b) => {
         await inbox.notifyBooking({ bookingId: b.id, ...bookingNote(b, bundledInstall.company.timeZone), at: new Date().toISOString() })
       },
+      // A call in the space for a booking link that holds its meetings there (the space's ADR 0026): none here, because this package imports neither the inbox nor Meet; the space's own class gives it (packages/space/src/calendar-do.ts).
+      calls: this.bookingCallsPort(env),
       pushUrl: pushUrlOf(env.CALENDAR_PUSH_URL),
       newId: () => crypto.randomUUID(),
       newToken: () => hex(crypto.getRandomValues(new Uint8Array(24))),
@@ -86,6 +88,11 @@ export class CalendarDO extends DurableObject<CalendarEnv> {
     })
     // The first alarm of a started object: reads may be owed (a store just made, a restart).
     ctx.blockConcurrencyWhile(() => this.engine.start())
+  }
+
+  /** The way to make, move and close a call in the space's Meet, for the booking links set to hold their meetings there. None here: the space's subclass overrides this and nothing else (packages/space/src/calendar-do.ts). */
+  protected bookingCallsPort(_env: CalendarEnv): BookingCalls | undefined {
+    return undefined
   }
 
   /**

@@ -119,7 +119,7 @@ describe('the card', () => {
     const item = $('[data-testid="booking-link"]')
     expect(item?.getAttribute('data-slug')).toBe('intro-call')
     expect($('[data-testid="booking-url"]')?.textContent).toBe('https://space.northfield.example/book/intro-call')
-    expect(item?.textContent).toContain('30 minutes, on tessa@northfield.example. Mon to Fri 9:00 AM to 5:00 PM; 4 hours’ notice, up to 30 days ahead, a 15 minute gap.')
+    expect(item?.textContent).toContain('30 minutes, on tessa@northfield.example, held on Google Meet. Mon to Fri 9:00 AM to 5:00 PM; 4 hours’ notice, up to 30 days ahead, a 15 minute gap.')
     expect($('[data-testid="booking-switch"]')?.getAttribute('aria-checked')).toBe('true')
     expect($('[data-testid="booking-none"]')?.textContent).toContain('Nobody has booked this link yet')
     await page.unmount()
@@ -233,6 +233,53 @@ describe('the card', () => {
     })
     await page.click($('[data-testid="booking-copy"]'))
     expect($('[data-testid="booking-copied"]')?.textContent).toMatch(/^The address is selected: copy it \((Ctrl|Cmd) and C\)\.$/)
+    await page.unmount()
+  })
+})
+
+describe('where a link holds its meetings (the space’s ADR 0026)', () => {
+  test('the choice is offered with calls on, starts on Google Meet, is saved, and the link says which it uses', async () => {
+    const { calendar, called } = standInWorker()
+    const page = await openCard()
+    await page.click($('[data-testid="booking-new"]'))
+    expect(($('[data-testid="booking-where"]') as unknown as HTMLSelectElement).value).toBe('meet')
+    await page.type($('[data-testid="booking-name"]'), 'Intro call')
+    await page.type($('[data-testid="booking-slug"]'), 'intro-call')
+    await page.type($('[data-testid="booking-where"]'), 'space')
+    await page.click($('[data-testid="booking-save"]'))
+    expect(called.at(-1)).toMatchObject({ path: '/api/calendar/booking-links/make', body: { where: 'space' } })
+    expect(calendar.booking.links[0]?.where).toBe('space')
+    expect($('[data-testid="booking-where-now"]')?.textContent).toBe('a call in the space')
+    // Editing it shows the choice as it is, and back to Google Meet is saved.
+    await page.click($('[data-testid="booking-edit"]'))
+    expect(($('[data-testid="booking-where"]') as unknown as HTMLSelectElement).value).toBe('space')
+    await page.type($('[data-testid="booking-where"]'), 'meet')
+    await page.click($('[data-testid="booking-save"]'))
+    expect(called.at(-1)).toMatchObject({ path: '/api/calendar/booking-links/change', body: { link: { where: 'meet' } } })
+    expect($('[data-testid="booking-where-now"]')?.textContent).toBe('Google Meet')
+    // The quick on and off keeps where as it is.
+    await page.click($('[data-testid="booking-switch"]'))
+    expect(called.at(-1)).toMatchObject({ body: { link: { where: 'meet', enabled: false } } })
+    await page.unmount()
+  })
+
+  test('with calls off the choice is not offered for a new link, and the link is on Google Meet', async () => {
+    const { calendar } = standInWorker()
+    const inner = globalThis.fetch
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const res = await inner(input, init)
+      if (new URL(String(input), 'http://localhost').pathname !== '/api/calendar/booking-links') return res
+      const body = (await res.json()) as { value: Record<string, unknown> }
+      return Response.json({ ...body, value: { ...body.value, calls: false } })
+    }) as typeof fetch
+    const page = await openCard()
+    await page.click($('[data-testid="booking-new"]'))
+    expect($('[data-testid="booking-where"]')).toBeNull()
+    await page.type($('[data-testid="booking-name"]'), 'Intro call')
+    await page.type($('[data-testid="booking-slug"]'), 'intro-call')
+    await page.click($('[data-testid="booking-save"]'))
+    expect(calendar.booking.links[0]?.where).toBe('meet')
+    expect($('[data-testid="booking-where-now"]')?.textContent).toBe('Google Meet')
     await page.unmount()
   })
 })

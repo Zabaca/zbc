@@ -19,9 +19,11 @@ If a word here starts meaning two things, stop and fix this file first.
   bits), made by the server and shown in groups of five
   (`k7m2q-x9frt-n4w6h-bc8jd`). It is the only lock on a call: the **Call link**
   `<space host>/r/<name>` is the invitation. A name nobody started answers
-  "This is not a call." and creates nothing. Links do not expire.
+  "This is not a call." and creates nothing. Links do not expire, except the link of a **booking link's call** (below), which is open to new people only from 30 minutes before its time to 2 hours after it and says "This is not a call." once its booking is cancelled.
 
-- **Start**: making a call. Only a signed-in teammate can, in the space (New call, a huddle); everything else about a call needs
+- **Booking link's call**: the one call made for a booking on a booking link set to the space's call ([the space's ADR 0026](../space/docs/adr/0026-a-booking-link-can-hold-its-meetings-in-a-call-of-the-spaces-own-meet-open-only-around-its-time-and-made-in-the-owners-name.md)), a meeting of the owner's with a **window** (`opens_at`, `closes_at`, `cancelled_at` of the Room) that `RoomCore.admission` decides a new person's join by; made, moved and closed through `bookingCalls` (`src/booking-calls.ts`) and by nothing else.
+
+- **Start**: making a call. Only a signed-in teammate can, in the space (New call, a huddle), and the one named exception, a booking link's call, which is made in the owner's name for a visitor of the link ([ADR 0026](../space/docs/adr/0026-a-booking-link-can-hold-its-meetings-in-a-call-of-the-spaces-own-meet-open-only-around-its-time-and-made-in-the-owners-name.md)); everything else about a call needs
   no sign-in ([ADR 0001](docs/adr/0001-sfu-only-rules-in-the-room-access-on-start.md), section 3, as it stood when meet had a `/start` page of its own).
   **`/start`** itself is gone, and so is the host it was on.
 

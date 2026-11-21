@@ -57,7 +57,7 @@ This is the third write the space makes to Google that the owner did not ask for
 
 ## What is not here
 
-Meetings with several of the owner's teammates (round robin, collective), paid bookings, questions beyond a name, an email and a note, reminders of the space's own, booking into the space's own Meet call (the event has a Google Meet link), non-Google calendars, a visitor's own calendar link or file, and recurring bookings.
+Meetings with several of the owner's teammates (round robin, collective), paid bookings, questions beyond a name, an email and a note, reminders of the space's own, booking into the space's own Meet call (a link can now be set to it: [0026](0026-a-booking-link-can-hold-its-meetings-in-a-call-of-the-spaces-own-meet-open-only-around-its-time-and-made-in-the-owners-name.md); otherwise the event has a Google Meet link), non-Google calendars, a visitor's own calendar link or file, and recurring bookings.
 
 ## What only the hand test settles
 

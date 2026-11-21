@@ -218,8 +218,10 @@ const bookingStates = new Set<string>(BOOKING_STATES)
 const isSpans = (v: unknown): boolean => each(v, (s) => isRecord(s) && isCount(s.from) && isCount(s.to))
 const isHours = (v: unknown): boolean => isRecord(v) && BOOKING_WEEKDAYS.every((d) => isSpans(v[d]))
 
+const isWhere = (v: unknown): boolean => v === 'meet' || v === 'space'
+
 const isBookingRecord = (v: unknown): boolean =>
-  isRecord(v) && isText(v.id) && isText(v.linkName) && isText(v.name) && isText(v.email) && textOrNull(v.note) && isCount(v.start) && isCount(v.end) && isCount(v.bookedAt) && isText(v.state) && bookingStates.has(v.state) && (v.checked === 'google' || v.checked === 'copy') && textOrNull(v.link)
+  isRecord(v) && isText(v.id) && isWhere(v.where) && isText(v.linkName) && isText(v.name) && isText(v.email) && textOrNull(v.note) && isCount(v.start) && isCount(v.end) && isCount(v.bookedAt) && isText(v.state) && bookingStates.has(v.state) && (v.checked === 'google' || v.checked === 'copy') && textOrNull(v.link)
 
 export const isBookingLink = (v: unknown): v is BookingLinkView =>
   isRecord(v) &&
@@ -236,6 +238,7 @@ export const isBookingLink = (v: unknown): v is BookingLinkView =>
   isCount(v.gapMinutes) &&
   (v.perDay === null || isCount(v.perDay)) &&
   isBool(v.enabled) &&
+  isWhere(v.where) &&
   isText(v.url) &&
   textOrNull(v.problem) &&
   each(v.bookings, isBookingRecord)
@@ -248,7 +251,8 @@ export const isBookingLinks = (v: unknown): v is CalendarBookingLinks =>
   isCount(v.defaults.minutes) &&
   isHours(v.defaults.hours) &&
   isText(v.zone) &&
-  isText(v.origin)
+  isText(v.origin) &&
+  isBool(v.calls)
 
 /** The booking links with their bookings, for Settings, Calendars. */
 export async function readBookingLinks(ask: Asking): Promise<ViewAnswer<CalendarBookingLinks>> {

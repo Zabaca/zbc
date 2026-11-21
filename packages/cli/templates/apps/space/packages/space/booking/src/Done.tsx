@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react'
 import type { GuestBooked, GuestBookingLink } from '@space/workspace'
 import { api, managePath } from './api'
 import { dayFull, span, zoneLabel } from './time'
+import { whereJoin, whereNote } from './where'
 
 /** How often a booking that is still being confirmed is asked about, and for how many asks (about three minutes): then the page says where to look instead. */
 export const POLL_MS = 5000
@@ -64,8 +65,14 @@ export function Done({ booked, link, zone, pollMs = POLL_MS }: { booked: GuestBo
               <dt>Where</dt>
               <dd>
                 <a href={b.meetLink} target="_blank" rel="noopener noreferrer">
-                  Google Meet
+                  {whereJoin(b.where)}
                 </a>
+                {whereNote(b.where) !== null && (
+                  <>
+                    <br />
+                    <span className="muted">{whereNote(b.where)}</span>
+                  </>
+                )}
               </dd>
             </div>
           )}

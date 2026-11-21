@@ -96,6 +96,7 @@ interface StandInLink {
   gapMinutes: number
   perDay: number | null
   enabled: boolean
+  where: BookingLinkView['where']
 }
 
 /** A booking as the stand-in keeps it: the visitor's own secret is kept as it is. */
@@ -113,6 +114,9 @@ interface StandInBooking {
   state: 'booked' | 'cancelled'
   moves: number
   eventId: string
+  /** Where it was booked to be held, and (a call in the space) the call's address. */
+  where: BookingLinkView['where']
+  callLink: string | null
 }
 
 const guest = (name: string, email: string, response: CalendarResponse, extra: Partial<CalendarGuest> = {}): CalendarGuest => ({ name, email, response, organizer: false, self: false, ...extra })
@@ -344,13 +348,14 @@ export function standInCalendar(now: number, zone: string, mode: CalendarFixture
     return null
   }
 
-  const recordOf = (b: StandInBooking): BookingRecord => ({ id: b.id, linkName: b.linkName, name: b.name, email: b.email, note: b.note, start: b.start, end: b.end, bookedAt: b.bookedAt, state: b.state, checked: 'google', link: b.state === 'booked' ? 'https://www.google.com/calendar/event?eid=standin' : null })
+  const recordOf = (b: StandInBooking): BookingRecord => ({ id: b.id, where: b.where, linkName: b.linkName, name: b.name, email: b.email, note: b.note, start: b.start, end: b.end, bookedAt: b.bookedAt, state: b.state, checked: 'google', link: b.state === 'booked' ? 'https://www.google.com/calendar/event?eid=standin' : null })
 
   function linkViewOf(l: StandInLink): BookingLinkView {
     const acct = accountOf(l.account)
-    const { id, slug, name, description, account, minutes, hours, noticeMinutes, aheadDays, gapMinutes, perDay, enabled } = l
+    const { id, slug, name, description, account, minutes, hours, noticeMinutes, aheadDays, gapMinutes, perDay, enabled, where } = l
     return {
       id,
+      where,
       slug,
       name,
       description,
@@ -391,7 +396,7 @@ export function standInCalendar(now: number, zone: string, mode: CalendarFixture
   /** A booking is an event on its link's account's main calendar, so the Calendar tab shows it and later free times leave it out. */
   function putEvent(l: StandInLink, b: StandInBooking): void {
     const primary = calendars.find((c) => c.account === l.account && c.primary)
-    const made = timed(`${b.linkName}: ${b.name}`, b.start, (b.end - b.start) / MIN, [primary?.id ?? `${l.account}|${l.account}`], { videoLink: 'https://meet.google.com/standin-book', response: null })
+    const made = timed(`${b.linkName}: ${b.name}`, b.start, (b.end - b.start) / MIN, [primary?.id ?? `${l.account}|${l.account}`], { videoLink: b.callLink ?? 'https://meet.google.com/standin-book', response: null })
     const old = events.findIndex((e) => e.id === b.eventId)
     if (old >= 0) events.splice(old, 1)
     b.eventId = made.id
@@ -415,7 +420,8 @@ export function standInCalendar(now: number, zone: string, mode: CalendarFixture
       email: b.email,
       state,
       zone,
-      meetLink: state === 'cancelled' ? null : 'https://meet.google.com/standin-book',
+      where: b.where,
+      meetLink: state === 'cancelled' ? null : (b.callLink ?? 'https://meet.google.com/standin-book'),
       canMove: state === 'booked' && b.start > clock() && b.moves < BOOKING_LIMITS.moves && open,
       canCancel: state === 'booked',
       linkOpen: open,
@@ -426,7 +432,7 @@ export function standInCalendar(now: number, zone: string, mode: CalendarFixture
     async link(slug) {
       const l = booking.links.find((x) => x.slug === slug)
       if (!l) return refused('not-found', 'There is no such booking link.')
-      const out: GuestBookingLink = { company: COMPANY, name: l.name, description: l.description, minutes: l.minutes, zone, open: l.enabled && problemOf(l) === null }
+      const out: GuestBookingLink = { company: COMPANY, name: l.name, description: l.description, minutes: l.minutes, zone, open: l.enabled && problemOf(l) === null, where: l.where }
       return answered(out)
     },
     async slots(slug) {
@@ -456,6 +462,8 @@ export function standInCalendar(now: number, zone: string, mode: CalendarFixture
         state: 'booked',
         moves: 0,
         eventId: '',
+        where: l.where,
+        callLink: l.where === 'space' ? `${ORIGIN}/r/standin-call-${bookingNo}` : null,
       }
       booking.bookings.push(b)
       putEvent(l, b)
@@ -588,6 +596,8 @@ export function standInCalendar(now: number, zone: string, mode: CalendarFixture
         defaults: BOOKING_DEFAULTS,
         zone,
         origin: ORIGIN,
+        // The stand-in's space has calls on, so a link can hold its meetings in one.
+        calls: true,
       })
     },
     async makeBookingLink(a, input) {

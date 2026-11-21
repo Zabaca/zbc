@@ -5,6 +5,7 @@ import { api } from './api'
 import { Notice } from './LinkPage'
 import { Picker } from './Picker'
 import { dayFull, ownZone, span, zoneLabel } from './time'
+import { whereJoin, whereNote } from './where'
 
 type Load = { kind: 'loading' } | { kind: 'missing' } | { kind: 'failed'; message: string } | { kind: 'ready'; view: GuestBookingView }
 type Mode = { kind: 'view' } | { kind: 'move'; starts: number[]; picked: number | null } | { kind: 'cancel' }
@@ -128,8 +129,14 @@ export function ManagePage({ secret }: { secret: string }) {
               <dt>Where</dt>
               <dd>
                 <a href={view.meetLink} target="_blank" rel="noopener noreferrer">
-                  Google Meet
+                  {whereJoin(view.where)}
                 </a>
+                {whereNote(view.where) !== null && (
+                  <>
+                    <br />
+                    <span className="muted">{whereNote(view.where)}</span>
+                  </>
+                )}
               </dd>
             </div>
           )}

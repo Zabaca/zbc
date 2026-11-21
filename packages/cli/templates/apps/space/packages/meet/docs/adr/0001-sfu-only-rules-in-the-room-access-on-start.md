@@ -1,6 +1,6 @@
 # The SFU only, rules in the Room, outside calls in the router, Access on /start alone
 
-Status: accepted. Section 3 (Access on /start alone) is superseded by [0009](0009-start-is-a-redirect-to-the-space-and-meet-has-no-door-for-people.md): /start is a redirect and meet has no Access application.
+Status: accepted. A call's link never expires, and only a signed-in teammate starts a call, with one named exception since the space's [ADR 0026](../../../space/docs/adr/0026-a-booking-link-can-hold-its-meetings-in-a-call-of-the-spaces-own-meet-open-only-around-its-time-and-made-in-the-owners-name.md): a booking link's call is made in the owner's name and is open only around its booked time. Section 3 (Access on /start alone) is superseded by [0009](0009-start-is-a-redirect-to-the-space-and-meet-has-no-door-for-people.md): /start is a redirect and meet has no Access application.
 
 Three choices that shape every file in this package. Each could have gone the
 other way, and each is cheap to undo now and expensive later.

@@ -231,6 +231,10 @@ export const WS_ADDED_TABLES: string[] = [
 export const WS_ADDITIONS: ReadonlyArray<{ table: string; column: string; definition: string }> = [
   // What a message from the phone carries beside its text, as JSON (a voicemail's id and length, a missed call's number). Null for every message a person wrote.
   { table: 'messages', column: 'extra', definition: 'TEXT' },
+  // A call made for a booking link (the space's ADR 0026): `booking` marks its record (a meeting with neither a conversation nor a home, kept out of the Calendar's and Today's lists, where its Google event is), and `cancelled_at` is when its
+  // booking was cancelled. Both are null or 0 for every other call.
+  { table: 'space_calls', column: 'booking', definition: 'INTEGER NOT NULL DEFAULT 0' },
+  { table: 'space_calls', column: 'cancelled_at', definition: 'INTEGER' },
 ]
 
 /**
@@ -304,6 +308,8 @@ interface CallRow {
   title: string | null
   starts_at: number | null
   invitees: string
+  booking: number
+  cancelled_at: number | null
 }
 
 interface ChangeRow {
@@ -1021,7 +1027,7 @@ export class WorkspaceCore {
   callRecord(actor: Actor, key: unknown, spec: unknown, name: unknown, link: unknown, now: number): CallRecordRaw {
     const p = this.resolve(actor, now)
     if (typeof key !== 'string' || !COMPOSE_KEY.test(key)) throw new RoomError(400, 'bad request')
-    const s = (spec ?? {}) as { kind?: unknown; convId?: unknown; home?: unknown; title?: unknown; startsAt?: unknown; invitees?: unknown }
+    const s = (spec ?? {}) as { kind?: unknown; convId?: unknown; home?: unknown; title?: unknown; startsAt?: unknown; invitees?: unknown; booking?: unknown }
     const room = typeof name === 'string' ? normalizeRoomName(name) : null
     if (!room || !CALL_KINDS.includes(s.kind as never) || typeof link !== 'string' || link.length > 300) throw new RoomError(400, 'bad request')
     const kind = s.kind as SpaceCallRaw['kind']
@@ -1051,8 +1057,10 @@ export class WorkspaceCore {
         throw new RoomError(400, 'A meeting needs a time between now and a year ahead.')
       }
       startsAt = s.startsAt
-      if ((conv === null) === (home === null)) throw new RoomError(400, 'A meeting is made in one conversation.')
-      invitees = conv
+      // A booking link's call (made by `bookingCalls`, never by a person's request) is the one meeting that belongs to no conversation: it is the owner's, with its guest named.
+      if (s.booking === true && conv === null && home === null) invitees = this.cleanInvitees(s.invitees)
+      else if ((conv === null) === (home === null)) throw new RoomError(400, 'A meeting is made in one conversation.')
+      else invitees = conv
         ? this.memberIds(conv.id)
             .filter((id) => id !== p.id)
             .flatMap((id) => {
@@ -1066,7 +1074,7 @@ export class WorkspaceCore {
     }
 
     this.sql.run(
-      'INSERT INTO space_calls (name, kind, person_id, at, conv_id, home, title, starts_at, invitees) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      'INSERT INTO space_calls (name, kind, person_id, at, conv_id, home, title, starts_at, invitees, booking) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
       room,
       kind,
       p.id,
@@ -1076,10 +1084,30 @@ export class WorkspaceCore {
       title === '' ? null : title,
       startsAt,
       JSON.stringify(invitees),
+      kind === 'meeting' && s.booking === true && conv === null && home === null ? 1 : 0,
     )
     const message = kind === 'huddle' && conv ? this.post(p, conv, `Started a huddle: ${link}`, now, room).message : null
     this.sql.run('INSERT INTO compose_keys (person_id, key, at, result) VALUES (?, ?, ?, ?)', p.id, `call:${key}`, now, JSON.stringify({ call: room }))
     return { repeated: false, call: this.callRaw(this.callRow(room) as CallRow, p), message }
+  }
+
+  /** A booking link's call moved with its booking: its time changes, and nothing else. Only a booking's record, only the person who made it (the owner), and not one already cancelled. */
+  callMove(actor: Actor, name: unknown, startsAt: unknown, now: number): void {
+    const p = this.resolve(actor, now)
+    this.requireTeammate(p)
+    const r = typeof name === 'string' ? this.callRow(name) : null
+    if (!r || r.booking !== 1 || r.person_id !== p.id || r.cancelled_at !== null) throw new RoomError(404, 'There is no such call.')
+    if (typeof startsAt !== 'number' || !Number.isInteger(startsAt) || startsAt < now - MEETING_PAST_MS || startsAt > now + MEETING_AHEAD_MS) throw new RoomError(400, 'A meeting needs a time between now and a year ahead.')
+    this.sql.run('UPDATE space_calls SET starts_at = ? WHERE name = ?', startsAt, r.name)
+  }
+
+  /** A booking link's call whose booking was cancelled: its record says so (the Room is closed by its own method). The same rules as `callMove`; cancelling twice is the same as once. */
+  callCancel(actor: Actor, name: unknown, now: number): void {
+    const p = this.resolve(actor, now)
+    this.requireTeammate(p)
+    const r = typeof name === 'string' ? this.callRow(name) : null
+    if (!r || r.booking !== 1 || r.person_id !== p.id) throw new RoomError(404, 'There is no such call.')
+    this.sql.run('UPDATE space_calls SET cancelled_at = COALESCE(cancelled_at, ?) WHERE name = ?', now, r.name)
   }
 
   private cleanInvitees(raw: unknown): SpaceCallRaw['invitees'] {
@@ -1146,7 +1174,7 @@ export class WorkspaceCore {
     const p = this.asTeammate(actor, now)
     if (typeof from !== 'number' || typeof until !== 'number' || !Number.isFinite(from) || !Number.isFinite(until) || until < from || until - from > 400 * DAY) throw new RoomError(400, 'bad request')
     return this.sql
-      .all<CallRow>(`SELECT * FROM space_calls WHERE kind = 'meeting' AND starts_at >= ? AND starts_at < ? ORDER BY starts_at, name LIMIT 500`, from, until)
+      .all<CallRow>(`SELECT * FROM space_calls WHERE kind = 'meeting' AND booking = 0 AND starts_at >= ? AND starts_at < ? ORDER BY starts_at, name LIMIT 500`, from, until)
       .filter((r) => this.whyVisible(p, r) !== null)
       .slice(0, MEETINGS_LISTED)
       .map((r) => this.callRaw(r, p))
@@ -2033,6 +2061,8 @@ export const WS_METHODS = [
   'spaceAckPrivacy',
   'callBegin',
   'callRecord',
+  'callMove',
+  'callCancel',
   'spaceRelate',
   'spaceCards',
   'spaceMeetings',

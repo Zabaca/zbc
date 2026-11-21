@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { BOOKING_DEFAULTS, BOOKING_LIMITS, type BookingLinkInput } from '@space/workspace'
+import { BOOKING_CALL_CLOSES_AFTER_MS, BOOKING_CALL_OPENS_BEFORE_MS, BOOKING_DEFAULTS, BOOKING_LIMITS, type BookingLinkInput } from '@space/workspace'
 import { BOOKING_HOLD_MS, bookingEventId, bookingNote, canonicalAddress, CLOSED_WORDS, networkKeyOf, NOT_NOW_WORDS, readBookingLink, readGuestBooking, TAKEN_WORDS, UNSURE_WORDS } from '../src/bookings'
 import type { Result } from '../src/engine'
 import { type Harness, harness, HOUR, DAY, NORTHFIELD, OWNER, ORIGIN, T0 } from '../test-support/harness'
@@ -145,7 +145,7 @@ describe('reading what the owner sets', () => {
     await h.engine.setShown(`${Z}|${Z}`, false)
     expect(val(await h.engine.bookingLinks()).links[0]?.problem).toContain('main calendar of tessa@northfield.example is hidden')
     // An account that is not connected at all.
-    h.store.bookings.changeLink(link.id, { ...input(), account: 'gone@example.org' } as never)
+    h.store.bookings.changeLink(link.id, { ...input(), account: 'gone@example.org', where: 'meet' } as never)
     expect(val(await h.engine.bookingLinks()).links[0]?.problem).toContain('is not a connected Google account')
   })
 
@@ -164,7 +164,7 @@ describe('what a visitor is offered', () => {
     await sync(h)
     await make(h)
     const link = val(await h.engine.guestLink('intro'))
-    expect(link).toEqual({ company: NORTHFIELD.company.name, name: 'Intro call', description: 'A first chat about what you need.', minutes: 30, zone: 'America/Los_Angeles', open: true })
+    expect(link).toEqual({ company: NORTHFIELD.company.name, name: 'Intro call', description: 'A first chat about what you need.', minutes: 30, zone: 'America/Los_Angeles', open: true, where: 'meet' })
     const slots = val(await h.engine.guestSlots('intro'))
     expect(slots.from).toBe(T0)
     expect(slots.to).toBe(T0 + 30 * DAY)
@@ -908,5 +908,249 @@ describe('no token and no secret is kept or leaked', () => {
       console.error = original
     }
     expect(logged.length).toBe(2)
+  })
+})
+
+describe('a link that holds its meetings in a call of the space (the space’s ADR 0026)', () => {
+  const spaceLink = (h: Harness, over: Partial<BookingLinkInput> = {}) => make(h, { where: 'space', ...over })
+  const call = (h: Harness) => h.calls!.made[0]!
+  const lastInsert = (h: Harness) => inserts(h).at(-1)!.body as Record<string, unknown>
+
+  test('where is Google Meet unless said otherwise, and a call in the space is offered and saved only where calls are on', async () => {
+    expect(readBookingLink(input())).toMatchObject({ ok: true, value: { where: 'meet' } })
+    expect(readBookingLink({ ...input(), where: 'space' })).toMatchObject({ ok: true, value: { where: 'space' } })
+    for (const bad of ['zoom', '', 5, null]) expect(readBookingLink({ ...input(), where: bad }), String(bad)).toMatchObject({ ok: false, reason: 'bad-request' })
+    // With no way to make a call wired: not offered, and not saved.
+    const none = await world()
+    expect(val(await none.engine.bookingLinks()).calls).toBe(false)
+    expect(await none.engine.makeBookingLink(input({ where: 'space' }))).toMatchObject({ ok: false, reason: 'bad-request' })
+    // With calls on: offered, saved, and shown on the link.
+    const h = await world([Z, F], { calls: true })
+    expect(val(await h.engine.bookingLinks()).calls).toBe(true)
+    const link = await spaceLink(h)
+    expect(link).toMatchObject({ where: 'space', problem: null })
+    expect(val(await h.engine.bookingLinks()).links[0]).toMatchObject({ where: 'space' })
+    expect(val(await h.engine.guestLink('intro'))).toMatchObject({ open: true, where: 'space' })
+    // A link made without the choice is on Google Meet, and changing it changes the link and nothing it has already booked.
+    const other = await make(h, { slug: 'other', where: undefined })
+    expect(other.where).toBe('meet')
+    expect(val(await h.engine.changeBookingLink(other.id, input({ slug: 'other', where: 'space' }))).where).toBe('space')
+  })
+
+  test('a booking makes one call after the time is held and Google says free, and an event whose place is the call: no Google Meet, the description says to join there, the visitor’s note is not in it', async () => {
+    const h = await world([Z, F], { calls: true })
+    await spaceLink(h)
+    const a = fri(10)
+    const got = val(await book(h, a))
+    expect(got.booking).toMatchObject({ state: 'booked', where: 'space', meetLink: call(h).link })
+    // One call, keyed by the booking's own id, titled as the event is, open from 30 minutes before the start to 2 hours after the end.
+    const id = h.rows<{ id: string }>(`SELECT id FROM booking`)[0]!.id
+    expect(h.calls!.made).toHaveLength(1)
+    expect(call(h)).toMatchObject({ key: id, title: 'Intro call: Ada Quill', startsAt: a, opensAt: a - BOOKING_CALL_OPENS_BEFORE_MS, closesAt: a + 30 * MIN + BOOKING_CALL_CLOSES_AFTER_MS, guest: { name: 'Ada Quill', email: 'ada@example.org' }, closed: false })
+    expect(BOOKING_CALL_OPENS_BEFORE_MS).toBe(30 * MIN)
+    expect(BOOKING_CALL_CLOSES_AFTER_MS).toBe(2 * HOUR)
+    const body = lastInsert(h)
+    expect(body.conferenceData).toBeUndefined()
+    expect(body.location).toBe(call(h).link)
+    expect(String(body.description)).toContain(call(h).link)
+    expect(String(body.description)).toContain('Join the video call in your browser, no account needed')
+    expect(String(body.description)).toContain(`${ORIGIN}/book/manage/${got.secret}`)
+    expect(JSON.stringify(body)).not.toContain('Looking forward to it.')
+    expect(body.attendees).toEqual([{ email: 'ada@example.org', displayName: 'Ada Quill' }])
+    // The call was made after Google was asked whether the owner was free, and before the event.
+    const order = h.google.calls.filter((c) => c.startsWith('freeBusy.query') || c.startsWith('events.insert'))
+    expect(order[0]).toContain('freeBusy')
+    expect(h.calls!.asked.filter((x) => x.startsWith('make'))).toEqual([`make ${id}`])
+    // The record in Settings says where it was held, and the visitor's page the same.
+    expect(val(await h.engine.bookingLinks()).links[0]?.bookings[0]).toMatchObject({ where: 'space' })
+    expect(val(await h.engine.guestBooking(got.secret))).toMatchObject({ where: 'space', meetLink: call(h).link })
+  })
+
+  test('a link on Google Meet is as it was, with calls on or off: a Meet request, no place, no call made', async () => {
+    const h = await world([Z, F], { calls: true })
+    await make(h)
+    const got = val(await book(h, fri(10)))
+    const body = lastInsert(h)
+    expect(body.conferenceData).toMatchObject({ createRequest: { conferenceSolutionKey: { type: 'hangoutsMeet' } } })
+    expect(body.location).toBeUndefined()
+    expect(String(body.description)).not.toContain('video call')
+    expect(h.calls!.made).toEqual([])
+    expect(got.booking.where).toBe('meet')
+  })
+
+  test('an event Google refuses leaves no open call and no hold', async () => {
+    const h = await world([Z, F], { calls: true })
+    await spaceLink(h)
+    const a = fri(10)
+    h.google.failNext('events.insert', 400, { error: { code: 400, message: 'Invalid', errors: [{ reason: 'invalid' }] } })
+    expect(await book(h, a)).toEqual({ ok: false, reason: 'conflict', error: CLOSED_WORDS })
+    expect(h.calls!.made).toHaveLength(1)
+    expect(call(h).closed).toBe(true)
+    expect(h.rows(`SELECT id FROM booking`)).toEqual([])
+    expect(await starts(h)).toContain(a)
+  })
+
+  test('a time Google says is taken makes no call at all', async () => {
+    const h = await world([Z, F], { calls: true })
+    await spaceLink(h)
+    const a = fri(10)
+    h.google.setEvent(F, F, { id: 'busy', summary: 'Elsewhere', start: iso(a), end: iso(a + HOUR) })
+    expect(await book(h, a)).toMatchObject({ ok: false, reason: 'conflict' })
+    expect(h.calls!.made).toEqual([])
+  })
+
+  test('an insert whose answer is lost keeps the one call, and the booking found by its event has that call and no other', async () => {
+    const h = await world([Z, F], { calls: true })
+    await spaceLink(h)
+    const a = fri(10)
+    h.google.afterRequest = (op) => {
+      if (op === 'events.insert') {
+        h.google.afterRequest = null
+        throw new Error('connection lost')
+      }
+    }
+    const got = val(await book(h, a))
+    expect(got.booking.state).toBe('pending')
+    await h.work()
+    expect(val(await h.engine.guestBooking(got.secret))).toMatchObject({ state: 'booked', meetLink: call(h).link })
+    expect(h.calls!.made).toHaveLength(1)
+    expect(call(h).closed).toBe(false)
+  })
+
+  test('an insert that did not happen at all closes the call when the hold is let go, and while Meet does not answer the hold stays and is looked at again', async () => {
+    const h = await world([Z, F], { calls: true })
+    await spaceLink(h)
+    const a = mon(10)
+    h.google.failNext('events.insert', 503, { error: { code: 503, message: 'Backend Error' } })
+    const got = val(await book(h, a))
+    expect(got.booking.state).toBe('pending')
+    h.calls!.down = true
+    h.advance(BOOKING_HOLD_MS + MIN)
+    await h.work()
+    expect(call(h).closed).toBe(false)
+    expect(h.rows(`SELECT id FROM booking`)).toHaveLength(1)
+    h.calls!.down = false
+    h.advance(MIN)
+    await h.work()
+    expect(call(h).closed).toBe(true)
+    expect(h.rows(`SELECT id FROM booking`)).toEqual([])
+    expect(await starts(h)).toContain(a)
+  })
+
+  test('when a call cannot be made (calls off since the link was made, the month’s allowance used, Meet not answering) the link says it cannot be booked right now, the same sentence as an account that cannot be written to, and Settings says why; nothing falls back to Google Meet', async () => {
+    const h = await world([Z, F], { calls: true })
+    await spaceLink(h)
+    const a = fri(10)
+    // The allowance used up.
+    h.calls!.meter = 'This month’s call allowance is used up.'
+    h.advance(31_000)
+    expect(val(await h.engine.bookingLinks()).links[0]?.problem).toBe('This month’s call allowance is used up.')
+    expect(val(await h.engine.guestLink('intro')).open).toBe(false)
+    expect(await h.engine.guestSlots('intro')).toEqual({ ok: false, reason: 'conflict', error: CLOSED_WORDS })
+    expect(await book(h, a)).toEqual({ ok: false, reason: 'conflict', error: CLOSED_WORDS })
+    // Even where the page's last look at the allowance is a moment old, Meet's own refusal is the same sentence and leaves nothing behind.
+    h.calls!.meter = null
+    h.advance(31_000)
+    expect(val(await h.engine.guestLink('intro')).open).toBe(true)
+    h.calls!.meter = 'This month’s call allowance is used up.'
+    expect(await book(h, a)).toEqual({ ok: false, reason: 'conflict', error: CLOSED_WORDS })
+    expect(h.rows(`SELECT id FROM booking`)).toEqual([])
+    expect(inserts(h)).toEqual([])
+    // Meet not answering at all.
+    h.calls!.meter = null
+    h.calls!.down = true
+    h.advance(31_000)
+    expect(val(await h.engine.bookingLinks()).links[0]?.problem).toContain('did not answer')
+    expect(await book(h, a)).toEqual({ ok: false, reason: 'conflict', error: CLOSED_WORDS })
+    expect(h.rows(`SELECT id FROM booking`)).toEqual([])
+    // Calls switched off.
+    h.calls!.down = false
+    h.calls!.on = false
+    expect(val(await h.engine.bookingLinks()).calls).toBe(false)
+    expect(val(await h.engine.bookingLinks()).links[0]?.problem).toContain('Calls are not turned on')
+    expect(val(await h.engine.guestLink('intro')).open).toBe(false)
+    expect(await book(h, a)).toEqual({ ok: false, reason: 'conflict', error: CLOSED_WORDS })
+    expect(inserts(h)).toEqual([])
+    expect(h.calls!.made).toEqual([])
+  })
+
+  test('a move keeps the same call and link at the new time, and the call’s window follows', async () => {
+    const h = await world([Z, F], { calls: true })
+    await spaceLink(h)
+    const a = fri(10)
+    const got = val(await book(h, a))
+    const link = call(h).link
+    const target = fri(14)
+    const moved = val(await h.engine.guestMove(got.secret, target))
+    expect(moved).toMatchObject({ state: 'booked', start: target, meetLink: link })
+    expect(h.calls!.made).toHaveLength(1)
+    expect(call(h)).toMatchObject({ link, startsAt: target, opensAt: target - 30 * MIN, closesAt: target + 30 * MIN + 2 * HOUR, closed: false })
+    // The patch did not ask for another Meet or another place.
+    expect(Object.keys(writesOf(h, 'events.patch')[0]!.body).sort()).toEqual(['end', 'start'])
+  })
+
+  test('a move whose call Meet did not hear of is followed by the alarm, and nothing else is moved meanwhile', async () => {
+    const h = await world([Z, F], { calls: true })
+    await spaceLink(h)
+    const got = val(await book(h, fri(10)))
+    const target = fri(14)
+    h.calls!.down = true
+    expect(val(await h.engine.guestMove(got.secret, target))).toMatchObject({ start: target })
+    expect(call(h).startsAt).toBe(fri(10))
+    await h.work()
+    expect(call(h).startsAt).toBe(fri(10))
+    h.calls!.down = false
+    h.advance(MIN)
+    await h.work()
+    expect(call(h)).toMatchObject({ startsAt: target, opensAt: target - 30 * MIN })
+  })
+
+  test('a cancel closes the call; a cancel Meet did not hear of is closed by the alarm; a closed call is not asked again', async () => {
+    const h = await world([Z, F], { calls: true })
+    await spaceLink(h)
+    const first = val(await book(h, fri(10)))
+    expect(val(await h.engine.guestCancel(first.secret)).state).toBe('cancelled')
+    expect(call(h).closed).toBe(true)
+    expect(val(await h.engine.guestBooking(first.secret)).meetLink).toBeNull()
+    const closes = () => h.calls!.asked.filter((x) => x.startsWith('close')).length
+    expect(closes()).toBe(1)
+    await h.work()
+    expect(closes()).toBe(1)
+    // The second: Meet is down when it is cancelled.
+    const second = val(await book(h, fri(14), { email: 'bea@example.org' }))
+    h.calls!.down = true
+    expect(val(await h.engine.guestCancel(second.secret)).state).toBe('cancelled')
+    expect(h.calls!.made[1]!.closed).toBe(false)
+    h.advance(MIN)
+    await h.work()
+    expect(h.calls!.made[1]!.closed).toBe(false)
+    h.calls!.down = false
+    h.advance(MIN)
+    await h.work()
+    expect(h.calls!.made[1]!.closed).toBe(true)
+    const after = closes()
+    await h.work()
+    expect(closes()).toBe(after)
+  })
+
+  test('a booking keeps what it was booked with: a link changed to Google Meet, or calls turned off, leaves its call and its page as they were, and it can still be cancelled', async () => {
+    const h = await world([Z, F], { calls: true })
+    const link = await spaceLink(h)
+    const got = val(await book(h, fri(10)))
+    val(await h.engine.changeBookingLink(link.id, input({ where: 'meet' })))
+    expect(val(await h.engine.guestBooking(got.secret))).toMatchObject({ where: 'space', meetLink: call(h).link })
+    // Calls switched off, and the allowance used up: the booking already made is still cancelled, which closes its call.
+    h.calls!.meter = 'used up'
+    expect(val(await h.engine.guestCancel(got.secret)).state).toBe('cancelled')
+    expect(call(h).closed).toBe(true)
+  })
+
+  test('a booking found cancelled or held by nothing is never given another booking’s call', async () => {
+    const h = await world([Z, F], { calls: true })
+    await spaceLink(h)
+    const one = val(await book(h, fri(10)))
+    const two = val(await book(h, fri(14), { email: 'bea@example.org' }))
+    expect(h.calls!.made.map((c) => c.link)).toHaveLength(2)
+    expect(val(await h.engine.guestBooking(one.secret)).meetLink).not.toBe(val(await h.engine.guestBooking(two.secret)).meetLink)
   })
 })

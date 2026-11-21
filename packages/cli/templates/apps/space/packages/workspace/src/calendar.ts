@@ -440,6 +440,17 @@ export const BOOKING_LIMITS = {
 /** The slugs a link cannot take: the open path's own folders. */
 export const BOOKING_RESERVED_SLUGS = ['api', '_', 'manage', 'm'] as const
 
+/**
+ * Where a link's meetings are held (the space's ADR 0026): on Google Meet (every link made before, and the default), or in a call of the space's own Meet, made for the booking, with its link in the invitation where Google's Meet link would be. The second is offered
+ * only where the install has calls switched on.
+ */
+export const BOOKING_WHERES = ['meet', 'space'] as const
+export type BookingWhere = (typeof BOOKING_WHERES)[number]
+
+/** A call made for a booking is open to new people from this long before the booked start to this long after its end (people already in carry on); it is closed when the booking is cancelled. */
+export const BOOKING_CALL_OPENS_BEFORE_MS = 30 * 60_000
+export const BOOKING_CALL_CLOSES_AFTER_MS = 2 * 60 * 60_000
+
 /** What a new link starts as (Monday to Friday, 9am to 5pm; four hours' notice, thirty days ahead, fifteen minutes around other meetings, no daily limit, thirty minutes long). */
 export const BOOKING_DEFAULTS: BookingRules & { minutes: number } = {
   minutes: 30,
@@ -465,6 +476,8 @@ export interface BookingLinkInput extends BookingRules {
   account: string
   minutes: number
   enabled: boolean
+  /** Where its meetings are held. Left out: Google Meet. */
+  where?: BookingWhere
 }
 
 /** What a booking is, to the owner. `pending`: the time is held and Google has not said (it is looked for in the next reads and let go after an hour); `removed`: the event is no longer in the calendar (the owner cancelled it there). */
@@ -474,6 +487,8 @@ export type BookingState = (typeof BOOKING_STATES)[number]
 /** One booking, as Settings lists it under its link: who, when, and when it was booked. */
 export interface BookingRecord {
   id: string
+  /** Where it was booked to be held: a booking keeps what it was booked with, whatever the link says now. */
+  where: BookingWhere
   /** The link's name when it was booked (a renamed link keeps the old one here). */
   linkName: string
   name: string
@@ -490,8 +505,9 @@ export interface BookingRecord {
 }
 
 /** One link in Settings: what the owner set, whether it can be booked now (and why not), the address, and its bookings. */
-export interface BookingLinkView extends BookingLinkInput {
+export interface BookingLinkView extends Omit<BookingLinkInput, 'where'> {
   id: string
+  where: BookingWhere
   accountLabel: string
   /** The address the owner sends: the space's host and `bookingLinkPath(slug)`. */
   url: string
@@ -510,6 +526,8 @@ export interface CalendarBookingLinks {
   zone: string
   /** `https://<space host>`, which a link's address is made from. */
   origin: string
+  /** Whether a link can be held in a call in the space: the install has calls switched on and the calendar was handed a way to make one. Only then is "Where" offered. */
+  calls: boolean
 }
 
 // ── What a visitor is shown and may do (the open path's face) ────────────────────────────────────────────────────────────────────
@@ -522,8 +540,10 @@ export interface GuestBookingLink {
   minutes: number
   /** The company's clock, which the hours are on. */
   zone: string
-  /** False for a link that is turned off or whose account cannot be written to: the page then says it cannot be booked right now. */
+  /** False for a link that is turned off or whose account cannot be written to (or, for a link held in the space's call, where no call can be made now): the page then says it cannot be booked right now. */
   open: boolean
+  /** Where its meetings are held, so the page can say so. */
+  where: BookingWhere
 }
 
 /** The starting times a link offers, in order (milliseconds), and the span they cover. A time is free only: nothing says what the owner is doing otherwise. */
@@ -555,6 +575,9 @@ export interface GuestBookingView {
   email: string
   state: 'booked' | 'pending' | 'cancelled' | 'removed' | 'past'
   zone: string
+  /** Where it is held: Google Meet, or a call in the space (a video call in the browser, no account needed). */
+  where: BookingWhere
+  /** The link to join: the Google Meet link, or the call's address on the space's host. Null while there is none yet. */
   meetLink: string | null
   canMove: boolean
   canCancel: boolean
@@ -586,3 +609,24 @@ export interface CalendarForGuests {
 }
 
 export const CALENDAR_FOR_GUESTS_METHODS = ['link', 'slots', 'book', 'booking', 'bookingSlots', 'move', 'cancel'] as const satisfies readonly (keyof CalendarForGuests)[]
+
+// ── Holding a booking's meeting in the space's own call (the space's ADR 0026) ──────────────────────────────────────────────────
+
+/**
+ * What the calendar is handed to hold a booking in a call of the space's Meet: to make one, move its window with the booking, and close it when the booking is cancelled. The calendar NEVER IMPORTS MEET: the space's Worker makes this over Meet's code and gives it to the
+ * calendar's object (packages/space/src/calendar-do.ts), as the inbox's are given what a part needs from outside. It takes no person and acts as the install's declared owner, which is the point and the whole of the rule it is under: a booking link the owner made, left on
+ * and set to the space call is the owner's word for exactly one call per booking, as it already is for one event and invitation. The call it makes is open only around the booked time, and only a call made here can be moved or closed here: no other call can.
+ * Each method answers data and never throws for a refusal; a fault (the object did not answer) is thrown, and the calendar reads it as an outcome nobody knows.
+ */
+export interface BookingCalls {
+  /** Whether the install has calls switched on: only then is "Where" offered for a link. */
+  readonly on: boolean
+  /** Whether a call can be made now: the install has calls and this month's allowance is not used up. `why` is in the owner's words. */
+  check(): Promise<{ ok: true } | { ok: false; why: string }>
+  /** Make the call for a booking, once for each `key` (the booking's own id, so a retry makes none): a meeting titled `title` at `startsAt` for the guest, open from `opensAt` to `closesAt`. `link` is its address on the space's host. */
+  make(call: { key: string; title: string; startsAt: number; guest: { name: string; email: string }; opensAt: number; closesAt: number }): Promise<{ ok: true; name: string; link: string } | { ok: false; why: string }>
+  /** The booking moved: the same call and link, at the new time. */
+  move(name: string, when: { startsAt: number; opensAt: number; closesAt: number }): Promise<{ ok: true } | { ok: false; why: string }>
+  /** The booking was cancelled (or never made): the call's link says there is no such call from now on. People already in carry on. Closing twice is the same as once. */
+  close(name: string): Promise<{ ok: true } | { ok: false; why: string }>
+}

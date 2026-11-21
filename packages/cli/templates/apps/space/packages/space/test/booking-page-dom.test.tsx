@@ -227,8 +227,8 @@ describe('a link’s page', () => {
 })
 
 describe('a booking that is still being confirmed', () => {
-  const view = (state: 'pending' | 'booked') => ({ company: 'Northfield Works', title: 'Intro call', slug: 'intro-call', minutes: 30, start: NOW + 86_400_000, end: NOW + 86_400_000 + 1_800_000, name: 'Ada Quill', email: 'ada@example.org', state, zone: 'America/Los_Angeles', meetLink: state === 'booked' ? 'https://meet.example/abc' : null, canMove: false, canCancel: false, linkOpen: true })
-  const link = { company: 'Northfield Works', name: 'Intro call', description: '', minutes: 30, zone: 'America/Los_Angeles', open: true }
+  const view = (state: 'pending' | 'booked') => ({ company: 'Northfield Works', title: 'Intro call', slug: 'intro-call', minutes: 30, start: NOW + 86_400_000, end: NOW + 86_400_000 + 1_800_000, name: 'Ada Quill', email: 'ada@example.org', state, zone: 'America/Los_Angeles', meetLink: state === 'booked' ? 'https://meet.example/abc' : null, canMove: false, canCancel: false, linkOpen: true, where: 'meet' as const })
+  const link = { company: 'Northfield Works', name: 'Intro call', description: '', minutes: 30, zone: 'America/Los_Angeles', open: true, where: 'meet' as const }
 
   test('is asked about again and the page changes when it is booked, with the Meet link', async () => {
     let asks = 0
@@ -331,5 +331,39 @@ describe('a booking’s own page', () => {
     expect($$('.actions .btn')).toHaveLength(0)
     await page.unmount()
     setSystemTime(new Date(NOW))
+  })
+})
+
+describe('where the meeting is held (the space’s ADR 0026)', () => {
+  test('a link on a call in the space says so beside its length, and one on Google Meet still says Google Meet', async () => {
+    const w = world()
+    await w.make({ where: 'space' })
+    await w.make({ slug: 'meet-link', name: 'On Meet', where: 'meet' })
+    let page = await open('/book/intro-call')
+    expect($('[data-testid="where"]')?.textContent).toBe('Video call in your browser')
+    expect($('.meta')?.textContent).not.toContain('Google Meet')
+    await page.unmount()
+    page = await open('/book/meet-link')
+    expect($('[data-testid="where"]')?.textContent).toBe('Google Meet')
+    await page.unmount()
+  })
+
+  test('the confirmation and the booking’s own page give a call’s link as a way to join in the browser, with no account, and say when it opens', async () => {
+    const w = world()
+    await w.make({ where: 'space' })
+    const slots = await w.app.guests.slots('intro-call')
+    if (!slots.ok) throw new Error('no slots')
+    const made = await w.app.guests.book('intro-call', { start: slots.value.starts[10] as number, name: 'Ada Quill', email: 'ada@example.org', note: '' }, 'local')
+    if (!made.ok) throw new Error(JSON.stringify(made))
+    expect(made.value.booking).toMatchObject({ where: 'space' })
+    const joinHref = made.value.booking.meetLink as string
+    expect(joinHref).toContain('/r/')
+    const page = await open(`/book/manage/${made.value.secret}`)
+    const join = $(`a[href="${joinHref}"]`)
+    expect(join?.textContent).toBe('Join the video call')
+    expect(page.text()).toContain('no account')
+    expect(page.text()).toContain('30 minutes before the start')
+    expect(page.text()).not.toContain('Google Meet')
+    await page.unmount()
   })
 })
