@@ -1,7 +1,7 @@
 // The front door's Worker. Importable without the Workers runtime, so `bun test` drives real requests through the real
 // router (test/app.test.ts).
 //
-// ONE RULE FIRST: nothing on this host is public but three prefixes (/r/, /w/, /s/: the guests' and signers' door, src/guests.ts, answered before everything here), and nothing else is answered before the sign-in is checked. The check runs
+// ONE RULE FIRST: nothing on this host is public but four prefixes (/r/, /w/, /s/, /book/: the guests', signers' and visitors' door, src/guests.ts, answered before everything here), and nothing else is answered before the sign-in is checked. The check runs
 // on EVERY request, the pages and files as well as the API (the Worker's settings sends them all through this Worker first), and
 // it reads the Access header only, never the CF_Authorization cookie (the company layer's identify). Access is an edge
 // control and a cookie once got a request past it, so the edge's word is not taken for it.
@@ -10,7 +10,7 @@
 // opens on, and the page for everything else, which the browser's router turns into a tab. Today, Inbox, Meet and People
 // are drawn by the page from the inbox behind this Worker and meet and forms in it (Today is /api/today, today.ts; People is still empty). A conversation (conversation.ts) is read
 // from a row's key and answered by five POSTs, the only writes here besides forms' operator API.
-// Call guests, channel guests and signers come here, on three prefixes that need NO sign-in (/r/, /w/, /s/: src/guests.ts, the space's ADR 0018), answered FIRST and never by the person check. Nothing else of
+// Call guests, channel guests, signers and visitors of a booking link come here, on four prefixes that need NO sign-in (/r/, /w/, /s/, /book/: src/guests.ts, the space's ADR 0018 and 0025), answered FIRST and never by the person check. Nothing else of
 // the host is public.
 //
 // The Forms tab (/forms) is the one place that is more than the page: the Forms application is its own Access application on
@@ -22,7 +22,7 @@
 // handed the person it named. Claude's door (agent.ts) is the one other check, and it too is made once: the token it verifies is handed to the inbox's router in-process.
 
 import { type Context, Hono } from 'hono'
-import { GMAIL_RETURN_PATH, GMAIL_START_PATH, HOME_TAB, type Http, identify, type InboxFile, type Install, LIVE_NAME, LIVE_SOCKET_PATH, parseByteRange, refusalStatus, type SignedIn, signedIn, type WaitUntil } from '@space/workspace'
+import { GMAIL_RETURN_PATH, GMAIL_START_PATH, guestPrefixOf, HOME_TAB, type Http, identify, type InboxFile, type Install, LIVE_NAME, LIVE_SOCKET_PATH, parseByteRange, refusalStatus, type SignedIn, signedIn, type WaitUntil } from '@space/workspace'
 import { MEET_READS, bookMeeting, callChat, cards, deleteChat, isMeetWrite, meetName, parseAfter, parseCall, parseCards, parseHuddle, parseMeeting, parseName, pastCalls, phone, phoneRead, startCall, startHuddle, usage } from './calls'
 import { acknowledgePrivacy, deleteMessage, editMessage, isChatWrite, me as chatMe, parseDelete, parseEdit, parseMeUpdate, people as chatPeople, unread as chatUnread, updateMe } from './chat'
 import { browse as browseChannels, changeChannel, channelOf, createChannel, inviteGuest, isChannelWrite, parseChange, parseChannelQuery, parseCreate, parseInvite } from './channels'
@@ -46,8 +46,10 @@ import { archiveClientView, editClientView, makeClientView, readClientScreen, re
 import { returnGmail, startGmail } from './gmail'
 import { formsAnswer, formsPathFor, formsUnavailable, forwardRequest } from './forms'
 import { createGuestParts, createParts, type Parts, type PartsEnv, type PartsFor } from './parts'
+import { bookingAnswer } from './booking'
 import { type GuestPartsFor, guestAnswer } from './guests'
-import { readAccounts, readAgenda, readBlocking, readEvent, setBlocking, setBlockingAccount, setShown, syncNow } from './calendar'
+import type { StandInCalendarApp } from './stand-in-calendar'
+import { changeBookingLink, deleteBookingLink, makeBookingLink, readAccounts, readAgenda, readBlocking, readBookingLinks, readEvent, setBlocking, setBlockingAccount, setShown, syncNow } from './calendar'
 import { changeKnowledge, readKnowledge, restartStore, restoreStore, storeBookmark } from './knowledge'
 import { inboxBookmark, inboxCounts, inboxRestart } from './inbox-store'
 import { meetBookmark, meetCounts, meetRestart, meetRestore } from './meet-store'
@@ -202,8 +204,8 @@ const MEET_STORE_PATHS = ['/api/meet/store/bookmark', '/api/meet/store/restart',
 /** The operator's three for the inbox's store (inbox-store.ts): bookmark, restart and counts. Their order is the routes'. */
 const INBOX_STORE_PATHS = ['/api/inbox/store/bookmark', '/api/inbox/store/restart', '/api/inbox/store/counts'] as const
 
-/** The calendar's four writes (calendar.ts): show or hide a calendar, Check now, the busy-block switch and an account's part in the blocks (the last two are settings: the calendar's alarm writes the blocks). Their order is the routes'. */
-const CALENDAR_WRITE_PATHS = ['/api/calendar/shown', '/api/calendar/sync', '/api/calendar/blocking', '/api/calendar/blocking/account'] as const
+/** The calendar's seven writes (calendar.ts): show or hide a calendar, Check now, the busy-block switch and an account's part in the blocks (the last two are settings: the calendar's alarm writes the blocks), and making, changing and deleting a booking link (settings too: no event is made until a visitor books). Their order is the routes'. */
+const CALENDAR_WRITE_PATHS = ['/api/calendar/shown', '/api/calendar/sync', '/api/calendar/blocking', '/api/calendar/blocking/account', '/api/calendar/booking-links/make', '/api/calendar/booking-links/change', '/api/calendar/booking-links/delete'] as const
 
 /** The operator's three for the Clients store (clients.ts): bookmark, restart and counts. Their order is the routes'. */
 const CLIENTS_STORE_PATHS = ['/api/clients/store/bookmark', '/api/clients/store/restart', '/api/clients/store/counts'] as const
@@ -230,10 +232,13 @@ export function createApp(deps: Deps = { fetch: (u, i) => fetch(u, i), now: Date
   const partsFor: PartsFor = deps.parts ?? createParts(deps)
   const guestsFor: GuestPartsFor = deps.guests ?? (createGuestParts(deps) as GuestPartsFor)
 
-  // The guests' and signers' paths (src/guests.ts): answered before everything below, and never by it. A request under /r/, /w/ or /s/ is a guest's whatever it carries, a team assertion included (it is not read there), and
+  // The guests' and signers' paths (src/guests.ts): answered before everything below, and never by it. A request under /r/, /w/, /s/ or /book/ is a guest's whatever it carries, a team assertion included (it is not read there), and
   // a request that is not under one goes on to the checks as ever.
   app.use('*', async (c, next) => {
-    const answer = await guestAnswer(c.req.raw, c.env, guestsFor(c.env as never), waitOf(c), deps.install)
+    const guests = guestsFor(c.env as never)
+    // A local run with the fixtures: the booking API is the calendar's stand-in, so a link made in Settings is a page a visitor can open (src/stand-in-calendar.ts). Never on a deployed address (`onLocalDev`).
+    const standIn = onLocalDev(c.req.raw, c.env) && guestPrefixOf(new URL(c.req.url).pathname) === '/book' ? ((await appsFor(c.req.raw, c.env, deps, partsFor)) as { calendarStandIn?: StandInCalendarApp }).calendarStandIn : undefined
+    const answer = await guestAnswer(c.req.raw, c.env, standIn ? { ...guests, booking: (req) => bookingAnswer(req, { face: standIn.guests }) } : guests, waitOf(c), deps.install)
     return answer ?? next()
   })
 
@@ -723,6 +728,17 @@ export function createApp(deps: Deps = { fetch: (u, i) => fetch(u, i), now: Date
     if (!got.ok) return c.json({ error: got.message }, 400)
     return c.json(got.value, 200, NO_STORE)
   })
+  // The booking links (the space's ADR 0025): the list with each one's bookings, and making, changing and deleting a link. Settings only: nothing here asks Google, and a visitor's booking comes in at the open path (src/booking.ts).
+  app.get('/api/calendar/booking-links', async (c) => c.json(await readBookingLinks(await asking(c)), 200, NO_STORE))
+  for (const [index, run] of [[4, makeBookingLink], [5, changeBookingLink], [6, deleteBookingLink]] as const) {
+    app.post(CALENDAR_WRITE_PATHS[index], async (c) => {
+      const raw = await bodyOf(c)
+      if (!raw.ok) return c.json({ error: 'Too large' }, raw.status)
+      const got = await run(await asking(c), raw.value)
+      if (!got.ok) return c.json({ error: got.message }, 400)
+      return c.json(got.value, 200, NO_STORE)
+    })
+  }
 
   // The operator's three, for a move of the knowledge store (knowledge.ts): a bookmark, a restart and a restore, each the owner's alone (the app refuses anyone else) and each a POST like every write here.
   app.post(KNOWLEDGE_STORE_PATHS[0], async (c) => c.json(await storeBookmark(await asking(c)), 200, NO_STORE))

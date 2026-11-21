@@ -19,6 +19,7 @@ import { coreFor as formsCoreFor } from '@space/forms/src/signing'
 import { createFormsClientNames } from '@space/forms/src/client-names'
 import { createSpaceForms } from '@space/forms/src/space-reads'
 import { type Operator, operatorOf, serviceWordsOf } from '@space/forms/src/workspace'
+import { createGuestCalendar } from '@space/calendar/src/guests'
 import { createInboxCalendar } from '@space/calendar/src/inbox'
 import { createSpaceCalendar } from '@space/calendar/src/space'
 import { createSpaceClients } from '@space/clients/src/space'
@@ -36,6 +37,7 @@ import { BUNDLED_INSTALL } from '@space/meet/src/company'
 import { type MeetEnv, type MeetPartEnv, appOriginOf, depsFor, partDepsFor } from '@space/meet/src/wiring'
 import type { ClaudeDoor } from './agent'
 import type { TelegramDoor } from './telegram'
+import { bookingAnswer } from './booking'
 import type { GuestParts } from './guests'
 import { repairFormsNames } from './clients-forms'
 import { clientsForInbox } from './inbox-clients'
@@ -241,8 +243,9 @@ export function guestMeetEnvOf(env: PartsEnv): MeetEnv {
 }
 
 /**
- * The guests' and signers' side, made once per `createApp` (src/guests.ts answers the paths; this is the parts behind them): meet's call API, Telnyx's webhook and the channel guests' API, and forms' public API. Neither
- * app is handed a person: the guest side authenticates each request itself with the credential its path takes, and forms' app is made with `named` answering nobody, so its operator API is a 401 here whatever is asked.
+ * The guests' and signers' side, made once per `createApp` (src/guests.ts answers the paths; this is the parts behind them): meet's call API, Telnyx's webhook and the channel guests' API, forms' public API, and the calendar's booking API. No
+ * part is handed a person: the guest side authenticates each request itself with the credential its path takes (a call's name, a signer's link, a booking link's name or a booking's own secret), and forms' app is made with `named` answering nobody, so its
+ * operator API is a 401 here whatever is asked. The calendar's third face (`createGuestCalendar`) is made here and handed to the booking door (src/booking.ts) and to nothing else.
  */
 export function createGuestParts(deps: { fetch: Http; now: () => number; install: Install }): (env: PartsEnv) => GuestParts {
   const meet = createGuestApp<{ Bindings: MeetEnv }>((c) => depsFor(c.env, c.req.url, deps.install))
@@ -251,6 +254,7 @@ export function createGuestParts(deps: { fetch: Http; now: () => number; install
   return (env) => ({
     meet: env.WORKSPACE && env.ROOMS ? (req) => Promise.resolve(meet.fetch(req, guestMeetEnvOf(env))) : undefined,
     signer: env.FORMS_DB && env.FORMS_FILES ? (req, wait) => Promise.resolve(forms().fetch(req, formsEnvOf(env, wait))) : undefined,
+    booking: env.CALENDAR ? (req) => bookingAnswer(req, { face: createGuestCalendar({ engine: engineFor({ CALENDAR: env.CALENDAR as never }) }), limit: env.PUBLIC_LIMIT }) : undefined,
   })
 }
 
