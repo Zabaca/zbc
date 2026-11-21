@@ -34,6 +34,16 @@ export function Done({ booked, link, zone }: { booked: GuestBooked; link: GuestB
             <dt>Who</dt>
             <dd>{b.name}</dd>
           </div>
+          {b.meetLink !== null && !pending && (
+            <div>
+              <dt>Where</dt>
+              <dd>
+                <a href={b.meetLink} target="_blank" rel="noopener noreferrer">
+                  Google Meet
+                </a>
+              </dd>
+            </div>
+          )}
         </dl>
         <p className="manage">
           To move or cancel this meeting, use <a href={href}>this address</a>

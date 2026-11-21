@@ -25,8 +25,8 @@ set-up is **install**.
 - **Sign-in address**: the address a verified Access assertion carries. The only thing that decides who is asking;
   two people cannot share one.
 - **Space**: the one address the company's team signs in at and works in, `space.<domain>` (Northfield Works' is `space.northfield.example`),
-  declared as `space` with its host and a sign-in length (a month). The whole host is behind Access, except three paths that guests and signers use and that need no sign-in, each answered with its own
-  credential and nothing else: `/r/` a call, `/w/` a channel's guests and `/s/` a signer (`GUEST_PREFIXES`, the workspace package's `src/guests.ts`; they are the layer's and are not declared; the space's ADR 0018).
+  declared as `space` with its host and a sign-in length (a month). The whole host is behind Access, except four paths that guests, signers and the visitors of a booking link use and that need no sign-in, each answered with its own
+  credential and nothing else: `/r/` a call, `/w/` a channel's guests, `/s/` a signer and `/book/` a booking link's visitor (`GUEST_PREFIXES`, the workspace package's `src/guests.ts`; they are the layer's and are not declared; the space's ADR 0018 and 0025).
   The four apps have no hosts of their own: the space's host is the only one, and the old per-app links are not served. Built by the space package.
 - **Forms' sign-in** (`forms`): the Forms tab has an Access application of its own, on `space.<domain>/forms`, with a sign-in length of its own (a day, where the space's is a month), because forms holds the
   answers people give to a document. `install.accessApplication('forms')` is that application, `install.tabPath('forms')` its path, and `ownSignIn` marks the tab. Why and how: the space's ADR 0002.

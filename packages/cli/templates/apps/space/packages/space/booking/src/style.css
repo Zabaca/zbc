@@ -274,6 +274,46 @@ h1 {
   color: var(--muted);
 }
 
+/* On a wide screen the month and the times of its chosen day sit side by side, so the times are in view without scrolling. */
+@media (min-width: 900px) {
+  .shell {
+    max-width: 1040px;
+  }
+  .picker {
+    display: grid;
+    grid-template-columns: 340px minmax(0, 1fr);
+    grid-template-areas:
+      'head times'
+      'week times'
+      'days times'
+      'zone times';
+    grid-template-rows: auto auto auto 1fr;
+    column-gap: 36px;
+    align-items: start;
+  }
+  .pk-head {
+    grid-area: head;
+  }
+  .pk-week {
+    grid-area: week;
+  }
+  .pk-days {
+    grid-area: days;
+  }
+  .pk-times-wrap {
+    grid-area: times;
+    margin-top: 0;
+    padding-top: 4px;
+  }
+  .pk-zone {
+    grid-area: zone;
+  }
+  .pk-day,
+  .pk-pad {
+    min-height: 0;
+  }
+}
+
 /* The form, the buttons, what is said. */
 .form {
   display: grid;

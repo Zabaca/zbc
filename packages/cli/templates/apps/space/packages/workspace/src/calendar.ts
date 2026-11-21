@@ -23,8 +23,8 @@ export const CALENDAR_READONLY_SCOPE = 'https://www.googleapis.com/auth/calendar
 
 /**
  * The Google permission that creates, changes and deletes events (asked with the reading one, once per account, so a feature that writes events needs no second consent). Not the full `calendar` scope. Connect calendar
- * asks for it beside `CALENDAR_READONLY_SCOPE`. The sync never uses it; only Claude's invites, moves and cancellations do (`CalendarForInbox`), one call at a time, and the "Busy" blocks the owner's own switch keeps on their other calendars
- * (the space's ADR 0024), one token for each run of the alarm. A grant that has the reading permission without it is connected for reading all the same (see `CalendarGrant.events`) and cannot take one.
+ * asks for it beside `CALENDAR_READONLY_SCOPE`. The sync never uses it; only Claude's invites, moves and cancellations do (`CalendarForInbox`), one call at a time, the "Busy" blocks the owner's own switch keeps on their other calendars
+ * (the space's ADR 0024), one token for each run of the alarm, and a visitor's booking, move and cancellation (`CalendarForGuests`, the space's ADR 0025), each asking for its own. A grant that has the reading permission without it is connected for reading all the same (see `CalendarGrant.events`) and cannot take one.
  */
 export const CALENDAR_EVENTS_SCOPE = 'https://www.googleapis.com/auth/calendar.events'
 

@@ -344,7 +344,7 @@ export function standInCalendar(now: number, zone: string, mode: CalendarFixture
     return null
   }
 
-  const recordOf = (b: StandInBooking): BookingRecord => ({ id: b.id, linkName: b.linkName, name: b.name, email: b.email, note: b.note, start: b.start, end: b.end, bookedAt: b.bookedAt, state: b.state, checked: 'google', link: 'https://www.google.com/calendar/event?eid=standin' })
+  const recordOf = (b: StandInBooking): BookingRecord => ({ id: b.id, linkName: b.linkName, name: b.name, email: b.email, note: b.note, start: b.start, end: b.end, bookedAt: b.bookedAt, state: b.state, checked: 'google', link: b.state === 'booked' ? 'https://www.google.com/calendar/event?eid=standin' : null })
 
   function linkViewOf(l: StandInLink): BookingLinkView {
     const acct = accountOf(l.account)

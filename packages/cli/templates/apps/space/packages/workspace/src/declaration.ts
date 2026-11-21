@@ -96,7 +96,7 @@ export interface Person {
 }
 
 /**
- * The space: the one address the company's team signs in at and works in, and the one Worker that runs every app (the space's ADR 0001). The whole host is behind Access except three paths guests and signers use (`GUEST_PREFIXES` of the
+ * The space: the one address the company's team signs in at and works in, and the one Worker that runs every app (the space's ADR 0001). The whole host is behind Access except four paths guests, signers and the visitors of a booking link use (`GUEST_PREFIXES` of the
  * space, which are the layer's and not declared). So there is no `door` to declare.
  */
 export interface SpaceDeclaration {

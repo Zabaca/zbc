@@ -46,7 +46,7 @@ This is the first write the space makes to Google that the owner did not ask for
 
 ## What is not here
 
-Any other feature of a calendar-assistant product (habits, task scheduling, smart meetings, scheduling links); the meeting's real title on a block; a rule for one direction only (this account blocks that one but not back); non-Google calendars; blocks on a calendar that is not an account's main one.
+Any other feature of a calendar-assistant product (habits, task scheduling, smart meetings; scheduling links are [0025](0025-a-booking-link-is-a-public-page-where-a-visitor-takes-a-free-time-and-the-calendar-makes-the-event-with-the-link-the-owner-made-as-the-word-for-it.md), a separate feature of the calendar); the meeting's real title on a block; a rule for one direction only (this account blocks that one but not back); non-Google calendars; blocks on a calendar that is not an account's main one.
 
 ## What only the hand test settles
 

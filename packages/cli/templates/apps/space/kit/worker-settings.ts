@@ -71,7 +71,7 @@ export function spaceWorkerSettings(install: Install, file: InstallFile): Worker
     // wrangler moves a Custom Domain from the Worker that has it to the one that deploys it, and replaces a Worker's list on every deploy.
     routes: [{ pattern: host, custom_domain: true }, ...(pushHost !== null ? [{ pattern: pushHost, custom_domain: true }] : [])],
     // EVERY request runs the Worker first, pages and files included. With the default, the asset router answers a page or a file before any code runs, so the Worker's own sign-in check would cover only the
-    // API: a request that got past the Access edge without its assertion (a cookie alone once did) would read the whole page. Nothing on the host is public but the three guest paths.
+    // API: a request that got past the Access edge without its assertion (a cookie alone once did) would read the whole page. Nothing on the host is public but the guest paths (`GUEST_PREFIXES`).
     assets: { directory: './dist/client', not_found_handling: 'single-page-application', run_worker_first: true, binding: 'ASSETS' },
     // NO SERVICE BINDINGS: the inbox, meet, forms, the knowledge app and the Clients part run IN this Worker, reached by a call with no second sign-in check, and it depends on no other Worker and no site.
     //
