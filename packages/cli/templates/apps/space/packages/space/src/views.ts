@@ -25,8 +25,10 @@ import {
   type Repeated,
   type SpaceReply,
   TELEGRAM_STATES,
+  TEXTS_STATES,
   WRITE_WITHIN_MS,
 } from '@space/workspace'
+import { TEXTS_ID } from '@space/inbox/src/texts/wire'
 import { isBool, isCount, isList, isRecord, isText } from './guards'
 import type { Asking } from './list'
 import { isInboxContactProfile, isInboxDraft, isInboxLead, isInboxLeads, isInboxHandSent, isInboxMerged, isInboxSendResolved, isInboxSpamResult, isInboxSplitDone, isInboxUnmerged, notConnected, reach, reachWrite } from './reach'
@@ -108,6 +110,7 @@ const isGmail = (v: unknown): boolean =>
   each(v.reasons, isText)
 
 const telegramStates = new Set<string>(TELEGRAM_STATES)
+const textsStates = new Set<string>(TEXTS_STATES)
 const jmapStates = new Set<string>(JMAP_STATES)
 const jmapPushStates = new Set<string>(JMAP_PUSH_STATES)
 
@@ -144,6 +147,30 @@ const isJmapCards = (v: unknown): boolean =>
 /** The Telegram mailbox in the menu or on its card; ABSENT or null from an inbox that has none (or that predates it). */
 const isTelegramNav = (v: unknown): boolean =>
   v === undefined || v === null || (isMailboxMark(v) && isRecord(v) && isNavCount(v) && isText(v.state) && telegramStates.has(v.state) && countOrNull(v.checkedInAt) && countOrNull(v.lastPushAt))
+
+/** The texts mailbox in the menu; ABSENT or null from an inbox that has none, that predates it or where the texts switch is off. */
+const isTextsNav = (v: unknown): boolean =>
+  v === undefined ||
+  v === null ||
+  (isMailboxMark(v) && isRecord(v) && isNavCount(v) && isText(v.state) && textsStates.has(v.state) && countOrNull(v.checkedInAt) && countOrNull(v.lastPushAt) && countOrNull(v.phoneSince))
+
+/** The texts card in Settings, with the chats left out; same absences. */
+const isTextsCard = (v: unknown): boolean =>
+  v === undefined ||
+  v === null ||
+  (isMailboxMark(v) &&
+    isRecord(v) &&
+    isText(v.state) &&
+    textsStates.has(v.state) &&
+    countOrNull(v.reportedAt) &&
+    countOrNull(v.checkedInAt) &&
+    countOrNull(v.lastPushAt) &&
+    countOrNull(v.phoneSince) &&
+    isCount(v.messages) &&
+    isCount(v.conversations) &&
+    isCount(v.open) &&
+    isCount(v.unreadOpen) &&
+    each(v.leftOut, (l) => isRecord(l) && isText(l.chatId) && isText(l.name) && isCount(l.at) && isBool(l.fillOwed)))
 
 const isTelegramCard = (v: unknown): boolean =>
   v === undefined ||
@@ -210,12 +237,13 @@ const isNav = guard(
     each(v.clients, (c) => isRecord(c) && isCount(c.id) && isText(c.name) && isBool(c.listed) && isNavCount(c)) &&
     isCount(v.contacts) &&
     isTelegramNav(v.telegram) &&
+    isTextsNav(v.texts) &&
     isJmapNav(v.jmap) &&
     (v.openLeads === undefined || isCount(v.openLeads)) &&
     each(v.gmailAccounts, (g) => isRecord(g) && isText(g.id) && isText(g.name) && isText(g.address) && isNavCount(g) && isBool(g.connected) && isText(g.state) && gmailStates.has(g.state) && (g.sendsByDefault === undefined || isBool(g.sendsByDefault)) && countOrNull(g.lastPushAt) && textOrNull(g.reason)),
 )
 const isClaudeSending = guard((v) => isRecord(v) && isBool(v.enabled) && countOrNull(v.changedAt))
-const isMailboxes = guard((v) => isRecord(v) && each(v.gmailAccounts, isGmail) && each(v.mailboxes, isBusinessMailbox) && isTelegramCard(v.telegram) && isJmapCards(v.jmap) && isBool(v.assistantKey) && (v.capabilities === undefined || each(v.capabilities, isText)))
+const isMailboxes = guard((v) => isRecord(v) && each(v.gmailAccounts, isGmail) && each(v.mailboxes, isBusinessMailbox) && isTelegramCard(v.telegram) && isTextsCard(v.texts) && isJmapCards(v.jmap) && isBool(v.assistantKey) && (v.capabilities === undefined || each(v.capabilities, isText)))
 const isSpamCheckAnswer = guard(isSpamCheck)
 const isGmailChanged = guard((v) => isRecord(v) && (v.change === 'sync' || v.change === 'disconnect') && (v.revoked === null || isBool(v.revoked)))
 const isNotifications = guard(
@@ -251,6 +279,8 @@ const isSpamAnswer = guard(isInboxSpamResult)
 const isResolvedAnswer = guard(isInboxSendResolved)
 const isHandSentAnswer = guard(isInboxHandSent)
 const isSplitAnswer = guard(isInboxSplitDone)
+const isTextsLeftOutAnswer = guard((v) => isRecord(v) && isText(v.chatId) && isCount(v.removed))
+const isTextsBroughtBackAnswer = guard((v) => isRecord(v) && isText(v.chatId))
 const isTurns = guard((v) => each(v, isTurn))
 const isChatAnswer = guard((v) => isRecord(v) && isText(v.draftId) && isCount(v.rev) && isText(v.text) && isText(v.subject) && isTurn(v.turn))
 
@@ -351,6 +381,8 @@ export type WriteName =
   | 'contact-split'
   | 'lead-move'
   | 'lead-make'
+  | 'text-leave-out'
+  | 'text-bring-back'
 
 export const WRITE_NAMES: readonly WriteName[] = [
   'claude-sending',
@@ -375,6 +407,8 @@ export const WRITE_NAMES: readonly WriteName[] = [
   'contact-split',
   'lead-move',
   'lead-make',
+  'text-leave-out',
+  'text-bring-back',
 ]
 
 /** The longest chat instruction or restore bookmark taken: the inbox applies its own, shorter limits. */
@@ -528,6 +562,17 @@ export async function writeView(ask: Asking, name: WriteName, body: unknown, use
       if (!isCount(body.rev)) return bad('Say which revision of the person you were shown (rev).')
       const split = { contactId: body.contactId, rev: body.rev, identityId: body.identityId }
       return write(ask, (i) => i.splitAddress(a, split), isSplitAnswer)
+    }
+    // A text chat left out of the space, and one brought back. Leaving out deletes what the space holds of the chat (the inbox says how many texts), so the page asks first; a repeat finds it gone (`not-found`).
+    case 'text-leave-out': {
+      if (!isText(body.conversationId) || !SHORT.test(body.conversationId)) return bad('Name the conversation: conversationId.')
+      const conversationId = body.conversationId
+      return write(ask, (i) => i.textsLeaveOut(a, conversationId), isTextsLeftOutAnswer)
+    }
+    case 'text-bring-back': {
+      if (!isText(body.chatId) || !TEXTS_ID.test(body.chatId)) return bad('Name the chat: chatId.')
+      const chatId = body.chatId
+      return write(ask, (i) => i.textsBringBack(a, chatId), isTextsBroughtBackAnswer)
     }
     // A lead moved at the revision the board showed (`conflict` when it has moved on), and a lead made by hand for a person. Making one is not idempotent: the page sends it once.
     case 'lead-move': {

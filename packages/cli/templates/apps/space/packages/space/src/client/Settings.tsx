@@ -4,7 +4,7 @@
 // Everything on it is the owner's, and the inbox decides that: the space carries each question with the owner's assertion, the inbox admits its owner only, and Claude's
 // sending switch, the spam check and restore are the owner's in the inbox's store as well. (The knowledge base is the Knowledge tab's.) Nothing here sends mail.
 import { type MouseEvent, type ReactNode, useState } from 'react'
-import { GMAIL_ACCOUNT_PARAM, GMAIL_START_PATH, type InboxBusinessMailbox, type InboxClaudeSending, type InboxGmail, type InboxJmap, type InboxMailboxes, type InboxTelegram } from '@space/workspace'
+import { GMAIL_ACCOUNT_PARAM, GMAIL_START_PATH, type InboxBusinessMailbox, type InboxClaudeSending, type InboxGmail, type InboxJmap, type InboxMailboxes, type InboxTelegram, type InboxTexts } from '@space/workspace'
 import type { Me } from '../me'
 import { CalendarsSection } from './CalendarsSettings'
 import { CallsSection, PhoneSection } from './CallsSettings'
@@ -16,6 +16,7 @@ import { Glyph } from './icons'
 import { sectionHeld, settingsPath, settingsSection, SECTIONS, type SectionId } from './route'
 import { useSwitches } from './switches'
 import { telegramWords } from './telegram'
+import { textsWords } from './texts'
 import { useOwner } from './owner'
 import { agoText, Ask, Block, Done, Say, Switch, useAction, Viewed, when, whoText } from './settings-parts'
 import { postView, useView } from './views'
@@ -359,6 +360,65 @@ export function TelegramCard({ telegram, now, zone }: { telegram: InboxTelegram;
   )
 }
 
+/**
+ * The texts bridge, as a card like Telegram's: the one sentence for where it stands (the same one the menu's foot says, `textsWords`), amber when it needs a look, the numbers the owner checks it by, and the chats
+ * left out with Bring back. Nothing here changes the bridge: it runs outside the space, paired with the phone, and signing in again is done where it runs.
+ */
+export function TextsCard({ texts, now, zone, busy = false, onBringBack }: { texts: InboxTexts; now: number; zone?: string; busy?: boolean; onBringBack?: (chatId: string) => void }) {
+  const words = textsWords(texts, now, zone)
+  return (
+    <section className={`s-card${words.amber ? ' amber' : ''}`} aria-label="Texts" data-testid="texts" data-state={texts.state}>
+      <p className={words.amber ? 's-warn' : undefined} role="status" data-testid="texts-words">
+        {words.text}
+      </p>
+      <dl className="s-facts">
+        <dt>Phone</dt>
+        <dd>{texts.address}</dd>
+        <dt>Last text arrived</dt>
+        <dd>{texts.lastPushAt ? `${agoText(now, texts.lastPushAt)} (${when(texts.lastPushAt)})` : 'never'}</dd>
+        <dt>Bridge last checked in</dt>
+        <dd>{texts.checkedInAt ? `${agoText(now, texts.checkedInAt)} (${when(texts.checkedInAt)})` : 'never'}</dd>
+        <dt>Held here</dt>
+        <dd>
+          {texts.messages} texts in {texts.conversations} conversations
+        </dd>
+        <dt>In its view</dt>
+        <dd>
+          {texts.open} conversations, {texts.unreadOpen} unread
+        </dd>
+      </dl>
+      <p className="sub">Every chat on your phone comes in, business senders and sign-in codes too: texts from a short code, a named sender or a business are filed in Bulk, and nobody’s number is joined to them. Your own phone already rings for a text, so nothing here does.</p>
+      <div data-testid="texts-left-out">
+        <p className="sub">
+          <b>Chats left out</b>
+        </p>
+        {texts.leftOut.length === 0 ? (
+          <p className="sub">None. Leave a chat out from its conversation and nothing of it is held here again.</p>
+        ) : (
+          <ul>
+            {texts.leftOut.map((chat) => (
+              <li key={chat.chatId} data-testid="texts-left-out-row">
+                <span>
+                  <b>{chat.name || chat.chatId}</b> <span className="sub">left out {when(chat.at)}</span>
+                </span>{' '}
+                {chat.fillOwed ? (
+                  <span className="sub" data-testid="texts-fill-owed">
+                    Reading its last 30 days...
+                  </span>
+                ) : (
+                  <button type="button" className="btn" data-testid="bring-back" disabled={busy || onBringBack === undefined} onClick={() => onBringBack?.(chat.chatId)}>
+                    Bring back
+                  </button>
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+    </section>
+  )
+}
+
 /** What each state of a mailbox on the mail server is called on its card. */
 const JMAP_STATE_TEXT: Record<InboxJmap['state'], string> = {
   live: 'Live',
@@ -449,10 +509,16 @@ function MailboxesSection({ me }: { me: Me }) {
   const now = Date.now()
   // Only once the inbox has answered and the bridge has said anything: before that there is no card, and while the mailboxes load the other sections say so.
   const telegram = view.state.kind === 'value' ? (view.state.value.telegram ?? null) : null
+  // And the texts bridge's, only where the install has it.
+  const texts = view.state.kind === 'value' ? (view.state.value.texts ?? null) : null
   // Likewise the mailboxes on the mail server: no card at all until the deploy declares one (and none from an inbox that predates them).
   const jmap = view.state.kind === 'value' ? (view.state.value.jmap ?? []) : []
   const spam = async (box: InboxBusinessMailbox, enabled: boolean) => {
     await action.run(() => postView('spam-check', { mailboxId: box.id, enabled }), enabled ? `The spam check works on ${box.name}’s mail again.` : `The spam check is off. ${box.name}’s mail still arrives, all of it in your Inbox.`)
+    view.reload()
+  }
+  const bringBack = async (chatId: string) => {
+    await action.run(() => postView<{ chatId: string }>('text-bring-back', { chatId }), 'Bringing the chat back: the bridge reads its last 30 days from your phone. Read this page again in a moment.')
     view.reload()
   }
   const syncJmap = async (box: InboxJmap) => {
@@ -492,6 +558,11 @@ function MailboxesSection({ me }: { me: Me }) {
       {telegram && (
         <Block title="Telegram" testid="section-telegram">
           <TelegramCard telegram={telegram} now={now} />
+        </Block>
+      )}
+      {texts && (
+        <Block title="Texts" testid="section-texts">
+          <TextsCard texts={texts} now={now} busy={action.busy} onBringBack={(id) => void bringBack(id)} />
         </Block>
       )}
       {switches.gmail && (

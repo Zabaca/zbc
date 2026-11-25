@@ -32,6 +32,8 @@ import {
   INBOX_FILE_WHOLE_BYTES,
   type InboxFileOut,
   type InboxHandSent,
+  type InboxTextsBroughtBack,
+  type InboxTextsLeftOut,
   type InboxHistory,
   type InboxHistoryQuery,
   type InboxRead,
@@ -396,6 +398,7 @@ export function standInInbox(
       listedInClient: listedInClient(t, contactId),
       ...(t.telegramChat !== undefined && { telegramChat: t.telegramChat }),
       ...(t.telegramChat === 'group' && { needsReply: t.needsReply ?? false }),
+      ...(t.mailbox?.id === TEXTS_MAILBOX_ID && { textChat: true as const }),
     }
   }
   /** What the person asking may see (`options.seeing`, the real rule `canSee` over each thread's mailbox): everything where the stand-in has none; null is a person on no mailbox, who is refused. */
@@ -515,6 +518,7 @@ export function standInInbox(
         gmailAccounts: gmailAccounts.map((g) => ({ id: g.id, name: g.name, address: g.address, ...count(plain.filter((t) => t.mailbox?.id === g.id)), connected: g.connected, state: g.state, lastPushAt: g.lastPushAt, reason: g.reasons[0] ?? null })),
         // The Telegram mailbox, counted from its threads as a business mailbox's are; null while the stand-in holds none.
         ...(views.state.jmap !== undefined && { jmap: views.state.jmap.map((m) => ({ id: m.id, name: m.name, address: m.address, ...count(plain.filter((t) => t.mailbox?.id === m.id)), state: m.state, lastSyncAt: m.lastSyncAt, reason: m.reasons[0] ?? null })) }),
+        ...(views.state.texts !== undefined && { texts: views.state.texts === null ? null : { id: views.state.texts.id, name: views.state.texts.name, address: views.state.texts.address, ...count(plain.filter((t) => t.mailbox?.id === views.state.texts?.id)), state: views.state.texts.state, checkedInAt: views.state.texts.checkedInAt, lastPushAt: views.state.texts.lastPushAt, phoneSince: views.state.texts.phoneSince } }),
         ...(views.state.telegram !== undefined && { telegram: views.state.telegram === null ? null : { id: views.state.telegram.id, name: views.state.telegram.name, address: views.state.telegram.address, ...count(plain.filter((t) => t.mailbox?.id === views.state.telegram?.id)), state: views.state.telegram.state, checkedInAt: views.state.telegram.checkedInAt, lastPushAt: views.state.telegram.lastPushAt } }),
       })
     },
@@ -692,11 +696,12 @@ export function standInInbox(
             bulk: t.bulk ?? false,
             mailbox: t.mailbox ?? null,
             alsoOn: t.on.filter((o) => o !== contact.id).map(party),
-            // A Telegram chat is answered through the bridge, a channel never.
-            canReply: (t.kind ?? 'email') === 'email' || (t.kind === 'telegram' && t.telegramChat !== 'channel'),
+            // A Telegram chat is answered through the bridge, a channel never; a text is answered by hand until sending comes.
+            canReply: (t.mailbox?.id !== TEXTS_MAILBOX_ID && (t.kind ?? 'email') === 'email') || (t.kind === 'telegram' && t.telegramChat !== 'channel'),
             // The inbox's own rule for the spam button: in a mailbox, and in Bulk or with nobody on it linked to a Client.
             canMarkSpam: (t.kind ?? 'email') === 'email' && ((t.bulk ?? false) || !t.on.some((id) => byId.get(id)?.client)),
             ...(t.telegramChat !== undefined && { telegramChat: t.telegramChat }),
+            ...(t.mailbox?.id === TEXTS_MAILBOX_ID && { textChat: true as const }),
             ...(options.withFiles && { canAttach: (t.kind ?? 'email') === 'email' && t.mailbox != null }),
             // A Telegram chat with a person or a group that has a reply box takes one picture.
             ...(options.withFiles && t.kind === 'telegram' && t.telegramChat !== 'channel' && { canPicture: true }),
@@ -844,6 +849,34 @@ export function standInInbox(
       filed.delete(messageId)
       drafts.push(draft)
       return answered({ messageId, conversationId: home.id })
+    },
+
+    // Leave a text chat out: its conversation and the drafts on it go, and the chat is on the left-out list Settings shows. Only a conversation in the texts mailbox is one.
+    async textsLeaveOut(asker: SignedIn, conversationId: string): Promise<SpaceReply<InboxTextsLeftOut>> {
+      asked.askers.push(asker.person.address)
+      views.calls.push({ method: 'textsLeaveOut', args: [conversationId], asker })
+      await wait()
+      const at = threads.findIndex((x) => x.id === conversationId && x.mailbox?.id === TEXTS_MAILBOX_ID)
+      const t = threads[at]
+      if (!t) return refused('not-found', 'That is not a text conversation, so there is nothing to leave out.')
+      const name = byId.get(t.on[0] as string)?.name ?? t.id
+      threads.splice(at, 1)
+      for (let i = drafts.length - 1; i >= 0; i--) if (drafts[i]?.conversationId === conversationId) drafts.splice(i, 1)
+      const card = views.state.texts
+      if (card) views.state.texts = { ...card, conversations: card.conversations - 1, messages: card.messages - t.messages.length, leftOut: [{ chatId: `c-${t.id}`, name, at: now(), fillOwed: false }, ...card.leftOut] }
+      return answered({ chatId: `c-${t.id}`, removed: t.messages.length })
+    },
+
+    // Bring a chat back off the left-out list: the bridge is owed a read of its last 30 days, shown on the list until it reports.
+    async textsBringBack(asker: SignedIn, chatId: string): Promise<SpaceReply<InboxTextsBroughtBack>> {
+      asked.askers.push(asker.person.address)
+      views.calls.push({ method: 'textsBringBack', args: [chatId], asker })
+      await wait()
+      const card = views.state.texts
+      const found = card?.leftOut.find((l) => l.chatId === chatId && !l.fillOwed)
+      if (!card || !found) return refused('not-found', 'That chat is not on the list.')
+      views.state.texts = { ...card, leftOut: card.leftOut.map((l) => (l.chatId === chatId ? { ...l, fillOwed: true } : l)) }
+      return answered({ chatId })
     },
 
     // The inbox's own Mark as spam and Move to the Inbox: a conversation in a mailbox moves to Bulk and back; a text or a note has no mailbox to call it in. A Client's people are never Bulk.
@@ -1623,13 +1656,17 @@ const quoted = (attribution: string, ...lines: string[]): string => [attribution
 /** A message with new words and the quote under them: the text as it arrived, and the fold the inbox makes of it (everything above the attribution is shown). */
 const withQuote = (visible: string, fold: string): Pick<StandInMessage, 'text' | 'read'> => ({ text: `${visible}\n\n${fold}`, read: { visible, quoted: fold } })
 const RIDGEWAY: InboxMailbox = { id: 'ridgeway', name: 'Ridgeway Cycles', address: 'info@ridgewaycycles.example' }
+/** The id of the texts mailbox (the paired phone's), which a conversation's mailbox says a text chat by. */
+const TEXTS_MAILBOX_ID = 'texts'
+/** Tessa's phone, the mailbox his texts are in: the pill, and the menu's Texts entry. */
+const TEXTS: InboxMailbox = { id: TEXTS_MAILBOX_ID, name: 'Texts', address: 'phone-1' }
 /** Tessa's Telegram, the mailbox its chats are in: the pill, and the menu's Telegram entry. */
 const TELEGRAM: InboxMailbox = { id: 'telegram', name: 'Telegram', address: '7000000001' }
 /** Northfield's test mailbox on its own mail server (test@harborline.example), read and written over JMAP: the pill, and the menu's entry. */
 const HARBORLINE: InboxMailbox = { id: 'harborline', name: 'harborline', address: 'test@harborline.example' }
 
 /** The inbox and meet as a local page shows them with `SPACE_FIXTURES=1` (or a mode that breaks one part): invented people, times counted back from `now`. */
-export type FixtureMode = '1' | 'mail-down' | 'chat-refused' | 'forms-down' | 'knowledge-down' | 'phone-on' | 'telegram-late' | 'telegram-signed-out' | 'jmap-refused' | 'jmap-down' | 'calendar-lapsed' | 'calendar-down' | 'calendar-empty' | 'telegram-pictures' | 'two-people' | 'calendar-mail' | 'short-screen'
+export type FixtureMode = '1' | 'mail-down' | 'chat-refused' | 'forms-down' | 'knowledge-down' | 'phone-on' | 'telegram-late' | 'telegram-signed-out' | 'texts-late' | 'texts-signed-out' | 'texts-phone-off' | 'jmap-refused' | 'jmap-down' | 'calendar-lapsed' | 'calendar-down' | 'calendar-empty' | 'telegram-pictures' | 'two-people' | 'calendar-mail' | 'short-screen'
 
 export function fixtureApps(now: number, mode: FixtureMode = '1', options: { formsAt?: string; zone?: string } = {}) {
   const ago = (minutes: number) => now - minutes * MIN
@@ -1658,6 +1695,9 @@ export function fixtureApps(now: number, mode: FixtureMode = '1', options: { for
     { id: 'c-tg-status', name: 'Cloudflare Status', addresses: [], chat: 'channel' },
     { id: 'c-tg-tomas', name: 'Tomas Vega', addresses: [], business: 'Vega Signs', role: 'Owner' },
     { id: 'c-tg-priti', name: 'Priti Shah', addresses: [] },
+    // People who write by text, in the Texts mailbox: Dana (above) texts from the number her contact holds, so she is one person with an email history and a text history; Eli only texts; a bank's sender is an automated sender (Bulk).
+    { id: 'c-tx-eli', name: 'Eli Park', addresses: [] },
+    { id: 'c-tx-bank', name: 'Example Bank', addresses: [], automated: true },
     // People who write to the test mailbox on the mail server: one asks a question (unread), one's receipt was archived in a mail app (it came in Closed).
     { id: 'c-kim', name: 'Kim Alder', addresses: ['kim@alder.example'] },
     { id: 'c-jo', name: 'Jo Marsh', addresses: ['jo@marsh.example'] },
@@ -1786,6 +1826,49 @@ export function fixtureApps(now: number, mode: FixtureMode = '1', options: { for
         { id: 'm-tg-s0k', at: ago(60 * 24 * 12 + 6), direction: 'out', from: 'Tessa', text: '[Photo]', files: [{ name: 'Photo.jpg', type: 'image/png', bytes: SHEET_PHOTO_PNG }] },
         { id: 'm-tg-s1', at: ago(60 * 24 * 12), direction: 'in', from: 'Sam Ortega', text: 'Thanks, all sorted.' },
       ],
+    },
+    // Texts: one conversation per chat, in the Texts mailbox. Dana's is under the same person as her email; a business sender's (a short code or a named sender) is Bulk, and holds a sign-in code.
+    {
+      id: 't-tx-dana',
+      subject: '',
+      kind: 'sms',
+      at: ago(11),
+      snippet: 'Running ten minutes late, can you let the front desk know?',
+      unread: true,
+      mailbox: TEXTS,
+      on: ['c-dana'],
+      messages: [
+        { id: 'm-tx-d1', at: ago(60 * 4), direction: 'in', from: 'Dana Reyes', text: 'Is the new sign up yet?' },
+        { id: 'm-tx-d2', at: ago(60 * 3), direction: 'out', from: 'Tessa', text: 'Yes, it went up at noon.' },
+        { id: 'm-tx-d3', at: ago(11), direction: 'in', from: 'Dana Reyes', text: 'Running ten minutes late, can you let the front desk know?' },
+      ],
+    },
+    {
+      id: 't-tx-eli',
+      subject: '',
+      kind: 'sms',
+      at: ago(40),
+      snippet: 'Are we still on for Saturday morning?',
+      unread: true,
+      mailbox: TEXTS,
+      on: ['c-tx-eli'],
+      messages: [
+        { id: 'm-tx-e1', at: ago(60 * 30), direction: 'in', from: 'Eli Park', text: 'Can you send me the price list again?' },
+        { id: 'm-tx-e2', at: ago(60 * 29), direction: 'out', from: 'Tessa', text: 'Sent to your email.' },
+        { id: 'm-tx-e3', at: ago(40), direction: 'in', from: 'Eli Park', text: 'Are we still on for Saturday morning?' },
+      ],
+    },
+    {
+      id: 't-tx-bank',
+      subject: '',
+      kind: 'manual',
+      at: ago(75),
+      snippet: 'Your Example Bank code is 481516. Do not share it.',
+      unread: true,
+      bulk: true,
+      mailbox: TEXTS,
+      on: ['c-tx-bank'],
+      messages: [{ id: 'm-tx-b1', at: ago(75), direction: 'in', from: 'Example Bank', text: 'Your Example Bank code is 481516. Do not share it.' }],
     },
     {
       id: 't-dana-1',
@@ -2028,7 +2111,7 @@ export function fixtureApps(now: number, mode: FixtureMode = '1', options: { for
     threads.push(...calendarMail.threads)
   }
   // `short-screen`: the inbox cuts its lists at FOUR conversations (the real one at 200), so the Load older control at the foot of a list is on the page and can be pressed.
-  const inbox = standInInbox(contacts, threads, { ...(seeing && { seeing }), ...(mode === 'short-screen' && { page: 4 }), drafts, withReading: true, withFiles: true, clients: clientsPart, ...(options.zone !== undefined && { zone: options.zone }), views: fixtureViews(now, mode === 'telegram-late' ? 'late' : mode === 'telegram-signed-out' ? 'signed-out' : 'live', mode === 'jmap-refused' ? 'refused' : mode === 'jmap-down' ? 'down' : 'live') })
+  const inbox = standInInbox(contacts, threads, { ...(seeing && { seeing }), ...(mode === 'short-screen' && { page: 4 }), drafts, withReading: true, withFiles: true, clients: clientsPart, ...(options.zone !== undefined && { zone: options.zone }), views: fixtureViews(now, mode === 'telegram-late' ? 'late' : mode === 'telegram-signed-out' ? 'signed-out' : 'live', mode === 'jmap-refused' ? 'refused' : mode === 'jmap-down' ? 'down' : 'live', mode === 'texts-late' ? 'late' : mode === 'texts-signed-out' ? 'signed-out' : mode === 'texts-phone-off' ? 'phone-off' : 'live') })
   // Calls, invented: a huddle Tessa started in his direct message with Priya with two people in it (and in Today's "Happening now"), one that ended in #launch, a call link and a meeting in
   // Lena's email conversation, a meeting later today and one tomorrow, a New call with a row of its own, calls from before the space with their chat, and the month's usage. A link is on meet's
   // address and goes nowhere in a local run.

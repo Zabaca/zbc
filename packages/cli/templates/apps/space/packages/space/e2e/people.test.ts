@@ -59,7 +59,7 @@ for (const size of ['1440', '390'] as const) {
       await w.page.goto(`${space.base}/people`)
       await w.page.waitForSelector('[data-testid="person"]')
       expect(await w.page.locator('[data-testid="person"]').count()).toBeGreaterThanOrEqual(10)
-      expect(await w.page.locator('h2.p-group').allTextContents()).toEqual(['Clients 3', 'Outside 12', 'Team 3'])
+      expect(await w.page.locator('h2.p-group').allTextContents()).toEqual(['Clients 3', 'Outside 13', 'Team 3'])
       expect(await fits(w.page)).toBe(true)
       await w.shot('people')
       expect(w.errors).toEqual([])

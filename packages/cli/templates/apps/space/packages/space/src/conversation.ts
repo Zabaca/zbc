@@ -86,6 +86,8 @@ export interface ThreadView {
   canMarkSpam: boolean
   /** A Telegram group (each message names who wrote it) or channel (no reply box). Absent for everything else, a one-to-one Telegram chat included. */
   telegramChat?: 'group' | 'channel'
+  /** A conversation in the texts mailbox: the page offers Leave this chat out on it. Absent for everything else. */
+  textChat?: true
   /** The time of its newest message in this answer's history, or null when none of its messages is in the newest page (it is older than all of them). */
   at: number | null
   /** The other people on it, so a thread shared with others says "with ..." and a reply goes to all. */
@@ -408,7 +410,7 @@ export async function openConversation(ask: Asking, key: string, scope?: Scope):
         for (const o of alsoOn) if (!held.alsoOn.some((x) => x.name === o.name && x.address === o.address)) held.alsoOn.push(o)
         continue
       }
-      threads.set(t.conversationId, { conversationId: t.conversationId, subject: t.subject, kind: t.kind, through: t.through, unread: t.unread, open: t.open, bulk: t.bulk, mailbox: t.mailbox?.name ?? null, canReply: t.canReply, canAttach: t.canAttach === true, ...(t.canPicture === true && { canPicture: true }), canMarkSpam: t.canMarkSpam === true, ...(t.telegramChat !== undefined && { telegramChat: t.telegramChat }), at: null, alsoOn })
+      threads.set(t.conversationId, { conversationId: t.conversationId, subject: t.subject, kind: t.kind, through: t.through, unread: t.unread, open: t.open, bulk: t.bulk, mailbox: t.mailbox?.name ?? null, canReply: t.canReply, canAttach: t.canAttach === true, ...(t.canPicture === true && { canPicture: true }), canMarkSpam: t.canMarkSpam === true, ...(t.telegramChat !== undefined && { telegramChat: t.telegramChat }), ...(t.textChat === true && { textChat: true as const }), at: null, alsoOn })
     }
   })
   if (history?.ok && chatId !== null) sources.push({ kind: 'chat', conversationId: chatId, messages: history.value.messages.map(chatMessage), more: history.value.more })

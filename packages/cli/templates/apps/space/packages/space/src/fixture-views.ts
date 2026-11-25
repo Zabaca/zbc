@@ -1,7 +1,7 @@
 // Invented data for a local page (`SPACE_FIXTURES`, src/app.ts): Settings as it looks with Gmail live, two business mailboxes, an inbox device and a
 // space device, and Clients. Times are counted back from `now`. Never reached on a deployed address.
 
-import type { InboxBusinessMailbox, InboxClientSummary, InboxJmap, InboxTelegram } from '@space/workspace'
+import type { InboxBusinessMailbox, InboxClientSummary, InboxJmap, InboxTelegram, InboxTexts } from '@space/workspace'
 import type { StandInClient, StandInViewState } from './stand-in-views'
 
 const MIN = 60_000
@@ -9,10 +9,13 @@ const MIN = 60_000
 /** The Telegram bridge the fixtures show: live, a bridge that has not checked in for twenty minutes (amber, saying since when), or a login Telegram ended (amber, saying what to do). */
 export type TelegramFixture = 'live' | 'late' | 'signed-out'
 
+/** The texts bridge the fixtures show: live, a bridge that has not checked in for twenty minutes (amber, saying since when), a sign-in Google ended (amber, saying what to do), or a phone that is off (not amber, saying since when). */
+export type TextsFixture = 'live' | 'late' | 'signed-out' | 'phone-off'
+
 /** The mailbox on the mail server the fixtures show: live; one the server refused the key of (amber, saying so and that a deploy ends it); one the server is not answering (amber, saying since when). */
 export type JmapFixture = 'live' | 'refused' | 'down'
 
-export function fixtureViews(now: number, telegram: TelegramFixture = 'live', jmapFixture: JmapFixture = 'live'): StandInViewState {
+export function fixtureViews(now: number, telegram: TelegramFixture = 'live', jmapFixture: JmapFixture = 'live', textsFixture: TextsFixture = 'live'): StandInViewState {
   const ago = (minutes: number) => now - minutes * MIN
   const bridge: InboxTelegram = {
     id: 'telegram',
@@ -27,6 +30,25 @@ export function fixtureViews(now: number, telegram: TelegramFixture = 'live', jm
     conversations: 7,
     open: 4,
     unreadOpen: 3,
+  }
+  const texts: InboxTexts = {
+    id: 'texts',
+    name: 'Texts',
+    address: 'phone-1',
+    state: textsFixture === 'live' ? 'live' : textsFixture === 'late' ? 'not-checked-in' : textsFixture === 'signed-out' ? 'signed-out' : 'phone-not-answering',
+    reportedAt: ago(textsFixture === 'live' ? 30 : 60 * 3),
+    checkedInAt: textsFixture === 'live' || textsFixture === 'phone-off' ? ago(0.5) : ago(textsFixture === 'late' ? 20 : 60 * 3),
+    lastPushAt: ago(textsFixture === 'live' ? 3 : 60 * 3),
+    phoneSince: textsFixture === 'phone-off' ? ago(95) : null,
+    messages: 58,
+    conversations: 5,
+    open: 3,
+    unreadOpen: 2,
+    // One chat left out a while ago, and one brought back that the bridge has not yet read again.
+    leftOut: [
+      { chatId: 'c-8001', name: 'Mum', at: ago(60 * 24 * 3), fillOwed: false },
+      { chatId: 'c-8002', name: 'Pool club', at: ago(60 * 24 * 9), fillOwed: true },
+    ],
   }
   const refusedWords = 'The mail server refused the space’s key for test@harborline.example (or Cloudflare Access refused the space’s token at its door), so nothing new arrives or goes out from it. A deploy with a working key ends this.'
   const jmap: InboxJmap = {
@@ -122,6 +144,7 @@ export function fixtureViews(now: number, telegram: TelegramFixture = 'live', jm
     ],
     mailboxes,
     telegram: bridge,
+    texts,
     jmap: [jmap],
     assistantKey: true,
     publicKey: 'BNcRdreALRFXTkOOUHK1EtK2wtaz5Ry4YfYCA_0QTpQtUbVlUls0VJXg7A8u-Ts1XbjhazAkj7I99e8QcYP7DkM',
