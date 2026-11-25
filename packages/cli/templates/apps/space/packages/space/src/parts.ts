@@ -37,6 +37,7 @@ import { BUNDLED_INSTALL } from '@space/meet/src/company'
 import { type MeetEnv, type MeetPartEnv, appOriginOf, depsFor, partDepsFor } from '@space/meet/src/wiring'
 import type { ClaudeDoor } from './agent'
 import type { TelegramDoor } from './telegram'
+import type { TextsDoor } from './texts'
 import { bookingAnswer } from './booking'
 import type { GuestParts } from './guests'
 import { repairFormsNames } from './clients-forms'
@@ -81,6 +82,8 @@ export interface PartsEnv {
   INBOX_ACCESS_CLIENT_ID?: string
   /** The Telegram bridge's token id (a var; the inbox's bridge router admits that token and none other on the bridge's door). */
   TELEGRAM_ACCESS_CLIENT_ID?: string
+  /** The texts bridge's token id (a var; the inbox's texts router admits that token and none other on the texts bridge's door). */
+  TEXTS_ACCESS_CLIENT_ID?: string
   /**
    * The guests' and signers' side: forms' per-caller limit on its public API (`PUBLIC_LIMIT`, namespace 7301) and meet's on the guests' sign-in (`AUTH_LIMIT`, 7302), the two ids of the SFU app and the TURN key
    * (plain vars) and their two secrets, which meet's call API signs a join with. None of it is read by the team's side; the sweep and the operator API need none of it.
@@ -114,6 +117,8 @@ export interface Parts {
   claude?: ClaudeDoor | undefined
   /** The Telegram bridge's door: the inbox's bridge router in this Worker, for the service token its own check verified (src/telegram.ts). Absent where the store is not bound. */
   telegram?: TelegramDoor | undefined
+  /** The texts bridge's door: the inbox's texts router in this Worker, for the service token its own check verified (src/texts.ts). Absent where the store is not bound. */
+  texts?: TextsDoor | undefined
   forms?: FormsForSpace | undefined
   /** What the Clients part asks of Forms: which Clients have signing settings, and the one writing of Forms' copy of a Client's names (packages/forms/src/client-names.ts). Absent where Forms' database is not bound. */
   formsNames?: FormsClientNames | undefined
@@ -156,6 +161,7 @@ export function createParts(deps: { fetch: Http; now: () => number; install: Ins
     inbox,
     claude: inbox?.claude,
     telegram: inbox?.telegram,
+    texts: inbox?.texts,
     leadsDoor: inbox?.leadFromSource,
     formsApi:
       env.FORMS_DB && env.FORMS_FILES
@@ -284,6 +290,7 @@ export function inboxEnvOf(env: PartsEnv, install: Install): InboxPartEnv {
     ...(env.INBOX_GOOGLE_CLIENT_ID !== undefined && { INBOX_GOOGLE_CLIENT_ID: env.INBOX_GOOGLE_CLIENT_ID }),
     ...(env.INBOX_ACCESS_CLIENT_ID !== undefined && { INBOX_ACCESS_CLIENT_ID: env.INBOX_ACCESS_CLIENT_ID }),
     ...(env.TELEGRAM_ACCESS_CLIENT_ID !== undefined && { TELEGRAM_ACCESS_CLIENT_ID: env.TELEGRAM_ACCESS_CLIENT_ID }),
+    ...(env.TEXTS_ACCESS_CLIENT_ID !== undefined && { TEXTS_ACCESS_CLIENT_ID: env.TEXTS_ACCESS_CLIENT_ID }),
     ...(knowledge && { knowledge }),
   }
 }

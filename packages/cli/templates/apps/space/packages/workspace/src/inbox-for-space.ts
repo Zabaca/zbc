@@ -148,6 +148,8 @@ export interface InboxThreadLine {
    * it) or `channel` (a broadcast the owner follows; Bulk, and no reply box). ABSENT for everything else, a one-to-one Telegram chat included, and from an inbox that predates it.
    */
   telegramChat?: 'group' | 'channel'
+  /** True for a conversation in the texts mailbox (a chat with a person, or a business sender's): the page offers Leave this chat out on it. ABSENT for everything else and from an inbox that predates it. */
+  textChat?: true
   /**
    * For a `group` only: whether it is waiting on the owner, which is that a message addressed to them (a mention of them, or a reply to one of their messages) came in after their last message there.
    * Where present it replaces what `direction` says for Needs reply; ABSENT everywhere else, where the newest message's direction says it.
@@ -217,6 +219,8 @@ export interface InboxThread {
   canReply: boolean
   /** As on `InboxThreadLine`: a Telegram group or channel. A channel has no reply box; ABSENT for everything else. */
   telegramChat?: 'group' | 'channel'
+  /** As on `InboxThreadLine`: a conversation in the texts mailbox, which Leave this chat out takes off the space. ABSENT for everything else. */
+  textChat?: true
   /**
    * Whether a reply on it may carry files: true only for a conversation in a business mailbox, which sends through
    * Cloudflare. The owner's own Gmail sends without files from here (sending files from the Gmail mailbox is not supported). ABSENT from
@@ -500,6 +504,17 @@ export interface InboxSendResolved {
  * is gone is `not-found`: deleted, or a send Gmail never confirmed that the owner then said went out (the inbox removes that draft, and Gmail's own copy, which arrives by sync, is the record). Carries no `through`, as `InboxDraft` does not.
  */
 export type InboxDraftAt = { state: 'draft'; draft: InboxDraft } | { state: 'filed'; contactId: string; conversationId: string }
+
+/** A text chat left out: its bridge id, and how many texts the space held and has deleted. */
+export interface InboxTextsLeftOut {
+  chatId: string
+  removed: number
+}
+
+/** A chat brought back: its bridge id. */
+export interface InboxTextsBroughtBack {
+  chatId: string
+}
 
 /** What a hand-sent mark or its undo changed: the message, and the conversation it sits on (null for a draft on none). */
 export interface InboxHandSent {
@@ -789,6 +804,13 @@ export interface InboxForSpace {
    * Audited as the owner's. Sends nothing.
    */
   markDraftSent(asker: SignedIn, draftId: string): Promise<SpaceReply<InboxHandSent>>
+  /**
+   * Leave a text chat out: its conversation, its texts and the drafts on it are deleted from the space and nothing of the chat is stored again (the chat goes on the list Settings shows). Owner-only. `not-found` for a
+   * conversation that is not a text chat. Audited as the owner's. Repeating it finds the chat gone (`not-found`), so it carries no key.
+   */
+  textsLeaveOut(asker: SignedIn, conversationId: string): Promise<SpaceReply<InboxTextsLeftOut>>
+  /** Bring a chat back off the left-out list: the bridge is owed a read of its last 30 days. Owner-only; Claude's script has no such call. `not-found` for a chat not on the list. Audited as the owner's. */
+  textsBringBack(asker: SignedIn, chatId: string): Promise<SpaceReply<InboxTextsBroughtBack>>
   /** Take a hand-sent mark back ("Not sent after all"): the message is a draft again. `conflict` for a message not marked sent by hand, `not-found` for none. Audited as the owner's. */
   unmarkSent(asker: SignedIn, messageId: string): Promise<SpaceReply<InboxHandSent>>
   /**
@@ -973,6 +995,8 @@ export const INBOX_FOR_SPACE_METHODS = [
   'resolveSend',
   'markDraftSent',
   'unmarkSent',
+  'textsLeaveOut',
+  'textsBringBack',
   'setSpam',
   'markRead',
   'search',

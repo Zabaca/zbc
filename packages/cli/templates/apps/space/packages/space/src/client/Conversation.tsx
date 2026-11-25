@@ -109,6 +109,8 @@ export interface ViewProps {
   onSpam?(conversationId: string, spam: boolean): void
   /** A spam call is with the inbox: its buttons wait. */
   spamming?: boolean
+  /** Leave a text chat out (the inbox deletes it and what it holds of it, and stores nothing of it again). Absent where the page offers none (a test that draws the conversation alone). */
+  onLeaveOut?(conversationId: string): void
   /** A time zone, for a test; a person's own is the default. */
   timeZone?: string
   /** The timeline's element, so the pane can keep the newest message in view. */
@@ -581,6 +583,35 @@ function SpamButton({ block, answer, onSpam, busy }: { block: string; answer: Co
   )
 }
 
+/** What Leave this chat out does, in plain words, said before it is done. */
+export const LEAVE_OUT_WORDS = 'This removes the chat and its texts from the space and nothing of it is stored again. They stay on your phone. You can bring it back in Settings.'
+
+/** The control over a text chat: Leave this chat out, with a step that says what it does before it does it. */
+function LeaveOutButton({ block, answer, onLeaveOut, busy }: { block: string; answer: ConversationAnswer; onLeaveOut: ViewProps['onLeaveOut']; busy: boolean }) {
+  const [sure, setSure] = useState(false)
+  const id = block.slice(block.indexOf(':') + 1)
+  const thread = answer.threads.find((t) => t.conversationId === id)
+  if (!onLeaveOut || thread?.textChat !== true) return null
+  if (!sure) {
+    return (
+      <button type="button" className="btn" disabled={busy} onClick={() => setSure(true)} data-testid="leave-out">
+        Leave this chat out
+      </button>
+    )
+  }
+  return (
+    <span className="leave-out-confirm" data-testid="leave-out-confirm">
+      <span className="sub">{LEAVE_OUT_WORDS}</span>{' '}
+      <button type="button" className="btn" disabled={busy} onClick={() => onLeaveOut(id)} data-testid="leave-out-yes">
+        Leave it out
+      </button>{' '}
+      <button type="button" className="btn" disabled={busy} onClick={() => setSure(false)} data-testid="leave-out-no">
+        Keep it
+      </button>
+    </span>
+  )
+}
+
 function Profile({ answer, channel }: { answer: ConversationAnswer; channel: ViewProps['channel'] }) {
   const { profile, row } = answer
   const facts = profileFacts(profile)
@@ -713,6 +744,7 @@ export function ConversationView(p: ViewProps) {
                   <Glyph name={b.kind === 'email' && b.heading !== TELEGRAM_HEADING ? 'mail' : row.type === 'channel' ? 'hash' : 'chat'} size={12} />
                   {b.heading}
                   <SpamButton block={b.id} answer={answer} onSpam={p.onSpam} busy={p.spamming === true} />
+                  <LeaveOutButton block={b.id} answer={answer} onLeaveOut={p.onLeaveOut} busy={p.spamming === true} />
                 </div>
               )}
               {b.items.map((item) =>
@@ -1026,6 +1058,24 @@ export function ConversationPane({ me, scope, convKey, fromClosed, refreshes, on
     }
   }
 
+  // LEAVE THIS CHAT OUT: the inbox deletes the text chat and what it holds of it, and the list is read again; the person goes back to the list, which no longer has it. One at a time, like Mark as spam.
+  const leaveOut = async (conversationId: string) => {
+    if (!answer || spamBusy.current) return
+    spamBusy.current = true
+    setChanging(true)
+    try {
+      await changes.idle()
+      const got = await postView<{ chatId: string; removed: number }>('text-leave-out', { conversationId })
+      if (got.ok) {
+        onChanged()
+        go(tabPathOf(scope))
+      } else setChanged({ tone: got.say.tone === 'bad' ? 'error' : 'warn', text: got.say.text })
+    } finally {
+      spamBusy.current = false
+      setChanging(false)
+    }
+  }
+
   // CLOSE the email threads on screen, each at the position this answer reached: the inbox refuses one that has newer mail (and says so), so nothing is
   // archived unseen. `sent`: this follows a send. The screen moves on at once (changes.ts): the threads are shown closed and the row leaves the lists while the call
   // is made behind, in its turn; a refusal brings them back and says why. Pressed again at once (another conversation, another Close) it is queued behind, never dropped.
@@ -1249,6 +1299,7 @@ export function ConversationPane({ me, scope, convKey, fromClosed, refreshes, on
       changing={changing}
       spamming={changing}
       onSpam={(id, spam) => void markSpam(id, spam)}
+      onLeaveOut={(id) => void leaveOut(id)}
       changed={changed ?? told.find((t) => t.notice.tone === 'ok')?.notice ?? null}
       problems={told.filter((t) => t.notice.tone !== 'ok').map((t) => ({ seq: t.seq, notice: t.notice }))}
       onDismissProblem={(seq) => changes.dismiss([seq])}

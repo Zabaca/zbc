@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { agentRoute, clientsRoute, createInstall, DeclarationError, parseDeclaration, refusalStatus, telegramRoute } from '../src'
+import { agentRoute, clientsRoute, createInstall, DeclarationError, parseDeclaration, refusalStatus, telegramRoute, textsRoute } from '../src'
 import { lane, PINECREST_FILE, readJson, NORTHFIELD_FILE, northfield } from './helpers'
 
 const raw = () => structuredClone(readJson(NORTHFIELD_FILE)) as Record<string, any>
@@ -161,6 +161,85 @@ describe('the Telegram bridge’s door on the space, as declared', () => {
     const around = raw()
     around.agent.path = '/agent/telegram/inbox'
     expect(problems(around).join()).toContain('telegram.path')
+  })
+})
+
+describe('the texts bridge’s door on the space, as declared', () => {
+  test('Northfield’s is /agent/texts on the space’s host, admitting a token of its own', () => {
+    expect(northfield().textsDoor()).toEqual({
+      path: '/agent/texts',
+      domain: 'space.northfield.example/agent/texts',
+      url: 'https://space.northfield.example/agent/texts',
+    })
+  })
+
+  test('an install that declares none has none, and a client’s never has one', () => {
+    const r = raw()
+    delete r.texts
+    r.switches.texts = false
+    expect(createInstall(r).textsDoor()).toBeNull()
+    expect(lane().textsDoor()).toBeNull()
+  })
+
+  test('it needs the texts switch, and the switch needs it', () => {
+    const off = raw()
+    off.switches.texts = false
+    expect(problems(off).join()).toContain('texts: only where the texts switch is on')
+    const none = raw()
+    delete none.texts
+    expect(problems(none).join()).toContain('texts: the texts switch is on')
+  })
+
+  test('it needs a path of the space, and no token name (the install file’s)', () => {
+    const withToken = raw()
+    withToken.texts.serviceToken = 'texts bridge'
+    expect(problems(withToken).join()).toContain('unknown field "serviceToken"')
+    const noPath = raw()
+    delete noPath.texts.path
+    expect(problems(noPath).join()).toContain('texts.path')
+  })
+
+  test('it is never a path of the space’s own, and never another machine’s, inside it or around it', () => {
+    for (const path of ['/api', '/api/texts', '/forms', '/inbox', '/today', '/', '', '/agent/texts/', 'agent/texts', 7]) {
+      const r = raw()
+      r.texts.path = path
+      expect(problems(r).join(), String(path)).toContain('texts.path')
+    }
+    for (const path of ['/agent/inbox', '/agent/inbox/texts', '/agent/telegram', '/agent/telegram/texts']) {
+      const r = raw()
+      r.texts.path = path
+      expect(problems(r).join(), path).toContain('texts.path')
+    }
+    const around = raw()
+    around.telegram.path = '/agent/texts/telegram'
+    expect(problems(around).join()).toContain('texts.path')
+    const aroundClaude = raw()
+    aroundClaude.agent.path = '/agent/texts/inbox'
+    expect(problems(aroundClaude).join()).toContain('texts.path')
+  })
+})
+
+describe('which requests are on the texts bridge’s door', () => {
+  const route = (path: string) => textsRoute(northfield(), path)
+
+  test('only its own path, and only its /api/ is forwarded', () => {
+    expect(route('/agent/texts/api/push')).toEqual({ on: true, forward: '/api/push' })
+    expect(route('/AGENT/Texts/api/push')).toEqual({ on: true, forward: '/api/push' })
+    expect(route('/agent/texts')).toEqual({ on: true, forward: null })
+    expect(route('/agent/textsx/api/push')).toEqual({ on: false })
+    expect(route('/agent/inbox/api/queue')).toEqual({ on: false })
+    expect(route('/agent/telegram/api/push')).toEqual({ on: false })
+  })
+
+  test('no other door answers for it, and it answers for none of theirs', () => {
+    expect(agentRoute(northfield(), '/agent/texts/api/push')).toEqual({ on: false })
+    expect(telegramRoute(northfield(), '/agent/texts/api/push')).toEqual({ on: false })
+    expect(clientsRoute(northfield(), '/agent/texts/api/push')).toEqual({ on: false })
+    expect(textsRoute(northfield(), '/agent/inbox/api/queue')).toEqual({ on: false })
+  })
+
+  test('a client has no such door', () => {
+    expect(textsRoute(lane(), '/agent/texts/api/push')).toEqual({ on: false })
   })
 })
 

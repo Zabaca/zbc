@@ -23,6 +23,7 @@ import { DraftPane } from './DraftPane'
 import { NEW_EMAIL, NewEmailPane } from './NewEmail'
 import {
   CAME_LABEL,
+  isTextRow,
   cameGlyph,
   type ListView,
   MEET_REQUEST,
@@ -162,17 +163,17 @@ function Row({ row, scope, now, on, go }: { row: ListedRow; scope: Scope; now: n
             </span>
           </span>
           <span className="row-badges">
-            <span className="kindtag" data-came={row.came} {...(row.came === 'telegram' && { 'data-testid': 'telegram-pill' })}>
+            <span className="kindtag" data-came={isTextRow(row) ? 'sms' : row.came} {...(row.came === 'telegram' && { 'data-testid': 'telegram-pill' })} {...(isTextRow(row) && { 'data-testid': 'texts-pill' })}>
               <Glyph name={cameGlyph(row)} size={11} />
-              {row.type === 'channel' ? 'Channel' : CAME_LABEL[row.came]}
+              {row.type === 'channel' ? 'Channel' : isTextRow(row) ? CAME_LABEL.sms : CAME_LABEL[row.came]}
             </span>
             {row.type === 'person' && row.telegramChat !== null && (
               <span className="kindtag" data-testid="telegram-chat-tag">
                 {row.telegramChat === 'group' ? 'Group' : 'Channel'}
               </span>
             )}
-            {/* A Telegram row's pill is the one above: its mailbox is named Telegram too, and the word is not said twice. */}
-            {row.type === 'person' && row.mailbox && !(row.came === 'telegram' && row.mailbox === CAME_LABEL.telegram) && (
+            {/* A Telegram row's pill is the one above: its mailbox is named Telegram too, and the word is not said twice. A text's is the same (Text, and not the mailbox's name). */}
+            {row.type === 'person' && row.mailbox && !(row.came === 'telegram' && row.mailbox === CAME_LABEL.telegram) && !isTextRow(row) && (
               <span className="kindtag" data-testid="mailbox-tag">
                 {row.mailbox}
               </span>

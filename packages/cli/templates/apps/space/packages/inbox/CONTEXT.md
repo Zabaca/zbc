@@ -71,9 +71,9 @@ pressed it. Not a Signing Link.
 _Avoid_: accept (for a Suggestion), attach, tag
 
 **Mailbox**:
-One account on one channel. It has four kinds. A **Gmail mailbox** (a Gmail account the owner connected; the inbox takes several, each connected by the owner, any address) is where Gmail keeps the mail and the inbox keeps a working copy; each has its own grant, history cursor and watch, and its conversations carry its short label as a pill (for example `northfield`), and the menu lists it under Mailboxes by that same label, first of the mailboxes, with its own count of rows (a lapsed or disconnected account stays listed: its mail is still held).
+One account on one channel. It has five kinds. A **Gmail mailbox** (a Gmail account the owner connected; the inbox takes several, each connected by the owner, any address) is where Gmail keeps the mail and the inbox keeps a working copy; each has its own grant, history cursor and watch, and its conversations carry its short label as a pill (for example `northfield`), and the menu lists it under Mailboxes by that same label, first of the mailboxes, with its own count of rows (a lapsed or disconnected account stays listed: its mail is still held).
 A Gmail account whose grant Google no longer accepts (a Google app in testing mode ends a grant after 7 days) is **lapsed**: it is said so by name, nothing syncs or sends for it, and connecting it again ends the lapse. A
-**Cloudflare mailbox**, a **Telegram mailbox** and a **JMAP mailbox** are the other kinds, below. Slack is a later channel. A
+**Cloudflare mailbox**, a **Telegram mailbox**, a **JMAP mailbox** and the **Texts mailbox** are the other kinds, below. Slack is a later channel. A
 conversation with no mailbox is a manual one.
 _Also called_: Gmail account, which is the word for a Gmail mailbox in the space.
 _Avoid_: account for any other kind, inbox (the inbox is the app)
@@ -108,6 +108,26 @@ _Avoid_: team inbox (that is the people of a mailbox, above), account
 The third kind: one row for the owner's one Telegram account (its address is their Telegram user id, its pill is "Telegram"), filled by the **bridge** and by nothing else (ADR 0001 decision 27). Like a Cloudflare mailbox the inbox's stamps are the whole read and closed state (a message from the person arrives unread and open and reopens a closed conversation; the owner's own message sent from their phone is filed read and closed), and Telegram's own folders and read marks are never written to. A conversation is one chat (with one person, or a group, or a channel: see below), found by the chat's id; a message is found by the chat and Telegram's message id, so a push repeated after a timeout stores one. A person (or bot) is an identity of kind `telegram` whose address is the Telegram user id; it joins the contact that already has the same phone number as a text identity when exactly one does, and Split undoes it. A bot's chat is Bulk. Telegram's own service chat (where login codes arrive) and Saved Messages are never stored. Its row holds **Telegram's position** (what a reconnect catches up from, stored with the batch it follows) and what the bridge last said of itself (live, catching up, signed out; not checked in after five minutes).
 _Also called_: Telegram (the pill, the card and the script's `telegram` command).
 _Avoid_: Telegram account (the mailbox is the inbox's row; the account is the owner's on Telegram)
+
+**Texts mailbox**:
+The fifth kind: one row for the owner's one phone (its address is the bridge's own id for the paired phone, its pill is "Texts"), filled by a **texts bridge** paired with the phone as Messages for web is, and by nothing else (ADR 0001 decision 36). Like a Cloudflare mailbox and a Telegram one the inbox's stamps are the whole read and closed state, nothing is written back to the phone, and it has no labels, no spam call and no position (the catch-up starts from the newest message held per chat). It is behind its own switch (`texts`). No text rings from the space: the phone already does.
+_Also called_: Texts (the pill, the card and the script's `texts` command).
+_Avoid_: SMS mailbox (many of the chats are not SMS), Messages (the phone's own app)
+
+**Text chat**:
+One conversation of the Texts mailbox, found by the bridge's own id for the chat (`conversation.text_chat_id`). A one-to-one chat is a row under the person, whose identity is their number (the existing `sms` identity): the contact that holds the number is them, else a contact is made named as the phone names them, never joined by name, and Split undoes a wrong join. A text is stored once by the chat's id and the phone's own id for it. A text from the other side reopens a closed conversation; a read-back of history does not. A group chat is not carried yet: its texts are refused and counted.
+_Avoid_: thread (a Gmail word), text conversation of a contact (a contact's texts by hand, filed by the owner, are a manual conversation beside it)
+
+**Business sender**:
+Who a chat is with when it is not a person's number: a short code, a sender that has a name instead of a number, or a business chat. An automated sender by the rule `text-sender` (`src/automated.ts`), with an identity of its own that is never a number (`text:<kind>:<sender>`, `src/texts/sender.ts`), so its chat is Bulk by the one Bulk rule and never reaches the Inbox, Unread or Needs reply. Its texts, sign-in codes and alerts included, are stored whole and can be read by whoever can read the Inbox.
+_Avoid_: bot (Telegram's word), spammer (a business sender is not a judgment)
+
+**Left-out list**:
+The chats the owner chose never to bring into the space, one `setting` row each. Leaving a chat out deletes its conversation, texts and drafts (audited) and refuses its texts on every path; the bridge learns the whole list in every work request. The owner leaves one out with one press ("Leave this chat out") and Claude's script may on the owner's recorded words; nothing but the owner's Bring back takes one off.
+_Avoid_: blocked, muted (nothing is blocked on the phone; the chat is only not kept here)
+
+**Bring back**:
+The owner's undo of leaving a chat out: the chat comes off the list and the bridge is owed a read of its last 30 days, settled by its outcome. Claude's script has no way to do it.
 
 **JMAP mailbox**:
 The fourth kind: a mailbox on the install's own mail server, read and written over JMAP, declared in the space's deploy config with the name of the secret that holds its own JMAP-only key (ADR 0001 decision 33). Shaped like Gmail: the server is the mailbox of record and the inbox a working copy, so read and closed are the server's state (unread when not marked seen; open when in the Inbox, closed in Archive or any other folder), changed on the server first and then here; a message is found by the server's id and a conversation is the server's thread. Like a Cloudflare mailbox, the mailbox's address and every address on its domain are the install's. Its row holds the server's state strings as its cursor, whether the server's push subscription is live, and whether the server refused the key. Mail the server files as junk stays there and Drafts are not brought in. A reply goes out from it through the server's own submission, so it is in the mailbox's Sent in a mail app.

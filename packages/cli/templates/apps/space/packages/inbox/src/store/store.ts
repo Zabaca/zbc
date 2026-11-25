@@ -112,6 +112,7 @@ import {
   isOurs,
   labelsAreTruth,
   type MailboxKind,
+  ownsItsStamps,
 } from './kinds'
 import { mailboxesOfPerson, peopleOnMailbox, personKey, putPeople, settleMailboxPeople as settlePeople } from './people'
 import type { InboxSql } from './schema'
@@ -419,7 +420,7 @@ function foldConversation(
   // has no Gmail id). Its envelope is what Bulk is judged from; a Cloudflare one adds its sender's judgment and the spam classifier's score.
   let inbound: FoldRow | null = null
   for (const r of counted) {
-    const comes = viaGmail ? r.server && r.inbound : (kind === 'cloudflare' || kind === 'telegram') && r.inbound
+    const comes = viaGmail ? r.server && r.inbound : ownsItsStamps(kind) && r.inbound
     if (comes && (inbound === null || r.at >= inbound.at)) inbound = r
   }
   // Every kind carries the sender's judgment; only a Cloudflare message has a score, and only a Gmail one has labels (a Telegram message has neither: a bot is Bulk by the sender's judgment alone).

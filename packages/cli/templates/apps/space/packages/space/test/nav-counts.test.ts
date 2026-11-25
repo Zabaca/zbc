@@ -21,7 +21,7 @@ import { OWNER_SIGNED_IN } from './signed-in'
 const ridgewayMail = (from: string, name: string, cc: string) =>
   `Return-Path: <${from}>\nMIME-Version: 1.0\nFrom: ${name} <${from}>\nDate: Mon, 26 Oct 2026 13:00:00 -0700\nMessage-ID: <p1@example.org>\nSubject: Hours question\nTo: info@ridgewaycycles.example\nCc: ${cc}\nContent-Type: text/plain; charset="UTF-8"\n\nAre you open on Sundays?\n`
 
-async function world(options: { calendar?: boolean; telegram?: boolean; jmap?: boolean } = {}) {
+async function world(options: { calendar?: boolean; telegram?: boolean; texts?: boolean; jmap?: boolean } = {}) {
   // The default mailboxes: Ridgeway's, a Cloudflare one.
   const h = harness({}, { ai: null, ...(options.jmap && { jmap: true }) })
   const g = h.google.mailbox
@@ -88,6 +88,29 @@ async function world(options: { calendar?: boolean; telegram?: boolean; jmap?: b
       ],
     })
     expect(sent.ok).toBe(true)
+  }
+  // Texts: a person who wrote and has not been answered (a text identity, no email), a business sender (a short code: Bulk, filed by the rule for automated senders), a person whose chat the owner closed, and a group
+  // (refused whole and counted, so it is no row at all).
+  if (options.texts) {
+    const sent = h.inbox.pushTexts({
+      account: { id: 'phone-1' },
+      mirror: true,
+      chats: [
+        { id: 'c-1', kind: 'person' as const, name: 'Tess Texter', address: '+15555550141' },
+        { id: 'c-2', kind: 'short-code' as const, name: '55501', address: '55501' },
+        { id: 'c-3', kind: 'person' as const, name: 'Eli Closed', address: '+15555550142' },
+        { id: 'g-1', kind: 'group' as const, name: 'Neighbours' },
+      ],
+      messages: [
+        { chatId: 'c-1', id: 'm1', at: '2026-10-20T10:00:00.000Z', out: false, read: false, text: 'Can you call me back?' },
+        { chatId: 'c-2', id: 'm1', at: '2026-10-20T10:01:00.000Z', out: false, read: false, text: 'Your code is 000000' },
+        { chatId: 'c-3', id: 'm1', at: '2026-10-20T10:02:00.000Z', out: false, read: true, text: 'Thanks, all set' },
+        { chatId: 'g-1', id: 'm1', at: '2026-10-20T10:03:00.000Z', out: false, read: false, text: 'Seed swap on the 14th', sender: { name: 'Gus Garden' } },
+      ],
+    })
+    expect(sent.ok).toBe(true)
+    const closed = h.db.query(`SELECT id FROM conversation WHERE text_chat_id = 'c-3'`).get() as { id: string }
+    h.db.run(`UPDATE message SET closed_at = '2026-10-20T10:05:00.000Z', closed_by = 'tessa@northfield.example' WHERE conversation_id = '${closed.id}'`)
   }
   // A mailbox on the mail server (read and written over JMAP): Kim wrote and has not been answered (open, unread), Jo's receipt was archived in a mail app after
   // it arrived (so it is Closed here), and our own reply to Pat is in the mailbox's Sent (filed read and closed). Ben, who has other mail, is copied on Kim's: Kim's row only.
@@ -254,6 +277,35 @@ describe('the menu counts rows, as the list does', () => {
     const inMailbox = await s.rows(`mailbox:${telegram}`)
     expect(counts.mailboxes[telegram]).toEqual({ count: inMailbox.count, unread: inMailbox.unread })
     expect(inMailbox.count).toBe(2)
+  })
+
+  test('texts: a person is a row like any other, a business sender is Bulk, a closed chat is Closed, a group is no row; the menu equals the rows for every view, and the texts mailbox’s own count equals its list', async () => {
+    const plain = await world()
+    const s = await world({ texts: true })
+    const before = await plain.nav()
+    const menu = await s.nav()
+    const inbox = await s.rows('all')
+    expect(menu.views.inbox).toEqual({ count: inbox.count, unread: inbox.unread })
+    expect(menu.views.unread.count).toBe((await s.rows('unread')).count)
+    expect(menu.views.bulk).toEqual({ count: (await s.rows('bulk')).count, unread: (await s.rows('bulk')).unread })
+    expect(menu.views.closed.count).toBe((await s.rows('closed')).count)
+    // Tess is one more row of the Inbox (and unread); the short code is one more of Bulk; the closed chat is one more under Closed.
+    expect(menu.views.inbox.count).toBe(before.views.inbox.count + 1)
+    expect(menu.views.inbox.unread).toBe(before.views.inbox.unread + 1)
+    expect(menu.views.bulk.count).toBe(before.views.bulk.count + 1)
+    expect(menu.views.closed.count).toBe(before.views.closed.count + 1)
+    expect(await s.named('all')).toContain('Tess Texter')
+    expect(await s.named('all')).not.toContain('55501')
+    expect(await s.named('all')).not.toContain('Neighbours')
+    expect(await s.named('bulk')).toContain('55501')
+    expect(await s.named('closed')).toContain('Eli Closed')
+    // The texts mailbox is not one of the business mailboxes of the menu, and its own count is its open rows that are not Bulk, as a list of it holds them.
+    expect(menu.mailboxes.map((m) => m.name)).toEqual(['Ridgeway Cycles'])
+    const texts = (s.h.inbox.textsMailboxes()[0] as { id: string }).id
+    const counts = s.h.inbox.spaceRowCounts([], ALL_MAIL)
+    const inMailbox = await s.rows(`mailbox:${texts}`)
+    expect(counts.mailboxes[texts]).toEqual({ count: inMailbox.count, unread: inMailbox.unread })
+    expect(inMailbox.count).toBe(1)
   })
 
   test('a mailbox on the mail server is a mailbox of the menu like Ridgeway’s: its people are rows, a mail app’s Archive is Closed, and its own count equals its list', async () => {

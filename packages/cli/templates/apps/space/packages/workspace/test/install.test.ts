@@ -152,7 +152,7 @@ describe('the install, as the apps ask it', () => {
   test("every switch is on in Northfield's install, which declares what each needs, and off in an install that says nothing", () => {
     const z = northfield()
     const l = lane()
-    for (const sw of ['gmail', 'hostedMailboxes', 'clientDirectory', 'claudeScript', 'assistant', 'phone', 'manyClients', 'calls', 'telegram'] as const) {
+    for (const sw of ['gmail', 'hostedMailboxes', 'clientDirectory', 'claudeScript', 'assistant', 'phone', 'manyClients', 'calls', 'telegram', 'texts'] as const) {
       expect([sw, z.has(sw), l.has(sw)]).toEqual([sw, true, false])
     }
     expect(z.switches()).toEqual(Object.fromEntries(SWITCHES.map((s) => [s, true])) as Record<(typeof SWITCHES)[number], boolean>)

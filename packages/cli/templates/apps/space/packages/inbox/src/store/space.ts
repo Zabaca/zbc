@@ -94,7 +94,7 @@ export interface SpaceConversation {
   drafts: number
   mailbox: MailboxMark | null
   /** Which kind of mailbox `mailbox` is (files go only from a Cloudflare one); null when `mailbox` is. */
-  mailboxKind: 'gmail' | 'cloudflare' | 'telegram' | 'jmap' | null
+  mailboxKind: 'gmail' | 'cloudflare' | 'telegram' | 'jmap' | 'texts' | null
   /** `newestPosition`: how far into the conversation this answer reaches. */
   through: number
   /** It is in a mailbox the inbox can send on, so a reply can be sent on it. False for a Telegram channel, which has no reply box. */
@@ -962,7 +962,11 @@ export class SpaceStore extends AssistStore {
         at: textOrNull(r.at),
         through: Number(r.through),
         // A Telegram chat is answered through the bridge, one-to-one or in a group; a channel is one the owner follows and has no reply box, so a draft on it is a hand draft.
-        canReply: Number(r.has_mailbox) === 1 && !(r.mailbox_kind === 'telegram' && r.telegram_kind === 'channel'),
+        // A text is answered by hand until sending comes (a draft on a text chat is a hand draft: Copy words, Mark sent), so no reply box offers a Send the inbox could not make.
+        canReply:
+          Number(r.has_mailbox) === 1 &&
+          r.mailbox_kind !== 'texts' &&
+          !(r.mailbox_kind === 'telegram' && r.telegram_kind === 'channel'),
         telegramChat: r.telegram_kind === 'group' || r.telegram_kind === 'channel' ? r.telegram_kind : null,
         needsReply: r.needs_reply === null || r.needs_reply === undefined ? null : Number(r.needs_reply) === 1,
         from: textOrNull(r.newest_from) ?? '',

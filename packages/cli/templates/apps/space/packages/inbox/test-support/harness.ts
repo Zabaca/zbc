@@ -33,6 +33,7 @@ import type { MailStore } from '../src/store/mail'
 import { migrate } from '../src/store/schema'
 import { createTelegramApp } from '../src/telegram/app'
 import { TelegramMediaKeeper } from '../src/telegram/media'
+import { createTextsApp } from '../src/texts/app'
 import { bundledContent, bundledInstall } from '../src/workspace'
 import { TestClients } from './clients-part'
 import { FakeAi } from './fake-ai'
@@ -67,6 +68,9 @@ export const AGENT_ID = 'abc123.access'
 /** The audience of the Access application on the Telegram bridge's path, and the bridge's token id: its own, never Claude's. */
 export const TELEGRAM_AUD = 'e'.repeat(64)
 export const TELEGRAM_ID = 'bridge123.access'
+/** The audience of the Access application on the texts bridge's path, and its token id: its own, never Claude's and never the Telegram bridge's. */
+export const TEXTS_AUD = 'c'.repeat(64)
+export const TEXTS_ID = 'textsbridge456.access'
 /** The return address a Gmail sign-in was started with (the space's); the exchange must use the same. */
 export const GMAIL_RETURN = 'https://space.northfield.example/api/inbox/gmail/callback'
 
@@ -155,6 +159,8 @@ export const SHIFTLANTERN_ASSISTED = { ...SHIFTLANTERN, assistant: true }
 export const OWNER = { email: OWNER_EMAIL }
 export const AGENT = { common_name: AGENT_ID }
 export const BRIDGE = { common_name: TELEGRAM_ID }
+/** The texts bridge's token, as its assertion names it. */
+export const TEXTS_BRIDGE = { common_name: TEXTS_ID }
 export const STRANGER = { email: 'someone@example.com' }
 
 export const T0 = Date.parse('2026-10-20T12:00:00.000Z')
@@ -402,6 +408,7 @@ export function harness(
     INBOX: {} as never,
     INBOX_ACCESS_CLIENT_ID: AGENT_ID,
     TELEGRAM_ACCESS_CLIENT_ID: TELEGRAM_ID,
+    TEXTS_ACCESS_CLIENT_ID: TEXTS_ID,
     INBOX_GOOGLE_CLIENT_ID: 'client-id.apps.googleusercontent.com',
     INBOX_GOOGLE_CLIENT_SECRET: 'client-secret',
     GMAIL_PUSH_ENDPOINT: PUSH_ENDPOINT,
@@ -475,6 +482,22 @@ export function harness(
       if (refusalStatus(out.refusal) === 403) namedBridge.set(request, NOT_THE_AGENT)
     } else namedBridge.set(request, out.identity.kind === 'service' ? out.identity : NOT_THE_AGENT)
     return bridgeRouter.fetch(request, e ?? env)
+  }
+
+  /** The texts bridge's door, as the space runs it (packages/space/src/texts.ts, proven in packages/space/test/texts.test.ts): the same check, for the texts application's audience, and the real router (src/texts/app.ts) behind it. */
+  const namedTexts = new WeakMap<Request, ServiceIdentity>()
+  const textsRouter = createTextsApp({ store: () => store, named: (req) => namedTexts.get(req) ?? null })
+  const textsDoor = async (request: Request, e?: Env): Promise<Response> => {
+    const out = await identify(
+      install,
+      request.headers,
+      { fetch: accessFetch, aud: TEXTS_AUD, now: Date.now() },
+      { allowServiceTokens: true },
+    )
+    if (!out.ok) {
+      if (refusalStatus(out.refusal) === 403) namedTexts.set(request, NOT_THE_AGENT)
+    } else namedTexts.set(request, out.identity.kind === 'service' ? out.identity : NOT_THE_AGENT)
+    return textsRouter.fetch(request, e ?? env)
   }
 
   /** Gmail's push, the one thing the Worker answers on a hostname (src/push-door.ts). */
@@ -587,6 +610,32 @@ export function harness(
     return { status: res.status, json, text, bytes, headers: res.headers }
   }
 
+  /** One request as the space forwards it to the texts bridge's door: at the inbox's own path, with an assertion minted for the TEXTS application's audience unless a test says otherwise. `who` null sends none. */
+  async function texts(
+    who: Record<string, unknown> | null,
+    path: string,
+    body?: unknown,
+    options: { method?: string; headers?: Record<string, string>; audience?: string; raw?: string } = {},
+  ) {
+    const h: Record<string, string> = { ...options.headers }
+    if (who) h['cf-access-jwt-assertion'] = await mint(who, { audience: options.audience ?? TEXTS_AUD })
+    const payload = options.raw ?? (body === undefined ? undefined : JSON.stringify(body))
+    if (payload !== undefined) h['content-type'] = 'application/json'
+    const res = await textsDoor(
+      new Request(`https://space.northfield.example${path}`, {
+        method: options.method ?? 'POST',
+        headers: h,
+        body: payload,
+      }),
+    )
+    const text = await res.text()
+    let json: any = null
+    try {
+      json = JSON.parse(text)
+    } catch {}
+    return { status: res.status, json, text, headers: res.headers }
+  }
+
   /**
    * Cloudflare hands the Worker a message: the real entrance, over the fake bucket and the real arrival work, as
    * worker.ts wires them. `raw` is the message as text; its line ends are made CRLF, as they are on the wire. Answers what the
@@ -656,6 +705,7 @@ export function harness(
     db,
     request,
     bridge,
+    texts,
     push,
     connect,
     tick,

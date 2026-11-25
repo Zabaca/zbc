@@ -25,9 +25,9 @@ describe('migrations', () => {
     // notification marks), and Ridgeway's mailbox the ninth (the mailbox table made again for a
     // second kind), and the assistant the tenth (what it owes, what each call cost, the knowledge base's shape), and the draft chat
     // the eleventh (its turns, and the entry a proposed change would change), and Ridgeway's spam check the twelfth (what Clef said
-    // of a message), and the People fields the thirteenth, and the delivery reports of the mail sent as a Cloudflare mailbox the fourteenth, and several Gmail accounts the fifteenth, and the calendar event key the sixteenth, and the Telegram bridge's mailbox the seventeenth, and its groups and channels the eighteenth, and the JMAP mailbox the nineteenth, and the people of every mailbox the twentieth, and what an email's calendar part says the twenty-first, and the company's leads the twenty-second.
+    // of a message), and the People fields the thirteenth, and the delivery reports of the mail sent as a Cloudflare mailbox the fourteenth, and several Gmail accounts the fifteenth, and the calendar event key the sixteenth, and the Telegram bridge's mailbox the seventeenth, and its groups and channels the eighteenth, and the JMAP mailbox the nineteenth, and the people of every mailbox the twentieth, and what an email's calendar part says the twenty-first, and the company's leads the twenty-second, and the texts bridge's mailbox the twenty-third.
     // When a later step appends, update this number in the same change; if it moves without an append, an entry was deleted.
-    expect(INBOX_MIGRATIONS).toHaveLength(22)
+    expect(INBOX_MIGRATIONS).toHaveLength(23)
   })
 
   test('a store at step 4 takes the Client columns and every contact it had is under no Client', () => {

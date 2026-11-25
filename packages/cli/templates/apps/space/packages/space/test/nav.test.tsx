@@ -361,9 +361,9 @@ describe('the menu, pressed', () => {
     const items = () => [...document.querySelectorAll('.rail [data-testid="tree-item"]')] as HTMLElement[]
     // The tree is under Inbox in the rail, with the inbox's own counts and the current view lit.
     expect(inbox.views.calls.map((c) => c.method)).toContain('navigation')
-    expect(items().map((i) => i.getAttribute('data-key'))).toEqual(['all', 'unread', 'sent', 'drafts', 'bulk', 'closed', 'mailbox:gmail-northfield', 'mailbox:gmail-ashgrove', 'mailbox:ridgeway', 'mailbox:shiftlantern', 'mailbox:harborline', 'mailbox:telegram', 'client:7', 'client:9', 'client:3', 'client:12'])
+    expect(items().map((i) => i.getAttribute('data-key'))).toEqual(['all', 'unread', 'sent', 'drafts', 'bulk', 'closed', 'mailbox:gmail-northfield', 'mailbox:gmail-ashgrove', 'mailbox:ridgeway', 'mailbox:shiftlantern', 'mailbox:harborline', 'mailbox:telegram', 'mailbox:texts', 'client:7', 'client:9', 'client:3', 'client:12'])
     expect(items().filter((i) => i.getAttribute('aria-current') === 'page').map((i) => i.getAttribute('data-key'))).toEqual(['bulk'])
-    expect(document.querySelectorAll('.rail [data-testid="status-line"]').length).toBe(6)
+    expect(document.querySelectorAll('.rail [data-testid="status-line"]').length).toBe(7)
     // A Gmail account is picked like any mailbox: it goes to that account's list.
     await act(async () => {
       items().find((i) => i.getAttribute('data-key') === 'mailbox:gmail-ashgrove')?.click()
@@ -408,8 +408,8 @@ describe('the menu, pressed', () => {
     })
     expect(q('views-sheet')).not.toBeNull()
     expect(document.activeElement).toBe(q('views-sheet'))
-    expect(document.querySelectorAll('[data-testid="views-sheet"] [data-testid="tree-item"]').length).toBe(16)
-    expect(document.querySelectorAll('[data-testid="views-sheet"] [data-testid="status-line"]').length).toBe(6)
+    expect(document.querySelectorAll('[data-testid="views-sheet"] [data-testid="tree-item"]').length).toBe(17)
+    expect(document.querySelectorAll('[data-testid="views-sheet"] [data-testid="status-line"]').length).toBe(7)
     expect(q('views-sheet')?.textContent).toContain('Settings')
     // Escape shuts it, goes nowhere, and focus is back on the button that opened it.
     await act(async () => {

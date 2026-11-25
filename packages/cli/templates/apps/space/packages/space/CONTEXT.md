@@ -71,8 +71,8 @@ library this Worker imports).
   the install's declaration (a person added or removed) needs
   `bunx @zabaca/zbc apply <env> space` (which applies `space-access` first). Removing is the case that fails open: the person stays in the space's Access policy and its bundled list until the space is applied.
 - **Four Access applications on the host**: the space's, on the whole host (a month, `space-access`), the Forms application, on
-  `/forms` (a day, `space-forms-access`), Claude's door, on `/agent/inbox` (no person, one service token, no cookie, `space-agent-access`), and the Telegram bridge's door, on `/agent/telegram` (no person, a token of its own, no cookie, `space-telegram-access`). The Worker checks the audience the path calls for
-  (`audienceFor` in `src/app.ts` for the first two; `src/agent.ts` and `src/telegram.ts` answer the others before the person check), and the
+  `/forms` (a day, `space-forms-access`), Claude's door, on `/agent/inbox` (no person, one service token, no cookie, `space-agent-access`), the Telegram bridge's door, on `/agent/telegram` (no person, a token of its own, no cookie, `space-telegram-access`) and the texts bridge's door, on `/agent/texts` (no person, a token of its own, no cookie, `space-texts-access`). The Worker checks the audience the path calls for
+  (`audienceFor` in `src/app.ts` for the first two; `src/agent.ts`, `src/telegram.ts` and `src/texts.ts` answer the others before the person check), and the
   Forms tab forwards forms' operator API and logos to forms (`src/forms.ts`). Why, and what is not settled:
   [ADR 0002](docs/adr/0002-forms-is-a-frame-on-its-own-admin-with-a-day-long-sign-in-of-its-own.md) for Forms; for the door,
   [the company layer's ADR 0002](../workspace/docs/adr/0002-one-service-token-comes-through-the-space-on-one-path-to-one-app.md): the one place a service token is let in, never as a person.

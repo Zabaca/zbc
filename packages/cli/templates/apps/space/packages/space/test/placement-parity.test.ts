@@ -33,8 +33,9 @@ const OWN = ['tessa@northfield.example', 'tessa@ashgrove.example', 'tessa_marlow
 const INSIDE = new Set([...OWN, ...team.flat()])
 
 // A mailbox on the mail server (read and written over JMAP, 'jm') is one of them too: its conversations are email ones, in a mailbox of its own like Ridgeway's.
+// The texts mailbox is one of them too: its conversations are of kind sms (a person's number), in a mailbox of its own.
 // Telegram's mailbox is one of them: its conversations are of kind telegram, its people have no email address (only a Telegram identity), and a bot's chat is Bulk by the sender rule.
-const MAILBOXES = [null, { id: 'ridgeway', name: 'Ridgeway', address: 'info@ridgeway.example' }, { id: 'rc', name: 'RC', address: 'hi@rc.example' }, { id: 'tg', name: 'Telegram', address: '7000000001' }, { id: 'jm', name: 'harborline', address: 'test@harborline.example' }]
+const MAILBOXES = [null, { id: 'ridgeway', name: 'Ridgeway', address: 'info@ridgeway.example' }, { id: 'rc', name: 'RC', address: 'hi@rc.example' }, { id: 'tg', name: 'Telegram', address: '7000000001' }, { id: 'tx', name: 'Texts', address: 'phone-1' }, { id: 'jm', name: 'harborline', address: 'test@harborline.example' }]
 const TIMES = [null, '2026-11-01T00:00:00Z', '2026-11-02T00:00:00Z', '2026-11-03T00:00:00Z']
 
 interface World {
@@ -117,7 +118,7 @@ function makeWorld(rnd: () => number, ownAndTeam: boolean): World {
           return {
             conversationId: f.id as string,
             subject: '',
-            kind: (f.mailbox as { id: string } | null)?.id === 'tg' ? 'telegram' : 'email',
+            kind: (f.mailbox as { id: string } | null)?.id === 'tg' ? 'telegram' : (f.mailbox as { id: string } | null)?.id === 'tx' ? 'sms' : 'email',
             at: 1000 - (f.at as number),
             snippet: 's',
             direction: 'in',

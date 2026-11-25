@@ -146,6 +146,7 @@ export const MEET_UNREAD_NOTE = 'The number on a row counts the unread chat mess
 
 /** The glyph for how a row came: an email is a letter, a text a phone, a note a pen, a chat a bubble and a channel the hash. */
 export function cameGlyph(row: ListedRow): 'mail' | 'phone' | 'note' | 'chat' | 'hash' | 'video' {
+  if (isTextRow(row)) return 'phone'
   if (row.type === 'channel') return 'hash'
   if (row.type === 'call') return 'video'
   if (row.type === 'phone') return 'phone'
@@ -161,6 +162,12 @@ export function cameGlyph(row: ListedRow): 'mail' | 'phone' | 'note' | 'chat' | 
       return 'mail'
   }
 }
+
+/** The texts mailbox's name, the pill a text's row carries from the inbox. A row in it is a Text (a business sender's too, which the inbox files as a note-kind handle): one pill, and the mailbox's name is not said twice. */
+export const TEXTS_MAILBOX_NAME = 'Texts'
+
+/** Whether a row is in the texts mailbox. */
+export const isTextRow = (row: ListedRow): boolean => row.type === 'person' && row.mailbox === TEXTS_MAILBOX_NAME
 
 export const CAME_LABEL: Record<ListedRow['came'], string> = { email: 'Email', sms: 'Text', manual: 'Note', telegram: 'Telegram', chat: 'Chat', call: 'Call' }
 

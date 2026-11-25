@@ -105,6 +105,10 @@ export const telegramPictureOnlyOwner = (owner: string): string =>
 export const telegramLoginEnded = (owner: string): string =>
   `Telegram ended the saved login for the bridge. Only ${owner} can sign in again.`
 
+/** What the texts card and the menu's foot say when Google ended the texts bridge's sign-in. */
+export const textsLoginEnded = (owner: string): string =>
+  `Google ended the texts bridge's sign-in. Only ${owner} can sign in again.`
+
 export const draftNeedsWhy = (owner: string): string =>
   `A draft from an agent needs a one-line why, so ${owner} knows what it is for.`
 

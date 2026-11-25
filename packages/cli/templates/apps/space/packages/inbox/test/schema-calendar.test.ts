@@ -36,19 +36,23 @@ describe('migration 20: what an email’s calendar part says', () => {
   test('it adds one nullable column to message and changes nothing else: every row is as it was, with no summary and not looked at', () => {
     const { sql, db } = deployed()
     const before = db.query(`SELECT * FROM message ORDER BY rowid`).all() as Record<string, unknown>[]
+    // Without the columns a later migration added (migration 22's `text_` columns on `conversation`): this test is about what migration 20 changes.
+    const rowsOf = (t: string) =>
+      db
+        .query(`SELECT * FROM ${t} ORDER BY rowid`)
+        .all()
+        .map((r) =>
+          Object.fromEntries(Object.entries(r as Record<string, unknown>).filter(([k]) => !k.startsWith('text_'))),
+        )
     const others = Object.fromEntries(
-      ['mailbox', 'conversation', 'contact', 'identity', 'setting', 'audit'].map((t) => [
-        t,
-        db.query(`SELECT * FROM ${t} ORDER BY rowid`).all(),
-      ]),
+      ['mailbox', 'conversation', 'contact', 'identity', 'setting', 'audit'].map((t) => [t, rowsOf(t)]),
     )
     expect(migrate(sql)).toBe(INBOX_VERSION)
     expect(INBOX_VERSION).toBeGreaterThanOrEqual(21)
     expect(db.query(`SELECT * FROM message ORDER BY rowid`).all()).toEqual(
       before.map((m) => ({ ...m, calendar: null })),
     )
-    for (const [t, rows] of Object.entries(others))
-      expect(db.query(`SELECT * FROM ${t} ORDER BY rowid`).all(), t).toEqual(rows as never)
+    for (const [t, rows] of Object.entries(others)) expect(rowsOf(t), t).toEqual(rows as never)
     expect(db.query('PRAGMA foreign_key_check').all()).toEqual([])
     const columns = db
       .query(

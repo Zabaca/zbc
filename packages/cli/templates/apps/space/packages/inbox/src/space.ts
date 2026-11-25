@@ -78,6 +78,8 @@ import {
   type InboxSent,
   type InboxSpamMark,
   type InboxSpamResult,
+  type InboxTextsBroughtBack,
+  type InboxTextsLeftOut,
   type InboxThread,
   type InboxThreadLine,
   type InboxWho,
@@ -125,6 +127,7 @@ import { type Reach, readPlace } from './store/paging'
 import type { SpaceConversation, SpaceParty } from './store/space'
 import type { Result } from './store/store'
 import { telegramFileNote } from './telegram/media'
+import { TEXTS_ID } from './texts/wire'
 import {
   type AttachmentInfo,
   type ClientLabel,
@@ -641,6 +644,7 @@ export function createSpaceInbox(deps: SpaceDeps): InboxForSpace {
       listedInClient:
         clientOf(c, contactId) === null || c.placed.byClient.get(clientOf(c, contactId) as number) === contactId,
       ...(c.telegramChat !== null && { telegramChat: c.telegramChat }),
+      ...(c.mailboxKind === 'texts' && { textChat: true as const }),
       ...(c.needsReply !== null && { needsReply: c.needsReply }),
     }
   }
@@ -703,6 +707,7 @@ export function createSpaceInbox(deps: SpaceDeps): InboxForSpace {
         canMarkSpam:
           c.canReply && c.mailboxKind !== 'telegram' && (c.bulk || !c.parties.some((p) => p.clientId !== null)),
         ...(c.telegramChat !== null && { telegramChat: c.telegramChat }),
+        ...(c.mailboxKind === 'texts' && { textChat: true as const }),
       }))
       // What a message quotes is proved against the messages before it in its conversation, those on earlier pages included.
       const inConversation: Map<string, string[]> = new Map()
@@ -897,6 +902,34 @@ export function createSpaceInbox(deps: SpaceDeps): InboxForSpace {
       if (!(await seesMessage(deps, mail, messageId))) return refused('not-found', 'No such message.')
       const done = await store.call('unmarkSent', messageId, actor)
       return done.ok ? answered(handSentOf(done.value)) : outcomeOf(done)
+    })
+  }
+
+  // ── texts: leaving a chat out, and bringing it back ─────────────────────
+
+  /**
+   * Leave a text chat out, as the owner (Settings of the space and the conversation's own button): the conversation, its texts and the drafts on it are deleted and the chat goes on the left-out list, so nothing of it is
+   * stored again. Owner-only (it deletes for everyone on the mailbox, and the mailbox is the owner's). A conversation that is not a text chat is `not-found`.
+   */
+  async function textsLeaveOut(asker: SignedIn, conversationId: string): Promise<SpaceReply<InboxTextsLeftOut>> {
+    return asPerson(asker, async ({ actor, scope: mail, owner: isOwner }) => {
+      if (!isOwner) return refused('not-admitted', NOT_ADMITTED)
+      if (typeof conversationId !== 'string' || !ID.test(conversationId))
+        return refused('not-found', 'No such conversation.')
+      if (!(await seesConversation(deps, mail, conversationId))) return refused('not-found', 'No such conversation.')
+      const done = await store.call('leaveOutTextChat', conversationId, actor)
+      return done.ok ? answered(done.value) : outcomeOf(done)
+    })
+  }
+
+  /** Bring a chat back off the left-out list, as the owner: the bridge is owed a read of its last 30 days. A chat not on the list is `not-found`. */
+  async function textsBringBack(asker: SignedIn, chatId: string): Promise<SpaceReply<InboxTextsBroughtBack>> {
+    return asPerson(asker, async ({ actor, owner: isOwner }) => {
+      if (!isOwner) return refused('not-admitted', NOT_ADMITTED)
+      if (typeof chatId !== 'string' || !TEXTS_ID.test(chatId))
+        return refused('not-found', 'That chat is not on the list.')
+      const done = await store.call('bringBackTextChat', chatId, actor)
+      return done.ok ? answered(done.value) : outcomeOf(done)
     })
   }
 
@@ -1244,6 +1277,8 @@ export function createSpaceInbox(deps: SpaceDeps): InboxForSpace {
     resolveSend,
     markDraftSent,
     unmarkSent,
+    textsLeaveOut,
+    textsBringBack,
     setSpam,
     markRead,
     search,

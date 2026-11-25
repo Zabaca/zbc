@@ -11,6 +11,7 @@ import type {
   StoreMethod,
   TelegramMediaMethod,
   TelegramMethod,
+  TextsMethod,
 } from './app'
 import type { StoreObject } from './space-gate'
 
@@ -39,6 +40,7 @@ export interface StoreStub {
       | StoreMethod
       | SpaceMethod
       | TelegramMethod
+      | TextsMethod
       | TelegramMediaMethod
       | MailMethod
       | JmapMethod

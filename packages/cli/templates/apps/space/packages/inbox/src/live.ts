@@ -46,6 +46,13 @@ export const CHANGING_CALLS = [
   // a photo or a voice note the bridge brought (a thumbnail or a player appears), and what became of one it could not get (the line under the message), or of a send
   'keepTelegramMedia',
   'telegramOutcomes',
+  // the texts bridge: texts, edits, deletions and read marks it pushed, what it says of itself (Settings' card and the menu's line), what became of a chat brought back, and a chat left out or brought back
+  'pushTexts',
+  'textsEvents',
+  'textsStatus',
+  'textsOutcomes',
+  'leaveOutTextChat',
+  'bringBackTextChat',
   // Cloudflare's mail and its delivery reports (a bounce)
   'fileArrival',
   'keepDeliveryEvents',
@@ -94,6 +101,10 @@ export const UNFOLLOWED_CALLS = [
   // the bridge's work request is its heartbeat, asked every few seconds: it writes one stamp a minute, which no live screen follows (the amber line reads the time on its next read)
   'telegramWork',
   'telegramMailboxes',
+  // the texts bridge's work request is its heartbeat as Telegram's is; the mailbox's status and the left-out list are reads
+  'textsWork',
+  'textsMailboxes',
+  'textsLeftOutList',
   // the picture of a send the bridge is being offered: a read, nothing a screen follows
   'readTelegramPicture',
   'jmapMailboxes',

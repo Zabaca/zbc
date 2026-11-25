@@ -39,6 +39,7 @@ export const INSTANCE_NAMES = {
   formsAccess: 'space-forms-access',
   agentAccess: 'space-agent-access',
   telegramAccess: 'space-telegram-access',
+  textsAccess: 'space-texts-access',
   clientsAccess: 'space-clients-access',
   leadsAccess: 'space-leads-access',
   guestCalls: 'space-guest-calls',
@@ -93,9 +94,10 @@ export interface SpaceInstances<Instance extends KitInstance = KitInstance> {
   space: Instance
   spaceAccess: Instance
   formsAccess: Instance
-  /** The doors a machine uses, only where the declaration gives them (Claude's, the Telegram bridge's, the Clients door's, the leads door's). */
+  /** The doors a machine uses, only where the declaration gives them (Claude's, the Telegram bridge's, the texts bridge's, the Clients door's, the leads door's). */
   agentAccess?: Instance
   telegramAccess?: Instance
+  textsAccess?: Instance
   clientsAccess?: Instance
   leadsAccess?: Instance
   guestCalls?: Instance
@@ -200,6 +202,7 @@ export function buildSpaceInstall<Instance extends KitInstance = KitInstance>(in
   }
   const agentAccess = machineDoor(INSTANCE_NAMES.agentAccess, install.agentDoor(), file.access.agent)
   const telegramAccess = machineDoor(INSTANCE_NAMES.telegramAccess, install.telegramDoor(), file.access.telegram)
+  const textsAccess = machineDoor(INSTANCE_NAMES.textsAccess, install.textsDoor(), file.access.texts)
   const clientsAccess = machineDoor(INSTANCE_NAMES.clientsAccess, install.clientsDoor(), file.access.clients)
   const leadsAccess = machineDoor(INSTANCE_NAMES.leadsAccess, install.leadsDoor(), file.access.leads)
 
@@ -308,6 +311,13 @@ export function buildSpaceInstall<Instance extends KitInstance = KitInstance>(in
           { name: 'TELEGRAM_ACCESS_CLIENT_ID', from: INSTANCE_NAMES.telegramAccess, output: 'clientId' },
         ]
       : []),
+    ...(textsAccess
+      ? [
+          // The texts bridge's door (src/texts.ts): its own audience and its token's id.
+          { name: 'CF_ACCESS_AUD_TEXTS', from: INSTANCE_NAMES.textsAccess, output: 'aud' },
+          { name: 'TEXTS_ACCESS_CLIENT_ID', from: INSTANCE_NAMES.textsAccess, output: 'clientId' },
+        ]
+      : []),
     ...(clientsAccess
       ? [
           // The Clients door (src/clients-door.ts): the audience of the application on its path and the token's id, which the Worker checks the assertion against.
@@ -348,7 +358,7 @@ export function buildSpaceInstall<Instance extends KitInstance = KitInstance>(in
     },
     // A real dependency AND the thing that orders the apply: the gates go up before the door is served. The buckets are imports so each exists before this Worker binds it, the database so it is migrated before
     // this Worker reads it, and the delivery-report queue so it exists before this Worker is attached as its consumer.
-    imports: [formsBucket, formsDatabase, rawMail, deliveryReports, spaceAccess, formsAccess, agentAccess, telegramAccess, clientsAccess, leadsAccess, guestCalls, guestChat, guestSigning, guestBooking].filter((i): i is Instance => i !== undefined),
+    imports: [formsBucket, formsDatabase, rawMail, deliveryReports, spaceAccess, formsAccess, agentAccess, telegramAccess, textsAccess, clientsAccess, leadsAccess, guestCalls, guestChat, guestSigning, guestBooking].filter((i): i is Instance => i !== undefined),
     // Its Durable Objects are the install's stores: a destroy of this Worker would delete every one.
     retain: true,
   })
@@ -359,6 +369,7 @@ export function buildSpaceInstall<Instance extends KitInstance = KitInstance>(in
     formsAccess,
     ...(agentAccess ? { agentAccess } : {}),
     ...(telegramAccess ? { telegramAccess } : {}),
+    ...(textsAccess ? { textsAccess } : {}),
     ...(clientsAccess ? { clientsAccess } : {}),
     ...(leadsAccess ? { leadsAccess } : {}),
     ...(guestCalls ? { guestCalls } : {}),
@@ -370,6 +381,6 @@ export function buildSpaceInstall<Instance extends KitInstance = KitInstance>(in
     ...(rawMail ? { rawMail } : {}),
     ...(deliveryReports ? { deliveryReports } : {}),
   }
-  const all = [formsBucket, formsDatabase, rawMail, deliveryReports, spaceAccess, formsAccess, agentAccess, telegramAccess, clientsAccess, leadsAccess, guestCalls, guestChat, guestSigning, guestBooking, space].filter((i): i is Instance => i !== undefined)
+  const all = [formsBucket, formsDatabase, rawMail, deliveryReports, spaceAccess, formsAccess, agentAccess, telegramAccess, textsAccess, clientsAccess, leadsAccess, guestCalls, guestChat, guestSigning, guestBooking, space].filter((i): i is Instance => i !== undefined)
   return { install, file, settings: spaceWorkerSettings(install, file), instances, all }
 }

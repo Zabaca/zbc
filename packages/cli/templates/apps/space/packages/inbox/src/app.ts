@@ -51,6 +51,7 @@ import type { MailStore } from './store/mail'
 import type { SpaceStore } from './store/space'
 import { type Result, text } from './store/store'
 import type { TelegramStore } from './store/telegram'
+import type { TextsStore } from './store/texts'
 import type { TelegramMediaKeeper } from './telegram/media'
 import { TELEGRAM_PICTURE_MAX_BYTES } from './telegram/wire'
 import {
@@ -124,6 +125,11 @@ export interface Env extends PushEnv {
    * refuses it (src/telegram/app.ts). Read by that router, never by Claude's.
    */
   TELEGRAM_ACCESS_CLIENT_ID?: string
+  /**
+   * The Access client id of the texts bridge's service token, a Worker var: the texts bridge's door admits exactly this one token and neither Claude's door nor the Telegram bridge's admits it (src/texts/app.ts). Read by
+   * that router, never by Claude's.
+   */
+  TEXTS_ACCESS_CLIENT_ID?: string
   /**
    * The bucket holding the exact copy of every message that arrives through Cloudflare (an R2 binding, wired by the install kit
    * to the install's raw-mail bucket). Unset in a Worker deployed without it, which then accepts no Cloudflare mail.
@@ -350,6 +356,22 @@ export const TELEGRAM_MEDIA_METHODS = [
   'readTelegramPicture',
 ] as const satisfies readonly (keyof TelegramMediaKeeper)[]
 
+/**
+ * What the texts bridge's door may ask of the store (src/store/texts.ts, src/texts/app.ts): its five calls. Only that router, behind the bridge's own token, calls the first five; `textsMailboxes` is also read by Claude's
+ * script (`GET /api/texts`), the left-out list by the owner's pages and by Claude's script, and Leave out by both; Bring back is the owner's alone (the space's part), and Claude's door has no route to it.
+ */
+export const TEXTS_METHODS = [
+  'pushTexts',
+  'textsEvents',
+  'textsWork',
+  'textsOutcomes',
+  'textsStatus',
+  'textsMailboxes',
+  'textsLeftOutList',
+  'leaveOutTextChat',
+  'bringBackTextChat',
+] as const satisfies readonly (keyof TextsStore)[]
+
 export type StoreMethod = (typeof STORE_METHODS)[number]
 export type MailMethod = (typeof MAIL_METHODS)[number]
 export type NotifyMethod = (typeof NOTIFY_METHODS)[number]
@@ -360,6 +382,7 @@ export type RestoreMethod = (typeof RESTORE_METHODS)[number]
 export type SpaceMethod = (typeof SPACE_METHODS)[number]
 export type LeadMethod = (typeof LEAD_METHODS)[number]
 export type TelegramMethod = (typeof TELEGRAM_METHODS)[number]
+export type TextsMethod = (typeof TEXTS_METHODS)[number]
 export type TelegramMediaMethod = (typeof TELEGRAM_MEDIA_METHODS)[number]
 export type { SpaceReadMethod } from './space-reads'
 
@@ -368,6 +391,7 @@ export type Surface = Pick<MailStore, StoreMethod> &
   Pick<SpaceStore, SpaceMethod> &
   Pick<LeadStore, LeadMethod> &
   Pick<TelegramStore, TelegramMethod> &
+  Pick<TextsStore, TextsMethod> &
   Pick<TelegramMediaKeeper, TelegramMediaMethod> &
   Pick<Mailroom, MailMethod> &
   Pick<JmapRoom, JmapMethod> &
@@ -1260,6 +1284,36 @@ export function createApp(deps: Deps) {
   app.get('/api/telegram', async (c) =>
     c.json({ mailboxes: (await store(c).call('telegramMailboxes')).filter((m) => canSee(c.get('scope'), m.id)) }),
   )
+
+  /**
+   * The texts mailbox, as the script shows it: whether the texts bridge is talking (live, catching up, phone not answering, signed out, another browser, not checked in), when it last pushed, the counts and the
+   * chats left out. A read, like the others: text conversations are in the queue (Bulk included, where business senders and sign-in codes are), a conversation and search already, and reading marks nothing read.
+   */
+  app.get('/api/texts', async (c) => {
+    const mailboxes = (await store(c).call('textsMailboxes')).filter((m) => canSee(c.get('scope'), m.id))
+    return c.json({ mailboxes, leftOut: mailboxes.length > 0 ? await store(c).call('textsLeftOutList') : [] })
+  })
+
+  /**
+   * Leave a text chat out, on the owner's word: the conversation and its texts are deleted from the store and nothing of the chat is stored again. The body carries the owner's own words as Claude received them
+   * (`instruction`, the same discipline as a send): without them, nothing changes. There is no route that brings a chat back: that is the owner's alone, on the space's Settings.
+   */
+  app.post('/api/conversations/:id/leave-out', async (c) => {
+    const id = c.req.param('id')
+    if (!ID.test(id)) return c.json({ error: 'No such conversation.' }, 404)
+    const body = await json(c.req.raw)
+    if (!body.ok) return c.json({ error: body.error }, 400)
+    const words = typeof body.value.instruction === 'string' ? body.value.instruction.trim() : ''
+    if (words === '' || words.length > 1_000)
+      return c.json(
+        {
+          error:
+            'Say what the owner said: {"instruction": "<their words, as you received them>"}. Nothing was changed.',
+        },
+        422,
+      )
+    return answer(c, await store(c).call('leaveOutTextChat', id, c.get('who').actor, words))
+  })
 
   /**
    * The mailboxes on the install's own mail server (JMAP), as the script shows them: whether each is live, filling, refused, unreachable or no longer declared, when it last synced and was pushed to, the push

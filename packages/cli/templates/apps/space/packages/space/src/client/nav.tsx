@@ -23,6 +23,7 @@ import { useSwitches } from './switches'
 import { MEET, PHONE_PATH } from './route'
 import { agoText } from './settings-parts'
 import { telegramWords } from './telegram'
+import { textsWords } from './texts'
 import { type Loaded, useView } from './views'
 
 /** Said by the components that change what the menu counts (a read, a send), so the menu reads again without waiting for the minute. */
@@ -144,7 +145,7 @@ export function treeOf(nav: InboxNav, current: ListView, onList: boolean): { vie
     })),
     // The owner's Gmail accounts first (a lapsed or disconnected one too: its mail is still held and its list still opens), then the business mailboxes, the ones on the mail server (a business mailbox to a person) and Telegram's:
     // each narrows the list to its rows the same way (a conversation carries the mailbox it is in).
-    mailboxes: [...nav.gmailAccounts, ...nav.mailboxes, ...(nav.jmap ?? []), ...(nav.telegram ? [nav.telegram] : [])].map((m) => ({
+    mailboxes: [...nav.gmailAccounts, ...nav.mailboxes, ...(nav.jmap ?? []), ...(nav.telegram ? [nav.telegram] : []), ...(nav.texts ? [nav.texts] : [])].map((m) => ({
       key: `mailbox:${m.id}`,
       label: m.name,
       href: viewHref(`mailbox:${m.id}`),
@@ -157,7 +158,7 @@ export function treeOf(nav: InboxNav, current: ListView, onList: boolean): { vie
   }
 }
 
-/** The lines the inbox says at the foot of its menu: each Gmail account, then each business mailbox, then the Telegram bridge (`zone` is for a test; the person's own time zone is the default). Only what the space has is said: an install with no Gmail account has no Gmail line. One amber line when the space has no mail source at all. Amber when one needs a look, so a list gone quiet is never trusted without it; a lapsed account says so by name. */
+/** The lines the inbox says at the foot of its menu: each Gmail account, then each business mailbox, then the Telegram bridge and the texts bridge (`zone` is for a test; the person's own time zone is the default). Only what the space has is said: an install with no Gmail account has no Gmail line. One amber line when the space has no mail source at all. Amber when one needs a look, so a list gone quiet is never trusted without it; a lapsed account says so by name. */
 export function statusLines(nav: InboxNav, now: number, zone?: string): StatusLine[] {
   const gmail: StatusLine[] = nav.gmailAccounts.map((g): StatusLine => {
     const key = `gmail:${g.id}`
@@ -183,6 +184,8 @@ export function statusLines(nav: InboxNav, now: number, zone?: string): StatusLi
     ...(nav.jmap ?? []).map((m) => jmapLine(m, now)),
     // The bridge's line says the same sentence as its Settings card (telegram.ts), so signed out and not checked in are read at the foot without opening Settings.
     ...(nav.telegram ? [telegramLine(nav.telegram, now, zone)] : []),
+    // The texts bridge's, the same: one sentence at the foot and on its card (texts.ts).
+    ...(nav.texts ? [textsLine(nav.texts, now, zone)] : []),
   ]
   return lines.length > 0 ? lines : [{ key: 'none', text: 'No mail connected', amber: true, title: 'No mailbox is connected, so no mail is coming in. Open Settings.' }]
 }
@@ -201,6 +204,11 @@ function jmapLine(m: NonNullable<InboxNav['jmap']>[number], now: number): Status
 function telegramLine(t: NonNullable<InboxNav['telegram']>, now: number, zone?: string): StatusLine {
   const words = telegramWords(t, now, zone)
   return { key: `telegram:${t.id}`, text: words.text, amber: words.amber, title: `Telegram user ${t.address}. Open Settings for the bridge.` }
+}
+
+function textsLine(t: NonNullable<InboxNav['texts']>, now: number, zone?: string): StatusLine {
+  const words = textsWords(t, now, zone)
+  return { key: `texts:${t.id}`, text: words.text, amber: words.amber, title: `The phone paired as ${t.address}. Open Settings for the texts bridge.` }
 }
 
 /** The name of the current view for the button on a phone, with its count. */

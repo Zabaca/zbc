@@ -111,7 +111,7 @@ describe("Northfield's space", () => {
       company: { name: 'Northfield Works', timeZone: 'America/Los_Angeles' },
       owner: { name: 'Tessa', address: 'tessa@northfield.example' },
       // Every switch is on in Northfield's install, so the page draws every part, as it always did.
-      switches: { gmail: true, hostedMailboxes: true, clientDirectory: true, claudeScript: true, assistant: true, phone: true, manyClients: true, calls: true, telegram: true, leads: true },
+      switches: { gmail: true, hostedMailboxes: true, clientDirectory: true, claudeScript: true, assistant: true, phone: true, manyClients: true, calls: true, telegram: true, texts: true, leads: true },
       tabs: [
         { id: 'today', label: 'Today', path: '/today' },
         { id: 'inbox', label: 'Inbox', path: '/inbox' },

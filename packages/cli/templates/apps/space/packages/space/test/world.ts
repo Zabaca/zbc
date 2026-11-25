@@ -15,6 +15,8 @@ export const FORMS_AUD = 'f'.repeat(64)
 export const AGENT_AUD = 'd'.repeat(64)
 /** The Telegram bridge application's audience: its own, because Access answers /agent/telegram with an application of its own. */
 export const TELEGRAM_AUD = 'e'.repeat(64)
+/** The texts bridge application's audience: its own, because Access answers /agent/texts with an application of its own. */
+export const TEXTS_AUD = '8'.repeat(64)
 /** The Clients door's application audience: its own, because Access answers /agent/clients with an application of its own. */
 export const CLIENTS_AUD = 'c'.repeat(64)
 /** The client id of the token the Clients door admits (`CLIENTS_ACCESS_CLIENT_ID`), as Access names it in an assertion's `common_name`. */
@@ -97,6 +99,11 @@ function bridge(answer: (req: Request) => Response = () => Response.json({ from:
   }
 }
 
+/** The inbox's router for the texts bridge's door (`Parts.texts`), stood in for the same way. */
+function textsBridge(answer: (req: Request) => Response = () => Response.json({ from: 'the inbox, for the texts bridge' })) {
+  return bridge(answer)
+}
+
 /** The asset router's stand-in: it answers every path with the page and counts how often it was asked. */
 function assets() {
   const asked: string[] = []
@@ -123,16 +130,17 @@ export async function world(install: Install, teamDomain: string, worldEnv: Worl
   const f = forms(formsAnswers)
   const c = claude()
   const b = bridge()
+  const t = textsBridge()
   const { parts, meet, inbox, ...env } = worldEnv
   // The Forms stand-in is there unless a test says there is none (`parts: { formsApi: undefined }`).
-  const held: Parts = { formsApi: f.api, claude: c.door, telegram: b.door, ...(meet ? { meet } : {}), ...(inbox ? { inbox } : {}), ...parts }
+  const held: Parts = { formsApi: f.api, claude: c.door, telegram: b.door, texts: t.door, ...(meet ? { meet } : {}), ...(inbox ? { inbox } : {}), ...parts }
   const app = createApp({ fetch: access.fetch as never, now: () => T0, install, parts: () => held, ...more })
   const call = (path: string, init: RequestInit & { jwt?: string; cookieJwt?: string; host?: string } = {}) => {
     const headers = new Headers(init.headers)
     if (init.jwt) headers.set('cf-access-jwt-assertion', init.jwt)
     if (init.cookieJwt) headers.set('cookie', `CF_Authorization=${init.cookieJwt}`)
     const url = `https://${init.host ?? install.declaration.space.host}${path}`
-    return app.fetch(new Request(url, { ...init, headers, redirect: 'manual' }), { ASSETS: a.binding, CF_ACCESS_AUD: AUD, CF_ACCESS_AUD_FORMS: FORMS_AUD, CF_ACCESS_AUD_AGENT: AGENT_AUD, CF_ACCESS_AUD_TELEGRAM: TELEGRAM_AUD, CF_ACCESS_AUD_CLIENTS: CLIENTS_AUD, CLIENTS_ACCESS_CLIENT_ID: CLIENTS_TOKEN, CF_ACCESS_AUD_LEADS: LEADS_AUD, LEADS_ACCESS_CLIENT_ID: LEADS_TOKEN, ...env })
+    return app.fetch(new Request(url, { ...init, headers, redirect: 'manual' }), { ASSETS: a.binding, CF_ACCESS_AUD: AUD, CF_ACCESS_AUD_FORMS: FORMS_AUD, CF_ACCESS_AUD_AGENT: AGENT_AUD, CF_ACCESS_AUD_TELEGRAM: TELEGRAM_AUD, CF_ACCESS_AUD_TEXTS: TEXTS_AUD, CF_ACCESS_AUD_CLIENTS: CLIENTS_AUD, CLIENTS_ACCESS_CLIENT_ID: CLIENTS_TOKEN, CF_ACCESS_AUD_LEADS: LEADS_AUD, LEADS_ACCESS_CLIENT_ID: LEADS_TOKEN, ...env })
   }
   /** An assertion for the space's application (every path but /forms), and for the Forms application (the Forms tab). */
   const signIn = (email: string) => access.sign({ email })
@@ -141,10 +149,12 @@ export async function world(install: Install, teamDomain: string, worldEnv: Worl
   const signInAgent = (claims: Record<string, unknown> = { common_name: 'abc123.access' }, aud: string = AGENT_AUD) => access.sign({ ...claims, aud: [aud] })
   /** An assertion for the Telegram bridge's application: a service token's, as Access mints it for the bridge's token, unless the test names other claims. */
   const signInBridge = (claims: Record<string, unknown> = { common_name: 'bridge123.access' }, aud: string = TELEGRAM_AUD) => access.sign({ ...claims, aud: [aud] })
+  /** An assertion for the texts bridge's application: a service token's, as Access mints it for the texts bridge's token, unless the test names other claims. */
+  const signInTexts = (claims: Record<string, unknown> = { common_name: 'textsbridge456.access' }, aud: string = TEXTS_AUD) => access.sign({ ...claims, aud: [aud] })
   /** An assertion for the Clients door's application: a service token's, as Access mints it for the door's token, unless the test names other claims. */
   const signInClients = (claims: Record<string, unknown> = { common_name: CLIENTS_TOKEN }, aud: string = CLIENTS_AUD) => access.sign({ ...claims, aud: [aud] })
   const signInLeads = (claims: Record<string, unknown> = { common_name: LEADS_TOKEN }, aud: string = LEADS_AUD) => access.sign({ ...claims, aud: [aud] })
-  return { access, asked: a.asked, forwarded: f.asked, handedToClaude: c.asked, handedToBridge: b.asked, call, signIn, signInForms, signInAgent, signInBridge, signInClients, signInLeads }
+  return { access, asked: a.asked, forwarded: f.asked, handedToClaude: c.asked, handedToBridge: b.asked, handedToTexts: t.asked, call, signIn, signInForms, signInAgent, signInBridge, signInTexts, signInClients, signInLeads }
 }
 
 

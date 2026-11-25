@@ -39,6 +39,7 @@ import { today } from './today'
 import { FORM_MAX, fileResponse, openFile, parseFileQuery, readFiles } from './files'
 import { agentAnswer, type AgentEnv } from './agent'
 import { telegramAnswer, type TelegramEnv } from './telegram'
+import { textsAnswer, type TextsEnv } from './texts'
 import { clientsAnswer, type ClientsDoorEnv } from './clients-door'
 import { leadsAnswer, type LeadsDoorEnv } from './leads-door'
 import { clientsBookmark, clientsCounts, clientsRestart } from './clients'
@@ -58,7 +59,7 @@ import type { Me } from './me'
 import { hasPartOf } from './switches'
 import { bundledInstall } from './workspace'
 
-export interface Env extends AgentEnv, TelegramEnv, ClientsDoorEnv, LeadsDoorEnv, PartsEnv {
+export interface Env extends AgentEnv, TelegramEnv, TextsEnv, ClientsDoorEnv, LeadsDoorEnv, PartsEnv {
   ASSETS: Fetcher
   /** This application's audience tag, deployed by the zbc instance. Unset refuses everyone. */
   CF_ACCESS_AUD?: string
@@ -170,7 +171,7 @@ function leadsWordsOf(install: Install): Pick<Me, 'leads'> {
  */
 async function appsFor(req: Request, env: Env, deps: Deps, partsFor: PartsFor): Promise<Apps> {
   const mode = env.SPACE_FIXTURES
-  if (onLocalDev(req, env) && (mode === '1' || mode === 'mail-down' || mode === 'chat-refused' || mode === 'forms-down' || mode === 'knowledge-down' || mode === 'phone-on' || mode === 'telegram-late' || mode === 'telegram-signed-out' || mode === 'jmap-refused' || mode === 'jmap-down' || mode === 'calendar-lapsed' || mode === 'calendar-down' || mode === 'calendar-empty' || mode === 'telegram-pictures' || mode === 'two-people' || mode === 'calendar-mail' || mode === 'short-screen')) {
+  if (onLocalDev(req, env) && (mode === '1' || mode === 'mail-down' || mode === 'chat-refused' || mode === 'forms-down' || mode === 'knowledge-down' || mode === 'phone-on' || mode === 'telegram-late' || mode === 'telegram-signed-out' || mode === 'texts-late' || mode === 'texts-signed-out' || mode === 'texts-phone-off' || mode === 'jmap-refused' || mode === 'jmap-down' || mode === 'calendar-lapsed' || mode === 'calendar-down' || mode === 'calendar-empty' || mode === 'telegram-pictures' || mode === 'two-people' || mode === 'calendar-mail' || mode === 'short-screen')) {
     // One set of invented people for as long as the dev server runs, so a message sent in a photograph stays in the history that follows it.
     if (fixtures?.mode !== mode) {
       const { fixtureApps } = await import('./stand-ins')
@@ -252,6 +253,12 @@ export function createApp(deps: Deps = { fetch: (u, i) => fetch(u, i), now: Date
   // The Telegram bridge's door (telegram.ts): a second path, the same way, with an Access application and an audience of its own and a token of its own.
   app.use('*', async (c, next) => {
     const answer = await telegramAnswer(c.req.raw, c.env, deps, partsFor(c.env).telegram)
+    return answer ?? next()
+  })
+
+  // The texts bridge's door (texts.ts): the same way again, with an Access application, an audience and a token of its own.
+  app.use('*', async (c, next) => {
+    const answer = await textsAnswer(c.req.raw, c.env, deps, partsFor(c.env).texts)
     return answer ?? next()
   })
 

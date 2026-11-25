@@ -1,4 +1,5 @@
 import { domainOf, FREE_MAIL_DOMAINS } from './clients'
+import { isTextSenderAddress } from './texts/sender'
 import type { IdentityKind, SenderJudgment } from './types'
 
 /**
@@ -16,6 +17,8 @@ import type { IdentityKind, SenderJudgment } from './types'
  *   3b. `bot`: one of its identities is a Telegram bot (Telegram says which a user is; the Telegram bridge records it): AUTOMATED, so a bot's chat is filed in Bulk.
  *   3c. `channel`: one of its identities stands for a Telegram channel: AUTOMATED, so a channel's conversation is filed in Bulk by the one Bulk rule (a group is not: its row is under
  *      its members' messages, and People leaves the group's contact out by what it is, not by this rule).
+ *   3d. `text-sender`: one of its identities is a business sender of texts (a short code, a sender with a name instead of a number, a business chat: `src/texts/sender.ts`): AUTOMATED, so its chat is filed in Bulk. A
+ *      person who texts from an ordinary number is never one: that is their own number, joined to the contact that holds it.
  *   4. `bulk`: it has conversations and every one of them is Bulk: AUTOMATED, unless one of its addresses is a
  *      free-mail address (see `isFreeMailAddress`). A person's only conversation can land in Bulk, and
  *      a newsletter or a receipt does not come from a person's free-mail address. A rule-4 exemption only: rules 2 and 3 still
@@ -114,6 +117,14 @@ export function judgeSender(facts: SenderFacts): SenderJudgment {
 
   if (facts.identities.some((i) => i.bot === true)) {
     return { automated: true, rule: 'bot', reason: 'A Telegram bot.' }
+  }
+
+  if (facts.identities.some((i) => i.kind === 'manual' && isTextSenderAddress(i.address))) {
+    return {
+      automated: true,
+      rule: 'text-sender',
+      reason: 'A business sender of texts (a short code, a named sender or a business chat), filed in Bulk.',
+    }
   }
 
   const hasFreeMailAddress = facts.identities.some((i) => i.kind === 'email' && isFreeMailAddress(i.address))

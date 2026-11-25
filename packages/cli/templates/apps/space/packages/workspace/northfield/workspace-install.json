@@ -20,6 +20,7 @@
     "forms": { "application": "space.northfield.example/forms", "policy": "space.northfield.example/forms allowed people" },
     "agent": { "application": "space.northfield.example/agent/inbox", "token": "northfield-web inbox agent" },
     "telegram": { "application": "space.northfield.example/agent/telegram", "token": "telegram bridge" },
+    "texts": { "application": "space.northfield.example/agent/texts", "token": "texts bridge" },
     "clients": { "application": "space.northfield.example/agent/clients", "token": "northfield-web clients" },
     "leads": { "application": "space.northfield.example/agent/leads", "token": "ridgeway-web leads" },
     "guests": {

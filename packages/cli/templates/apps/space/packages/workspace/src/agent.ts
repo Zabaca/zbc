@@ -29,6 +29,11 @@ export function telegramRoute(install: Install, pathname: string): AgentRoute {
   return doorRoute(install.telegramDoor(), pathname)
 }
 
+/** The texts bridge's door, by the same rule again (its own path, its own Access application; `Install.textsDoor`). */
+export function textsRoute(install: Install, pathname: string): AgentRoute {
+  return doorRoute(install.textsDoor(), pathname)
+}
+
 /** The Clients door, by the same rule again (its own path, its own Access application; `Install.clientsDoor`). `forward` is the `/api/...` path under the door, which the space itself answers (packages/space/src/clients-door.ts). */
 export function clientsRoute(install: Install, pathname: string): AgentRoute {
   return doorRoute(install.clientsDoor(), pathname)

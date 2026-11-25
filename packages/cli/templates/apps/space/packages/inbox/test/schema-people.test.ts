@@ -53,12 +53,18 @@ const tables = [
 describe('migration 19: the people of every mailbox', () => {
   test('it adds one table and changes nothing else, and fills a Gmail account with its connector, lower case', () => {
     const { sql, db } = deployed()
-    // Without the column a later migration added to `message` (migration 20, `calendar`): this test is about what migration 19 changes.
+    // Without the columns later migrations added (migration 20's `calendar` on `message`, migration 22's `text_` columns on `conversation`): this test is about what migration 19 changes.
     const rowsOf = (t: string) =>
       db
         .query(`SELECT * FROM ${t} ORDER BY rowid`)
         .all()
-        .map((r) => Object.fromEntries(Object.entries(r as Record<string, unknown>).filter(([k]) => k !== 'calendar')))
+        .map((r) =>
+          Object.fromEntries(
+            Object.entries(r as Record<string, unknown>).filter(
+              ([k]) => !['calendar', 'text_chat_id', 'text_kind'].includes(k),
+            ),
+          ),
+        )
     const before = Object.fromEntries(tables.map((t) => [t, rowsOf(t)]))
     expect(migrate(sql)).toBe(INBOX_VERSION)
     expect(INBOX_VERSION).toBeGreaterThanOrEqual(20)

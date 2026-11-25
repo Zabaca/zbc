@@ -155,6 +155,7 @@ function isThreadLine(v: unknown): boolean {
     typeof v.listedInClient === 'boolean' &&
     // Additive: a Telegram group or channel, and for a group whether it is waiting on the owner.
     isTelegramChat(v.telegramChat) &&
+    (v.textChat === undefined || v.textChat === true) &&
     (v.needsReply === undefined || typeof v.needsReply === 'boolean')
   )
 }
@@ -338,7 +339,8 @@ export function isInboxHistory(v: unknown): v is InboxHistory {
         (t.canAttach === undefined || typeof t.canAttach === 'boolean') &&
         (t.canPicture === undefined || typeof t.canPicture === 'boolean') &&
         (t.canMarkSpam === undefined || typeof t.canMarkSpam === 'boolean') &&
-        isTelegramChat(t.telegramChat),
+        isTelegramChat(t.telegramChat) &&
+        (t.textChat === undefined || t.textChat === true),
     ) &&
     isList(v.messages) &&
     v.messages.every(

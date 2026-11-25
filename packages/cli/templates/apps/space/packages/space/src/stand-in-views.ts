@@ -28,6 +28,7 @@ import {
   type InboxRestorePlan,
   type InboxRestoreRecord,
   type InboxTelegram,
+  type InboxTexts,
   type InboxTestSent,
   type SpaceReply,
   answered,
@@ -69,6 +70,8 @@ export interface StandInViewState {
   mailboxes: InboxBusinessMailbox[]
   /** The Telegram bridge's mailbox: absent is an inbox that predates it, null is one the bridge has not spoken to. */
   telegram?: InboxTelegram | null
+  /** The texts bridge's mailbox: absent is an inbox without the switch (or one that predates it), null is one the bridge has not spoken to. */
+  texts?: InboxTexts | null
   /** The mailboxes on the mail server: absent is an inbox that predates them. */
   jmap?: InboxJmap[]
   assistantKey: boolean
@@ -188,7 +191,7 @@ export function standInViews(initial: Partial<StandInViewState> = {}, options: {
       return answered(state.claudeSending)
     },
     async mailboxes(a) {
-      return (await enter(a, 'mailboxes', [])) ?? answered({ gmailAccounts: state.gmailAccounts, mailboxes: state.mailboxes, ...(state.telegram !== undefined && { telegram: state.telegram }), ...(state.jmap !== undefined && { jmap: state.jmap }), assistantKey: state.assistantKey, ...(state.capabilities !== undefined && { capabilities: state.capabilities }) })
+      return (await enter(a, 'mailboxes', [])) ?? answered({ gmailAccounts: state.gmailAccounts, mailboxes: state.mailboxes, ...(state.telegram !== undefined && { telegram: state.telegram }), ...(state.texts !== undefined && { texts: state.texts }), ...(state.jmap !== undefined && { jmap: state.jmap }), assistantKey: state.assistantKey, ...(state.capabilities !== undefined && { capabilities: state.capabilities }) })
     },
     async setSpamCheck(a, mailboxId, enabled) {
       const early = await enter<InboxBusinessMailbox['spamCheck']>(a, 'setSpamCheck', [mailboxId, enabled])

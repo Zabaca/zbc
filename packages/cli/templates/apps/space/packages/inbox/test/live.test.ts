@@ -16,6 +16,7 @@ import {
   STORE_METHODS,
   TELEGRAM_MEDIA_METHODS,
   TELEGRAM_METHODS,
+  TEXTS_METHODS,
 } from '../src/app'
 import { CHANGING_CALLS, changesMail, inboxPeople, UNFOLLOWED_CALLS } from '../src/live'
 import { SPACE_READ_METHODS } from '../src/space-reads'
@@ -70,6 +71,7 @@ describe('which calls tell', () => {
       ...SPACE_METHODS,
       ...LEAD_METHODS,
       ...TELEGRAM_METHODS,
+      ...TEXTS_METHODS,
       ...TELEGRAM_MEDIA_METHODS,
       ...MAIL_METHODS,
       ...JMAP_METHODS,

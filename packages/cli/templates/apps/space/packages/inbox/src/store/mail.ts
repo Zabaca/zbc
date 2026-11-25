@@ -110,6 +110,7 @@ import {
   isOurs,
   labelsAreTruth,
   type MailboxKind,
+  ownsItsStamps,
   sentIsAFolder,
   serverActorOf,
   whereHeldWords,
@@ -130,7 +131,8 @@ import {
   text,
   textOrNull,
 } from './store'
-import { type PictureFacts, type SendPicture, type TelegramChatFacts, TelegramStore } from './telegram'
+import type { PictureFacts, SendPicture, TelegramChatFacts } from './telegram'
+import { TextsStore } from './texts'
 
 /** What a message from Gmail is stored as; see MessageStatus for why `sent`. */
 const RECEIVED_STATUS = 'sent'
@@ -458,7 +460,7 @@ function deviceFrom(r: Record<string, unknown>): Device {
   }
 }
 
-export class MailStore extends TelegramStore {
+export class MailStore extends TextsStore {
   // ─── the mailbox ─────────────────────────────────────────────────────
 
   /**
@@ -1214,10 +1216,9 @@ export class MailStore extends TelegramStore {
     const state = this.conversationState(conversationId)
     const needed = change === 'read' ? state.unread : change === 'close' ? state.open : !state.open
     if (conversation.mailbox_id === null) return ok({ threadId: null, needed })
-    // Cloudflare's and Telegram's conversations have no server thread: the inbox's own stamps are the whole state, and Telegram's own folders and read marks are not written.
+    // Cloudflare's, Telegram's and texts' conversations have no server thread: the inbox's own stamps are the whole state, and Telegram's own folders and read marks are not written.
     const kind = this.mailboxKindOf(conversationId)
-    if (kind === 'cloudflare' || kind === 'telegram')
-      return this.planStampChange(conversationId, change, through, needed)
+    if (ownsItsStamps(kind)) return this.planStampChange(conversationId, change, through, needed)
 
     // Gmail's and JMAP's: the server's labels are the truth, and the change is made on the server's thread first.
     const threadId = textOrNull(conversation[idColumns(kind).thread])
@@ -2509,10 +2510,9 @@ export class MailStore extends TelegramStore {
     return ok(null)
   }
 
-  /** Whether a conversation is in a mailbox that is not Gmail's (Cloudflare's or Telegram's): its messages carry no Gmail id or labels. */
+  /** Whether a conversation is in a mailbox that is not Gmail's (Cloudflare's, Telegram's or texts'): its messages carry no Gmail id or labels. */
   private hasNoGmailSide(conversationId: string): boolean {
-    const kind = this.mailboxKindOf(conversationId)
-    return kind === 'cloudflare' || kind === 'telegram'
+    return ownsItsStamps(this.mailboxKindOf(conversationId))
   }
 
   /**
