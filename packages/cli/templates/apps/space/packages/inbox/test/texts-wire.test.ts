@@ -49,6 +49,19 @@ describe('push', () => {
     expect(parsed.value.messages[1]?.sender).toBeUndefined()
   })
 
+  test('a name is mended and never refused: control characters become spaces and a long one is cut', () => {
+    const parsed = parsePush({
+      account,
+      chats: [{ ...person, name: `  Dana\u0000\n  Reyes ${'x'.repeat(LIMITS.name + 50)}` }],
+      messages: [],
+    })
+    expect(parsed.ok).toBe(true)
+    if (!parsed.ok) return
+    expect(parsed.value.chats[0]?.name.startsWith('Dana Reyes x')).toBe(true)
+    expect(parsed.value.chats[0]?.name.length).toBe(LIMITS.name)
+    expect(parsePush({ account, chats: [{ ...person, name: undefined }], messages: [] }).ok).toBe(true)
+  })
+
   test('a group is accepted by the parser, with members', () => {
     const parsed = parsePush({
       account,
@@ -67,8 +80,7 @@ describe('push', () => {
     ['a person with members', { ...person, members: [] }],
     ['an unknown kind', { id: 'c-1', kind: 'robot', name: 'x', address: 'x' }],
     ['a colon in the id', { ...person, id: 'a:b' }],
-    ['a control character in a name', { ...person, name: 'a\u0000b' }],
-    ['a name that is too long', { ...person, name: 'x'.repeat(LIMITS.name + 1) }],
+    ['a name that is not text', { ...person, name: 7 }],
   ])('refuses %s', (_why, chat) => {
     expect(parsePush({ account, chats: [chat], messages: [] }).ok).toBe(false)
   })

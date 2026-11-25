@@ -318,6 +318,7 @@ describe('a switch is allowed to any install that declares what it needs, and re
     raw.phone = { people: { 'lane@pinecrest.test': { emergencyNumber: 'line' }, 'dana@pinecrest.test': { emergencyNumber: '+16265550123' } } }
     raw.agent = { path: '/agent/inbox' }
     raw.telegram = { path: '/agent/telegram' }
+    raw.texts = { path: '/agent/texts' }
     raw.clientsDoor = { path: '/agent/clients', source: 'pinecrest.test' }
     raw.leads = { mailbox: 'desk@pinecrest.test', stages: [{ id: 'new', label: 'New' }, { id: 'done', label: 'Done', settled: true }], fields: { project: { label: 'Project', board: true } } }
     raw.businesses = [{ id: 'lane', name: 'Pinecrest', mailboxes: ['info@pinecrest.test'] }]
@@ -347,6 +348,7 @@ describe('a switch is allowed to any install that declares what it needs, and re
       phone: [['phone'], 'phone: the phone switch is on'],
       claudeScript: [['agent'], 'agent: the claudeScript switch is on'],
       telegram: [['telegram'], 'telegram: the telegram switch is on'],
+      texts: [['texts'], 'texts: the texts switch is on'],
       clientDirectory: [['clientsDoor'], 'clientsDoor: the clientDirectory switch is on'],
       leads: [['leads'], 'leads: the leads switch is on'],
     }

@@ -24,8 +24,10 @@ import {
   type StoreMethod,
   TELEGRAM_MEDIA_METHODS,
   TELEGRAM_METHODS,
+  TEXTS_METHODS,
   type TelegramMediaMethod,
   type TelegramMethod,
+  type TextsMethod,
 } from './app'
 import { Assistant } from './assistant/assistant'
 import { modelOverFetch } from './assistant/model'
@@ -366,6 +368,7 @@ export class InboxDO extends DurableObject<Env> {
       | SpaceMethod
       | LeadMethod
       | TelegramMethod
+      | TextsMethod
       | TelegramMediaMethod
       | MailMethod
       | JmapMethod
@@ -384,6 +387,7 @@ export class InboxDO extends DurableObject<Env> {
       [SPACE_METHODS, this.inbox],
       [LEAD_METHODS, this.inbox],
       [TELEGRAM_METHODS, this.inbox],
+      [TEXTS_METHODS, this.inbox],
       [TELEGRAM_MEDIA_METHODS, this.telegramMedia],
       [MAIL_METHODS, this.mailroom],
       [JMAP_METHODS, this.jmapRoom],

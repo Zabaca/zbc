@@ -137,6 +137,11 @@ export interface Install {
    */
   telegramDoor(): AgentDoor | null
   /**
+   * The texts bridge's door on the space, or null while the declaration gives no `texts`: a path of its own, answered before the person check, behind an Access application of its own that admits one service token
+   * ("texts bridge") and no person. The same shape as Claude's and the Telegram bridge's (`AgentDoor`), and never the same path or token as either.
+   */
+  textsDoor(): AgentDoor | null
+  /**
    * The Clients door on the space, or null while the declaration gives no `clientsDoor`: a third machine path, answered before the person check, behind an Access application of its own that admits one service token
    * (an outside system pushing its Clients in) and no person, plus the name of the source those Clients are from. Never the same path or token as Claude's or the bridge's.
    */
@@ -174,7 +179,7 @@ export interface Install {
   mailboxPeople(address: string | null | undefined): string[] | null
   /** Who has the dial pad and the number each one's 911 calls leave from, by work address, a copy; empty where the `phone` switch is off. */
   phonePeople(): PhoneDeclaration['people']
-  /** Whether the install has a mailbox of any kind: Gmail, a mailbox on its mail server, Telegram, or a business mailbox it declares. The Inbox tab is there only then. */
+  /** Whether the install has a mailbox of any kind: Gmail, a mailbox on its mail server, Telegram, texts, or a business mailbox it declares. The Inbox tab is there only then. */
   hasMailbox(): boolean
   /** Whether the install has this tab (`tabs` lists exactly these). */
   hasTab(tab: TabId): boolean
@@ -207,7 +212,7 @@ export function createInstall(input: unknown): Install {
   const bySignIn = new Map(people.map((p) => [p.signIn, p]))
   const byAddress = new Map(people.map((p) => [p.address, p]))
   const tabPath = (tab: TabId) => TABS.find((t) => t.id === tab)!.path
-  const hasMailbox = switches.gmail || switches.hostedMailboxes || switches.telegram || declaration.businesses.some((b) => b.mailboxes.length > 0)
+  const hasMailbox = switches.gmail || switches.hostedMailboxes || switches.telegram || switches.texts || declaration.businesses.some((b) => b.mailboxes.length > 0)
   // The tabs whose part can be off: Calendar needs a Google account (the Gmail switch), Inbox needs a mailbox of any kind, Leads its switch. Every other tab is every install's.
   const hasTab = (tab: TabId): boolean => (tab === 'calendar' ? switches.gmail : tab === 'inbox' ? hasMailbox : tab === 'leads' ? switches.leads : true)
 
@@ -263,6 +268,11 @@ export function createInstall(input: unknown): Install {
       const telegram = declaration.telegram
       if (telegram === undefined) return null
       return { path: telegram.path, domain: `${space.host}${telegram.path}`, url: `https://${space.host}${telegram.path}` }
+    },
+    textsDoor: () => {
+      const texts = declaration.texts
+      if (texts === undefined) return null
+      return { path: texts.path, domain: `${space.host}${texts.path}`, url: `https://${space.host}${texts.path}` }
     },
     clientsDoor: () => {
       const door = declaration.clientsDoor

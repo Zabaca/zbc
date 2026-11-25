@@ -64,7 +64,7 @@ function brightwaterFile(over: Record<string, unknown> = {}) {
   }
 }
 
-/** The same company with everything on: Gmail, Claude's script, a business mailbox, the Clients door, the assistant, a mailbox on its own mail server, Telegram. */
+/** The same company with everything on: Gmail, Claude's script, a business mailbox, the Clients door, the assistant, a mailbox on its own mail server, Telegram, texts. */
 function brightwaterEverything() {
   return {
     declaration: brightwater({
@@ -74,10 +74,11 @@ function brightwaterEverything() {
       cloudflareMailboxes: [{ address: 'hello@brightwaterco.test', name: 'Brightwater Co', spamCheck: true }],
       agent: { path: '/agent/inbox' },
       telegram: { path: '/agent/telegram' },
+      texts: { path: '/agent/texts' },
       clientsDoor: { path: '/agent/clients', source: 'brightwater.test' },
       leads: { mailbox: 'hello@brightwaterco.test', stages: [{ id: 'new', label: 'New' }, { id: 'done', label: 'Done', settled: true }], door: { path: '/agent/leads', source: 'brightwater.test' } },
       businesses: [{ id: 'brightwater', name: 'Brightwater', mailboxes: ['hello@brightwaterco.test'] }],
-      switches: { gmail: true, hostedMailboxes: true, clientDirectory: true, claudeScript: true, assistant: true, manyClients: true, calls: true, telegram: true, leads: true },
+      switches: { gmail: true, hostedMailboxes: true, clientDirectory: true, claudeScript: true, assistant: true, manyClients: true, calls: true, telegram: true, texts: true, leads: true },
     }),
     installFile: brightwaterFile({
       stores: { formsBucket: 'brightwater-forms-files', formsDatabase: 'brightwater-forms-records', rawMailBucket: 'brightwater-raw-mail', deliveryQueue: 'brightwater-delivery' },
@@ -88,6 +89,7 @@ function brightwaterEverything() {
         forms: { application: 'space.brightwater.test/forms', policy: 'space.brightwater.test/forms allowed people' },
         agent: { application: 'space.brightwater.test/agent/inbox', token: 'brightwater inbox agent' },
         telegram: { application: 'space.brightwater.test/agent/telegram', token: 'brightwater bridge' },
+        texts: { application: 'space.brightwater.test/agent/texts', token: 'brightwater texts bridge' },
         clients: { application: 'space.brightwater.test/agent/clients', token: 'brightwater clients' },
         leads: { application: 'space.brightwater.test/agent/leads', token: 'brightwater leads' },
         guests: { ...DOORS, booking: BOOKING },
@@ -160,7 +162,7 @@ describe('an invented company’s pair makes a whole install', () => {
   test('one with everything on: every door, the raw-mail bucket and queue, the push host, the senders, the mailboxes and the secrets', () => {
     const { declaration, installFile } = brightwaterEverything()
     const made = buildSpaceInstall<SpaceInstance>({ declaration, installFile, sopsNames: sops, modules: SPACE_MODULES, paths: BRIGHTWATER_PATHS })
-    expect(made.all.map((i) => i.name)).toEqual(['forms-bucket', 'forms-database', 'inbox-raw', 'inbox-delivery', 'space-access', 'space-forms-access', 'space-agent-access', 'space-telegram-access', 'space-clients-access', 'space-leads-access', 'space-guest-calls', 'space-guest-chat', 'space-guest-signing', 'space-guest-booking', 'space'])
+    expect(made.all.map((i) => i.name)).toEqual(['forms-bucket', 'forms-database', 'inbox-raw', 'inbox-delivery', 'space-access', 'space-forms-access', 'space-agent-access', 'space-telegram-access', 'space-texts-access', 'space-clients-access', 'space-leads-access', 'space-guest-calls', 'space-guest-chat', 'space-guest-signing', 'space-guest-booking', 'space'])
     // The booking links' open path is an Access application of its own, a bypass for everyone on `/book/*` and nothing else of the host, named as the install file names it.
     const booking = made.instances.guestBooking?.config as { name: string; domain: string; bypass: boolean; policyName: string; emails: string[]; appLauncherVisible: boolean }
     expect([booking.name, booking.domain, booking.bypass, booking.policyName, booking.emails, booking.appLauncherVisible]).toEqual(['space.brightwater.test/book/*', 'space.brightwater.test/book/*', true, 'space.brightwater.test/book/* anyone (booking links)', [], false])
@@ -189,11 +191,14 @@ describe('an invented company’s pair makes a whole install', () => {
     expect(space.workerVars).toContainEqual({ name: 'GMAIL_PUSH_ENDPOINT', value: 'https://inbox-push.brightwater.test/api/gmail/push' })
     expect(space.workerVars).toContainEqual({ name: 'GMAIL_PUSH_SERVICE_ACCOUNT', value: 'inbox-push@brightwater-mail-1.iam.gserviceaccount.com' })
     expect(space.workerVars).toContainEqual({ name: 'GMAIL_TOPIC_NAME', value: 'projects/brightwater-mail-1/topics/gmail-push' })
+    // The texts bridge's audience and token id reach the Worker from its own application, as the Telegram bridge's do, and neither is the other's.
+    expect(JSON.stringify(space)).toContain('CF_ACCESS_AUD_TEXTS')
+    expect(JSON.stringify(space)).toContain('TEXTS_ACCESS_CLIENT_ID')
     // The leads door's audience and token id reach the Worker from its own application, as the Clients door's do.
     expect(JSON.stringify(space)).toContain('CF_ACCESS_AUD_LEADS')
     expect(JSON.stringify(space)).toContain('LEADS_ACCESS_CLIENT_ID')
     // The doors' token names are the install file's, each machine its own, found by name and never rotated from here.
-    for (const [instance, token] of [['agentAccess', 'brightwater inbox agent'], ['telegramAccess', 'brightwater bridge'], ['clientsAccess', 'brightwater clients'], ['leadsAccess', 'brightwater leads']] as const) {
+    for (const [instance, token] of [['agentAccess', 'brightwater inbox agent'], ['telegramAccess', 'brightwater bridge'], ['textsAccess', 'brightwater texts bridge'], ['clientsAccess', 'brightwater clients'], ['leadsAccess', 'brightwater leads']] as const) {
       const c = made.instances[instance]?.config as { serviceTokenName: string; rotate: boolean; emails: string[]; sessionDuration: string }
       expect([c.serviceTokenName, c.rotate, c.emails, c.sessionDuration]).toEqual([token, false, [], '0s'])
     }
@@ -253,6 +258,7 @@ describe('an install file that does not fit its declaration is refused, with eve
     delete bare.secrets.hostedMailboxes
     delete bare.access.agent
     delete bare.access.telegram
+    delete bare.access.texts
     delete bare.access.clients
     delete bare.access.leads
     delete bare.access.guests.calls
@@ -261,7 +267,7 @@ describe('an install file that does not fit its declaration is refused, with eve
     delete bare.stores.rawMailBucket
     delete bare.stores.deliveryQueue
     const said = problems(bare, d)
-    for (const want of ['calls: required', 'gmail: required', 'secrets.calls: required', 'secrets.gmail: required', 'secrets.assistant: required', 'secrets.hostedMailboxes: required', 'access.agent: required', 'access.telegram: required', 'access.clients: required', 'access.leads: required', 'access.guests.calls: required', 'access.guests.booking: required', 'deliveryReports: a list', 'stores.rawMailBucket', 'stores.deliveryQueue']) {
+    for (const want of ['calls: required', 'gmail: required', 'secrets.calls: required', 'secrets.gmail: required', 'secrets.assistant: required', 'secrets.hostedMailboxes: required', 'access.agent: required', 'access.telegram: required', 'access.texts: required', 'access.clients: required', 'access.leads: required', 'access.guests.calls: required', 'access.guests.booking: required', 'deliveryReports: a list', 'stores.rawMailBucket', 'stores.deliveryQueue']) {
       expect(said, want).toContain(want)
     }
   })
@@ -281,6 +287,7 @@ describe('an install file that does not fit its declaration is refused, with eve
     const shared = structuredClone(f) as Record<string, any>
     shared.access.telegram.token = shared.access.agent.token
     shared.access.telegram.application = shared.access.agent.application
+    shared.access.texts.token = shared.access.telegram.token
     shared.rateLimits.auth = shared.rateLimits.public
     const said = problems(shared, d)
     expect(said).toContain('each machine door has a token of its own')

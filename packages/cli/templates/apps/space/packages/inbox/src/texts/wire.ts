@@ -13,7 +13,7 @@
  *   outcomes  what became of the work it was owed (the read of a chat brought back), so the space stops offering it
  *   status    what the bridge says of itself: live, catching up, the phone not answering since a time, signed out, or another browser took the session
  *
- * A later slice adds sends, read marks to the phone and files as new kinds of work and new calls; a bridge asks for them with a capability flag on its work request
+ * A later version adds sends, read marks to the phone and files as new kinds of work and new calls; a bridge asks for them with a capability flag on its work request
  * (`sends`, `media`, `pictures`), and a flag this space does not know is ignored, so a newer bridge on an older space (or the reverse) is harmless. Items of a kind a bridge does
  * not know it ignores and never reports.
  *
@@ -57,7 +57,7 @@ export interface TextsChat {
   kind: TextsChatKind
   name: string
   address?: string
-  /** A group's members other than the owner, when the phone lists them (at most `LIMITS.members`). Slice 3 reads them; today a group is refused whole and counted (`PushResult.groups`). */
+  /** A group's members other than the owner, when the phone lists them (at most `LIMITS.members`). A later version reads them; today a group is refused whole and counted (`PushResult.groups`). */
   members?: TextsSender[]
 }
 
@@ -123,11 +123,11 @@ export interface TextsWorkRequest {
   account: { id: string }
   /** Also answer the newest message held in every chat (what a reconnect's catch-up starts from). */
   newest?: boolean
-  /** The bridge sends texts (slice 2). Without it no send is ever offered. */
+  /** The bridge sends texts (a later version). Without it no send is ever offered. */
   sends?: boolean
-  /** The bridge takes files (slice 4). */
+  /** The bridge takes files (a later version). */
   media?: boolean
-  /** The bridge sends pictures (slice 4). */
+  /** The bridge sends pictures (a later version). */
   pictures?: boolean
 }
 
@@ -196,7 +196,7 @@ export interface PushResult {
   repeated: number
   /** Messages of chats the owner left out: not stored. */
   leftOut: number
-  /** Messages of a group chat: not stored until groups are carried (a later slice), and counted so the bridge can say so. */
+  /** Messages of a group chat: not stored until groups are carried (a later version), and counted so the bridge can say so. */
   groups: number
   /** Messages that named a chat the push did not describe: not stored. */
   skipped: number
@@ -246,8 +246,8 @@ const isIso = (v: unknown): v is string =>
 export const iso = (v: string): string => new Date(v).toISOString()
 
 /** An id of the bridge's own (the account, a chat, a message): letters, digits and `. _ = ~ -`, never a colon, so `<chat id>:<message id>` is one unambiguous key. */
-const ID = /^[A-Za-z0-9._=~-]{1,100}$/
-const isId = (v: unknown): v is string => typeof v === 'string' && ID.test(v)
+export const TEXTS_ID = /^[A-Za-z0-9._=~-]{1,100}$/
+const isId = (v: unknown): v is string => typeof v === 'string' && TEXTS_ID.test(v)
 /** A number in E.164: a plus, then 7 to 15 digits, the first not zero. THE ONE PLACE its spelling is written. */
 export const E164 = /^\+[1-9][0-9]{6,14}$/
 /** A short code: 3 to 8 digits, no plus. */
@@ -256,16 +256,22 @@ export const SHORT_CODE = /^[0-9]{3,8}$/
 // biome-ignore lint/suspicious/noControlCharactersInRegex: this is the check that refuses them.
 const NO_CONTROL = /^[^\u0000-\u001f\u007f]*$/
 
+// biome-ignore lint/suspicious/noControlCharactersInRegex: this is the mending of them.
+const CONTROL_RUN = /[\u0000-\u001f\u007f]+/g
+
 function account(v: unknown): Parsed<{ id: string }> {
   if (!isObj(v) || !isId(v.id))
     return bad('account.id: the bridge’s own id for the paired phone (letters, digits and . _ = ~ -)')
   return { ok: true, value: { id: v.id } }
 }
 
+/**
+ * A name as the phone gives it (a chat's or a sender's). A name is a label and never an identity, so a bad one is mended and not refused: a refused push would hold the whole batch up behind it. Control characters
+ * become spaces, the white space is collapsed and the name is cut at `LIMITS.name` characters. Only something that is not text at all is refused.
+ */
 function nameOf(v: unknown, where: string): Parsed<string> {
-  if (typeof v !== 'string' || v.length > LIMITS.name || !NO_CONTROL.test(v))
-    return bad(`${where}: text with no control characters, at most ${LIMITS.name} characters`)
-  return { ok: true, value: v }
+  if (typeof v !== 'string') return bad(`${where}: text`)
+  return { ok: true, value: v.replace(CONTROL_RUN, ' ').replace(/ {2,}/g, ' ').trim().slice(0, LIMITS.name) }
 }
 
 function sender(v: unknown, where: string): Parsed<TextsSender> {

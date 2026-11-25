@@ -47,9 +47,10 @@ export function inboxOwnerOf(install: Install): InboxOwner {
 
 /**
  * Who is on each mailbox the install says the people of (`PeopleSource.peopleOf`, src/store/people.ts): a declared business mailbox (Cloudflare's or the mail server's) by its declaration's `people`, else the owner alone; the
- * Telegram mailbox the owner's; and nothing for a Gmail account, which is its connector's, or for an address the declaration does not name (the store then leaves the list it has).
+ * Telegram mailbox and the texts mailbox the owner's; and nothing for a Gmail account, which is its connector's, or for an address the declaration does not name (the store then leaves the list it has).
  */
 export function mailboxPeopleOf(install: Install): (kind: MailboxKind, address: string) => readonly string[] | null {
   const owner = install.owner().address
-  return (kind, address) => (kind === 'telegram' ? [owner] : kind === 'gmail' ? null : install.mailboxPeople(address))
+  return (kind, address) =>
+    kind === 'telegram' || kind === 'texts' ? [owner] : kind === 'gmail' ? null : install.mailboxPeople(address)
 }

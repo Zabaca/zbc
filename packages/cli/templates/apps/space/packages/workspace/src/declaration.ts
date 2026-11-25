@@ -40,6 +40,7 @@ export const SWITCHES = [
   'calls',
   'telegram',
   'leads',
+  'texts',
 ] as const
 export type Switch = (typeof SWITCHES)[number]
 
@@ -55,6 +56,7 @@ export const SWITCH_DEFAULTS: Readonly<Record<Switch, boolean>> = {
   calls: false,
   telegram: false,
   leads: false,
+  texts: false,
 }
 
 export interface Company {
@@ -200,6 +202,13 @@ export interface AgentDeclaration {
  * Present exactly where the `telegram` switch is on, which any install may turn on with its own bridge (packages/workspace/docs/adr/0002, amended by ADR 0004).
  */
 export type TelegramDeclaration = AgentDeclaration
+
+/**
+ * The texts bridge's door on the space: a machine path of its own, shaped like the Telegram bridge's and held apart from it and from Claude's. Its own Access application sits on exactly the space's host and this path
+ * ("/agent/texts"), admitting one service token of its own ("texts bridge") and no person, and the space answers the path before its person check. Present exactly where the `texts` switch is on, which any install may turn on
+ * with its own bridge (packages/workspace/docs/adr/0002, amended by ADR 0004).
+ */
+export type TextsDeclaration = AgentDeclaration
 
 /**
  * The Clients door on the space (the space's ADR 0021): the one path where an outside system that keeps Clients of its own, such as the company's website, PUSHES them in, with a
@@ -367,6 +376,8 @@ export interface Declaration {
   agent?: AgentDeclaration
   /** Present exactly where the `telegram` switch is on. */
   telegram?: TelegramDeclaration
+  /** Present exactly where the `texts` switch is on. */
+  texts?: TextsDeclaration
   /** Present exactly where the `clientDirectory` switch is on. */
   clientsDoor?: ClientsDoorDeclaration
   /** Present exactly where the `leads` switch is on. */
@@ -442,7 +453,7 @@ function readMailboxPeople(where: string, given: unknown, people: readonly Perso
 export function parseDeclaration(raw: unknown): Declaration {
   const problems: string[] = []
   if (!isObj(raw)) throw new DeclarationError(['the declaration is not an object'])
-  knownKeys('declaration', raw, ['company', 'access', 'space', 'forms', 'senders', 'formsService', 'gmailPush', 'googleApp', 'hostedMailboxes', 'cloudflareMailboxes', 'phone', 'agent', 'telegram', 'clientsDoor', 'leads', 'people', 'sharedAddresses', 'businesses', 'switches'], problems)
+  knownKeys('declaration', raw, ['company', 'access', 'space', 'forms', 'senders', 'formsService', 'gmailPush', 'googleApp', 'hostedMailboxes', 'cloudflareMailboxes', 'phone', 'agent', 'telegram', 'texts', 'clientsDoor', 'leads', 'people', 'sharedAddresses', 'businesses', 'switches'], problems)
 
   // Company
   let company: Company = { id: '', name: '', domain: '', timeZone: '' }
@@ -915,6 +926,29 @@ export function parseDeclaration(raw: unknown): Declaration {
     problems.push('telegram: the telegram switch is on, so the bridge\'s path is required')
   }
 
+  // The texts bridge's door: the same shape again, a path of its own, held apart from Claude's and from the Telegram bridge's, and required where the switch is on.
+  let texts: TextsDeclaration | undefined
+  if (raw.texts !== undefined) {
+    if (!switches.texts) problems.push('texts: only where the texts switch is on; no other install has a texts bridge')
+    if (!isObj(raw.texts)) problems.push('texts: an object')
+    else {
+      knownKeys('texts', raw.texts, ['path'], problems)
+      const path = typeof raw.texts.path === 'string' ? raw.texts.path : null
+      let pathOk = false
+      const others = [agent, telegram].filter((d): d is AgentDeclaration => d !== undefined)
+      if (path === null || !DOOR.test(path)) {
+        problems.push('texts.path: a path of the space such as "/agent/texts" with no trailing slash')
+      } else if (RESERVED_PATHS.some((r) => path === r || path.startsWith(`${r}/`))) {
+        problems.push(`texts.path: ${path} is the space's own (its API or a tab), and no machine may be let in there`)
+      } else if (others.some((d) => path === d.path || path.startsWith(`${d.path}/`) || d.path.startsWith(`${path}/`))) {
+        problems.push(`texts.path: ${path} is another machine's door or inside it (or contains it); each machine has a path of its own`)
+      } else pathOk = true
+      if (pathOk && path !== null) texts = { path }
+    }
+  } else if (switches.texts) {
+    problems.push('texts: the texts switch is on, so the bridge\'s path is required')
+  }
+
   // The Clients door: a third machine path, required where the clientDirectory switch is on. It is held apart from the other two doors as they are held apart from each other (a path inside
   // another door would be answered by the wrong Access application; its token is its own too, the install file's check), and it names the source its Clients are from.
   let clientsDoor: ClientsDoorDeclaration | undefined
@@ -926,7 +960,7 @@ export function parseDeclaration(raw: unknown): Declaration {
       const path = typeof raw.clientsDoor.path === 'string' ? raw.clientsDoor.path : null
       const source = str(raw.clientsDoor.source)
       let pathOk = false
-      const others = [agent, telegram].filter((d): d is AgentDeclaration => d !== undefined)
+      const others = [agent, telegram, texts].filter((d): d is AgentDeclaration => d !== undefined)
       if (path === null || !DOOR.test(path)) {
         problems.push('clientsDoor.path: a path of the space such as "/agent/clients" with no trailing slash')
       } else if (RESERVED_PATHS.some((r) => path === r || path.startsWith(`${r}/`))) {
@@ -981,7 +1015,7 @@ export function parseDeclaration(raw: unknown): Declaration {
   if (raw.leads !== undefined) {
     if (!switches.leads) problems.push('leads: only where the leads switch is on')
     // The leads door is held apart from the other machines' doors exactly as they are from each other.
-    const doors = [agent, telegram, clientsDoor].filter((d): d is AgentDeclaration => d !== undefined)
+    const doors = [agent, telegram, texts, clientsDoor].filter((d): d is AgentDeclaration => d !== undefined)
     const doorProblem = (path: string): string | null =>
       !DOOR.test(path)
         ? 'a path of the space such as "/agent/leads" with no trailing slash'
@@ -1010,6 +1044,7 @@ export function parseDeclaration(raw: unknown): Declaration {
     ...(phone ? { phone } : {}),
     ...(agent ? { agent } : {}),
     ...(telegram ? { telegram } : {}),
+    ...(texts ? { texts } : {}),
     ...(clientsDoor ? { clientsDoor } : {}),
     ...(leads ? { leads } : {}),
     people,

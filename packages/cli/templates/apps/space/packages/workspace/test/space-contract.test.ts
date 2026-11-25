@@ -245,6 +245,8 @@ const INBOX_FILES = ['attachment']
 const INBOX_PEOPLE = ['contacts', 'contact', 'saveContactProfile', 'mergeContacts', 'undoContactMerge']
 /** The company's leads: the board, one person's, a move at a revision, and one made by hand. */
 const INBOX_LEADS = ['leads', 'contactLeads', 'moveLead', 'makeLead']
+/** The texts mailbox: a chat left out of the space, and one brought back. Both the owner's alone. */
+const INBOX_TEXTS = ['textsLeaveOut', 'textsBringBack']
 const has = (names: readonly string[]) => expect(INBOX_FOR_SPACE_METHODS as readonly string[]).toEqual(expect.arrayContaining([...names]))
 
 describe('what each app answers the space', () => {
@@ -294,8 +296,12 @@ describe('what each app answers the space', () => {
     has(INBOX_LEADS)
   })
 
-  test('and the inbox answers no method outside those ten groups, nor lists one twice', () => {
-    expect(sorted(INBOX_FOR_SPACE_METHODS)).toEqual(sorted([...INBOX_MAIL, ...INBOX_VIEWS, ...INBOX_CLOSE, ...INBOX_PEOPLE, ...INBOX_LEADS, ...INBOX_FILES, ...INBOX_COMPOSE, ...INBOX_DRAFT_AT, ...INBOX_LAST_FIVE, ...INBOX_OPERATOR_METHODS]))
+  test('the texts mailbox: a chat left out of the space, and one brought back', () => {
+    has(INBOX_TEXTS)
+  })
+
+  test('and the inbox answers no method outside those eleven groups, nor lists one twice', () => {
+    expect(sorted(INBOX_FOR_SPACE_METHODS)).toEqual(sorted([...INBOX_MAIL, ...INBOX_VIEWS, ...INBOX_CLOSE, ...INBOX_PEOPLE, ...INBOX_LEADS, ...INBOX_TEXTS, ...INBOX_FILES, ...INBOX_COMPOSE, ...INBOX_DRAFT_AT, ...INBOX_LAST_FIVE, ...INBOX_OPERATOR_METHODS]))
   })
 
   test('the inbox’s operator, for a move of its store: a bookmark, a restart and the counts, the owner’s, touching no message, draft or contact', () => {

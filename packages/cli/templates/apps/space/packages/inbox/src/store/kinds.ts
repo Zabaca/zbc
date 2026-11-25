@@ -6,16 +6,24 @@
  *   the server first. Cloudflare's and Telegram's conversations have no server behind them, and the inbox's own stamps are the whole state.
  * - **Our own addresses are the mailbox's and its domain** (Cloudflare and JMAP): the mailbox's address and every address on its domain are ours (never a recipient, never copied, never an outside participant); Gmail's own
  *   addresses are the owner's and every mailbox's. `belongsToMailbox` and `isOurs` below are the one place that says it: a reply's plan, a draft's Cc and a send's recipients all ask them.
- * - **Email at all** (Gmail, Cloudflare, JMAP): the kinds a draft can be written for, a spam call made on and an address sent from; Telegram's chats are none of these.
+ * - **Email at all** (Gmail, Cloudflare, JMAP): the kinds a draft can be written for, a spam call made on and an address sent from; Telegram's chats and texts are none of these.
+ * - **The inbox's own stamps are the whole state** (Cloudflare, Telegram, texts): `ownsItsStamps`.
  * - **Where the server's ids are kept**: Gmail's in `gmail_id` and `gmail_thread_id`, JMAP's in `jmap_id` and `jmap_thread_id` (migration 18). Gmail's columns keep meaning Gmail.
  */
 
 import { GMAIL_ACTOR, JMAP_ACTOR } from '../types'
 
-export type MailboxKind = 'gmail' | 'cloudflare' | 'telegram' | 'jmap'
+export type MailboxKind = 'gmail' | 'cloudflare' | 'telegram' | 'jmap' | 'texts'
 
 export const isMailboxKind = (v: unknown): v is MailboxKind =>
-  v === 'gmail' || v === 'cloudflare' || v === 'telegram' || v === 'jmap'
+  v === 'gmail' || v === 'cloudflare' || v === 'telegram' || v === 'jmap' || v === 'texts'
+
+/**
+ * No server's labels behind the conversation, and nothing of the owner's is written back to where it came from (Cloudflare, Telegram and texts): the inbox's own read and closed stamps are the whole state, a message
+ * that came in counts without a server id, and the phone's or the chat app's own folders are never touched. (Texts' read marks to the phone are a later slice's, and go through their own owed work, never a label.)
+ */
+export const ownsItsStamps = (kind: MailboxKind | null): boolean =>
+  kind === 'cloudflare' || kind === 'telegram' || kind === 'texts'
 
 /** Read and open come from the labels a server gives (Gmail, JMAP), not from the inbox's own stamps. */
 export const labelsAreTruth = (kind: MailboxKind | null): boolean => kind === 'gmail' || kind === 'jmap'
@@ -58,7 +66,7 @@ export const heldOnServer = (alias = ''): string => {
   return `(${p}gmail_id IS NOT NULL OR ${p}jmap_id IS NOT NULL)`
 }
 
-/** The mailboxes mail is written from and judged in: everything but Telegram. */
+/** The mailboxes mail is written from and judged in: everything but Telegram and texts. */
 export const EMAIL_KINDS = ['gmail', 'cloudflare', 'jmap'] as const
 export const isEmailKind = (kind: string | null): boolean =>
   kind !== null && (EMAIL_KINDS as readonly string[]).includes(kind)

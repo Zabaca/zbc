@@ -62,6 +62,30 @@ export interface InboxNavTelegram extends InboxMailbox {
   lastPushAt: number | null
 }
 
+/**
+ * Where the texts bridge stands, in the words the menu's foot and Settings tell it by: `live`; `catching-up` (a gap or the first fill is being read in); `phone-not-answering` (the phone is off or out of reach, since a time);
+ * `signed-out` (Google ended the bridge's sign-in: only the owner can sign in again); `session-taken` (another browser took the Messages for web session, and the bridge is taking it back); `not-checked-in` (the bridge
+ * has asked for nothing for five minutes, whatever it last said of itself).
+ */
+export const TEXTS_STATES = ['live', 'catching-up', 'phone-not-answering', 'signed-out', 'session-taken', 'not-checked-in'] as const
+export type InboxTextsState = (typeof TEXTS_STATES)[number]
+
+/**
+ * The texts mailbox in the menu: a place in the Mailboxes tree like a business mailbox (its open conversations that are not Bulk) and the line at the foot. The words are the page's
+ * (packages/space/src/client/texts.ts), from the state and the times, so the foot and Settings say the same sentence and the time is the person's own zone. Names and numbers only.
+ */
+export interface InboxNavTexts extends InboxMailbox {
+  count: number
+  unread: number
+  state: InboxTextsState
+  /** When the bridge last asked the space for work (its heartbeat); null if it never has. */
+  checkedInAt: number | null
+  /** When the bridge last pushed a text; null if it never has. */
+  lastPushAt: number | null
+  /** For a phone that is not answering: since when (milliseconds); null otherwise. */
+  phoneSince: number | null
+}
+
 /** A Client the space holds (or one the inbox holds people under, shown by number), with its open conversations. */
 export interface InboxNavClient {
   id: number
@@ -88,6 +112,8 @@ export interface InboxNav {
   gmailAccounts: InboxNavGmail[]
   /** The Telegram mailbox, once the bridge has said anything; null before, and ABSENT from an inbox that predates it: the menu then has no Telegram line. */
   telegram?: InboxNavTelegram | null
+  /** The texts mailbox, once the bridge has said anything; null before, and ABSENT from an inbox that predates it or where the texts switch is off: the menu then has no Texts line. */
+  texts?: InboxNavTexts | null
   /** The mailboxes on the install's own mail server (JMAP), each a place in the Mailboxes tree like a business mailbox and a line at the foot; ABSENT from an inbox that predates them. */
   jmap?: InboxNavJmap[]
   /** How many open leads the person may see, for the menu beside the Leads tab; ABSENT where the install has no leads or the person may not see them. */
@@ -178,6 +204,31 @@ export interface InboxTelegram extends InboxMailbox {
   unreadOpen: number
 }
 
+/** A chat the owner left out, as Settings lists it: the name the phone gave it, when (milliseconds), and whether a Bring back of it is waiting for the bridge to read it again (it is then off the list of chats left out and still shown, until the read is reported). */
+export interface InboxLeftOutChat {
+  chatId: string
+  name: string
+  at: number
+  fillOwed: boolean
+}
+
+/**
+ * The texts mailbox as Settings shows it (one for the owner's one phone). `checkedInAt` is the bridge's heartbeat and `reportedAt` when it last said its state; the page words them. Never anything secret: the pairing
+ * lives in the bridge's guest, not here. `leftOut` is the chats the owner left out, newest first, each with Bring back.
+ */
+export interface InboxTexts extends InboxMailbox {
+  state: InboxTextsState
+  reportedAt: number | null
+  checkedInAt: number | null
+  lastPushAt: number | null
+  phoneSince: number | null
+  messages: number
+  conversations: number
+  open: number
+  unreadOpen: number
+  leftOut: InboxLeftOutChat[]
+}
+
 /**
  * A mailbox on the install's own mail server as Settings shows it: read and written over JMAP, declared in the deploy, its key a secret of the Worker. Never the key.
  * `reasons` as above: none means it is fine. `refusedAt` is when the server refused the space's key (null while it works) and `reasons[0]` says it in words. Sync now is `changeGmail('sync', id)`, which takes this
@@ -246,6 +297,8 @@ export interface InboxMailboxes {
   mailboxes: InboxBusinessMailbox[]
   /** The Telegram mailbox, once the bridge has said anything; null before, and ABSENT from an inbox that predates it: Settings then has no Telegram card. */
   telegram?: InboxTelegram | null
+  /** The texts mailbox, once the bridge has said anything; null before, and ABSENT from an inbox that predates it or where the texts switch is off: Settings then has no Texts card. */
+  texts?: InboxTexts | null
   /** The mailboxes on the mail server, declared in the deploy (an empty list when none is); ABSENT from an inbox that predates them: Settings then has no such card. They are business mailboxes to a person: they are offered in From. */
   jmap?: InboxJmap[]
   /** Whether the inbox has the assistant's key, which the draft chat needs and the spam check does not. */

@@ -21,6 +21,7 @@ import { receiveLeadFromSource } from './space-leads'
 import type { LeadReceived, LeadRequest } from './store/leads'
 import { type InboxEnv, objectFor, storeFor } from './store-access'
 import { createTelegramApp } from './telegram/app'
+import { createTextsApp } from './texts/app'
 import { bundledInstall, type Install } from './workspace'
 
 /**
@@ -35,6 +36,8 @@ export interface InboxPartEnv extends InboxEnv {
   INBOX_ACCESS_CLIENT_ID?: string
   /** The Access client id of the Telegram bridge's service token (a var). Unset, the bridge's router admits nobody. */
   TELEGRAM_ACCESS_CLIENT_ID?: string
+  /** The Access client id of the texts bridge's service token (a var). Unset, the texts bridge's router admits nobody. */
+  TEXTS_ACCESS_CLIENT_ID?: string
   /**
    * The knowledge app as Claude's `knowledge` and `propose-knowledge` are handed on to it (src/app.ts): in the space, the knowledge store asked in-process (packages/space/src/parts.ts), never a
    * service binding. Absent, those two routes answer that the knowledge app is not reached.
@@ -60,6 +63,11 @@ export interface InboxPart extends InboxForSpace {
    */
   telegram(request: Request, who: ServiceIdentity): Promise<Response>
   /**
+   * A request on the texts bridge's door, shaped like the Telegram bridge's and held apart from it: at the inbox's own `/api/...` path and without the cookie, with the service token the space's check verified for the
+   * texts application's audience. The router admits that token by its id (`TEXTS_ACCESS_CLIENT_ID`) and nobody else (Claude's and the Telegram bridge's included), and serves five calls (src/texts/app.ts).
+   */
+  texts(request: Request, who: ServiceIdentity): Promise<Response>
+  /**
    * A request the company's site sent through the space's leads door (packages/space/src/leads-door.ts), after the door verified the site's token: checked against the install, stored (src/space-leads.ts
    * `receiveLeadFromSource`) and, when it is a new lead or one more request on an open one, told to the devices of the leads' people. A repeat changes nothing and tells nobody.
    */
@@ -81,6 +89,12 @@ export function createInboxPartFactory(install: Install = bundledInstall): (env:
   let telegramRouter: ReturnType<typeof createTelegramApp> | undefined
   const bridgeRouter = () =>
     (telegramRouter ??= createTelegramApp({
+      store: (env) => storeFor(env as InboxEnv),
+      named: (req) => named.get(req) ?? null,
+    }))
+  let textsRouter: ReturnType<typeof createTextsApp> | undefined
+  const textsBridgeRouter = () =>
+    (textsRouter ??= createTextsApp({
       store: (env) => storeFor(env as InboxEnv),
       named: (req) => named.get(req) ?? null,
     }))
@@ -137,6 +151,17 @@ export function createInboxPartFactory(install: Install = bundledInstall): (env:
           }
         }
         return answered({ leadId: lead.id, outcome })
+      },
+      texts: (request, who) => {
+        // The texts bridge is a switch of its own: an install without it has no bridge, whatever token reaches here.
+        if (!install.has('texts')) return Promise.resolve(Response.json({ error: 'Not found' }, { status: 404 }))
+        named.set(request, who)
+        return Promise.resolve(
+          textsBridgeRouter().fetch(request, {
+            INBOX: env.INBOX,
+            ...(env.TEXTS_ACCESS_CLIENT_ID !== undefined && { TEXTS_ACCESS_CLIENT_ID: env.TEXTS_ACCESS_CLIENT_ID }),
+          } as never),
+        )
       },
       telegram: (request, who) => {
         // The bridge is a switch: an install without it has no bridge, whatever token reaches here.

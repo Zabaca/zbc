@@ -452,7 +452,7 @@ export interface QueueFact extends ConversationState {
    */
   mailbox?: MailboxMark
   /** Which kind of mailbox `mailbox` is: files go only from a Cloudflare one, and only its conversations carry the spam check's lines. Present exactly when `mailbox` is. */
-  mailboxKind?: 'gmail' | 'cloudflare' | 'telegram' | 'jmap'
+  mailboxKind?: 'gmail' | 'cloudflare' | 'telegram' | 'jmap' | 'texts'
   /** A Telegram conversation with many people in it: a `group` (filed under the group's contact, each message under its sender) or a `channel` (Bulk). Absent for every other conversation, a one-to-one Telegram chat included. */
   telegramChat?: 'group' | 'channel'
   /**
@@ -559,7 +559,7 @@ export interface ConversationReply {
 export interface SenderJudgment {
   automated: boolean
   /** Which rule decided, so the screen can say what may be done about it (`senderHint`). */
-  rule: 'client' | 'name' | 'no-reply' | 'bot' | 'channel' | 'bulk' | 'none'
+  rule: 'client' | 'name' | 'no-reply' | 'bot' | 'channel' | 'text-sender' | 'bulk' | 'none'
   reason: string
 }
 
@@ -904,6 +904,62 @@ export interface TelegramMailboxStatus {
   unreadOpen: number
   /** Amber when `reasons` is not empty; each is a sentence for the owner. */
   health: { amber: boolean; reasons: string[] }
+}
+
+/**
+ * The actor on everything the texts bridge did: a text arriving, a contact made for its sender, an edit or a deletion, a chat's removal when it is left out. Like TELEGRAM_ACTOR, an audit entry or stamp
+ * with this actor means the inbox was told, not asked.
+ */
+export const TEXTS_ACTOR = 'texts'
+
+/**
+ * The texts mailbox as the script shows it: whether the texts bridge is talking, what it last said of itself, and the counts. One row for the owner's one phone; never carries anything secret (the phone's pairing
+ * lives in the bridge, not here).
+ */
+export interface TextsMailboxStatus {
+  id: string
+  kind: 'texts'
+  /** The bridge's own id for the paired phone. */
+  address: string
+  name: string
+  createdAt: string
+  /**
+   * `live`: the bridge checked in lately and reports it is caught up. `catching-up`: it is reading a gap or the first fill in. `phone-not-answering`: the phone is off or out of reach (`since` says since when). `signed-out`: Google
+   * ended the bridge's sign-in; only the owner can sign in again. `session-taken`: another browser took the Messages for web session. `not-checked-in`: the bridge has not asked for work for five minutes (or never has), whatever
+   * it last said.
+   */
+  state: 'live' | 'catching-up' | 'phone-not-answering' | 'signed-out' | 'session-taken' | 'not-checked-in'
+  /** What the bridge last said of itself, and when; null before it has said anything. */
+  reported: {
+    state: 'live' | 'catching-up' | 'phone-not-answering' | 'signed-out' | 'session-taken'
+    at: string
+  } | null
+  /** For a phone that is not answering: since when (the time the bridge gave), else null. */
+  phoneSince: string | null
+  checkedInAt: string | null
+  lastPushAt: string | null
+  lastError: string | null
+  lastErrorAt: string | null
+  /** The chats the owner left out (nothing of them is held or carried), and the reads of a chat brought back that the bridge has not yet reported. */
+  leftOut: number
+  fillsOwed: number
+  messages: number
+  conversations: number
+  /** The open conversations that are not Bulk, and the unread ones of those. */
+  open: number
+  unreadOpen: number
+  /** Amber when `reasons` is not empty; each is a sentence for the owner. */
+  health: { amber: boolean; reasons: string[] }
+}
+
+/** A chat the owner left out, as the list shows it: the bridge's chat id, the name the phone gave it when it was left out, when and by whom (the owner's address, or Claude's actor on their word). */
+export interface TextsLeftOut {
+  chatId: string
+  name: string
+  at: string
+  by: string
+  /** Whether a Bring back of it is waiting for the bridge to read it again. */
+  fillOwed: boolean
 }
 
 /**

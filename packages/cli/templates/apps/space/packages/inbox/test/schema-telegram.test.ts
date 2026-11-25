@@ -142,7 +142,15 @@ describe('migration 17: groups and channels', () => {
     }
     expect(migrate(sql)).toBe(INBOX_VERSION)
     expect(db.query(`SELECT * FROM conversation`).all()).toEqual(
-      before.conversation.map((r) => ({ ...r, telegram_kind: null, telegram_pts: null, jmap_thread_id: null })),
+      // `jmap_thread_id` and the two `text_` columns are the later migrations 18 and 22's, which this store goes on to.
+      before.conversation.map((r) => ({
+        ...r,
+        telegram_kind: null,
+        telegram_pts: null,
+        jmap_thread_id: null,
+        text_chat_id: null,
+        text_kind: null,
+      })),
     )
     expect(db.query(`SELECT * FROM telegram_person`).all()).toEqual(before.person.map((r) => ({ ...r, chat: null })))
     expect(db.query(`SELECT * FROM message`).all()).toEqual(

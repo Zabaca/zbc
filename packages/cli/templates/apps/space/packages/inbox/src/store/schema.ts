@@ -37,7 +37,7 @@
  * cost, and the knowledge base's shape. The draft chat and the knowledge base's page added migration 10: the
  * chat's turns and a proposed change's target. The spam check added migration 11: what the spam classifier said
  * of a message. Several Gmail accounts added migration 14: when a grant lapsed, and the label of the account that already exists. The Telegram bridge
- * added migration 16: the mailbox table made again for a third kind, and what a Telegram chat, person and message need. Its groups and channels added migration 17: a chat's kind, a supergroup's or channel's own position, the identity that stands for a group, and whether a group message is addressed to the owner. A mailbox on the install's own mail server added migration 18: the mailbox table made again for a fourth kind (read and written over JMAP) and the server's own message and thread ids. Mailbox people added migration 19: the people of every mailbox. The calendar summary added migration 20: what an email's calendar part says, on the message.
+ * added migration 16: the mailbox table made again for a third kind, and what a Telegram chat, person and message need. Its groups and channels added migration 17: a chat's kind, a supergroup's or channel's own position, the identity that stands for a group, and whether a group message is addressed to the owner. A mailbox on the install's own mail server added migration 18: the mailbox table made again for a fourth kind (read and written over JMAP) and the server's own message and thread ids. Mailbox people added migration 19: the people of every mailbox. The calendar summary added migration 20: what an email's calendar part says, on the message. The company's leads added migration 21. The texts bridge added migration 22: the mailbox table made again for a fifth kind, and what a text conversation needs.
  * There is NO approval column anywhere: Claude's send is
  * authorised by the owner's instruction, recorded with each send, in place of an approval step.
  * `message.status` already names every status that is used, because SQLite
@@ -1081,6 +1081,82 @@ export const INBOX_MIGRATIONS: readonly InboxMigration[] = [
     PRIMARY KEY ("source", "external_id")
   );
   CREATE INDEX "lead_request_lead_idx" ON "lead_request" ("lead_id");
+  `,
+
+  // 22 ── a fifth kind of mailbox, fed by the texts bridge (the owner's phone, paired as Messages for web is), and the three things a text conversation needs.
+  //
+  // ── ONE-WAY, AND THE FOURTH REBUILD OF `mailbox` ────────────────────────────────────────────────────────────────
+  // SQLite cannot alter a CHECK, and `kind IN ('gmail', 'cloudflare', 'telegram', 'jmap')` must become `(..., 'texts')`; the `bridge_state` check must also take the two states a phone-paired bridge has that Telegram's does
+  // not (`phone-not-answering`, `session-taken`). The table is made again exactly as migrations 8, 16 and 18 did it, for the reasons migration 8's comment gives (read them before touching this): `PRAGMA defer_foreign_keys = ON`, the
+  // rows copied aside, the old table dropped, the new one created under its own name and the rows put back, so the checks at the commit find every reference settled. Five tables point at `mailbox` (`conversation`,
+  // `message`, `arrival_owed`, `assist_owed`, `knowledge_entry`) and none has an ON DELETE action, so no child row is touched. Every column is copied by name and the table gains NO column: a Gmail, Cloudflare, Telegram or
+  // JMAP row comes out of this exactly as it went in. A build before this one refuses a store at version 23 (`migrate`, below), so never redeploy an older commit as it was: keep every migration in the list, undo by a build of the
+  // old code that still carries this one (an undo build keeps migrations 12 to 22), and take a bookmark (scripts/inbox.ts bookmark) before applying. test/schema-texts.test.ts runs it over a store holding all four other
+  // kinds of row, with the checks enforced.
+  //
+  // ── WHAT A TEXTS MAILBOX USES OF THE ROW ──────────────────────────────────────────────────────────────────────────
+  // One row for the owner's one phone, made by the bridge's first call: `address` is the bridge's own id for the paired phone, `display_name` is "Texts" (the pill). It has no position (the phone has no account-wide cursor; the
+  // catch-up lists the phone's conversations against the newest message held per chat), no token and no labels. `last_push_at`, `checked_in_at` (written at most once a minute from the bridge's work requests, its heartbeat),
+  // `bridge_state` and `bridge_state_at` mean what they mean for Telegram.
+  //
+  // ── WHAT A TEXT CONVERSATION ADDS ─────────────────────────────────────────────────────────────────────────────────
+  // `conversation.text_chat_id` finds the conversation of a chat, unique per mailbox as a Gmail thread is: the bridge's own id for the chat. `conversation.text_kind` is what kind of chat it is (`person`, `short-code`,
+  // `named-sender`, `business` or `group`; groups are carried later, and the column is here so that needs no second rebuild). A text message needs no column: its key is the chat's id and the phone's own id for it
+  // on the existing arrival key, unique per mailbox; its edit and deletion stamps are migration 16's `edited_at` and `deleted_at`.
+  `
+  PRAGMA defer_foreign_keys = ON;
+
+  CREATE TABLE "mailbox_copy" AS SELECT * FROM "mailbox";
+  DROP TABLE "mailbox";
+
+  CREATE TABLE "mailbox" (
+    "id" TEXT PRIMARY KEY,
+    "kind" TEXT NOT NULL CHECK ("kind" IN ('gmail', 'cloudflare', 'telegram', 'jmap', 'texts')),
+    "address" TEXT NOT NULL,
+    "refresh_token" TEXT,
+    "scopes" TEXT NOT NULL DEFAULT '',
+    "history_id" TEXT,
+    "watch_expiry" TEXT,
+    "connected_at" TEXT NOT NULL,
+    "connected_by" TEXT NOT NULL,
+    "last_push_at" TEXT,
+    "last_sync_at" TEXT,
+    "last_error" TEXT,
+    "last_error_at" TEXT,
+    "last_resync_at" TEXT,
+    "retry_count" INTEGER NOT NULL DEFAULT 0,
+    "push_seq" INTEGER NOT NULL DEFAULT 0,
+    "synced_seq" INTEGER NOT NULL DEFAULT 0,
+    "push_suspect_at" TEXT,
+    "job" TEXT,
+    "display_name" TEXT NOT NULL DEFAULT '',
+    "last_arrival_at" TEXT,
+    "assistant" INTEGER NOT NULL DEFAULT 0,
+    "assistant_set_by" TEXT,
+    "assistant_set_at" TEXT,
+    "grant_lapsed_at" TEXT,
+    "checked_in_at" TEXT,
+    "bridge_state" TEXT CHECK ("bridge_state" IN ('live', 'catching-up', 'signed-out', 'phone-not-answering', 'session-taken')),
+    "bridge_state_at" TEXT,
+    UNIQUE ("kind", "address")
+  );
+
+  INSERT INTO "mailbox" ("id", "kind", "address", "refresh_token", "scopes", "history_id", "watch_expiry",
+    "connected_at", "connected_by", "last_push_at", "last_sync_at", "last_error", "last_error_at", "last_resync_at",
+    "retry_count", "push_seq", "synced_seq", "push_suspect_at", "job", "display_name", "last_arrival_at",
+    "assistant", "assistant_set_by", "assistant_set_at", "grant_lapsed_at", "checked_in_at", "bridge_state", "bridge_state_at")
+  SELECT "id", "kind", "address", "refresh_token", "scopes", "history_id", "watch_expiry",
+    "connected_at", "connected_by", "last_push_at", "last_sync_at", "last_error", "last_error_at", "last_resync_at",
+    "retry_count", "push_seq", "synced_seq", "push_suspect_at", "job", "display_name", "last_arrival_at",
+    "assistant", "assistant_set_by", "assistant_set_at", "grant_lapsed_at", "checked_in_at", "bridge_state", "bridge_state_at"
+  FROM "mailbox_copy";
+
+  DROP TABLE "mailbox_copy";
+
+  ALTER TABLE "conversation" ADD COLUMN "text_chat_id" TEXT;
+  ALTER TABLE "conversation" ADD COLUMN "text_kind" TEXT;
+  CREATE UNIQUE INDEX "conversation_text_idx" ON "conversation" ("mailbox_id", "text_chat_id")
+    WHERE "text_chat_id" IS NOT NULL;
   `,
 ]
 

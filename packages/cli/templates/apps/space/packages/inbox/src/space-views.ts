@@ -56,6 +56,7 @@ import {
   type InboxSpamCheck,
   type InboxTelegram,
   type InboxTestSent,
+  type InboxTexts,
   MAILBOX_ID,
   NOT_ADMITTED,
   type Refused,
@@ -96,6 +97,8 @@ import {
   type MailboxStatus,
   NOTIFICATIONS_NOT_SET_UP,
   type TelegramMailboxStatus,
+  type TextsLeftOut,
+  type TextsMailboxStatus,
 } from './types'
 
 /** What connecting Gmail says where the install's `gmail` switch is off. */
@@ -172,6 +175,22 @@ const telegramOf = (t: TelegramMailboxStatus): InboxTelegram => ({
   conversations: t.conversations,
   open: t.open,
   unreadOpen: t.unreadOpen,
+})
+
+const textsOf = (t: TextsMailboxStatus, leftOut: readonly TextsLeftOut[]): InboxTexts => ({
+  id: t.id,
+  name: t.name,
+  address: t.address,
+  state: t.state,
+  reportedAt: t.reported === null ? null : ms(t.reported.at),
+  checkedInAt: orNull(t.checkedInAt),
+  lastPushAt: orNull(t.lastPushAt),
+  phoneSince: orNull(t.phoneSince),
+  messages: t.messages,
+  conversations: t.conversations,
+  open: t.open,
+  unreadOpen: t.unreadOpen,
+  leftOut: leftOut.map((l) => ({ chatId: l.chatId, name: l.name, at: ms(l.at), fillOwed: l.fillOwed })),
 })
 
 const jmapOf = (m: JmapMailboxStatus): InboxJmap => ({
@@ -291,7 +310,7 @@ export function createSpaceViews(deps: SpaceDeps, asOwner: AsOwner, asPerson: As
     asPerson(asker, async ({ scope, owner }): Promise<SpaceReply<InboxNav>> => {
       // Each teammate's two addresses: the space puts a teammate known by both in one row, so a count must.
       const team = deps.install.people.map((p) => [p.address, p.signIn].map((a) => a.trim().toLowerCase()))
-      const [rows, drafts, dir, usage, gmail, boxes, telegram, jmap] = await Promise.all([
+      const [rows, drafts, dir, usage, gmail, boxes, telegram, jmap, texts] = await Promise.all([
         store.call('spaceRowCounts', team, scope),
         store.call('listDrafts', scope),
         readClients(deps.clients, deps.install),
@@ -300,6 +319,7 @@ export function createSpaceViews(deps: SpaceDeps, asOwner: AsOwner, asPerson: As
         store.call('cloudflareMailboxes'),
         store.call('telegramMailboxes'),
         store.call('jmapMailboxes'),
+        store.call('textsMailboxes'),
       ])
       const byId = clientsById(dir.clients)
       const none = { count: 0, unread: 0 }
@@ -318,6 +338,7 @@ export function createSpaceViews(deps: SpaceDeps, asOwner: AsOwner, asPerson: As
       // Only the mailboxes the person is on are listed at all, with their own counts.
       const mine = <T extends { id: string }>(list: readonly T[]): T[] => list.filter((m) => canSee(scope, m.id))
       const myTelegram = mine(telegram)[0]
+      const myTexts = mine(texts)[0]
       return answered({
         views: { ...rows.views, drafts: { ...rows.views.drafts, count: rows.views.drafts.count + loose } },
         mailboxes: mine(boxes).map((m) => ({
@@ -353,6 +374,21 @@ export function createSpaceViews(deps: SpaceDeps, asOwner: AsOwner, asPerson: As
               lastPushAt: orNull(myTelegram.lastPushAt),
             }
           : null,
+        // The texts mailbox, only where the install has the switch on: its line in the menu and at the foot.
+        ...(deps.install.has('texts') && {
+          texts: myTexts
+            ? {
+                id: myTexts.id,
+                name: myTexts.name,
+                address: myTexts.address,
+                ...(rows.mailboxes[myTexts.id] ?? none),
+                state: myTexts.state,
+                checkedInAt: orNull(myTexts.checkedInAt),
+                lastPushAt: orNull(myTexts.lastPushAt),
+                phoneSince: orNull(myTexts.phoneSince),
+              }
+            : null,
+        }),
         jmap: mine(jmap).map((m) => ({
           id: m.id,
           name: m.name,
@@ -381,19 +417,24 @@ export function createSpaceViews(deps: SpaceDeps, asOwner: AsOwner, asPerson: As
   // ── Mailboxes, the spam check, Gmail ────────────────────────────────────
 
   async function readMailboxes(scope: MailScope): Promise<InboxMailboxes> {
-    const [gmail, business, telegram, jmap, usage] = await Promise.all([
+    const [gmail, business, telegram, jmap, texts, leftOut, usage] = await Promise.all([
       store.call('mailboxStatuses'),
       store.call('cloudflareMailboxes'),
       store.call('telegramMailboxes'),
       store.call('jmapMailboxes'),
+      store.call('textsMailboxes'),
+      store.call('textsLeftOutList'),
       store.call('assistantUsage', null, null),
     ])
     const mine = <T extends { id: string }>(list: readonly T[]): T[] => list.filter((m) => canSee(scope, m.id))
     const myTelegram = mine(telegram)[0]
+    const myTexts = mine(texts)[0]
     return {
       gmailAccounts: mine(gmail).map(gmailOf),
       mailboxes: mine(business).map(businessOf),
       telegram: myTelegram ? telegramOf(myTelegram) : null,
+      // The texts card, only where the install has the switch on. The chats left out are the owner's, listed with the mailbox that is theirs.
+      ...(deps.install.has('texts') && { texts: myTexts ? textsOf(myTexts, leftOut) : null }),
       jmap: mine(jmap).map(jmapOf),
       assistantKey: usage.ok && usage.value.keyConfigured,
       capabilities: [...INBOX_CAPABILITIES],
