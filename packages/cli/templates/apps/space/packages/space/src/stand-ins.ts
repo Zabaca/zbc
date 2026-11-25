@@ -863,7 +863,7 @@ export function standInInbox(
       threads.splice(at, 1)
       for (let i = drafts.length - 1; i >= 0; i--) if (drafts[i]?.conversationId === conversationId) drafts.splice(i, 1)
       const card = views.state.texts
-      if (card) views.state.texts = { ...card, conversations: card.conversations - 1, messages: card.messages - t.messages.length, leftOut: [{ chatId: `c-${t.id}`, name, at: now(), fillOwed: false }, ...card.leftOut] }
+      if (card) views.state.texts = { ...card, conversations: card.conversations - 1, messages: card.messages - t.messages.length, leftOut: [{ chatId: `c-${t.id}`, name, at: now(), fillOwed: false, failure: null }, ...card.leftOut] }
       return answered({ chatId: `c-${t.id}`, removed: t.messages.length })
     },
 
@@ -875,7 +875,7 @@ export function standInInbox(
       const card = views.state.texts
       const found = card?.leftOut.find((l) => l.chatId === chatId && !l.fillOwed)
       if (!card || !found) return refused('not-found', 'That chat is not on the list.')
-      views.state.texts = { ...card, leftOut: card.leftOut.map((l) => (l.chatId === chatId ? { ...l, fillOwed: true } : l)) }
+      views.state.texts = { ...card, leftOut: card.leftOut.map((l) => (l.chatId === chatId ? { ...l, fillOwed: true, failure: null } : l)) }
       return answered({ chatId })
     },
 

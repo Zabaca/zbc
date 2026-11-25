@@ -20,8 +20,7 @@
  * and says so; Bring back removes the row and owes the bridge a read of the chat's last 30 days (`texts-fill:<chat id>`), settled by the bridge's outcome. The owner may do both; Claude's script may leave a chat out and never bring one back.
  *
  * ── READ AND CLOSED ARE THE INBOX'S OWN STAMPS, AND NOTHING RINGS ─────────────────────────────────
- * As for Telegram: a message from the other side arrives with neither stamp (unread, open), so a new text reopens a closed conversation; the owner's own is filed read and closed. In a `mirror` (the first fill, a catch-up read
- * back from the phone, a Bring back) a message is filed with the phone's read state and does not reopen a conversation the owner closed. The phone's own read marks come as events and stamp the messages read; nothing is ever written
+ * As for Telegram: a message from the other side arrives with neither stamp (unread, open), so a new text reopens a closed conversation; the owner's own is filed read and closed. In a `mirror` (history only: the first fill and a Bring back; a catch-up of a gap is pushed as live) a message is filed with the phone's read state and does not reopen a conversation the owner closed. The phone's own read marks come as events and stamp the messages read; nothing is ever written
  * back to the phone yet. No text owes a notification: the owner's phone already rings for it, and it is the same phone.
  */
 
@@ -64,7 +63,17 @@ interface LeftOutRow {
   name: string
   at: string
   by: string
+  /** Only on a `texts-fill:` row whose read the phone refused: when, the short answer, and how many times it has been tried. */
+  failed?: { at: string; reason: string; tries: number }
 }
+
+/** A refused read of a chat brought back is offered again after this long, and given up after this many tries (the card then says so, and Bring back tries again from the start). */
+export const FILL_RETRY_AFTER_MS = 10 * 60_000
+export const FILL_TRIES_MAX = 5
+
+/** What the Texts card says of a refused read: plain words, with the phone's short answer, and whether it will try again. */
+const fillFailureWords = (f: { reason: string; tries: number }): string =>
+  `The phone would not give this chat's last ${TEXTS_FILL_DAYS} days (${f.reason}).${f.tries < FILL_TRIES_MAX ? ' It will try again.' : ' It gave up; press Bring back to try again.'}`
 
 const collapse = (s: string): string => s.replace(/\s+/g, ' ').trim()
 
@@ -94,9 +103,11 @@ interface ConversationFound {
 const leftOutOf = (value: unknown): LeftOutRow | null => {
   try {
     const v = JSON.parse(text(value)) as Partial<LeftOutRow>
-    return typeof v.name === 'string' && typeof v.at === 'string' && typeof v.by === 'string'
-      ? { name: v.name, at: v.at, by: v.by }
-      : null
+    if (!(typeof v.name === 'string' && typeof v.at === 'string' && typeof v.by === 'string')) return null
+    const f = v.failed
+    const failed =
+      f && typeof f.at === 'string' && typeof f.reason === 'string' && typeof f.tries === 'number' ? { failed: f } : {}
+    return { name: v.name, at: v.at, by: v.by, ...failed }
   } catch {
     return null
   }
@@ -162,7 +173,18 @@ export class TextsStore extends TelegramStore {
       .toArray()
       .flatMap((r) => {
         const row = leftOutOf(r.value)
-        return row ? [{ chatId: text(r.key).slice(LEFT_OUT_PREFIX.length), ...row, fillOwed: false }] : []
+        return row
+          ? [
+              {
+                chatId: text(r.key).slice(LEFT_OUT_PREFIX.length),
+                name: row.name,
+                at: row.at,
+                by: row.by,
+                fillOwed: false,
+                failure: null,
+              },
+            ]
+          : []
       })
     // A chat brought back is off the list and owed a read: it is shown with the owed read until the bridge reports it, so Bring back is seen to be working.
     const brought = [...owed]
@@ -175,10 +197,12 @@ export class TextsStore extends TelegramStore {
           name: row?.name ?? chatId,
           at: row?.at ?? text(r.updated_at),
           by: row?.by ?? TEXTS_ACTOR,
-          fillOwed: true,
+          // Still being tried until it has failed as many times as it may.
+          fillOwed: row?.failed === undefined || row.failed.tries < FILL_TRIES_MAX,
+          failure: row?.failed ? fillFailureWords(row.failed) : null,
         }
       })
-    return [...left.map((l) => ({ ...l, fillOwed: owed.has(l.chatId) })), ...brought]
+    return [...left, ...brought]
   }
 
   /**
@@ -226,11 +250,20 @@ export class TextsStore extends TelegramStore {
     })
   }
 
-  /** Bring a chat back: it comes off the list and the bridge is owed a read of its last 30 days. The owner's alone (Claude's script has no way to call it). */
+  /**
+   * Bring a chat back: it comes off the list and the bridge is owed a read of its last 30 days. The owner's alone (Claude's script has no way to call it). A chat whose read the phone refused and that was given up on is
+   * brought back the same way, and its tries start again.
+   */
   bringBackTextChat(chatId: string, by: string): Result<{ chatId: string }> {
     return this.ports.transaction(() => {
-      const row = this.sql.exec(`SELECT value FROM setting WHERE key = ?1`, `${LEFT_OUT_PREFIX}${chatId}`).toArray()[0]
-      if (!row) return fail(404, 'That chat is not on the left-out list.')
+      let row = this.sql.exec(`SELECT value FROM setting WHERE key = ?1`, `${LEFT_OUT_PREFIX}${chatId}`).toArray()[0]
+      if (!row) {
+        const gaveUp = this.sql.exec(`SELECT value FROM setting WHERE key = ?1`, `${FILL_PREFIX}${chatId}`).toArray()[0]
+        const held = gaveUp && leftOutOf(gaveUp.value)
+        if (!held?.failed || held.failed.tries < FILL_TRIES_MAX)
+          return fail(404, 'That chat is not on the left-out list.')
+        row = { value: JSON.stringify({ name: held.name, at: held.at, by: held.by } satisfies LeftOutRow) }
+      }
       const at = this.now()
       // The fill row keeps the name the chat had, so the list can show it while the read is owed.
       this.sql.exec(
@@ -292,7 +325,9 @@ export class TextsStore extends TelegramStore {
       Number(this.sql.exec(`SELECT count(*) AS n FROM identity WHERE contact_id = ?1`, contactId).one().n) === 1
     const used =
       this.sql.exec(`SELECT 1 FROM participant WHERE identity_id = ?1 LIMIT 1`, identityId).toArray().length > 0 ||
-      this.sql.exec(`SELECT 1 FROM message WHERE identity_id = ?1 LIMIT 1`, identityId).toArray().length > 0
+      this.sql.exec(`SELECT 1 FROM message WHERE identity_id = ?1 LIMIT 1`, identityId).toArray().length > 0 ||
+      // A lead is on its contact (made from the side panel, or matched to the number by a site's request): the contact outlives the chat.
+      this.sql.exec(`SELECT 1 FROM lead WHERE contact_id = ?1 LIMIT 1`, contactId).toArray().length > 0
     if (!untouched || !alone || used) return
     this.sql.exec(`DELETE FROM identity WHERE id = ?1`, identityId)
     this.sql.exec(`DELETE FROM contact WHERE id = ?1`, contactId)
@@ -479,8 +514,7 @@ export class TextsStore extends TelegramStore {
   }
 
   /**
-   * Edits, deletions and read marks the phone told the bridge of. An edit replaces the text and stamps when; a deletion removes the text and leaves the row as a deleted message, and a message nobody had read yet is stamped read,
-   * so a deleted message never holds a conversation unread. A read mark stamps the incoming messages sent at or before it read, as the phone has them. Never written back to the phone. A name of a message or chat the inbox does
+   * Edits, deletions and read marks the phone told the bridge of. An edit replaces the text and stamps when; a deletion is counted (`ignored`) and changes nothing. A read mark stamps the incoming messages sent at or before it read, as the phone has them. Never written back to the phone. A name of a message or chat the inbox does
    * not hold (older than the first fill, never carried, or left out) is counted.
    */
   textsEvents(events: TextsEvents): Result<EventsResult> {
@@ -489,7 +523,7 @@ export class TextsStore extends TelegramStore {
       if (!mailbox.ok) return mailbox
       const mailboxId = text(mailbox.value.id)
       const at = this.now()
-      const out: EventsResult = { edited: 0, deleted: 0, read: 0, unknown: 0 }
+      const out: EventsResult = { edited: 0, ignored: 0, read: 0, unknown: 0 }
       const touched = new Set<string>()
       const found = (chatId: string, id: string) =>
         this.sql
@@ -517,26 +551,8 @@ export class TextsStore extends TelegramStore {
           touched.add(text(row.conversation_id))
         } else out.unknown += 1
       }
-      for (const d of events.deletions) {
-        for (const id of d.ids) {
-          const row = found(d.chatId, id)
-          const changed =
-            row &&
-            this.sql.exec(
-              `UPDATE message SET body = '', snippet = '', deleted_at = ?2, updated_at = ?3, updated_by = ?4,
-                                  read_at = coalesce(read_at, ?3), read_by = CASE WHEN read_at IS NULL THEN ?4 ELSE read_by END
-                WHERE id = ?1 AND deleted_at IS NULL`,
-              text(row.id),
-              d.at,
-              at,
-              TEXTS_ACTOR,
-            ).rowsWritten > 0
-          if (row && changed) {
-            out.deleted += 1
-            touched.add(text(row.conversation_id))
-          } else out.unknown += 1
-        }
-      }
+      // Deleting a text is not carried: the inbox's copy is the only one the owner may have of it. A deletion is heard, counted and changes nothing.
+      for (const d of events.deletions) out.ignored += d.ids.length
       const marked = this.applyTextsReads(mailboxId, events.reads ?? [], at, touched)
       out.read += marked.read
       out.unknown += marked.unknown
@@ -614,19 +630,26 @@ export class TextsStore extends TelegramStore {
           newest[chat] = { id: text(r.key).slice(chat.length + 1), at: text(r.at) }
         }
       }
+      // A read the phone refused is offered again after a pause, and given up after a few tries (the card says so).
       const owed = this.sql
-        .exec(
-          `SELECT key FROM setting WHERE key LIKE ?1 ORDER BY updated_at, key LIMIT ${LIMITS.owedPerWork}`,
-          `${FILL_PREFIX}%`,
-        )
+        .exec(`SELECT key, value FROM setting WHERE key LIKE ?1 ORDER BY updated_at, key`, `${FILL_PREFIX}%`)
         .toArray()
+        .filter((r) => {
+          const failed = leftOutOf(r.value)?.failed
+          return (
+            failed === undefined ||
+            (failed.tries < FILL_TRIES_MAX && now.getTime() - Date.parse(failed.at) >= FILL_RETRY_AFTER_MS)
+          )
+        })
+        .slice(0, LIMITS.owedPerWork)
         .map((r) => ({ kind: 'fill' as const, chatId: text(r.key).slice(FILL_PREFIX.length), days: TEXTS_FILL_DAYS }))
       return ok({ leftOut: this.leftOutIds().slice(0, LIMITS.leftOut), ...(newest && { newest }), owed })
     })
   }
 
   /**
-   * What became of what the bridge was owed: the read of a chat brought back, done or refused. A refused one settles too (it is not offered again) and is audited, so the failure is on record; the chat is no longer left out, and its history is not asked for again. An outcome that names nothing owed is counted.
+   * What became of what the bridge was owed: the read of a chat brought back, done or refused. A done one settles it. A refused one is audited and KEPT: it is offered again after `FILL_RETRY_AFTER_MS` (the bridge's memory does not
+   * survive a restart, so the space is the one that remembers), up to `FILL_TRIES_MAX` tries, and the Texts card shows the failure in words; after the last the owner's Bring back tries again from the start. An outcome that names nothing owed is counted.
    */
   textsOutcomes(report: TextsOutcomes): Result<OutcomesResult> {
     return this.ports.transaction(() => {
@@ -636,14 +659,22 @@ export class TextsStore extends TelegramStore {
       const out: OutcomesResult = { settled: 0, unknown: 0 }
       for (const o of report.outcomes) {
         const key = `${FILL_PREFIX}${o.chatId}`
-        const held = this.sql.exec(`SELECT 1 FROM setting WHERE key = ?1`, key).toArray()[0]
+        const held = this.sql.exec(`SELECT value FROM setting WHERE key = ?1`, key).toArray()[0]
         if (!held) {
           out.unknown += 1
           continue
         }
-        this.sql.exec(`DELETE FROM setting WHERE key = ?1`, key)
         out.settled += 1
-        if (!o.ok) {
+        if (o.ok) this.sql.exec(`DELETE FROM setting WHERE key = ?1`, key)
+        else {
+          const row = leftOutOf(held.value) ?? { name: o.chatId, at: this.now(), by: TEXTS_ACTOR }
+          const tries = (row.failed?.tries ?? 0) + 1
+          this.sql.exec(
+            `UPDATE setting SET value = ?2, updated_at = ?3 WHERE key = ?1`,
+            key,
+            JSON.stringify({ ...row, failed: { at: this.now(), reason: o.reason, tries } } satisfies LeftOutRow),
+            this.now(),
+          )
           this.audit(
             TEXTS_ACTOR,
             'texts.fill-failed',

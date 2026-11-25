@@ -425,18 +425,55 @@ describe('the left-out list', () => {
     expect(await outcomes(h, [{ kind: 'fill', chatId: 'c-2001', ok: true }])).toEqual({ settled: 0, unknown: 1 })
   })
 
-  test('a fill the phone would not give settles and is audited; a chat not on the list cannot be brought back; a text conversation only can be left out', async () => {
+  test('a contact that a lead is on stays when its chat is left out, so the lead is not orphaned', async () => {
+    const h = harness()
+    await send(h, push([person()], [message({ id: 'm1' })]))
+    const contact = rows<{ id: string }>(h, 'SELECT id FROM contact')[0]?.id as string
+    h.db.run(
+      `INSERT INTO lead (id, contact_id, mailbox, stage, created_at, created_by, last_request_at) VALUES ('l1', '${contact}', 'desk@northfield.example', 'new', 't', 'x', 't')`,
+    )
+    await leave(h, 'c-2001')
+    expect(rows(h, `SELECT 1 FROM contact WHERE id = '${contact}'`)).toHaveLength(1)
+    expect(rows(h, `SELECT 1 FROM identity WHERE contact_id = '${contact}'`)).toHaveLength(1)
+    expect(count(h, 'lead')).toBe(1)
+  })
+
+  test('a fill the phone would not give is kept, audited, offered again after a pause and given up after five tries; the card says so, and Bring back tries again from the start', async () => {
     const h = harness()
     await send(h, push([person()], [message({ id: 'm1' })]))
     await leave(h, 'c-2001')
     await h.store.call('bringBackTextChat', 'c-2001', OWNER.email)
-    expect(
-      await outcomes(h, [{ kind: 'fill', chatId: 'c-2001', ok: false, reason: 'CONVERSATION_NOT_FOUND' }]),
-    ).toEqual({
-      settled: 1,
-      unknown: 0,
-    })
+    const fail = () => outcomes(h, [{ kind: 'fill', chatId: 'c-2001', ok: false, reason: 'CONVERSATION_NOT_FOUND' }])
+    expect(await fail()).toEqual({ settled: 1, unknown: 0 })
     expect(rows(h, `SELECT 1 FROM audit WHERE action = 'texts.fill-failed'`)).toHaveLength(1)
+    // Not offered at once, so a failing phone is not asked in a loop; the card shows the failure and that it will try again.
+    expect((await work(h)).owed).toEqual([])
+    let [entry] = (await h.store.call('textsLeftOutList')) as { fillOwed: boolean; failure: string | null }[]
+    expect(entry).toMatchObject({ fillOwed: true })
+    expect(entry?.failure).toContain('CONVERSATION_NOT_FOUND')
+    expect(entry?.failure).toContain('It will try again.')
+    // After the pause it is offered again, and the memory is the space's: a restarted bridge is told too.
+    h.tick(10 * 60_000 + 1)
+    expect((await work(h)).owed).toEqual([{ kind: 'fill', chatId: 'c-2001', days: 30 }])
+    for (let tries = 2; tries <= 5; tries++) {
+      expect(await fail()).toEqual({ settled: 1, unknown: 0 })
+      h.tick(10 * 60_000 + 1)
+    }
+    // Given up: not offered, shown as given up, and Bring back is the way to start again.
+    expect((await work(h)).owed).toEqual([])
+    ;[entry] = (await h.store.call('textsLeftOutList')) as { fillOwed: boolean; failure: string | null }[]
+    expect(entry).toMatchObject({ fillOwed: false })
+    expect(entry?.failure).toContain('It gave up')
+    expect(await h.store.call('bringBackTextChat', 'c-2001', OWNER.email)).toMatchObject({ ok: true })
+    expect((await work(h)).owed).toEqual([{ kind: 'fill', chatId: 'c-2001', days: 30 }])
+    // A read that works settles it for good.
+    expect(await outcomes(h, [{ kind: 'fill', chatId: 'c-2001', ok: true }])).toEqual({ settled: 1, unknown: 0 })
+    expect(await h.store.call('textsLeftOutList')).toEqual([])
+  })
+
+  test('a chat not on the list cannot be brought back; a text conversation only can be left out', async () => {
+    const h = harness()
+    await send(h, push([person()], [message({ id: 'm1' })]))
     expect(await h.store.call('bringBackTextChat', 'c-9999', OWNER.email)).toMatchObject({
       ok: false,
       status: 404,
@@ -550,7 +587,7 @@ describe('what the bridge asks, and says of itself', () => {
 })
 
 describe('edits, deletions and the phone’s read marks', () => {
-  test('an edit replaces the words, a deletion removes them and leaves the row, and neither is written back anywhere', async () => {
+  test('an edit replaces the words, a deletion on the phone is counted and changes nothing, and neither is written back anywhere', async () => {
     const h = harness()
     await send(
       h,
@@ -563,7 +600,7 @@ describe('edits, deletions and the phone’s read marks', () => {
       edits: [{ chatId: 'c-2001', id: 'm1', text: 'see you at 10', at: '2026-11-05T10:05:00Z' }],
       deletions: [{ chatId: 'c-2001', ids: ['m2', 'zz'], at: '2026-11-05T10:06:00Z' }],
     })
-    expect(res).toEqual({ edited: 1, deleted: 1, read: 0, unknown: 1 })
+    expect(res).toEqual({ edited: 1, ignored: 2, read: 0, unknown: 0 })
     const [m1, m2] = rows<{
       body: string
       edited_at: string | null
@@ -571,9 +608,8 @@ describe('edits, deletions and the phone’s read marks', () => {
       read_at: string | null
     }>(h, 'SELECT body, edited_at, deleted_at, read_at FROM message ORDER BY arrival_key')
     expect(m1).toMatchObject({ body: 'see you at 10', edited_at: '2026-11-05T10:05:00.000Z' })
-    expect(m2).toMatchObject({ body: '' })
-    expect(m2?.deleted_at).not.toBeNull()
-    expect(m2?.read_at).not.toBeNull()
+    // The deleted text is held as it was: unread, with its words.
+    expect(m2).toMatchObject({ body: 'oops', deleted_at: null, read_at: null })
   })
 
   test('a read mark from the phone reads the texts sent at or before it, and never marks anything unread', async () => {

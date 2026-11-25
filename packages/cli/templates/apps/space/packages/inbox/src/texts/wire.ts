@@ -7,7 +7,7 @@
  * The bridge's door serves five calls and nothing else (src/texts/app.ts), each a POST of one JSON object to `/api/<name>` under the door's path:
  *
  *   push      messages the phone told the bridge of (live) or the bridge read out of the phone's history (a first fill, a catch-up, a Bring back), with the chats they are in
- *   events    edits, deletions and read marks the phone told the bridge of
+ *   events    edits, deletions (counted, never applied) and read marks the phone told the bridge of
  *   work      what the bridge is owed: the chats left out, the newest message held per chat on request, and the reads the space asks for. It is also the heartbeat: the space stamps
  *             "checked in" from it at most once a minute
  *   outcomes  what became of the work it was owed (the read of a chat brought back), so the space stops offering it
@@ -80,9 +80,9 @@ export interface TextsMessage {
 export interface TextsPush {
   account: { id: string }
   /**
-   * The messages were READ from the phone's history (the first fill, a catch-up of a gap, a Bring back): each is filed with the read state it carries, and it does not reopen a conversation the
-   * owner closed in the space. Absent or false they are live texts (the phone told the bridge as they arrived, or the bridge is catching up on what it missed while it was not listening
-   * and wants it to show as new): a text from the other side reopens a closed conversation.
+   * `mirror` means HISTORY ONLY: the messages were read from the phone's history for the first fill or for a Bring back. Each is filed with the read state it carries and is filed closed on a conversation the
+   * owner closed, so it never reopens one. Anything that may be news is pushed WITHOUT `mirror`, a catch-up of a gap in the live stream included: those texts are filed as they arrive (unread, open) and a text from
+   * the other side reopens a closed conversation.
    */
   mirror?: boolean
   chats: TextsChat[]
@@ -132,7 +132,7 @@ export interface TextsWorkRequest {
 }
 
 /**
- * One thing the space owes the bridge. A `fill` is the Bring back of a chat that was left out: the bridge reads that chat's last `days` days from the phone and pushes them as a `mirror`, then
+ * One thing the space owes the bridge. A `fill` is the Bring back of a chat that was left out: the bridge reads that chat's last `days` days from the phone and pushes them as a `mirror` (history only), then
  * reports the outcome. It is offered by every work request until an outcome (or a push that read it) settles it.
  */
 export type TextsOwed = { kind: 'fill'; chatId: string; days: number }
@@ -154,7 +154,7 @@ export interface TextsWork {
 
 /**
  * What became of one thing the bridge was owed. A fill that was read and pushed is `ok: true`; one the phone would not give carries the short answer (a code, never a message's text). Only the fill
- * of a chat that is owed settles; any other outcome is counted as unknown and changes nothing.
+ * of a chat that is owed settles; any other outcome is counted as unknown and changes nothing. A refusal is not the end of it: the space keeps the fill and offers it again after a pause.
  */
 export type TextsOutcome =
   | { kind: 'fill'; chatId: string; ok: true }
@@ -206,10 +206,11 @@ export interface PushResult {
 
 export interface EventsResult {
   edited: number
-  deleted: number
+  /** Deletions heard and ignored: deleting a text on the phone changes nothing in the inbox, which keeps its own copy. */
+  ignored: number
   /** Messages stamped read by this call's read marks. */
   read: number
-  /** Edits, deletions and read marks that named a message or chat the inbox does not hold (older than the first fill, never carried, or left out). */
+  /** Edits and read marks that named a message or chat the inbox does not hold (older than the first fill, never carried, or left out). */
   unknown: number
 }
 

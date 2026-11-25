@@ -190,7 +190,13 @@ const textsOf = (t: TextsMailboxStatus, leftOut: readonly TextsLeftOut[]): Inbox
   conversations: t.conversations,
   open: t.open,
   unreadOpen: t.unreadOpen,
-  leftOut: leftOut.map((l) => ({ chatId: l.chatId, name: l.name, at: ms(l.at), fillOwed: l.fillOwed })),
+  leftOut: leftOut.map((l) => ({
+    chatId: l.chatId,
+    name: l.name,
+    at: ms(l.at),
+    fillOwed: l.fillOwed,
+    failure: l.failure,
+  })),
 })
 
 const jmapOf = (m: JmapMailboxStatus): InboxJmap => ({

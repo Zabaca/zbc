@@ -25,7 +25,7 @@ The decisions behind it are ADR 0001 decision 36 (`adr/0001-the-inbox-is-its-own
 
 The messages, with the chats they are in. Every message's chat must be described in the same push's `chats` (the inbox does not keep a chat's description between pushes). At most 500 messages and 200 chats; a fill is sent in batches under these, oldest first. A push repeated after a timeout stores each message once.
 
-`mirror: true` means the messages were READ from the phone's history (the first fill, a catch-up of a gap, a Bring back): each is filed with the `read` it carries and none reopens a conversation the owner closed. Without it they are live (the phone told the bridge as they arrived) and a text from the other side reopens a closed conversation. A catch-up after a gap in the live stream is sent without `mirror` when the owner should see it as new.
+`mirror: true` means **history only**: the messages were read from the phone's history for the first fill or for a Bring back. Each is filed with the `read` it carries, and on a conversation the owner closed it is filed closed, so it never reopens one. Everything that may be news is sent **without** `mirror`, a catch-up of a gap in the live stream included: those texts are filed as they arrive (unread, open) and a text from the other side reopens a closed conversation.
 
 ```json
 {
@@ -54,7 +54,7 @@ Answer (`PushResult`):
 
 ### `events`
 
-What the phone changed: edits, deletions and read marks. All three arrays may be empty (`edits` and `deletions` are required, `reads` may be absent). A deletion names its chat and the message ids. A read mark says the owner read the chat on the phone: every incoming message of the chat sent at or before `upTo` is read in the inbox (it is never sent back to the phone and never marks anything unread).
+What the phone changed: edits, deletions and read marks. All three arrays may be empty (`edits` and `deletions` are required, `reads` may be absent). A deletion names its chat and the message ids; deleting a text is not carried, so a deletion is counted in `ignored` and changes nothing. A read mark says the owner read the chat on the phone: every incoming message of the chat sent at or before `upTo` is read in the inbox (it is never sent back to the phone and never marks anything unread).
 
 ```json
 {
@@ -65,7 +65,7 @@ What the phone changed: edits, deletions and read marks. All three arrays may be
 }
 ```
 
-Answer: `{ "edited": 1, "deleted": 1, "read": 1, "unknown": 0 }`. A name of a message or chat the inbox does not hold (older than the fill, never carried, left out) is counted in `unknown`.
+Answer: `{ "edited": 1, "ignored": 1, "read": 1, "unknown": 0 }`. A name of a message or chat the inbox does not hold (older than the fill, never carried, left out) is counted in `unknown`.
 
 ### `work`
 
@@ -104,7 +104,7 @@ What became of the work it was owed.
 }
 ```
 
-A `reason` is a short code of 1 to 120 plain characters (`A-Z a-z 0-9 _ space ( ) . : -`), never a message's text. Answer: `{ "settled": 2, "unknown": 0 }` (`unknown` is an outcome that names nothing owed). A failed fill is not offered again and is audited. The chat is no longer left out, so its new texts come in; its last 30 days are not asked for again.
+A `reason` is a short code of 1 to 120 plain characters (`A-Z a-z 0-9 _ space ( ) . : -`), never a message's text. Answer: `{ "settled": 2, "unknown": 0 }` (`unknown` is an outcome that names nothing owed). A failed fill is audited and kept: the space offers it again in `work` after ten minutes, up to five tries, and the owner's Settings shows the failure in words; the bridge keeps no memory of it across a restart and need not. After the fifth failure the space stops offering it until the owner presses Bring back again.
 
 ### `status`
 

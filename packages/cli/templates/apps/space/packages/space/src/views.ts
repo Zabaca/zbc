@@ -170,7 +170,7 @@ const isTextsCard = (v: unknown): boolean =>
     isCount(v.conversations) &&
     isCount(v.open) &&
     isCount(v.unreadOpen) &&
-    each(v.leftOut, (l) => isRecord(l) && isText(l.chatId) && isText(l.name) && isCount(l.at) && isBool(l.fillOwed)))
+    each(v.leftOut, (l) => isRecord(l) && isText(l.chatId) && isText(l.name) && isCount(l.at) && isBool(l.fillOwed) && (l.failure === null || isText(l.failure))))
 
 const isTelegramCard = (v: unknown): boolean =>
   v === undefined ||

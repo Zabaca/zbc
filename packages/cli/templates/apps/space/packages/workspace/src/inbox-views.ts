@@ -210,6 +210,8 @@ export interface InboxLeftOutChat {
   name: string
   at: number
   fillOwed: boolean
+  /** In words, when the phone refused the read of a chat brought back and whether it will try again (Bring back is offered again once it gave up); null otherwise. */
+  failure: string | null
 }
 
 /**

@@ -46,8 +46,10 @@ export function fixtureViews(now: number, telegram: TelegramFixture = 'live', jm
     unreadOpen: 2,
     // One chat left out a while ago, and one brought back that the bridge has not yet read again.
     leftOut: [
-      { chatId: 'c-8001', name: 'Mum', at: ago(60 * 24 * 3), fillOwed: false },
-      { chatId: 'c-8002', name: 'Pool club', at: ago(60 * 24 * 9), fillOwed: true },
+      { chatId: 'c-8001', name: 'Mum', at: ago(60 * 24 * 3), fillOwed: false, failure: null },
+      { chatId: 'c-8002', name: 'Pool club', at: ago(60 * 24 * 9), fillOwed: true, failure: null },
+      { chatId: 'c-8003', name: 'Book club', at: ago(60 * 24 * 5), fillOwed: true, failure: 'The phone would not give this chat’s last 30 days (CONVERSATION_NOT_FOUND). It will try again.' },
+      { chatId: 'c-8004', name: 'Old landlord', at: ago(60 * 24 * 6), fillOwed: false, failure: 'The phone would not give this chat’s last 30 days (CONVERSATION_NOT_FOUND). It gave up; press Bring back to try again.' },
     ],
   }
   const refusedWords = 'The mail server refused the space’s key for test@harborline.example (or Cloudflare Access refused the space’s token at its door), so nothing new arrives or goes out from it. A deploy with a working key ends this.'

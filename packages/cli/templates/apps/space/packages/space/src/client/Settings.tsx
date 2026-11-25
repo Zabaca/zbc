@@ -401,10 +401,17 @@ export function TextsCard({ texts, now, zone, busy = false, onBringBack }: { tex
                 <span>
                   <b>{chat.name || chat.chatId}</b> <span className="sub">left out {when(chat.at)}</span>
                 </span>{' '}
-                {chat.fillOwed ? (
-                  <span className="sub" data-testid="texts-fill-owed">
-                    Reading its last 30 days...
+                {chat.failure !== null && (
+                  <span className="s-warn" data-testid="texts-fill-failure">
+                    {chat.failure}
                   </span>
+                )}{' '}
+                {chat.fillOwed ? (
+                  chat.failure === null && (
+                    <span className="sub" data-testid="texts-fill-owed">
+                      Reading its last 30 days...
+                    </span>
+                  )
                 ) : (
                   <button type="button" className="btn" data-testid="bring-back" disabled={busy || onBringBack === undefined} onClick={() => onBringBack?.(chat.chatId)}>
                     Bring back

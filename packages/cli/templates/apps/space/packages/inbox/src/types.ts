@@ -958,8 +958,10 @@ export interface TextsLeftOut {
   name: string
   at: string
   by: string
-  /** Whether a Bring back of it is waiting for the bridge to read it again. */
+  /** Whether a Bring back of it is waiting for the bridge to read it again (still being tried). */
   fillOwed: boolean
+  /** In words, when the phone refused the read of a chat brought back (and whether it will try again); null otherwise. */
+  failure: string | null
 }
 
 /**

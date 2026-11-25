@@ -116,14 +116,30 @@ describe('the menu', () => {
     expect(none).not.toContain('bring-back')
     const markup = html(
       card(t, [
-        { chatId: 'c-8001', name: 'Mum', at: at(60 * 24 * 3), fillOwed: false },
-        { chatId: 'c-8002', name: 'Pool club', at: at(60 * 24 * 9), fillOwed: true },
+        { chatId: 'c-8001', name: 'Mum', at: at(60 * 24 * 3), fillOwed: false, failure: null },
+        { chatId: 'c-8002', name: 'Pool club', at: at(60 * 24 * 9), fillOwed: true, failure: null },
       ]),
     )
     expect(markup.match(/data-testid="texts-left-out-row"/g)).toHaveLength(2)
     expect(markup.match(/data-testid="bring-back"/g)).toHaveLength(1)
     expect(markup).toContain('Mum')
     expect(markup).toContain('Reading its last 30 days...')
+  })
+
+  test('is shown in words: while it will try again it offers nothing, and once it gave up Bring back is offered again', () => {
+    const t = nav({}).texts as NonNullable<InboxNav['texts']>
+    const trying = 'The phone would not give this chat’s last 30 days (CONVERSATION_NOT_FOUND). It will try again.'
+    const gaveUp = 'The phone would not give this chat’s last 30 days (CONVERSATION_NOT_FOUND). It gave up; press Bring back to try again.'
+    const markup = html(
+      card(t, [
+        { chatId: 'c-8003', name: 'Book club', at: at(60 * 24 * 5), fillOwed: true, failure: trying },
+        { chatId: 'c-8004', name: 'Old landlord', at: at(60 * 24 * 6), fillOwed: false, failure: gaveUp },
+      ]),
+    )
+    expect(markup.match(/data-testid="texts-fill-failure"/g)).toHaveLength(2)
+    expect(markup).toContain('It will try again.')
+    expect(markup).not.toContain('Reading its last 30 days...')
+    expect(markup.match(/data-testid="bring-back"/g)).toHaveLength(1)
   })
 })
 
@@ -139,7 +155,7 @@ describe('Settings reads the card from the inbox’s answer', () => {
     const apps = fixtureApps(NOW)
     const card = (await view(apps.inbox, 'mailboxes')).value.texts
     expect(card).toMatchObject({ state: 'live', name: 'Texts' })
-    expect(card?.leftOut).toHaveLength(2)
+    expect(card?.leftOut).toHaveLength(4)
     expect((await view(apps.inbox, 'navigation')).value.texts).toMatchObject({ name: 'Texts', state: 'live' })
     const bad = fixtureApps(NOW)
     const real = bad.inbox.mailboxes.bind(bad.inbox)
