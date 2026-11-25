@@ -14,7 +14,7 @@ The decisions behind it are ADR 0001 decision 36 (`adr/0001-the-inbox-is-its-own
 
 - **Ids** (`account.id`, a chat's `id`, a message's `id`) are the bridge's own: 1 to 100 of letters, digits and `. _ = ~ -`, **never a colon** (the inbox's key for a message is `<chat id>:<message id>`). If the phone's id holds anything else, the bridge encodes it the same way every time (base64url without padding is fine) and uses that everywhere. `account.id` names the paired phone and never changes: the inbox holds ONE texts account and answers 409 to another.
 - **Times** are ISO 8601 with a zone (`2026-01-05T17:03:09Z`). The inbox stores them in UTC.
-- **A chat** is `{ id, kind, name, address?, members? }`. `kind` is `person`, `short-code`, `named-sender`, `business` or `group`. `name` is as the phone names the chat (may be empty). `address` is the other side's identity and its spelling depends on the kind: a `person`'s E.164 number (`+15555550123`: a plus, 7 to 15 digits, the first not 0; a number the bridge cannot put in E.164 is not a person, it goes as a `named-sender` with the digits as the name), a `short-code`'s digits (3 to 8, no plus), a `named-sender`'s name as the phone has it, a `business` chat's id; a `group` has none. Every kind but `person` and `group` is an **automated sender**: the inbox files it under Bulk and never joins it to a person. A business that texts from an ordinary number cannot be told from a person and is a `person`.
+- **A chat** is `{ id, kind, name, address?, members? }`. `kind` is `person`, `short-code`, `named-sender`, `business` or `group`. `name` is as the phone names the chat (may be empty; control characters become spaces and a name over 200 characters is cut, never refused, because a name is a label and not an identity). `address` is the other side's identity and its spelling depends on the kind: a `person`'s E.164 number (`+15555550123`: a plus, 7 to 15 digits, the first not 0; a number the bridge cannot put in E.164 is not a person, it goes as a `named-sender` with the digits as the name), a `short-code`'s digits (3 to 8, no plus), a `named-sender`'s name as the phone has it, a `business` chat's id; a `group` has none. Every kind but `person` and `group` is an **automated sender**: the inbox files it under Bulk and never joins it to a person. A business that texts from an ordinary number cannot be told from a person and is a `person`.
 - **A message** is `{ chatId, id, at, out, text, read, sender? }`. `out` is the owner's own text (sent from their phone or another device); `text` is plain, at most 20,000 characters, and a message with no words carries a bracketed label (`[Photo]`, `[Voice note]`, `[Video]`, `[File]`, `[Contact]`, `[Location]`): files are not carried yet. `read` is the phone's state (an `out` message is read). `sender` is `{ address?, name }`, required for a message in a group and ignored in any other chat (the inbox takes the sender from the chat there).
 - **Nothing is kept out for its kind.** A business sender's text and a sign-in code are pushed like any other. The one exclusion is the **left-out list**, which the bridge drops at its own edge on every path (the fill, the catch-up, the live stream) and which the inbox refuses again.
 - **Unknown fields are dropped, not refused**, so a bridge may send more than the inbox reads yet. A wrong shape is refused whole with the field named.
@@ -69,7 +69,7 @@ Answer: `{ "edited": 1, "deleted": 1, "read": 1, "unknown": 0 }`. A name of a me
 
 ### `work`
 
-What the bridge is owed. **It is the heartbeat**: the bridge asks every few seconds and the inbox records "checked in" from it (at most once a minute). The request carries the **capability flags** of this bridge: `sends`, `media`, `pictures` (booleans, all absent in this slice's bridge; a later slice offers sends, read marks and files only to a bridge that says it takes them). `newest: true` also answers the newest message held per chat, which is what the bridge's catch-up on every reconnect compares the phone's own listing against (the phone's conversations by last activity, each one newer than what the inbox holds read back).
+What the bridge is owed. **It is the heartbeat**: the bridge asks every few seconds and the inbox records "checked in" from it (at most once a minute). The request carries the **capability flags** of this bridge: `sends`, `media`, `pictures` (booleans, all absent from a bridge that takes none of them; a later version offers sends, read marks and files only to a bridge that says it takes them). `newest: true` also answers the newest message held per chat, which is what the bridge's catch-up on every reconnect compares the phone's own listing against (the phone's conversations by last activity, each one newer than what the inbox holds read back).
 
 ```json
 { "account": { "id": "phone-1" }, "newest": true }
@@ -87,7 +87,7 @@ What the bridge is owed. **It is the heartbeat**: the bridge asks every few seco
 ```
 
 - `leftOut` is the **whole** left-out list every time (at most 1,000 chat ids). Nothing of these chats is pushed, on any path, from the moment the bridge has the list, and the bridge reads the list before it fills anything.
-- `owed` is what the inbox asks the bridge to do, oldest first, at most 50, offered again by every request until it is settled. This slice has one kind, a **fill**: the owner brought a chat back from the left-out list, so the bridge reads that chat's last `days` (30) days from the phone, pushes them with `mirror: true`, and reports the outcome. A bridge ignores an item of a kind it does not know and never reports it.
+- `owed` is what the inbox asks the bridge to do, oldest first, at most 50, offered again by every request until it is settled. Today there is one kind, a **fill**: the owner brought a chat back from the left-out list, so the bridge reads that chat's last `days` (30) days from the phone, pushes them with `mirror: true`, and reports the outcome. A bridge ignores an item of a kind it does not know and never reports it.
 - `newest` is keyed by chat id; `at` is ISO UTC. Message ids are not ordered, so the comparison is by time.
 
 ### `outcomes`
@@ -104,7 +104,7 @@ What became of the work it was owed.
 }
 ```
 
-A `reason` is a short code of 1 to 120 plain characters (`A-Z a-z 0-9 _ space ( ) . : -`), never a message's text. Answer: `{ "settled": 2, "unknown": 0 }` (`unknown` is an outcome that names nothing owed). A failed fill is not offered again; the owner sees it and may press Bring back again.
+A `reason` is a short code of 1 to 120 plain characters (`A-Z a-z 0-9 _ space ( ) . : -`), never a message's text. Answer: `{ "settled": 2, "unknown": 0 }` (`unknown` is an outcome that names nothing owed). A failed fill is not offered again and is audited. The chat is no longer left out, so its new texts come in; its last 30 days are not asked for again.
 
 ### `status`
 
