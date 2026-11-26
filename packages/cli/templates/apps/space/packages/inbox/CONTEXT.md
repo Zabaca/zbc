@@ -17,7 +17,7 @@ nothing is assigned by matching an address (see **Suggestion**).
 _Avoid_: customer, lead, account
 
 **Lead**:
-One request on a contact (someone who asked for something), in one of the install's stages, with the install's fields. Not the contact: a person can have several leads over time, and a request while one is open folds into it. Seen by whoever is on the mailbox the install's leads belong to. ADR 0005.
+One request on a contact (someone who asked for something), in one of the install's stages, with the install's fields. Not the contact: a person can have several leads over time, and a request while one is open folds into it. Seen by whoever is on the mailbox the install's leads belong to; Claude's script reads them and moves one between the install's stages with the owner's eyes, recorded as Claude, and makes none. ADR 0005.
 _Avoid_: deal, opportunity, prospect (for the record)
 
 **Identity**:

@@ -44,6 +44,7 @@ import { inboxOwnerOf } from './owner'
 import { canSee, type MailScope, planQueue, queueRows } from './queue'
 import type { Restores } from './restore'
 import { searchTerms } from './search'
+import { leadsForClaude } from './space-leads'
 import type { SpaceReadMethod, SpaceReads } from './space-reads'
 import { parseCcList } from './store/address'
 import type { LeadStore } from './store/leads'
@@ -322,8 +323,9 @@ export const SPACE_METHODS = [
 ] as const satisfies readonly (keyof SpaceStore)[]
 
 /**
- * The company's leads (src/store/leads.ts): what the space's part asks (src/space-leads.ts) and what its leads door hands in. Not routes: only the part, after the space's one sign-in check named the
- * person and the install's leads rules were checked, calls them.
+ * The company's leads (src/store/leads.ts): what the space's part asks (src/space-leads.ts) and what its leads door hands in. No route calls one of them directly: the part does, after the space's one
+ * sign-in check named the person, and so do Claude's three leads routes below (the board, one person's leads, a move; the inbox's ADR 0005 decision 6), and both go through the same functions of
+ * src/space-leads.ts, which check the install's leads rules before the store is asked. `makeLead` and `receiveLead` are reached from no route of Claude's.
  */
 export const LEAD_METHODS = [
   'spaceLeads',
@@ -1344,6 +1346,39 @@ export function createApp(deps: Deps) {
   app.get('/api/assistant/usage', async (c) =>
     answer(c, await store(c).call('assistantUsage', c.req.query('since') ?? null, c.req.query('until') ?? null)),
   )
+
+  // ─── the company's leads: the owner's board, read and moved by Claude's script (the inbox's ADR 0005 decision 6) ───
+  //
+  // Only where the install has the `leads` switch: without it none of the three is a route at all, and each path answers what any unknown path does. Claude acts for the owner, so each is the owner's own
+  // call (`leadsForClaude`, src/space-leads.ts: the same gate, checks and store calls as the owner's page, cut by the owner's scope), and a move is stamped and audited with Claude's actor, as its other
+  // writes are. There is no route that makes a lead, deletes one or changes its fields.
+  if (install.has('leads')) {
+    const leadsAnswer = <T>(c: Context<App>, got: SpaceReply<T>) => {
+      if (got.ok) return c.json(got.value)
+      return c.json({ error: got.message }, got.kind === 'refused' ? REFUSAL_STATUS[got.reason] : 500)
+    }
+    const leads = (c: Context<App>) => leadsForClaude({ store: store(c), install })
+    const asking = (c: Context<App>) => ({ actor: c.get('who').actor, scope: c.get('scope') })
+
+    /** The board: the install's stages and fields, then every lead the owner may see (the open ones first, each newest request first), with its stage, fields, person, source and moments. A read: nothing is marked. */
+    app.get('/api/leads', async (c) => leadsAnswer(c, await leads(c).board(asking(c))))
+
+    /** One person's leads, the open ones first. The contact was checked above (`mayNameContact`): one the owner may not see is not found. */
+    app.get('/api/contacts/:id/leads', async (c) =>
+      leadsAnswer(c, await leads(c).ofContact(asking(c), c.req.param('id'))),
+    )
+
+    /**
+     * Move a lead to another stage of the install's: `{"rev": N, "stage": "<stage id>"}`, the revision being the one the read printed, so a lead that changed since is not moved (409). A stage the install
+     * does not declare is refused (422) and a lead the owner may not see is not found. It can be undone by moving it back, so it needs no instruction, as Close does not.
+     */
+    app.post('/api/leads/:id/move', async (c) => {
+      const body = await json(c.req.raw)
+      if (!body.ok) return c.json({ error: body.error }, 400)
+      const { rev, stage } = body.value
+      return leadsAnswer(c, await leads(c).move(asking(c), { leadId: c.req.param('id'), rev, stage }))
+    })
+  }
 
   /** Ask for a sync now, of every account with a working grant. Owner or agent: it only asks Gmail what changed, and changes nothing else. */
   app.post('/api/mailbox/sync', async (c) => answer(c, await store(c).call('requestSync')))

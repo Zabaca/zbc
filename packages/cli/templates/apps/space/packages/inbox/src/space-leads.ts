@@ -5,6 +5,8 @@
  * ── WHO ───────────────────────────────────────────────────────────────────
  * Where the `leads` switch is on, the install's leads belong to one mailbox (`Install.leads().mailbox`), and whoever is on it sees and works them, the owner always: the same people who see that
  * mailbox's mail. Anyone else is `not-admitted` here, before the store is asked; the store cuts every read and write by the person's scope again (a lead keeps the mailbox it was made in).
+ * Claude's door (src/app.ts) reads the board and one person's leads and moves a lead through the same functions, as the owner with the owner's scope and under its own actor (`leadsForClaude`; ADR 0005
+ * decision 6); it makes none.
  *
  * ── THE INSTALL'S WORDS ───────────────────────────────────────────────────
  * A stage is one the install declares, and a field a key it declares, with a value of at most `LEAD_FIELD_MAX` characters: checked here, so the store only ever holds what the install said. The store
@@ -95,7 +97,18 @@ export async function openLeadsFor(
   return deps.store.call('openLeadCount', scope, leadRulesOf(leads).settled)
 }
 
-export function createSpaceLeads(deps: SpaceDeps, asPerson: AsPerson): LeadsPart {
+/** Who works the leads, once admitted: the address a move is stamped with, what they may see, and whether they are the install's owner. A person of the install (`personGate`), or Claude at its door, who reads with the owner's scope (`leadsForClaude`). */
+export interface LeadsAsker {
+  actor: string
+  scope: MailScope
+  owner: boolean
+}
+
+/**
+ * Every lead method after its caller was admitted, in ONE place, so the space's people and Claude's door (src/app.ts) cannot read the rules two ways: the gate (the switch, then the leads' mailbox), the ids,
+ * the revision, the install's stages and fields, and then the store, which cuts by the scope again.
+ */
+function leadsWork(deps: Pick<SpaceDeps, 'store' | 'install'>) {
   const { store, install } = deps
 
   /**
@@ -113,48 +126,79 @@ export function createSpaceLeads(deps: SpaceDeps, asPerson: AsPerson): LeadsPart
     return { ok: true, leads }
   }
 
-  const leads = (asker: SignedIn) =>
-    asPerson(asker, async ({ scope, owner }): Promise<SpaceReply<InboxLeads>> => {
-      const gate = await leadsFor(scope, owner)
-      if (!gate.ok) return gate.reply
-      return answered(await store.call('spaceLeads', scope, leadRulesOf(gate.leads).settled, null))
-    })
+  const board = async ({ scope, owner }: LeadsAsker): Promise<SpaceReply<InboxLeads>> => {
+    const gate = await leadsFor(scope, owner)
+    if (!gate.ok) return gate.reply
+    return answered(await store.call('spaceLeads', scope, leadRulesOf(gate.leads).settled, null))
+  }
 
-  const contactLeads = (asker: SignedIn, contactId: string) =>
-    asPerson(asker, async ({ scope, owner }): Promise<SpaceReply<InboxLeads>> => {
-      // Refused, as the board is, for someone who may not see the leads: the answer does not depend on the person asked about, so it tells nothing, and the page then draws no Leads section.
-      const gate = await leadsFor(scope, owner)
-      if (!gate.ok) return gate.reply
-      if (typeof contactId !== 'string' || !ID.test(contactId)) return refused('not-found', 'No such contact.')
-      return answered(await store.call('spaceLeads', scope, leadRulesOf(gate.leads).settled, contactId))
-    })
+  const ofContact = async ({ scope, owner }: LeadsAsker, contactId: unknown): Promise<SpaceReply<InboxLeads>> => {
+    // Refused, as the board is, for someone who may not see the leads: the answer does not depend on the person asked about, so it tells nothing, and the page then draws no Leads section.
+    const gate = await leadsFor(scope, owner)
+    if (!gate.ok) return gate.reply
+    if (typeof contactId !== 'string' || !ID.test(contactId)) return refused('not-found', 'No such contact.')
+    return answered(await store.call('spaceLeads', scope, leadRulesOf(gate.leads).settled, contactId))
+  }
 
-  const moveLead = (asker: SignedIn, move: InboxLeadMove) =>
-    asPerson(asker, async ({ actor, scope, owner }): Promise<SpaceReply<InboxLead>> => {
-      const gate = await leadsFor(scope, owner)
-      if (!gate.ok) return gate.reply
-      if (!isRecord(move)) return BAD('A move names the lead, the revision you were shown and the stage.')
-      const { leadId, rev, stage } = move
-      if (typeof leadId !== 'string' || !ID.test(leadId)) return refused('not-found', 'There is no such lead.')
-      if (!isCount(rev)) return BAD('Say which revision of the lead you were shown (rev).')
-      const wrong = notAStage(gate.leads, stage)
-      if (wrong !== null) return BAD(wrong)
-      return reply(await store.call('moveLead', leadId, rev, stage as string, actor, scope))
-    })
+  const move = async ({ actor, scope, owner }: LeadsAsker, asked: unknown): Promise<SpaceReply<InboxLead>> => {
+    const gate = await leadsFor(scope, owner)
+    if (!gate.ok) return gate.reply
+    if (!isRecord(asked)) return BAD('A move names the lead, the revision you were shown and the stage.')
+    const { leadId, rev, stage } = asked
+    if (typeof leadId !== 'string' || !ID.test(leadId)) return refused('not-found', 'There is no such lead.')
+    if (!isCount(rev)) return BAD('Say which revision of the lead you were shown (rev).')
+    const wrong = notAStage(gate.leads, stage)
+    if (wrong !== null) return BAD(wrong)
+    return reply(await store.call('moveLead', leadId, rev, stage as string, actor, scope))
+  }
 
-  const makeLead = (asker: SignedIn, make: InboxLeadMake) =>
-    asPerson(asker, async ({ actor, scope, owner }): Promise<SpaceReply<InboxLead>> => {
-      const gate = await leadsFor(scope, owner)
-      if (!gate.ok) return gate.reply
-      if (!isRecord(make)) return BAD('A new lead names the person and its fields.')
-      const { contactId } = make
-      if (typeof contactId !== 'string' || !ID.test(contactId)) return refused('not-found', 'There is no such person.')
-      const fields = checkLeadFields(gate.leads, make.fields ?? {})
-      if (!fields.ok) return BAD(fields.message)
-      return reply(await store.call('makeLead', contactId, fields.value, leadRulesOf(gate.leads), actor, scope))
-    })
+  const make = async ({ actor, scope, owner }: LeadsAsker, asked: unknown): Promise<SpaceReply<InboxLead>> => {
+    const gate = await leadsFor(scope, owner)
+    if (!gate.ok) return gate.reply
+    if (!isRecord(asked)) return BAD('A new lead names the person and its fields.')
+    const { contactId } = asked
+    if (typeof contactId !== 'string' || !ID.test(contactId)) return refused('not-found', 'There is no such person.')
+    const fields = checkLeadFields(gate.leads, asked.fields ?? {})
+    if (!fields.ok) return BAD(fields.message)
+    return reply(await store.call('makeLead', contactId, fields.value, leadRulesOf(gate.leads), actor, scope))
+  }
 
-  return { leads, contactLeads, moveLead, makeLead }
+  return { board, ofContact, move, make }
+}
+
+export function createSpaceLeads(deps: SpaceDeps, asPerson: AsPerson): LeadsPart {
+  const work = leadsWork(deps)
+  return {
+    leads: (asker: SignedIn) => asPerson(asker, (who) => work.board(who)),
+    contactLeads: (asker: SignedIn, contactId: string) => asPerson(asker, (who) => work.ofContact(who, contactId)),
+    moveLead: (asker: SignedIn, move: InboxLeadMove) => asPerson(asker, (who) => work.move(who, move)),
+    makeLead: (asker: SignedIn, make: InboxLeadMake) => asPerson(asker, (who) => work.make(who, make)),
+  }
+}
+
+/** The leads as Claude's script reads them: the install's stages and fields (its words, as the page is given them; never the mailbox), then the read. */
+export type ClaudeLeads = Pick<Leads, 'stages' | 'fields'> & InboxLeads
+
+/**
+ * The leads at Claude's door (src/app.ts, the inbox's ADR 0005 decision 6): the board, one person's leads and a move, and nothing else (a lead is not made here). Claude acts for the owner, so every call
+ * is the owner's own, by the same functions the owner's page goes through: `scope` is the owner's (the router's, `mailScope` of Claude's actor), so the store cuts every read and the move to what the owner
+ * may see, and the gate is the owner's. A move is stamped with Claude's own actor (`agent:<token id>`), as its other writes are, so the board and the audit say it was Claude and never the owner.
+ */
+export function leadsForClaude(deps: Pick<SpaceDeps, 'store' | 'install'>) {
+  const work = leadsWork(deps)
+  const asOwner = (who: { actor: string; scope: MailScope }): LeadsAsker => ({ ...who, owner: true })
+  const worded = (read: SpaceReply<InboxLeads>): SpaceReply<ClaudeLeads> => {
+    if (!read.ok) return read
+    const leads = leadsOf(deps.install)
+    if (leads === null) return refused('not-found', NO_LEADS)
+    return answered({ stages: leads.stages, fields: leads.fields, ...read.value })
+  }
+  return {
+    board: async (who: { actor: string; scope: MailScope }) => worded(await work.board(asOwner(who))),
+    ofContact: async (who: { actor: string; scope: MailScope }, contactId: unknown) =>
+      worded(await work.ofContact(asOwner(who), contactId)),
+    move: (who: { actor: string; scope: MailScope }, asked: unknown) => work.move(asOwner(who), asked),
+  }
 }
 
 /**
