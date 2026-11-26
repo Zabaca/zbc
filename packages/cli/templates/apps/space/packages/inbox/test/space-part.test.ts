@@ -1,4 +1,6 @@
 import { describe, expect, test } from 'bun:test'
+import { readFileSync } from 'node:fs'
+import { createInstall } from '@space/workspace'
 import { createApp } from '../src/app'
 import { createInboxPartFactory, type InboxPartEnv } from '../src/space-part'
 import { AGENT, AGENT_ID, asker, harness, OWNER, STRANGER, TELEGRAM_ID } from '../test-support/harness'
@@ -93,6 +95,27 @@ describe('the inbox’s part in the space’s Worker', () => {
     expect(wired.status).toBe(200)
     const bare = await partOver(h).claude(new Request('https://space.northfield.example/api/knowledge'), token)
     expect(bare.status).toBe(502)
+  })
+
+  test('Claude’s door serves the leads from the part the Worker makes, for the install it was made for: the board where the install has leads, no such route where it has none', async () => {
+    const h = harness()
+    const token = { kind: 'service', commonName: AGENT_ID, exp: 9_999_999_999 } as const
+    const board = () => new Request('https://space.northfield.example/api/leads')
+    const withLeads = await partOver(h).claude(board(), token)
+    expect(withLeads.status).toBe(200)
+    expect(await withLeads.json()).toMatchObject({ leads: [], more: false })
+    const raw = JSON.parse(readFileSync(new URL('../../workspace/northfield/workspace.json', import.meta.url), 'utf8'))
+    raw.switches.leads = false
+    delete raw.leads
+    const without = createInboxPartFactory(createInstall(raw))({
+      INBOX: namespaceOver(h),
+      INBOX_ACCESS_CLIENT_ID: AGENT_ID,
+    })
+    const none = await without.claude(board(), token)
+    expect([none.status, await none.json()]).toEqual([404, { error: 'Not found.' }])
+    // The token of another machine is refused there as on every route.
+    const bridge = { kind: 'service', commonName: TELEGRAM_ID, exp: 9_999_999_999 } as const
+    expect((await partOver(h).claude(board(), bridge)).status).toBe(403)
   })
 
   test('Claude’s door is handed the calendar as the part was given it, and only there: with none the calendar routes say it is not connected, and a write is not asked for or recorded', async () => {

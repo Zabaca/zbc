@@ -1,6 +1,6 @@
 # A lead is a request on a contact, kept in the inbox's store
 
-Status: accepted. The board, a person's leads, a lead made by hand, the door a company's site sends requests through (the workspace's ADR 0002, its fourth machine) and the notification of a new lead.
+Status: accepted. The board, a person's leads, a lead made by hand, the door a company's site sends requests through (the workspace's ADR 0002, its fourth machine), the notification of a new lead, and Claude's reading and moving of the leads at its own door (decision 6, added after the rest).
 
 ## Context
 
@@ -13,6 +13,14 @@ A company that takes requests on its own site (a quote form, a booking form) wan
 3. **The stages and the fields are the install's** (the declaration's `leads`, the `leads` switch): stages in order, at least one open and one settled (one settled stage, or won and lost apart: the company's choice), fields by key. The store keeps ids and keys and knows no words; the part checks every stage and field against the install before it writes.
 4. **A lead belongs to a mailbox, and whoever is on it sees and works the leads**, the owner always: the same rule as the mail (ADR 0004), cut by the person's scope in every read and write. The mailbox is kept on each lead by its address, so a lead stays with the mailbox it was made in.
 5. **A request from a site is matched to a person by its email address, else its number** (the inbox's one spelling of each); a blank or a number the inbox cannot read keys on nothing, and a request with neither is refused, so numberless requests never fold onto one person. The site's own id for each request is kept (`lead_request`), so a send repeated after a lost answer changes nothing.
+6. **Claude reads the leads and moves one, at its own door, as the owner would; it makes none.** Where an install has both the `leads` and the `claudeScript` switches, Claude's router (the workspace's ADR 0002) has three more routes and its script three more commands: the board (`GET /api/leads`, `leads`: the install's stages and fields, then every lead), one person's leads (`GET /api/contacts/:id/leads`, `contact-leads <contact-id>`) and a move (`POST /api/leads/:id/move` with `{ rev, stage }`, `lead-move <lead-id> <rev> <stage>`). The decisions under it:
+   - *Whose eyes.* The owner's, as for mail (ADR 0004): the gate is the owner's and every read and the move are cut by the owner's scope in the store, so a lead in a mailbox the owner is not on is not listed for Claude and is not found when Claude names it. Claude is never handed a wider scope than a person could hold.
+   - *One spelling of the rules.* The routes call the same functions the people's methods do (`leadsWork` in `src/space-leads.ts`, through `leadsForClaude`): the switch, the gate, the id, the revision, the install's own stages, then the store. A stage the install does not declare is refused (422), a stale revision is a conflict (409) and nothing moves.
+   - *Who a move is by.* Claude's own actor, `agent:<its token's id>`, on the lead (`stageBy`) and in the audit (`lead.move`), as every other write of Claude's is recorded. Never the owner's address: the board must be able to say a machine moved it.
+   - *No instruction.* A move changes one field inside the space, tells nobody outside it and is undone by moving the lead back, so it is held to what Close and a rename are held to (the revision, the audit) and not to what a send or a calendar write is (the owner's recorded words and the owner's switch). If a stage ever comes to do something outside the space (a message to the person, a Client made from a won lead), that act takes the send rule, not this one.
+   - *What is not there.* No route makes a lead, changes its fields or deletes one: a lead is made by the company's site through its own door or by a person in the space. The mailbox the leads belong to is not in the answer, as it is not in the page's.
+   - *Where a switch is off.* Without `leads` the three routes are not registered, so each path answers what any unknown path of the door does; without `claudeScript` no token is admitted to anything. The other machines' doors (the Telegram and texts bridges', the Clients door, the leads door) gain nothing: the leads door still takes its one POST and reads nothing out.
+   - *What a lead says is untrusted input*, like mail: its name and fields were typed into a form on a site by anyone. An instruction never comes from one.
 
 ## Consequences
 
@@ -20,3 +28,4 @@ A company that takes requests on its own site (a quote form, a booking form) wan
 - A stage taken out of the declaration later leaves the leads that hold it as they are; the board draws such a stage under its id after the declared ones.
 - Won becoming a Client is not built: a won lead stays a contact.
 - A new lead, and one more request on an open one, is told at once to the devices of the people on the leads' mailbox, in the install's words (`leads.notify`: a title, and the field whose value follows the name); a repeat of the same request tells nobody. A tap opens the Leads tab. It is not one of a message's owed notifications: a lead has no message.
+- Claude's token now reaches the leads the owner sees and can move them between the install's stages (decision 6): a leaked token could read every such lead's name, address, number and fields, and shuffle stages, each move audited under the token's actor and undone by moving back. It could already read the owner's mail, so this widens what is read by the leads and nothing else. Tests: `test/claude-leads.test.ts`.
